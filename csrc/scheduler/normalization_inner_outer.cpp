@@ -396,7 +396,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
     int64_t threads_per_block = -1;
-    // estimated
+    // derived metrics for sorting
     int64_t warps_per_sm = -1;
     int64_t required_register_per_thread = -1;
     int64_t avilable_register_per_thread = -1;
@@ -428,7 +428,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   };
 
   // Set a minimum workload for each thread to take advantage of low
-  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  // intra-threads communication cost.
+  // Tuned for layer_norm backward on A100, still works fine on H100.
   auto getMinimumBatch = [&]() -> int64_t {
     if (inner_dim_numel >= 3072l) {
       if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
@@ -442,51 +443,54 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     return 1l;
   };
 
-  // Estimate register per thread based on buffer size, since inner reduction
-  // dim is fully parallelized, the buffer size of each thread equals the total
-  // buffer size divide by inner_dim_numel.
+  // Estimate register usage per thread based on buffer size.
+  // Assuming a constant register overhead for non-buffer related usage,
+  // and all the register buffers are stored in registers.
   auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
-    constexpr int64_t bytes_per_register = 4;
-    const int64_t persistent_buffer_size =
+    int64_t persistent_buffer_size =
         regs_buffer_size / inner_dim_numel * batch_mul_vect;
-    const int64_t estimated_register_count =
-        persistent_buffer_size / bytes_per_register +
+    int64_t estimated_register_count =
+        persistent_buffer_size / scheduler_utils::bytes_per_register +
         scheduler_utils::register_overhead;
     return std::min(
         estimated_register_count, scheduler_utils::max_registers_per_thread);
   };
 
+  // Estimate max blocks per sm based on register and shared memory usage.
   auto getBlocksPerSM = [&](const int64_t threads_per_sm,
                             const int64_t threads_per_block,
                             const int64_t warp_size) {
+    // check register limitation on blocks per sm
     constexpr int64_t warp_allocation_granularity = 4;
     const int64_t allocated_warps_per_block =
         ceilDiv(
             ceilDiv(threads_per_block, warp_size),
             warp_allocation_granularity) *
         warp_allocation_granularity;
-    return scheduler_utils::safeDiv(
+    int64_t max_blocks_per_sm_regs = scheduler_utils::safeDiv(
         threads_per_sm / warp_size, allocated_warps_per_block);
-  };
-
-  auto getGdimy = [&](int64_t inner_vect,
-                      int64_t threads_per_block,
-                      int64_t inner_batch) {
-    // Set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
-    // from buffer size, then it is used to calculate threads_per_sm and gdimy.
-    // gdimy_max ensures each block processes at least 8 rows to
-    // reduce the workload of the final outer reduction.
-    int64_t reg_per_thread =
-        getEstimatedRegisterUsage(inner_vect * inner_batch);
-    int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-    int64_t max_blocks_per_sm_regs =
-        getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
     // check shared memory limitation on blocks per sm
     int64_t max_blocks_per_sm_smem =
         (int64_t)dev_prop->sharedMemPerMultiprocessor /
         (smem_overhead + smem_buffer_size);
+    return std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
+  };
+
+  // In the inner reduction part of the kernel, gdimy is used to parallelize the
+  // outer dimension. The kernel is a cooperative kernel, so the number of
+  // blocks should be as large as possible to achieve a high occupancy unless
+  // outer dim is too small which may lead large workload for the final outer
+  // reduction. So, gdimy is drvied from the number of blocks per sm and limited
+  // to ensure at least 8 rows per block.
+  // TODO: re-evaluate this 8 rows per block requirement.
+  auto getGdimy = [&](int64_t inner_vect,
+                      int64_t threads_per_block,
+                      int64_t inner_batch) {
+    int64_t reg_per_thread =
+        getEstimatedRegisterUsage(inner_vect * inner_batch);
+    int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
     int64_t blocks_per_sm =
-        std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
+        getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
     int64_t gdimy = blocks_per_sm * device_multiprocessor_count;
     const int64_t outer_iter_min = 8;
     const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -498,24 +502,33 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     return gdimy;
   };
 
+  // The inner reduction part of the kernel also does a partial outer reduction
+  // and stores the partial results in tmp gmem and then reloaded to finish the
+  // outer reduciton. This function set the vectorization factor for write and
+  // and read of the partial outer reduction result.
+  // For write to tmp gmem, follows vectorization factor of inner reduction
+  //                        but don't exceed 16 bytes.
+  // For read from tmp gmem, since the paralelization is changed, a different
+  //                         vectorization factor is used to optimize the
+  //                         number of reaductions per thread.
   auto getOuterReductionBufferVectFactor = [&](int64_t inner_vect) {
-    // set the vectorization factor for the write to tmp gmem, may be different
-    // from inner_vect due to different data types, e.g. input is half and
-    // tmp_gmem is float
     constexpr int64_t max_gmem_vect_access_bytes = 16;
     const int64_t max_tmp_gmem_vect_factor = std::min(
         max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, inner_vect);
     int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
-
-    // Set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
-    // gdimy (already done) The partial outer reduction result is stored in tmp
-    // gmem, set the vectorization factor for write and read
     const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
     int64_t vectorization_factor_outer =
         std::min(workload_per_thread, max_tmp_gmem_vect_factor);
     return std::make_pair(tmp_gmem_write_vect, vectorization_factor_outer);
   };
 
+  // In the outer reduction part of the kernel, inner and outer dims are
+  // parallelized as:
+  // --- inner dim: vect, bdimx, gdimy ----
+  // --- outer dim: bdimy -----------------
+  // This function splits the threads_per_block into bdimx and bdimy using:
+  // bdimx = ceilDiv(inner_dim_numel / vect, gdimy)
+  // bdimy = threads_per_block / bdimx
   auto getBdimxBdimy = [&](int64_t threads_per_block,
                            int64_t vectorization_factor_outer,
                            int64_t gdimy) {
@@ -537,15 +550,22 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     return std::make_pair(bdimx, bdimy);
   };
 
+  // Get the heuristics given vectorization factor and threads per block
   auto getHeuristicsGivenVectThreads = [&](int64_t vect_factor,
                                            int64_t threads_per_block) {
     InnerOuterParams iop;
+    // (1) inner reduction
+    // Reduction dim: inner_batch, threads_per_block, vect_factor
+    // Iteration dim: gdimy
     iop.inner_vect = vect_factor;
     iop.threads_per_block = threads_per_block;
     iop.inner_batch =
         ceilDiv(inner_dim_numel / iop.inner_vect, iop.threads_per_block);
     iop.gdimy =
         getGdimy(iop.inner_vect, iop.threads_per_block, iop.inner_batch);
+    // (2) outer reduction
+    // Iteration dim: gdimy, bdimx, vectorization_factor_outer
+    // Reduction dim: bdimy
     auto [write_vect, read_vect] =
         getOuterReductionBufferVectFactor(iop.inner_vect);
     iop.tmp_gmem_write_vect = write_vect;
@@ -554,6 +574,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         threads_per_block, iop.vectorization_factor_outer, iop.gdimy);
     iop.bdimx = bdimx;
     iop.bdimy = bdimy;
+    // (3) Derived metrics warps_per_sm and register usage for sorting
     iop.warps_per_sm = iop.threads_per_block / dev_prop->warpSize * iop.gdimy /
         device_multiprocessor_count;
     iop.avilable_register_per_thread =
@@ -563,17 +584,19 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     return iop;
   };
 
+  // Set a reasonable range for threads per block based on the number of
+  // elements in the inner dimension after vectorization.
+  // Start from 128 or a smaller number if inner dim is small.
   const int64_t vect_factor = (int64_t)vectorize_factor;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   const int64_t batch_min = getMinimumBatch();
-  // Start from 128 threads per block if there are enough inner dim elements
-  // after vectorization
   int64_t threads_per_block_min =
       InnerOuterPersistentKernelScheduler::threads_per_block_min;
   threads_per_block_min = std::min(threads_per_block_min, after_vect);
   threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
-  // End at 512 threads per block but avoid using very small batch sizes which
-  // lead to large reduction overhread and non-divisible splits.
+  // End at 512 or a smaller number if inner dim is small.
+  // This ensures the batch size is large enough to issue multiple memory
+  // loading instructions.
   int64_t threads_per_block_max = threads_per_block_min;
   threads_per_block_max =
       std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
@@ -581,8 +604,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   threads_per_block_max = std::min(
       threads_per_block_max,
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
-  std::vector<InnerOuterParams> iop_candidates;
 
+  // Store all the possible heuristics based on different threads per block.
+  // Vectorizaton is fixed at the maximum value.
+  std::vector<InnerOuterParams> iop_candidates;
   for (auto threads_per_block = threads_per_block_max;
        threads_per_block >= threads_per_block_min;
        threads_per_block /= 2) {
@@ -590,11 +615,14 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         getHeuristicsGivenVectThreads(vect_factor, threads_per_block));
   }
 
+  // Sort the heuristics based on the register usage and occupancy.
   std::stable_sort(
       iop_candidates.begin(),
       iop_candidates.end(),
       [](const InnerOuterParams& a, const InnerOuterParams& b) {
-        // register
+        // If a thread can use more registers than required, there is a high
+        // chance that it can void register spilling and compiler can optimize
+        // for better instruction level parallelism.
         int64_t extra_regs_a =
             a.avilable_register_per_thread - a.required_register_per_thread;
         int64_t extra_regs_b =
@@ -604,15 +632,19 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         } else if (extra_regs_a < 0 && extra_regs_b > 0) {
           return false;
         }
-        // occupancy
+        // High occupancy provides better threads level parallelism.
+        // 25% is sufficient since ILP is high due to persistent batch sizes
+        // which is equivalent to unrolling inner dim.
         if (a.warps_per_sm < 16 || b.warps_per_sm < 16) {
           return a.warps_per_sm > b.warps_per_sm;
         }
-        // smaller threads_per_block to reduce communication overhead
+        // Tie breaker, smaller threads_per_block to reduce communication
+        // overhead
         return a.threads_per_block < b.threads_per_block;
       });
 
-  InnerOuterParams iop = iop_candidates.front();
+  // Pick the best heuristic
+  auto iop = iop_candidates.front();
 
   // Special case, when inner_dim_numel <= 1024, bdimx is usually small
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
@@ -628,7 +660,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
-    iop.gdimy = getGdimy(iop.inner_vect, threads_per_block_mrpb, iop.inner_batch);
+    iop.gdimy =
+        getGdimy(iop.inner_vect, threads_per_block_mrpb, iop.inner_batch);
 
     // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
     // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
@@ -640,8 +673,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
-    iop.warps_per_sm = (iop.bdimx*iop.bdimy) / dev_prop->warpSize * iop.gdimy /
-        device_multiprocessor_count;    
+    iop.warps_per_sm = (iop.bdimx * iop.bdimy) / dev_prop->warpSize *
+        iop.gdimy / device_multiprocessor_count;
     iop.avilable_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
 
