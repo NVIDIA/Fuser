@@ -16,6 +16,7 @@
 #include <limits>
 #include <unordered_set>
 #include <vector>
+#include "polymorphic_value.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -28,8 +29,8 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   std::vector<int64_t> empty_axes;
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
-    if (id->getMaybeExpandedExtent()->isConst() &&
-        id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
+    PolymorphicValue extent = id->getMaybeExpandedExtent()->evaluate();
+    if (extent.hasValue() && extent.as<int64_t>() == 0) {
       empty_axes.push_back((int64_t)ax);
     }
   }
@@ -257,8 +258,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
           "Inputs to CatOp must be outputs of PadOps");
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
       auto cat_id = TensorDomain::noReductions(tv->getLogicalDomain()).at(dim);
-      if (cat_id->getMaybeExpandedExtent()->isConst() &&
-          cat_id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
+      PolymorphicValue extent = cat_id->getMaybeExpandedExtent()->evaluate();
+      if (extent.hasValue() && extent.as<int64_t>() == 0) {
         continue;
       }
       non_empty_inputs.push_back(tv);
