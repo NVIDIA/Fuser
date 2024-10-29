@@ -661,7 +661,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       TensorView* mbarrier =
           TensorViewBuilder()
-              .shape(std::vector<int64_t>{circular_buffer_depth})
+              .shape(std::vector<int64_t>{circular_buffer_depth + 1})
               .dtype(DataType::UInt)
               .contiguity(true)
               .build();
