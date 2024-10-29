@@ -7,9 +7,8 @@ import thunder
 import torch
 import itertools
 import numpy as np
-import random
 import math
-from nvfuser import FusionCache, FusionDefinition, SchedulerType, clone
+from nvfuser import FusionDefinition, SchedulerType, clone
 
 # ============================ Description ============================
 
@@ -145,13 +144,14 @@ def get_numpy_training_data(data_frame):
             "unroll_factor",
         ]
     ]
-    calculate_total_bytes = lambda string: math.prod(
-        [float(char) for char in string if char.isdigit()]
-    )
+
+    def _calculate_total_bytes(string):
+        return math.prod([float(char) for char in string if char.isdigit()])
+
     rows = []
     for index, r in input_data.iterrows():
-        input_bytes = calculate_total_bytes(r["input_shapes"]) / 1e6
-        output_bytes = calculate_total_bytes(r["output_shapes"]) / 1e6
+        input_bytes = _calculate_total_bytes(r["input_shapes"]) / 1e6
+        output_bytes = _calculate_total_bytes(r["output_shapes"]) / 1e6
         entry = [
             input_bytes,
             output_bytes,
@@ -219,7 +219,7 @@ def matplotlib_test(clf, num_arguments, eager_reference):
         est_time_ms = run_profile(eager_reference, presched_fd, inputs, estimate_config)
         est_perfs.append(est_time_ms)
         print(
-            f"{empirical_batch_size}, {hidden_shape}, {estimate_config}, {est_time_ms:.3f}"
+            f"{empirical_batch_size}, {hidden_shape}, {estimate_config}, {est_time_ms: .3f}"
         )
 
     nvf_perfs = []
@@ -240,7 +240,7 @@ def matplotlib_test(clf, num_arguments, eager_reference):
 
         nvf_time_ms = run_profile(eager_reference, presched_fd, inputs)
         nvf_perfs.append(nvf_time_ms)
-        print(f"{empirical_batch_size}, {hidden_shape}, {nvf_time_ms:.3f}")
+        print(f"{empirical_batch_size}, {hidden_shape}, {nvf_time_ms: .3f}")
 
     # Get mean speed-up from nvfuser to empirical configurations across all input shapes.
     # Negative value mean empirical configurations are slower than nvfuser.
