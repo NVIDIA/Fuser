@@ -27,6 +27,8 @@ class HeuristicDataCache;
 class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
  public:
   constexpr static int64_t threads_per_block_min = 128l;
+  // 512 threads may lead to higher occupancy than 256 threads,
+  // e.g. when shared memory only allows 1 block per SM.
   constexpr static int64_t threads_per_block_max = 512l;
 
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
