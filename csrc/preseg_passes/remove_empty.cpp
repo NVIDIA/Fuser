@@ -7,6 +7,7 @@
 // clang-format on
 #include <preseg_passes/remove_empty.h>
 
+#include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/alias.h>
@@ -21,29 +22,6 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-
-//! Get a vector of the integer positions of constant zero extent axes in the
-//! input domain. This will typically be used like
-//! `emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain()))`
-std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
-  std::vector<int64_t> empty_axes;
-  for (auto ax : c10::irange(domain.size())) {
-    auto id = domain.at(ax);
-    PolymorphicValue extent = id->getMaybeExpandedExtent()->evaluate();
-    if (extent.hasValue() && extent.as<int64_t>() == 0) {
-      empty_axes.push_back((int64_t)ax);
-    }
-  }
-  return empty_axes;
-}
-
-//! Check whether a TensorView is empty. During concretization, we traverse to
-//! find a minimal set of TensorViews that have zero extents, and we then set
-//! their extents to a constant 0. Here we check for those constant zero
-//! extents.
-bool isTVEmpty(TensorView* tv) {
-  return !emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain())).empty();
-}
 
 //! EmptyTensorRemover performs a backward traversal of the Fusion. When it
 //! detects a TensorView that has at least one extent that is zero, we do the
@@ -70,8 +48,33 @@ class EmptyTensorRemover : public DeadCodeRemover {
  public:
   EmptyTensorRemover(Fusion* fusion) : DeadCodeRemover(fusion) {}
 
- protected:
+ private:
   using DeadCodeRemover::handle;
+
+  //! Get a vector of the integer positions of constant zero extent axes in the
+  //! input domain. This will typically be used like
+  //! `emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain()))`
+  std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
+    std::vector<int64_t> empty_axes;
+    for (auto ax : c10::irange(domain.size())) {
+      auto id = domain.at(ax);
+      PolymorphicValue extent =
+          expr_eval_.evaluate(id->getMaybeExpandedExtent());
+      if (extent.hasValue() && extent.as<int64_t>() == 0) {
+        empty_axes.push_back((int64_t)ax);
+      }
+    }
+    return empty_axes;
+  }
+
+  //! Check whether a TensorView is empty. During concretization, we traverse to
+  //! find a minimal set of TensorViews that have zero extents, and we then set
+  //! their extents to a constant 0. Here we check for those constant zero
+  //! extents.
+  bool isTVEmpty(TensorView* tv) {
+    return !emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain()))
+                .empty();
+  }
 
   //! If tv is a fusion output, we check whether it is empty and if so, replace
   //! it with full(). For non-outputs that are not inputs, we simply check that
@@ -258,7 +261,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
           "Inputs to CatOp must be outputs of PadOps");
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
       auto cat_id = TensorDomain::noReductions(tv->getLogicalDomain()).at(dim);
-      PolymorphicValue extent = cat_id->getMaybeExpandedExtent()->evaluate();
+      PolymorphicValue extent =
+          expr_eval_.evaluate(cat_id->getMaybeExpandedExtent());
       if (extent.hasValue() && extent.as<int64_t>() == 0) {
         continue;
       }
@@ -313,6 +317,12 @@ class EmptyTensorRemover : public DeadCodeRemover {
       registerReplacement(out, new_tv);
     }
   }
+
+ private:
+  // We use this ExpressionEvaluator without binding any inputs. This lets us
+  // quickly repeatedly evaluate compound constant expressions like
+  //   ( fmax(0, ( fmin(( ceilDiv(576, 9) ), 0) )) )
+  ExpressionEvaluator expr_eval_;
 };
 
 } // namespace
