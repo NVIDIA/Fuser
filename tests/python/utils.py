@@ -344,7 +344,7 @@ def nvfusertest_serde_check(test_fn: Callable):
     structure.
     """
     if debug_serde:
-        return
+        return test_fn
 
     def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args
