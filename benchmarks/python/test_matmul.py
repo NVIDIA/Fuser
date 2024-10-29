@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import clear_cuda_cache
 from .core import run_benchmark
 import torch
 
@@ -42,29 +41,23 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
-    clear_cuda_cache()
-
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
-    try:
-        a = torch.randn(m, k, device="cuda", dtype=dtype)
-        b = torch.randn(k, n, device="cuda", dtype=dtype)
+    a = torch.randn(m, k, device="cuda", dtype=dtype)
+    b = torch.randn(k, n, device="cuda", dtype=dtype)
 
-        if layout == "NT" or layout == "NN":
-            a = a.as_strided(size=[m, k], stride=[1, m])
-        if layout == "TN" or layout == "NN":
-            b = b.as_strided(size=[k, n], stride=[1, k])
+    if layout == "NT" or layout == "NN":
+        a = a.as_strided(size=[m, k], stride=[1, m])
+    if layout == "TN" or layout == "NN":
+        b = b.as_strided(size=[k, n], stride=[1, k])
 
-        # NOTE: we never need to validate eager, as it is our baseline
-        run_benchmark(
-            benchmark,
-            lambda ab: torch.matmul(*ab),
-            [a, b],
-        )
-
-    except torch.OutOfMemoryError:
-        pytest.skip("Test failed due to OutOfMemoryError")
+    # NOTE: we never need to validate eager, as it is our baseline
+    run_benchmark(
+        benchmark,
+        lambda ab: torch.matmul(*ab),
+        [a, b],
+    )
 
 
 @pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
@@ -82,8 +75,6 @@ def test_matmul_nvf_benchmark(
 ):
     m, n, k, layout = config
 
-    clear_cuda_cache()
-
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
@@ -91,24 +82,20 @@ def test_matmul_nvf_benchmark(
         # See https://github.com/NVIDIA/Fuser/pull/1719
         pytest.skip("Reduced precision reduction not implemented in nvFuser")
 
-    try:
-        a = torch.randn(m, k, device="cuda", dtype=dtype)
-        b = torch.randn(k, n, device="cuda", dtype=dtype)
+    a = torch.randn(m, k, device="cuda", dtype=dtype)
+    b = torch.randn(k, n, device="cuda", dtype=dtype)
 
-        if layout == "NT" or layout == "NN":
-            a = a.as_strided(size=[m, k], stride=[1, m])
-        if layout == "TN" or layout == "NN":
-            b = b.as_strided(size=[k, n], stride=[1, k])
+    if layout == "NT" or layout == "NN":
+        a = a.as_strided(size=[m, k], stride=[1, m])
+    if layout == "TN" or layout == "NN":
+        b = b.as_strided(size=[k, n], stride=[1, k])
 
-        with FusionDefinition() as fd:
-            matmul_fusion(fd, [a, b])
+    with FusionDefinition() as fd:
+        matmul_fusion(fd, [a, b])
 
-        if not disable_validation:
-            eager_output = torch.matmul(a, b)
-            fd.validate([a, b], [eager_output])
+    if not disable_validation:
+        eager_output = torch.matmul(a, b)
+        fd.validate([a, b], [eager_output])
 
-        if not disable_benchmarking:
-            run_benchmark(benchmark, fd.execute, [a, b])
-
-    except torch.OutOfMemoryError:
-        pytest.skip("Test failed due to OutOfMemoryError")
+    if not disable_benchmarking:
+        run_benchmark(benchmark, fd.execute, [a, b])
