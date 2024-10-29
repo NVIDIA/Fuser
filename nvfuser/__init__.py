@@ -121,6 +121,11 @@ class FusionDefinition(_C._FusionDefinition):
             profile (bool): Captures a CUPTI based profile of a fusion.
             save_repro_inputs (bool): Saves the inputs for last_repro_script() to
                 provide a provide a reproduction script.
+            _enable_options/_disable_options (list): NVFUSER_ENABLE/DISABLE options to use.
+                This is an alternative to enviroment variables.
+                Note: Currently, we do not cache/store these options in the FusionCache which makes it 
+                    plausible to reuse kernels when executing the same fusion definition with different sets of options.
+                    Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
 
         Returns:
             List[Tensor]
