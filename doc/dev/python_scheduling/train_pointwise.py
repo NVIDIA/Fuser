@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import thunder
 import torch
 import itertools
 import numpy as np
 import random
 import math
-from nvfuser import FusionDefinition, SchedulerType
+from nvfuser import FusionCache, FusionDefinition, SchedulerType, clone
 
 # ============================ Description ============================
 
@@ -71,20 +72,29 @@ def run_profile(presched_fd, inputs, config=None):
     # assert torch.allclose(nvf_outputs[0], eager_reference(inputs))
 
     prof = scheduled_fd.profile()
-
-    num_registers = prof.kernel_profiles[0].registers
-    smem = prof.kernel_profiles[0].shared_mem_str
-    grid_shape = prof.kernel_profiles[0].grid_str
-    block_shape = prof.kernel_profiles[0].block_str
-    bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
-    time = prof.kernel_profiles[0].time_ms
-
-    return outputs, (grid_shape, block_shape, num_registers, smem, bandwidth, time)
+    return prof.kernel_profiles[0].time_ms
 
 
-# ============================ Create Fusion  ================================
+def argmax(map_config_to_perf):
+    best_perf = -1
+    best_config = None
+    for config, perf in map_config_to_perf.items():
+        if perf > best_perf:
+            best_perf = perf
+            best_config = config
+    return best_config
 
-# TODO
+
+# Given a prediction model, input_shape, and set of parameter configurations,
+# find the best parameters
+def find_best_parameters(
+    predictor, input_shape, output_shape, parameter_configurations
+):
+    map_config_to_performance = {
+        config: predictor.predict([[input_shape, output_shape, *config]])
+        for config in itertools.product(*parameter_configurations)
+    }
+    return argmax(map_config_to_performance)
 
 
 # ============================ Utilities  ============================
@@ -127,25 +137,115 @@ def load(directory_path):
     return pd.concat(all_data_frames, axis=0)
 
 
-# ============================ Metrics  ============================
+def get_numpy_training_data(data_frame):
+    input_data = data_frame[
+        [
+            "input_shapes",
+            "output_shapes",
+            "vectorization",
+            "unroll_factor",
+        ]
+    ]
+    calculate_total_bytes = lambda string: math.prod(
+        [float(char) for char in string if char.isdigit()]
+    )
+    rows = []
+    for index, r in input_data.iterrows():
+        input_bytes = calculate_total_bytes(r["input_shapes"]) / 1e6
+        output_bytes = calculate_total_bytes(r["output_shapes"]) / 1e6
+        entry = [
+            input_bytes,
+            output_bytes,
+            r["vectorization"],
+            r["unroll_factor"],
+        ]
+        rows.append(entry)
+    input_data = np.array(rows)
+    output_data = data_frame[["effective_bandwidth"]].to_numpy()
+    return input_data, output_data
 
 
-# Broadcast multiples is a matrix of size [ndims, 2]. Each entry [i] is the
-# number of inputs and output tensors that have a non-broadcast dimension
-# mapped to the same dimension. Broadcast multiples is multiplied by data type
-# size of each tensor.
-def get_broadcast_multiple(input_tensors, output_tensors, breakpoint_dim):
-    lhs = 0
-    rhs = 0
+def matplotlib_test(clf, reference_inputs, eager_reference, fd):
+    #  For a specific batch size, gather performance across a range of hidden sizes.
+    #  Calculate performance for best predicted and nvfuser configurations. Plot a
+    #  chart comparing performance using matplotlib.
 
-    for t in itertools.chain(input_tensors, output_tensors):
-        for idx, dim_size in enumerate(t.shape):
-            value = t.dtype.itemsize if dim_size > 1 else 0
-            if idx < breakpoint_dim:
-                lhs += value
-            else:
-                rhs += value
-    return lhs, rhs
+    # NOTE: The matplotlib experiment plots the kernel runtime, which could be
+    # different than the selected performance metric. Currently, the performance
+    # metric is effective_bandwidth_gbs.
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # The selected batch size for empirical and nvfuser comparison.
+    empirical_batch_size = 512
+
+    # The range of hidden sizes for empirical and nvfuser comparision.
+    empirical_hidden_sizes = list(range(256, 28672, 256))
+
+    # For pointwise scheduler, we test the cartesian product of vectorization and
+    # unroll factors.
+    parameter_configurations = [
+        vectorize_range := [1, 2, 4],
+        unroll_range := list(range(1, 10)),
+    ]
+
+    est_perfs = []
+    for hidden_shape in empirical_hidden_sizes:
+        inputs = [
+            torch.randn(
+                empirical_batch_size, hidden_shape, dtype=ref.dtype, device="cuda"
+            )
+            for ref in reference_inputs
+        ]
+        input_bytes = math.prod([a.numel() * a.dtype.itemsize for a in inputs]) / 1e6
+        output_bytes = inputs[0].numel() * inputs[0].dtype.itemsize
+        estimate_config = find_best_parameters(
+            clf, input_bytes, output_bytes, parameter_configurations
+        )
+
+        # clone reference fusion definition
+        presched_fd = FusionDefinition()
+        clone(fd, presched_fd)
+
+        est_time_ms = run_profile(presched_fd, inputs, estimate_config)
+        est_perfs.append(est_time_ms)
+        print(
+            f"{empirical_batch_size}, {hidden_shape}, {estimate_config}, {est_time_ms:.3f}"
+        )
+
+    nvf_perfs = []
+    for hidden_shape in empirical_hidden_sizes:
+        inputs = [
+            torch.randn(
+                empirical_batch_size, hidden_shape, dtype=ref.dtype, device="cuda"
+            )
+            for ref in reference_inputs
+        ]
+
+        # clone reference fusion definition
+        presched_fd = FusionDefinition()
+        clone(fd, presched_fd)
+
+        nvf_time_ms = run_profile(presched_fd, inputs)
+        nvf_perfs.append(nvf_time_ms)
+        print(f"{empirical_batch_size}, {hidden_shape}, {nvf_time_ms:.3f}")
+
+    # Get mean speed-up from nvfuser to empirical configurations across all input shapes.
+    # Negative value mean empirical configurations are slower than nvfuser.
+    print("Mean speed-up", np.mean(np.array(nvf_perfs) - np.array(est_perfs)))
+
+    np_hidden_size = np.array(empirical_hidden_sizes)
+    plt.plot(np_hidden_size, np.array(est_perfs))
+    plt.plot(np_hidden_size, np.array(nvf_perfs))
+
+    plt.xlabel("Hidden Size")
+    plt.ylabel("Time(ms)")
+    plt.title(
+        f"Batch Size = {empirical_batch_size}, Compare Decision Tree Heuristic vs NvFuser"
+    )
+    plt.legend(["decision_tree", "nvfuser"], loc="lower right")
+    plt.savefig(f"pointwise_empirical_batchsize{empirical_batch_size}.png")
 
 
 # ============================ Configurations ============================
@@ -183,6 +283,11 @@ data_gen_config = DataGenerationConfiguration(
 )
 
 
+# The pytorch eager mode reference used to validating nvfuser kernel.
+def eager_reference(a, b):
+    return torch.nn.functional.gelu(a + b, approximate="tanh")
+
+
 # Run profiling on series of fusions to collect data.
 def run(args):
     # Step 1: load data from directory
@@ -191,32 +296,7 @@ def run(args):
     print(data_df.columns)
 
     # Step 2: Train decision tree using all data.
-    input_data = data_df[
-        [
-            "input_shapes",
-            "output_shapes",
-            "number_of_operations",
-            "vectorization",
-            "unroll_factor",
-        ]
-    ]
-    calculate_total_bytes = lambda string: math.prod(
-        [int(char) for char in string if char.isdigit()]
-    )
-    rows = []
-    for index, r in input_data.iterrows():
-        input_bytes = calculate_total_bytes(r["input_shapes"])
-        output_bytes = calculate_total_bytes(r["output_shapes"])
-        entry = [
-            input_bytes,
-            output_bytes,
-            r["number_of_operations"],
-            r["vectorization"],
-            r["unroll_factor"],
-        ]
-        rows.append(entry)
-    input_data = np.array(rows)
-    output_data = data_df[["effective_bandwidth"]].to_numpy()
+    input_data, output_data = get_numpy_training_data(data_df)
 
     # Apply decision tree regressor
     # Given input shapes, output shapes, and scheduler parameters, predict performance metric.
@@ -226,6 +306,17 @@ def run(args):
     clf = clf.fit(input_data, output_data)
 
     # Step 3: Test decision tree by comparing against nvfuser.
+    # Use thunder to jit an eager reference.
+    # Get nvfuser fusion definition from thunder
+    a = torch.randn(512, 10016, dtype=torch.bfloat16, device="cuda")
+    b = torch.randn(512, 10016, dtype=torch.bfloat16, device="cuda")
+    nvf_model = thunder.jit(eager_reference)
+    result = nvf_model(a, b)
+    fd = thunder.last_traces(nvf_model)[-1].python_ctx()["nvFusion0"].last_used
+
+    # Run decision tree and nvfuser heuristics
+    # Create Graph with matplotlib
+    matplotlib_test(clf, reference_inputs := (a, b), eager_reference, fd)
 
 
 if __name__ == "__main__":
