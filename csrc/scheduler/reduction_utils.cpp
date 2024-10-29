@@ -1018,7 +1018,7 @@ void sharedMemoryConsumerVectorization(
     // transform propagation, should skip these axes.
     int64_t vect_axis_pos = -1;
     while (tv->axis(vect_axis_pos)->isBroadcast()) {
-      vect_axis_pos --;
+      vect_axis_pos--;
       NVF_ERROR(
           vect_axis_pos + tv->nDims() >= 0,
           "Out of bound access when visiting dim ",
