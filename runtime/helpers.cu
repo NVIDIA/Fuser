@@ -597,3 +597,31 @@ __device__ __bfloat print_impl(const char* name, __bfloat value) {
 #endif
 
 #define print(...) print_impl(#__VA_ARGS__, (__VA_ARGS__))
+
+class ElectOneLock {
+ public:
+  __device__ ElectOneLock() : mutex_(0) {
+    __syncthreads();
+  }
+
+ private:
+  int mutex_;
+  friend class ElectOneGuard;
+};
+
+class ElectOneGuard {
+ public:
+  __device__ ElectOneGuard(ElectOneLock& lock)
+      : lock_(lock), is_selected_(atomicCAS(&lock_.mutex_, 0, 1) == 0) {}
+
+  __device__ ~ElectOneGuard() {
+    // Release the lock
+    atomicExch(&lock_.mutex_, 0);
+  }
+
+  __device__ operator bool() const { return is_selected_; }
+
+ private:
+  ElectOneLock& lock_;
+  bool is_selected_;
+};
