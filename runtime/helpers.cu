@@ -604,24 +604,13 @@ class ElectOneLock {
     __syncthreads();
   }
 
+  bool __device__ electOne() {
+    return atomicInc(&mutex_, 256) == 0;
+  }
+
  private:
   int mutex_;
   friend class ElectOneGuard;
 };
-
-class ElectOneGuard {
- public:
-  __device__ ElectOneGuard(ElectOneLock& lock)
-      : lock_(lock), is_selected_(atomicCAS(&lock_.mutex_, 0, 1) == 0) {}
-
-  __device__ ~ElectOneGuard() {
-    // Release the lock
-    atomicExch(&lock_.mutex_, 0);
-  }
-
-  __device__ operator bool() const { return is_selected_; }
-
- private:
-  ElectOneLock& lock_;
-  bool is_selected_;
-};
+// ElectOneLock* elect_one_lock = new ((ElectOneLock*)(T7 + 4)) ElectOneLock;
+// if (elect_one_lock->electOne()) {
