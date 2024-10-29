@@ -24,6 +24,7 @@
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <preseg_passes/segment_inplace_update.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -65,6 +66,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
+  OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
