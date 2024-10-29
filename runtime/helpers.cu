@@ -605,7 +605,7 @@ class ElectOneLock {
   }
 
   bool __device__ electOne() {
-    return atomicInc(&mutex_, 256) == 0;
+    return atomicInc(mutex_, 256) == 0;
   }
 
  private:
