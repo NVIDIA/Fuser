@@ -1189,6 +1189,21 @@ std::string nullOrToInlineString(const Statement* id) {
   return id ? id->toInlineString() : "nullptr";
 }
 
+bool isFunctional(const Val* v) {
+  auto def = v->definition();
+  if (def == nullptr) {
+    return true;
+  }
+  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+    // ElectSync is not functional, it does not return the same value
+    // every time it is called, so we do not want to reuse it.
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
+  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {
