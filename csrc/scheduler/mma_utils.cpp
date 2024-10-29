@@ -956,9 +956,10 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
     tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-2, tv->axis(-2)->extent());
 
     // [NO, K, NI] - the TMA Box is [K, NI]
-    tv->reorder({{-2, -3}});
+    tv->reorder({{-3, -4}});
 
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
