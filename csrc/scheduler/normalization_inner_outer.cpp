@@ -967,11 +967,7 @@ void scheduleInnerOuterPersistentKernel(
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          inner_reference_tv,
-          is_vectorize,
-          cached_inputs,
-          cached_outputs,
-          smem_consumers);
+          inner_reference_tv, is_vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       inner_reduction_tvs[0],
       inner_reference_tv,
@@ -998,8 +994,7 @@ void scheduleInnerOuterPersistentKernel(
             outer_reference_tvs[i],
             is_vectorize,
             cached_inputs,
-            cached_outputs,
-            smem_consumers);
+            cached_outputs);
     reduction_scheduler_utils::propagateParallelization(
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
@@ -1042,6 +1037,13 @@ void scheduleInnerOuterPersistentKernel(
           {cached_gmem_reload.begin(), cached_gmem_reload.end()},
           {ParallelType::Vectorize});
     }
+  }
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (is_vectorize) {
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, rparams->unroll_factor_inner_reduction);
   }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
