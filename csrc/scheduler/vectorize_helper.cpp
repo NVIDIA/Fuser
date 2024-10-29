@@ -374,8 +374,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     // pad we can only support innermost dimensions. (Unless we lift the conditional).
     // slice only impacts vectorization when it's in the collapsed innermost dimensions.
 
-    IterDomain* id_from = p2c ? resize_op->in() : resize->out();
-    IterDomain* id_to = p2c ? resize_op->out() : resize->in();
+    IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
+    IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
 
     auto it = std::find(frontier.begin(), frontier.end(), id_from);
     if (it == frontier.end()) {
@@ -385,7 +385,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     // FIXME
     bool compatible_resize = true;
     // I think we still needs to clear left of resize anyway, since vectorization factor can't go across resize.
-    frontier.erase(frontier.begin(), compatible_resize ? it, it+1);
+    frontier.erase(frontier.begin(), compatible_resize ? it : it+1);
     
     // Nothing to do unless recording
     if (!recording_) {
@@ -393,7 +393,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
 
     // Note: this should be handled differently depending on the semantics of the resize op.
-    addProjectedExtent(id_from, getProjectedExtent(id_to));
+    addProjectedExtent(id_to, getProjectedExtent(id_from));
   };
 
   // If `from` is [I1, I2, I3, I4], `to` is [I1, I5, I6, I7], where I2 =
