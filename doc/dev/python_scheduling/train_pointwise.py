@@ -63,13 +63,12 @@ def custom_pointwise_scheduler(fd, config):
 
 
 # Apply schedule decorator, run fusion, and profile performance
-def run_profile(presched_fd, inputs, config=None):
+def run_profile(eager_reference, presched_fd, inputs, config=None):
     scheduled_fd = custom_pointwise_scheduler(presched_fd, config)
     outputs = scheduled_fd.execute(inputs, profile=True)
 
     # validate correctness
-    # TODO use thunder to compile torch eager to nvfuser fusion
-    # assert torch.allclose(nvf_outputs[0], eager_reference(inputs))
+    assert torch.allclose(outputs[0], eager_reference(*inputs), atol=1e-2, rtol=1e-2)
 
     prof = scheduled_fd.profile()
     return prof.kernel_profiles[0].time_ms
@@ -208,7 +207,7 @@ def matplotlib_test(clf, reference_inputs, eager_reference, fd):
         presched_fd = FusionDefinition()
         clone(fd, presched_fd)
 
-        est_time_ms = run_profile(presched_fd, inputs, estimate_config)
+        est_time_ms = run_profile(eager_reference, presched_fd, inputs, estimate_config)
         est_perfs.append(est_time_ms)
         print(
             f"{empirical_batch_size}, {hidden_shape}, {estimate_config}, {est_time_ms:.3f}"
@@ -227,7 +226,7 @@ def matplotlib_test(clf, reference_inputs, eager_reference, fd):
         presched_fd = FusionDefinition()
         clone(fd, presched_fd)
 
-        nvf_time_ms = run_profile(presched_fd, inputs)
+        nvf_time_ms = run_profile(eager_reference, presched_fd, inputs)
         nvf_perfs.append(nvf_time_ms)
         print(f"{empirical_batch_size}, {hidden_shape}, {nvf_time_ms:.3f}")
 
