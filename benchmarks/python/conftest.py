@@ -96,40 +96,25 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(session, config, items):
     """
-    The baseline benchmarks use `compile` parameter:
-        compile = false: Eager mode benchmark
-        compile = true: torch.compile benchmark
+    The executor parameter is used to run 'eager', 'torchcompile', 'thunder'
+    based on the given CLI options. They are skipped by default currently.
     """
-    run_eager = config.getoption("--benchmark-eager")
-    run_thunder = config.getoption("--benchmark-thunder")
-    run_torchcompile = config.getoption("--benchmark-torchcompile")
 
-    if not run_eager:
-        skip_eager = pytest.mark.skip(reason="need --benchmark-eager option to run")
-        for item in items:
-            # If the benchmark has compile=False parameter (eager mode), skip it.
-            if (
-                hasattr(item, "callspec")
-                and "compile" in item.callspec.params
-                and not item.callspec.params["compile"]
-            ):
-                item.add_marker(skip_eager)
-
-    if not run_torchcompile:
-        skip_torchcompile = pytest.mark.skip(
+    skip_eager = pytest.mark.skip(reason="need --benchmark-eager option to run")
+    skip_torchcompile = pytest.mark.skip(
             reason="need --benchmark-torchcompile option to run"
         )
-        for item in items:
-            # If the benchmark has compile=True parameter (torch.compile mode), skip it.
-            if (
-                hasattr(item, "callspec")
-                and "compile" in item.callspec.params
-                and item.callspec.params["compile"]
-            ):
-                item.add_marker(skip_torchcompile)
-
-    if not run_thunder:
-        skip_thunder = pytest.mark.skip(reason="need --benchmark-thunder option to run")
-        for item in items:
-            if "thunder" in item.nodeid:
-                item.add_marker(skip_thunder)
+    skip_thunder = pytest.mark.skip(reason="need --benchmark-thunder option to run")
+    
+    markers = []
+    for executor in ["eager", "torchcompile", "thunder"]:
+        if not config.getoption(f'--benchmark-{executor}'):
+            markers.append(pytest.mark.skip(reason=f"need --benchmark-{executor} options to run."))
+    
+    for item in items:
+        if (
+            hasattr(item, "callspec")
+            and "executor" in item.callspec.params
+        ):
+            for marker in markers:
+                item.add_marker(marker)

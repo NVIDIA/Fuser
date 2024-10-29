@@ -147,17 +147,17 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [input1, input2, weights])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_rmsnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
     clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile:
         clear_dynamo_cache()
     dropout_p = 0.2
 
@@ -171,7 +171,7 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd,
+        benchmark_fn,
         inputs,
         iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype),
     )

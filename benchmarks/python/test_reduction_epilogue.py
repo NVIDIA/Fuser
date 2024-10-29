@@ -68,7 +68,7 @@ def test_reduction_epilogue_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [x, epilogue])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0])
@@ -77,10 +77,10 @@ def test_reduction_epilogue_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     reduction_axis: int,
-    compile: bool,
+    executor: str,
 ):
     clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile:
         clear_dynamo_cache()
     x = torch.randn(size, device="cuda", dtype=dtype)
     epilogue = torch.randn(size[reduction_axis - 1], device="cuda", dtype=dtype)

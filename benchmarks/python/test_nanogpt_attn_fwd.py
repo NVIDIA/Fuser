@@ -138,17 +138,17 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, bias])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
     clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile:
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
@@ -159,7 +159,7 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(nanogpt_attn_fwd) if compile else nanogpt_attn_fwd,
+        benchmark_fn,
         [inputs, bias, size, dropout_p],
         iobytes=nanogpt_attn_fwd_iobytes(size, dtype),
     )

@@ -113,17 +113,17 @@ def test_rmsnorm_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, rms_eps, grads, weights])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_rmsnorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
     clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile:
         clear_dynamo_cache()
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
@@ -136,7 +136,7 @@ def test_rmsnorm_bwd_baseline_benchmark(
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        benchmark_fn,
         [output, grads],
         iobytes=rmsnorm_bwd_iobytes(size, dtype),
     )

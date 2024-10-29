@@ -105,7 +105,7 @@ def test_gelu_bwd_reduction_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, grads, bias])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
@@ -114,10 +114,10 @@ def test_gelu_bwd_reduction_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     reduction_axis: int,
-    compile: bool,
+    executor: str,
 ):
     clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile:
         clear_dynamo_cache()
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)

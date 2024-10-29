@@ -33,7 +33,7 @@ def load_matmul_problems():
 )
 def test_matmul_baseline_benchmark(
     benchmark,
-    compile: bool,
+    executor: str,
     config: tuple,
     dtype: torch.dtype,
     half_reduction: bool,
