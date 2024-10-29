@@ -164,7 +164,7 @@ def get_numpy_training_data(data_frame):
     return input_data, output_data
 
 
-def matplotlib_test(clf, reference_inputs, eager_reference, fd):
+def matplotlib_test(clf, num_arguments, eager_reference):
     #  For a specific batch size, gather performance across a range of hidden sizes.
     #  Calculate performance for best predicted and nvfuser configurations. Plot a
     #  chart comparing performance using matplotlib.
@@ -173,8 +173,14 @@ def matplotlib_test(clf, reference_inputs, eager_reference, fd):
     # different than the selected performance metric. Currently, the performance
     # metric is effective_bandwidth_gbs.
 
+    # thunder model
+    nvf_model = thunder.jit(eager_reference)
+
     import matplotlib.pyplot as plt
     import numpy as np
+
+    # datatype for input arguments
+    empirical_dtype = torch.bfloat16
 
     # The selected batch size for empirical and nvfuser comparison.
     empirical_batch_size = 512
@@ -193,15 +199,18 @@ def matplotlib_test(clf, reference_inputs, eager_reference, fd):
     for hidden_shape in empirical_hidden_sizes:
         inputs = [
             torch.randn(
-                empirical_batch_size, hidden_shape, dtype=ref.dtype, device="cuda"
+                empirical_batch_size, hidden_shape, dtype=empirical_dtype, device="cuda"
             )
-            for ref in reference_inputs
+            for _ in range(num_arguments)
         ]
         input_bytes = math.prod([a.numel() * a.dtype.itemsize for a in inputs]) / 1e6
         output_bytes = inputs[0].numel() * inputs[0].dtype.itemsize
         estimate_config = find_best_parameters(
             clf, input_bytes, output_bytes, parameter_configurations
         )
+
+        result = nvf_model(*inputs)
+        fd = thunder.last_traces(nvf_model)[-1].python_ctx()["nvFusion0"].last_used
 
         # clone reference fusion definition
         presched_fd = FusionDefinition()
@@ -217,10 +226,13 @@ def matplotlib_test(clf, reference_inputs, eager_reference, fd):
     for hidden_shape in empirical_hidden_sizes:
         inputs = [
             torch.randn(
-                empirical_batch_size, hidden_shape, dtype=ref.dtype, device="cuda"
+                empirical_batch_size, hidden_shape, dtype=empirical_dtype, device="cuda"
             )
-            for ref in reference_inputs
+            for _ in range(num_arguments)
         ]
+
+        result = nvf_model(*inputs)
+        fd = thunder.last_traces(nvf_model)[-1].python_ctx()["nvFusion0"].last_used
 
         # clone reference fusion definition
         presched_fd = FusionDefinition()
@@ -307,15 +319,9 @@ def run(args):
     # Step 3: Test decision tree by comparing against nvfuser.
     # Use thunder to jit an eager reference.
     # Get nvfuser fusion definition from thunder
-    a = torch.randn(512, 10016, dtype=torch.bfloat16, device="cuda")
-    b = torch.randn(512, 10016, dtype=torch.bfloat16, device="cuda")
-    nvf_model = thunder.jit(eager_reference)
-    result = nvf_model(a, b)
-    fd = thunder.last_traces(nvf_model)[-1].python_ctx()["nvFusion0"].last_used
-
     # Run decision tree and nvfuser heuristics
     # Create Graph with matplotlib
-    matplotlib_test(clf, reference_inputs := (a, b), eager_reference, fd)
+    matplotlib_test(clf, num_arguments := 2, eager_reference)
 
 
 if __name__ == "__main__":
