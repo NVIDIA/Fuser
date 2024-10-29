@@ -343,6 +343,8 @@ def nvfusertest_serde_check(test_fn: Callable):
     function. Currently, it uses serialization to rebuild the FusionCache
     structure.
     """
+    if debug_serde:
+        return
 
     def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args
