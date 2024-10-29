@@ -165,6 +165,7 @@ void propagateSliceToInputs(SliceOp* resize_op) {
     return dep_inputs;
   };
 
+  // TODO: Avoid privatize if the dep chain is exclusively used by input
   auto privatize_input = [&](TensorView* input) -> TensorView* {
     auto private_copy = RecomputeTv::recompute(input);
     DisjointSets<TensorView*>::DisjointSet& input_set =
@@ -212,6 +213,10 @@ void propagateSliceToInputs(SliceOp* resize_op) {
   auto inp_tv = resize_op->input(0)->as<TensorView>();
   std::cerr << "Input: " << inp_tv->toString() << "\n";
 
+  if (inp_tv->isFusionInput()) {
+    return;
+  }
+
   TensorView* original = inp_tv;
   TensorView* clone = nullptr;
   [[maybe_unused]] bool overlap = has_overlap(inp_tv);
@@ -229,7 +234,7 @@ void propagateSliceToInputs(SliceOp* resize_op) {
   std::cerr << "Num disjoint sets: " << input_sets.size() << "\n";
   std::cerr << "Propagating slice resizes to each disjoint set\n";
 
-  const auto& inp_dep_set = input_sets.getDisjointSetOf(inp_tv);
+  const auto& inp_dep_set = input_sets.getDisjointSetOf(clone);
   std::cerr << "Dep: " << toDelimitedString(inp_dep_set.vector()) << "\n";
   auto out_tv = updated_op->output(0)->as<TensorView>();
   for (const auto i : c10::irange(out_tv->getLogicalDomain().size())) {
@@ -328,6 +333,111 @@ bool propagateSliceToOutputs(Fusion* fusion) {
       scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule, root_id);
     }
   }
+
+  // TODO: do error check and return something else if failed
+  return true;
+}
+
+bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
+  std::cerr << "propagateSqueezedSliceToOutputs\n";
+
+  fusion->printMath();
+  std::cout << std::endl;
+
+  IdModel id_model(fusion, /*build_models=*/false);
+  const auto& graph = id_model.buildExactGraph();
+
+  auto squeezed_slices = ir_utils::getSqueezedSlices(fusion);
+  std::unordered_set<IterDomain*> squeezed_slice_set{
+      squeezed_slices.begin(), squeezed_slices.end()};
+
+  std::cerr << "All squeezed slices: " << toDelimitedString(squeezed_slices)
+            << "\n";
+
+  // Each tensor should not need to be updated multiple times
+  std::unordered_set<TensorView*> already_updated;
+
+  const auto exprs = fusion->exprs();
+  for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
+    auto slice = dynamic_cast<SliceOp*>(*it);
+    if (slice == nullptr) {
+      continue;
+    }
+
+    std::cerr << "Slice: " << slice->toString();
+
+    auto slice_out = slice->output(0)->as<TensorView>();
+
+    auto dep_outputs = DependencyCheck::getAllValsBetween(
+        {slice_out}, {fusion->outputs().begin(), fusion->outputs().end()});
+
+    for (const auto logical_id : slice_out->getLogicalDomain()) {
+      if (squeezed_slice_set.count(logical_id) == 0) {
+        continue;
+      }
+
+      std::cerr << "propagateSqueezedSliceToOutputs: slice candidate: "
+                << slice->toString() << ", " << logical_id->toString() << "\n";
+
+      std::cerr << "All dep outputs: " << toDelimitedString(dep_outputs)
+                << std::endl;
+
+      // squeezed slice found
+      // Assume this ID remains in the loop domain
+      NVF_ERROR(
+          std::find(
+              slice_out->getLoopDomain().begin(),
+              slice_out->getLoopDomain().end(),
+              logical_id) != slice_out->getLoopDomain().end());
+
+      std::vector<TensorView*> tvs_to_schedule;
+      tvs_to_schedule.reserve(dep_outputs.size());
+      for (Val* dep_output : dep_outputs) {
+        auto tv = dep_output->as<TensorView>();
+        if (std::find_if(
+                tv->getLogicalDomain().begin(),
+                tv->getLogicalDomain().end(),
+                [&](IterDomain* id) {
+                  return graph.disjointValSets().strictAreMapped(
+                      id, logical_id);
+                }) != tv->getLogicalDomain().end()) {
+          // Not yet squeezed
+          std::cerr << "Not yet squeezed: " << tv->toString() << "\n";
+          continue;
+        }
+        tvs_to_schedule.push_back(tv);
+      }
+
+      if (tvs_to_schedule.empty()) {
+        continue;
+      }
+
+      std::cerr << "propagate squeezed slice: " << logical_id->toString()
+                << " of " << slice->toString();
+      std::cerr << "To tensors: " << toDelimitedString(tvs_to_schedule) << "\n";
+
+      [[maybe_unused]] auto has_no_overlap = std::all_of(
+          tvs_to_schedule.begin(),
+          tvs_to_schedule.end(),
+          [&](TensorView* tv_to_schedule) {
+            if (already_updated.count(tv_to_schedule)) {
+              std::cerr << "Already updated: " << tv_to_schedule->toString()
+                        << "\n";
+            }
+            return already_updated.count(tv_to_schedule) == 0;
+          });
+
+      // NVF_ERROR(has_no_overlap);
+
+      scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule, logical_id);
+
+      already_updated.insert(tvs_to_schedule.begin(), tvs_to_schedule.end());
+    }
+  }
+
+  std::cout << "propagateSqueezedSliceToOutputs done\n";
+  fusion->printMath();
+  std::cout << std::endl;
 
   // TODO: do error check and return something else if failed
   return true;

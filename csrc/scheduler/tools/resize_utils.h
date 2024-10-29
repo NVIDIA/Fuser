@@ -23,8 +23,9 @@ bool propagateCatToInputs(Fusion* fusion);
 void propagateSliceToInputs(SliceOp* slice_op);
 bool propagateSliceToInputs(Fusion* fusion);
 
-void propagateSliceToOutputs(SliceOp* slice_op);
 bool propagateSliceToOutputs(Fusion* fusion);
+
+bool propagateSqueezedSliceToOutputs(Fusion* fusion);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

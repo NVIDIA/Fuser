@@ -98,7 +98,8 @@ void IdGraphIndexCompute::handle(Resize* resize) {
   }
 
   std::cerr << "setIndex: " << out_id->toString() << ", "
-            << out_idx->toInlineString() << "\n";
+            << out_idx->toInlineString()
+            << ", input index: " << in_idx->toInlineString() << "\n";
 
   setIndex(out_id, out_idx);
 }

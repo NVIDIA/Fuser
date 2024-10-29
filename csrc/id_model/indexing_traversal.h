@@ -41,6 +41,12 @@ class IndexingTraversal : public ValGraphBFS {
       const std::vector<IterDomain*>& from_domains,
       const std::vector<IterDomain*>& to_domains);
 
+  static std::optional<ExprPath> getExprsBetweenForResize(
+      const Expr* expr,
+      const ValGraph& graph,
+      const std::vector<IterDomain*>& from_domains,
+      const std::vector<IterDomain*>& to_domains);
+
   using ValGraphBFS::isVisited;
 
   bool excludeFromTraversal(const NodeType& group) const override {

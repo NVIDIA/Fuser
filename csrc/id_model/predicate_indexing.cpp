@@ -49,6 +49,8 @@ std::vector<IterDomain*> getPredicateDomains(
           }),
       predicate_domains.end());
 #else
+
+  // TODO: Move this to IndexingTraversal itself?
   auto reachable_vals = IRBFS::getReachableValsFrom(
       {consumer_tv->getLoopDomain().begin(),
        consumer_tv->getLoopDomain().end()},

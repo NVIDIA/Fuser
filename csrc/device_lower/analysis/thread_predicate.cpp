@@ -445,7 +445,10 @@ void ThreadPredicateMap::trackSqueezedSlice(const Expr* expr) {
           "ID is already a singular ID. ",
           squeezed_id->toString());
 
-      auto used_loop_ids = getUsedLoopIds(inp_tv, squeezed_id);
+      // used_loop_ids is not used and the singular id may not be used
+      // in the loop domain after all transformations
+      // auto used_loop_ids = getUsedLoopIds(inp_tv, squeezed_id);
+      std::vector<IterDomain*> used_loop_ids;
       SingularIdInfo info{squeezed_id, used_loop_ids};
       singular_ids.emplace_back(info);
       info_map.emplace(squeezed_id, info);

@@ -1210,15 +1210,36 @@ std::string nullOrToInlineString(const Statement* id) {
 }
 
 std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
-  IdModel id_model(fusion, /*build_graphs=*/false);
-  const auto& graph = id_model.buildExactGraph();
-
-  ValGroups slice_groups;
+  // ValGroups slice_groups;
+  std::vector<IterDomain*> slice_ids;
   std::unordered_map<ValGroup, IterDomain*> slice_id_map;
+
+  std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
+      slice_dep_map;
 
   VectorOfUniqueEntries<IterDomain*> squeezed_slices;
 
   for (auto expr : fusion->exprs()) {
+    // Propagate the slice ID dependencies. Assuming no reshape, no
+    // further resize
+    for (auto p_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      for (auto c_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        auto p2c = PairwiseLogicalDomainMap(p_tv, c_tv)
+                       .mapBroadcast(false)
+                       .mapProducerToConsumer();
+        for (auto p_id : p_tv->getLogicalDomain()) {
+          if (p2c.count(p_id) == 0) {
+            continue;
+          }
+          for (auto& [id, id_set] : slice_dep_map) {
+            if (id_set.count(p_id)) {
+              id_set.insert(p2c.at(p_id));
+            }
+          }
+        }
+      }
+    }
+
     if (auto slice = dynamic_cast<SliceOp*>(expr)) {
       auto output_tv = expr->output(0)->as<TensorView>();
       for (const auto logical_id : output_tv->getLogicalDomain()) {
@@ -1238,12 +1259,11 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
             resize->in()->toString());
 
         auto slice_id = resize->out();
-        const auto& slice_group = graph.toGroup(slice_id);
         std::cerr << "Registering slice: " << slice_id->toString() << ", "
-                  << nvfuser::toString(slice_group) << ", "
                   << slice->toString();
-        slice_groups.pushBack(slice_group);
-        slice_id_map.emplace(slice_group, slice_id);
+        slice_ids.push_back(slice_id);
+        slice_dep_map.emplace(
+            slice_id, std::unordered_set<IterDomain*>{slice_id});
       }
     } else if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
       auto input_tv = expr->input(0)->as<TensorView>();
@@ -1254,17 +1274,12 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
 
         auto squeezed_id = input_tv->getLogicalDomain().at(i);
         NVF_CHECK(squeezed_id->isBroadcast());
-        const ValGroup& squeezed_group = graph.toGroup(squeezed_id);
 
-        if (slice_groups.has(squeezed_group)) {
-          auto slice_id_map_it = slice_id_map.find(squeezed_group);
-          NVF_CHECK(
-              slice_id_map_it != slice_id_map.end(),
-              "Cannot find the corresponding IterDomain for ",
-              nvfuser::toString(squeezed_group));
-
-          std::cerr << "Squeeze of slice detected: " << squeeze->toString();
-          squeezed_slices.pushBack(slice_id_map_it->second);
+        for (const auto& [slice_id, dep_set] : slice_dep_map) {
+          if (dep_set.count(squeezed_id)) {
+            std::cerr << "Squeeze of slice detected: " << squeeze->toString();
+            squeezed_slices.pushBack(slice_id);
+          }
         }
       }
     }

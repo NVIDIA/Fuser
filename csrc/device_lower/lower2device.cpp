@@ -44,6 +44,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <fstream>
+
 namespace nvfuser {
 
 thread_local GpuLower* active_gpu_lower = nullptr; // NOLINT
@@ -425,6 +427,11 @@ void GpuLower::analysis(Fusion* fusion) {
         /*allow_self_mapping=*/false,
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
+    std::ofstream ofs("lower_exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model_->idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
   }
 
   resolveComputeWith(fusion_);

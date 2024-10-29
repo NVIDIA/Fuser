@@ -878,7 +878,7 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  if (tv->name() == 0 && expr->outputs().at(0)->name() == 28) {
+  if (tv->name() == 0 && expr->outputs().at(0)->name() == 61) {
     _debug = true;
     std::cerr << "getLinearIndex: " << tv->toString() << " for "
               << expr->toString();
@@ -925,6 +925,10 @@ IndexingInfo TensorIndexer::computeIndex(
     const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
   const auto loop_domains = getLoopIds(expr, id_model_);
+
+  if (_debug) {
+    std::cerr << "computeIndex: " << toDelimitedString(index_ids) << "\n";
+  }
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
@@ -1054,6 +1058,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     const std::vector<ForLoop*>& for_loops,
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
+
+  _debug = tv->name() == 6;
 
   const std::vector<IterDomain*>& predicate_ids = getPredicateDomains(
       tv, expr, getLoopIds(expr, id_model_), traversalGraph());
@@ -1288,11 +1294,13 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     pred_info.start_predicate_ = SimplifyingIrBuilder::eqExpr(
         replaced_idx, replaced_idx->fusion()->zeroVal());
     std::cerr << "Singular predicate: "
-              << pred_info.start_predicate_->toInlineString() << "\n";
+              << pred_info.start_predicate_->toInlineString()
+              << ", id: " << singular_id_info.id->toString() << "\n";
     pred_info.stop_predicate_ = replaced_idx->fusion()->trueVal();
     info_vec.emplace_back(pred_info);
   }
 
+  _debug = false;
   return info_vec;
 }
 

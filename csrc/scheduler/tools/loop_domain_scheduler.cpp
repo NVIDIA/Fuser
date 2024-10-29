@@ -204,6 +204,12 @@ class LoopDomainScheduler {
 
 void LoopDomainScheduler::schedule(TensorView* tv) const {
   std::cerr << "LoopDomainScheduler::schedule: " << tv->toString() << "\n";
+
+  if (tv->name() == 22) {
+    std::cerr << "All ids: " << toDelimitedString(tv->domain()->allIDs())
+              << "\n";
+  }
+
   // Quick shortcut
   if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
     // No need to change the current loop domain
@@ -225,6 +231,8 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
     all_id_groups.pushBack(group);
   }
 
+  std::cerr << "All ID Groups: " << nvfuser::toString(all_id_groups) << "\n";
+
   // New loop domain to set for the tv
   std::vector<IterDomain*> loop_domain(ref_loop_dom_.size());
 
@@ -242,6 +250,8 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
       has_missing_ids = true;
       // TODO: Don't force mapping at this point since that may not be necessary
       auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
+      std::cerr << "Cloned ID: " << clone->toString()
+                << ", original: " << ref_loop_dom_.at(i)->toString() << "\n";
       loop_domain.at(i) = clone;
       group_to_id.emplace(ref_id_group, clone);
       all_id_groups.pushBack(ref_id_group);
@@ -262,7 +272,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   // Replay the path on the target tensor
   for (const auto& [expr_g, dir] : path_from_ref) {
-    std::cerr << "Visiting " << expr_g->front()->toString();
+    std::cerr << "Visiting " << dir << ", " << expr_g->front()->toString();
     // Skip if the tensor already has the expr
     if (all_existing_expr_groups.has(expr_g)) {
       continue;
@@ -292,8 +302,11 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
       // No need to force exact mapping since this clone is going to
       // be connected with tv
       auto clone = representativeId(output_g)->cloneWithoutRFactor();
+      std::cerr << "Cloned: " << clone->toString()
+                << ", original: " << representativeId(output_g)->toString()
+                << "\n";
       all_id_groups.pushBack(output_g);
-      group_to_id.emplace(output_g, clone);
+      group_to_id[output_g] = clone;
     }
 
     std::cerr << "Replaying inputs: " << nvfuser::toString(input_groups)
@@ -571,6 +584,9 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
 void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
   std::cerr << "LoopDomainScheduler::replaceOrAppend: " << tv->toString()
             << "\n";
+  std::cerr << "Ref: " << toDelimitedString(ref_loop_dom_) << "\n";
+
+  const auto original_loop_domain = tv->getLoopDomain();
 
   const auto resize_path_from_ref = getReplayPathForResize(tv, false);
   bool resize_war = resize_path_from_ref.has_value();
@@ -600,6 +616,84 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
     all_id_groups.pushBack(group);
   }
 
+  auto path_from_ref =
+      resize_war ? resize_path_from_ref.value() : getReplayPath(tv, false);
+
+  const ExprGroups all_existing_expr_groups =
+      graph().toGroups(tv->domain()->allExprs());
+
+  const auto path_inputs = getInputsOfExprPath(graph(), path_from_ref);
+
+  const auto path_outputs = getOutputsOfExprPath(graph(), path_from_ref);
+
+  std::unordered_map<IterDomain*, IterDomain*> squeezed_slice_new_id_map;
+  std::cerr << "Squeezed slices: " << toDelimitedString(squeezed_slices_)
+            << "\n";
+
+  bool may_require_squeezed_slice = true;
+
+  if (std::all_of(
+          ref_id_groups_.begin(), ref_id_groups_.end(), [&](const auto& g) {
+            return path_inputs.has(g) || all_id_groups.has(g);
+          })) {
+    may_require_squeezed_slice = false;
+    std::cerr
+        << "Target fully connected with ref. No need to included squeezed ids: "
+        << tv->toString() << "\n";
+  }
+
+  // TODO: This is redundant. Don't add a new broadcast for a squeezed
+  // ID that is not related to this tensor
+  if (may_require_squeezed_slice) {
+    ValGroups tv_ids = graph().toGroups(tv->domain()->allIDs());
+    for (IterDomain* squeezed_slice : squeezed_slices_) {
+      if (path_outputs.has(graph().toGroup(squeezed_slice))) {
+        // Should be already included
+        continue;
+      }
+
+      if (tv_ids.has(graph().toGroup(squeezed_slice))) {
+        // Already connected
+        std::cerr << "Already included: " << squeezed_slice->toString() << "\n";
+        continue;
+      }
+
+      // This is probably reasonable assumption
+      if (std::find(
+              ref_loop_dom_.begin(), ref_loop_dom_.end(), squeezed_slice) ==
+          ref_loop_dom_.end()) {
+        std::cerr << "Squeezed slice not found in ref: "
+                  << squeezed_slice->toString() << "\n";
+        continue;
+      }
+
+      // Need this squeezed_slice included in this tensor. Uncertain if
+      // using an additional broadcast is a good approach...
+      // Insert a broadcast at the innermost position
+      tv->broadcast(-1);
+      auto inserted_broadcast = tv->getLoopDomain().back();
+      std::cerr << "New inserted broadcast: " << inserted_broadcast->toString()
+                << ", " << squeezed_slice->toString() << "\n";
+      tv->fusion()->registerExactMapping(squeezed_slice, inserted_broadcast);
+      NVF_ERROR(
+          squeezed_slice_new_id_map.emplace(squeezed_slice, inserted_broadcast)
+              .second);
+
+      const auto& path_to_squeezed_slice =
+          squeezed_slice_paths_.at(squeezed_slice);
+
+      std::cerr << "Appending path to squeezed slice:\n";
+      for (const auto& [expr_g, dir] : path_to_squeezed_slice) {
+        std::cerr << "\t" << dir << ", " << expr_g->front()->toString();
+      }
+
+      path_from_ref.insert(
+          path_from_ref.end(),
+          path_to_squeezed_slice.begin(),
+          path_to_squeezed_slice.end());
+    }
+  }
+
   // New loop domain to set for the tv
   // std::vector<IterDomain*> loop_domain;
 
@@ -613,29 +707,31 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
       NVF_ERROR(it != group_to_id.end());
       // loop_domain.at(i) = it->second;
     } else {
-      // Need to create a new ID for the loop ID
-      // has_missing_ids = true;
-      // TODO: Don't force mapping at this point since that may not be necessary
-      auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
+      IterDomain* corresponding_id = nullptr;
+      for (auto [squeezed_slice, new_broadcast] : squeezed_slice_new_id_map) {
+        if (!ref_id_group->has(squeezed_slice)) {
+          continue;
+        }
+
+        corresponding_id = new_broadcast;
+        break;
+      }
+      if (corresponding_id == nullptr) {
+        // Need to create a new ID for the loop ID
+        // has_missing_ids = true;
+        // TODO: Don't force mapping at this point since that may not be
+        // necessary
+        corresponding_id = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
+      }
       // loop_domain.at(i) = clone;
-      group_to_id.emplace(ref_id_group, clone);
+      group_to_id.emplace(ref_id_group, corresponding_id);
       all_id_groups.pushBack(ref_id_group);
     }
   }
 
-  auto path_from_ref =
-      resize_war ? resize_path_from_ref.value() : getReplayPath(tv, false);
-
-  const ExprGroups all_existing_expr_groups =
-      graph().toGroups(tv->domain()->allExprs());
-
-  const auto path_inputs = getInputsOfExprPath(graph(), path_from_ref);
-
-  const auto path_outputs = getOutputsOfExprPath(graph(), path_from_ref);
-
   std::vector<IterDomain*> new_loop_domain;
 
-  for (const auto& cur_loop_id : tv->getLoopDomain()) {
+  for (const auto& cur_loop_id : original_loop_domain) {
     // If it's an output of the path, it's replaced by the new ref
     // ID, which is just appended to the list
     if (path_outputs.has(graph().toGroup(cur_loop_id)) ||
@@ -652,33 +748,9 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
     new_loop_domain.push_back(it->second);
   }
 
-  std::unordered_map<IterDomain*, IterDomain*> squeezed_slice_new_id_map;
-  std::cerr << "Squeezed slices: " << toDelimitedString(squeezed_slices_)
-            << "\n";
-  for (IterDomain* squeezed_slice : squeezed_slices_) {
-    if (path_outputs.has(graph().toGroup(squeezed_slice))) {
-      // Should be already included
-      continue;
-    }
-
-    // Need this squeezed_slice included in this tensor. Uncertain if
-    // using an additional broadcast is a good approach...
-    // Insert a broadcast at the innermost position
-    tv->broadcast(-1);
-    auto inserted_broadcast = tv->getLoopDomain().back();
-    std::cerr << "New inserted broadcast: " << inserted_broadcast->toString()
-              << ", " << squeezed_slice->toString() << "\n";
-    // tv->fusion()->registerExactMapping(squeezed_slice, inserted_broadcast);
-    NVF_ERROR(
-        squeezed_slice_new_id_map.emplace(squeezed_slice, inserted_broadcast)
-            .second);
-
-    const auto& path_to_squeezed_slice =
-        squeezed_slice_paths_.at(squeezed_slice);
-    path_from_ref.insert(
-        path_from_ref.end(),
-        path_to_squeezed_slice.begin(),
-        path_to_squeezed_slice.end());
+  std::cerr << "Replay path:\n";
+  for (const auto& [expr_g, dir] : path_from_ref) {
+    std::cerr << "\t" << dir << ", " << expr_g->front()->toString();
   }
 
   // Replay the path on the target tensor
@@ -710,7 +782,7 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
       // in all_ids when the ID is also mapped with a path input
       if (resize_war && path_outputs.has(output_g)) {
         bool matching_loop_id_found = false;
-        for (auto loop_id : tv->getLoopDomain()) {
+        for (auto loop_id : original_loop_domain) {
           if (output_g->has(loop_id)) {
             // Need to update group_to_id. Really ugly...
             group_to_id[output_g] = loop_id;
