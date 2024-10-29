@@ -1017,8 +1017,8 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool override_user_schedule,
              bool capture_debug_output,
              bool profile,
-             std::vector<std::string> enable_options,
-             std::vector<std::string> disable_options) {
+             std::vector<std::string> _enable_options,
+             std::vector<std::string> _disable_options) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -1044,8 +1044,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                 override_user_schedule,
                 capture_debug_output,
                 profile,
-                enable_options,
-                disable_options);
+                _enable_options,
+                _disable_options);
           },
           py::arg("inputs"),
           py::kw_only(),
@@ -1053,8 +1053,8 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("override_user_schedule") = false,
           py::arg("capture_debug_output") = false,
           py::arg("profile") = false,
-          py::arg("enable_options") = py::none(),
-          py::arg("disable_options") = py::none(),
+          py::arg("_enable_options") = py::none(),
+          py::arg("_disable_options") = py::none(),
           py::return_value_policy::reference)
       .def_static(
           "_profile",

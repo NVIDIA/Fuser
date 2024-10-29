@@ -4730,8 +4730,8 @@ fd.execute(inputs)
 
         nvf_out = fd.execute(
             inps,
-            enable_options=["fuse_matmul"],
-            disable_options=["matmul_expr_eval"],
+            _enable_options=["fuse_matmul"],
+            _disable_options=["matmul_expr_eval"],
             profile=True,
         )
         prof = fd.profile()
