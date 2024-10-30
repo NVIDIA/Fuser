@@ -82,7 +82,8 @@ struct MatmulInputs {
 
 namespace nvfuser::ir_utils {
 
-// Replace values in fusion using ValReplacementMutator
+// Replace values in fusion using ValReplacementMutator, it also updates fusion
+// output according to the replacement_map
 void replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
@@ -724,5 +725,9 @@ std::string nullOrToString(const Statement* stmt);
 //! If the given statement is nullptr, return "nullptr", otherwise return its
 //! toInlineString()
 std::string nullOrToInlineString(const Statement* stmt);
+
+//! Check if the given value is functional. A functional value is one that
+//! always returns the same result when called with the same inputs.
+bool isFunctional(const Val* v);
 
 } // namespace nvfuser::ir_utils

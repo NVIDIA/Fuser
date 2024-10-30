@@ -261,27 +261,20 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // Detailed Pseudo-Code:
 // Pre-Prologue loop:
 //
-// - number_of_arrival_threads is the number of threads to call
-//   mbarrier::arrive or mbarrier::arriveExpectTx and to wait at
-//   mbarrier:wait.
-//
 // __shared__ __mbarrier_t barriers[num_stages];
 // if (warp_id == 0 && electSync()()) {
 //   for (int64_t loop_index : irange(stages)) {
-//     int64_t number_of_arrive_threads = blockDim.x * blockDim.y * blockDim.z;
-//     mbarrier_init(mbarrier[loop_index], number_of_arrival_threads);
+//     mbarrier_init(mbarrier[loop_index], number_of_tma_load_exprs);
 //   }
 // }
 //
 // Prologue loop:
 // for (int64_t loop_index : irange(prefetch_distance)) {
-//   if (warp_id == 0 && electSync()()) {
+//   if (warp_id == 0 && electSync()) {
 //     mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
 //     for (...) {
 //       cpAsyncBulk(mbarriers[loop_index], ...);
 //     }
-//   } else {
-//     mbarrier::arrive(mbarrier[loop_index]);
 //   }
 // }
 //
@@ -294,8 +287,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //     for (...) {
 //       cpAsyncBulk(mbarrier[load_stage], ...);
 //     }
-//   } else {
-//     mbarrier::arrive(mbarrier[load_stage]);
 //   }
 //   mbarrier::waitParity((loop_index / stage_depth) % 2);
 //
@@ -363,8 +354,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // generate the nested for-loops for the serial IterDomains, but do not add
   // them to the cloned circular buffer loop immediately. Once the cloned
   // circular buffer loop is the only loop in the stack, add the arriveExpectTx
-  // and arrive expressions, then the nested for-loop structure calling the TMA
-  // load operations, and finally the mbarrier_wait.
+  // expressions, then the nested for-loop structure calling the TMA load
+  // operations, and finally the mbarrier_wait.
   void processForLoop(ForLoop* cloned_loop) final {
     // Skip if there is not an active for-loop structure
     if (for_loop_stack_.empty()) {
@@ -412,8 +403,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
         //   for (...) {
         //     cpAsyncBulk;
         //   }
-        // } else {
-        //   arrive;
         // }
         NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         addTmaLoadBlock(cloned_loop);
@@ -602,8 +591,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   //     for (...) {
   //       cpAsyncBulk(mbarriers[loop_index], ...);
   //     }
-  //   } else {
-  //     mbarrier::arrive(mbarrier[loop_index]);
   //   }
   // }
   void handlePrologueLoop(Expr* expr) {
@@ -656,8 +643,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   //     for (...) {
   //       cpAsyncBulk(mbarrier[load_stage], ...);
   //     }
-  //   } else {
-  //     mbarrier::arrive(mbarrier[load_stage]);
   //   }
   //   mbarrier::wait((loop_index / stage_depth) % 2);
   //
@@ -725,8 +710,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   //    for (...) {
   //      cpAsyncBulk(mbarrier[next_stage], ...);
   //    }
-  //  } else {
-  //    mbarrier::arrive(mbarrier[next_stage]);
   //  }
   //
   //  The expr input argument can be a single cpAsyncBulk expression or a nested
@@ -745,11 +728,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // launches the TMA load.
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
-
-    // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArrive* thread_arrive = IrBuilder::create<kir::MBarrierArrive>(
-        /*state=*/nullptr, mbarrier_arrive_tx_->mbarrier());
-    if_expr->elseBody().push_back(thread_arrive);
     for_loop_stack_.back()->body().push_back(if_expr);
 
     mbarrier_arrive_tx_ = nullptr;

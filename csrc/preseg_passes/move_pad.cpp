@@ -533,16 +533,23 @@ void replaceCat(Fusion* fusion) {
   std::vector<Expr*> exprs = fusion->exprs();
 
   // sanitizing CatOp with series of binary add
+  std::unordered_map<Val*, Val*> replacement_map;
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
+          NVF_ERROR(
+              val->definition() != nullptr,
+              "CatOp shouldn't take fusion input as argument");
           return !val->definition()->isA<PadOp>();
         })) {
       Val* res = replaceCatOpWithBinaryOp(cat->inputs());
 
       // replace `CatOp` with the replay result.
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(cat->output(0), res);
+      replacement_map[cat->output(0)] = res;
     }
   }
+  // defer the update to after the for loop on a generator to avoid deleting
+  // nodes in the replacement
+  ir_utils::replaceValue(fusion, replacement_map);
 }
 
 } // namespace
