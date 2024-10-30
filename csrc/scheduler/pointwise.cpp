@@ -122,8 +122,9 @@ TensorView* getReferenceTensor(Fusion* fusion, TensorView* largest_out) {
 
 std::vector<std::pair<TensorView*, std::vector<TensorView*>>>
 getReferenceTensors(Fusion* fusion, TensorView* largest_out) {
-  std::vector<std::pair<TensorView*, std::vector<TensorView*>>> ref_candidates;
-  auto all_tvs = fusion->allTvs();
+  std::vector<TensorView*> ref_candidates;
+
+  const auto all_tvs = fusion->allTvs();
 
   for (auto expr : fusion->exprs()) {
     auto cat = dynamic_cast<CatOp*>(expr);
@@ -133,7 +134,7 @@ getReferenceTensors(Fusion* fusion, TensorView* largest_out) {
 
     auto cat_output = cat->output(0)->as<TensorView>();
 
-    ref_candidates.emplace_back(cat_output, std::vector<TensorView*>{});
+    ref_candidates.emplace_back(cat_output);
   }
 
   if (ref_candidates.empty()) {
@@ -141,125 +142,181 @@ getReferenceTensors(Fusion* fusion, TensorView* largest_out) {
     // std::vector<TensorView*>{});
     std::cerr << "getReferenceTensors: Using largest out: "
               << largest_out->toString() << "\n";
-    return {std::make_pair(largest_out, std::vector<TensorView*>{})};
+    return {std::make_pair(largest_out, all_tvs)};
   }
 
   if (ref_candidates.size() == 1) {
-    std::cerr << "Unique reference: " << ref_candidates[0].first->toString();
-    ref_candidates[0].second = all_tvs;
-    return ref_candidates;
+    std::cerr << "Unique reference: " << ref_candidates[0]->toString();
+    return {std::make_pair(ref_candidates[0], all_tvs)};
   }
 
   IdModel id_model(fusion, /*build_models=*/false);
   const auto& graph = id_model.buildExactGraph();
 
-  std::unordered_set<TensorView*> captured;
+  auto can_schedule = [&graph](TensorView* ref, TensorView* tv) -> bool {
+    ValGroups ref_groups = graph.toGroups(ref->getLoopDomain());
+
+    // ValGroups tv_groups = graph.toGroups(tv->getLogicalDomain());
+    ValGroups tv_groups = graph.toGroups(tv->getLoopDomain());
+
+    auto path_from_ref = ValGraphBFS::getExprsBetween(
+        graph, ref_groups, tv_groups, /*require_all_to_visited=*/false);
+
+    auto path_outputs = getOutputsOfExprPath(graph, path_from_ref);
+    NVF_ERROR(path_outputs.size() <= tv_groups.size());
+
+    if (path_outputs.size() < tv_groups.size()) {
+      // something is unreachable
+      for (const auto& tv_group : tv_groups) {
+        if (ref_groups.has(tv_group) || path_outputs.has(tv_group)) {
+          continue;
+        }
+
+        // Unreachable. If it's a broadcast, ignore it. Otherwise,
+        // this tensor cannot be scheduled by this reference
+        if (tv_group->front()->as<IterDomain>()->isBroadcast()) {
+          continue;
+        }
+
+        // tv_group is unreachable. Give up
+        std::cerr << "Unreachable tv group: " << nvfuser::toString(tv_group)
+                  << " of " << tv->toString() << "\n";
+        return false;
+      }
+    }
+
+    // if the path involves resize, don't consider a valid refernce
+    // for this tensor as resize should not be propagated
+    for (const auto& [expr, dir] : path_from_ref) {
+      if (expr->front()->isA<Resize>()) {
+        // resize found
+        std::cerr << "Resize found: " << expr->front()->toString() << " of "
+                  << tv->toString() << "\n";
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  std::unordered_map<TensorView*, std::unordered_set<TensorView*>> grouping_map;
+  std::unordered_map<TensorView*, TensorView*> tv_to_ref;
 
   // Check duplicates and make sure completeness
-  for (auto& [ref_candidate, tv_set] : ref_candidates) {
-    std::cerr << "Ref candidate: " << ref_candidate->toString() << "\n";
-    if (captured.size() == all_tvs.size()) {
-      break;
-    }
-
-    if (captured.count(ref_candidate)) {
-      // Ref itself already taken care
+  for (auto tv : all_tvs) {
+    // Don't care fusion inputs
+    if (tv->isFusionInput()) {
+      // Mark it as grouped for convenience
+      tv_to_ref.emplace(tv, nullptr);
       continue;
     }
 
-    ValGroups ref_groups = graph.toGroups(ref_candidate->getLoopDomain());
+    // Check if this tv itself is a ref candidate
+    if (auto ref_candidates_it =
+            std::find(ref_candidates.begin(), ref_candidates.end(), tv);
+        ref_candidates_it != ref_candidates.end()) {
+      grouping_map[tv].insert(tv);
+      tv_to_ref.emplace(tv, tv);
+      continue;
+    }
+
+    std::vector<bool> match_with_refs(false, ref_candidates.size());
+    int64_t num_matches = 0;
+    TensorView* matched_ref = nullptr;
+    for (const auto ref_candidate : ref_candidates) {
+      auto b = can_schedule(ref_candidate, tv);
+      if (b) {
+        ++num_matches;
+        matched_ref = ref_candidate;
+      }
+      match_with_refs.push_back(b);
+    }
+
+    NVF_ERROR(num_matches != 0, "Uncaptured tensor: ", tv->toString());
+
+    // If multiple refs are candidates, don't group it at this time
+    if (num_matches == 1) {
+      grouping_map[matched_ref].insert(tv);
+      tv_to_ref.emplace(tv, matched_ref);
+    }
+  }
+
+  // Group the remaining tensors based on their producers and
+  // consumers. If any of them is already grouped and the group is
+  // eligible, prefer that group for the tensro
+  bool changed = true;
+  while (changed) {
+    changed = false;
+
     for (auto tv : all_tvs) {
-      if (captured.count(tv)) {
+      if (tv_to_ref.count(tv)) {
         continue;
       }
 
-      // ValGroups tv_groups = graph.toGroups(tv->getLogicalDomain());
-      ValGroups tv_groups = graph.toGroups(tv->getLoopDomain());
-
-      auto path_from_ref = ValGraphBFS::getExprsBetween(
-          graph, ref_groups, tv_groups, /*require_all_to_visited=*/false);
-
-      auto path_outputs = getOutputsOfExprPath(graph, path_from_ref);
-      NVF_ERROR(path_outputs.size() <= tv_groups.size());
-
-      bool can_schedule = true;
-
-      if (path_outputs.size() < tv_groups.size()) {
-        // something is unreachable
-        for (const auto& tv_group : tv_groups) {
-          if (ref_groups.has(tv_group) || path_outputs.has(tv_group)) {
+      for (auto producer_tv : ir_utils::producerTvsOf(tv)) {
+        auto ref_it = tv_to_ref.find(producer_tv);
+        if (ref_it != tv_to_ref.end()) {
+          auto producer_ref = ref_it->second;
+          // producer_ref may be nullptr (when it's fusion input)
+          if (producer_ref == nullptr) {
+            continue;
+          }
+          if (!can_schedule(producer_ref, tv)) {
             continue;
           }
 
-          // Unreachable. If it's a broadcast, ignore it. Otherwise,
-          // this tensor cannot be scheduled by this reference
-          if (tv_group->front()->as<IterDomain>()->isBroadcast()) {
-            continue;
-          }
-
-          // tv_group is unreachable. Give up
-          can_schedule = false;
-          std::cerr << "Unreachable tv group: " << nvfuser::toString(tv_group)
-                    << " of " << tv->toString() << "\n";
+          grouping_map[producer_ref].insert(tv);
+          tv_to_ref.emplace(tv, producer_ref);
+          changed = true;
           break;
         }
       }
 
-      if (!can_schedule) {
+      if (changed) {
         continue;
       }
 
-      // if the path involves resize, don't consider a valid refernce
-      // for this tensor as resize should not be propagated
-      for (const auto& [expr, dir] : path_from_ref) {
-        if (expr->front()->isA<Resize>()) {
-          // resize found
-          std::cerr << "Resize found: " << expr->front()->toString() << " of "
-                    << tv->toString() << "\n";
-          can_schedule = false;
+      for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
+        auto ref_it = tv_to_ref.find(consumer_tv);
+        if (ref_it != tv_to_ref.end()) {
+          auto consumer_ref = ref_it->second;
+          if (!can_schedule(consumer_ref, tv)) {
+            continue;
+          }
+
+          grouping_map[consumer_ref].insert(tv);
+          tv_to_ref.emplace(tv, consumer_ref);
+          changed = true;
           break;
         }
       }
-
-      if (!can_schedule) {
-        continue;
-      }
-
-      // Check done. Include this tensor in the set
-      tv_set.push_back(tv);
-      captured.emplace(tv);
-    }
-
-    captured.emplace(ref_candidate);
-  }
-
-  if (captured.size() != all_tvs.size()) {
-    NVF_ERROR(captured.size() < all_tvs.size());
-    // Some tensors are not included yet
-    for (auto tv : all_tvs) {
-      if (captured.count(tv)) {
-        continue;
-      }
-
-      NVF_ERROR(tv->isFusionInput(), "Uncaptured tensor: ", tv->toString());
     }
   }
 
+  NVF_ERROR(tv_to_ref.size() == all_tvs.size());
+
+  // Create a sorted grouping list
   std::vector<std::pair<TensorView*, std::vector<TensorView*>>> ref_list;
-  for (const auto& [ref, member_set] : ref_candidates) {
-    if (member_set.size() <= 1) {
-      // May contain the ref itself
-      if (member_set.size() == 1) {
-        NVF_ERROR(member_set[0] == ref);
-      }
+  for (const auto ref : ref_candidates) {
+    auto it = grouping_map.find(ref);
+    if (it == grouping_map.end()) {
+      // This ref wasn't used at all
       continue;
     }
 
-    ref_list.emplace_back(ref, member_set);
+    const auto& member_set = it->second;
+
+    ref_list.emplace_back(ref, std::vector<TensorView*>{});
+    auto& member_list = ref_list.back().second;
+    for (auto tv : all_tvs) {
+      if (member_set.count(tv)) {
+        member_list.push_back(tv);
+      }
+    }
   }
 
   std::cerr << "Disjoint grouping of tensors with representatives:\n";
-  for (const auto& [ref, set] : ref_candidates) {
+  for (const auto& [ref, set] : ref_list) {
     std::cerr << "\tRepresentative: " << ref->toString() << "\n"
               << "\t{";
     for (auto tv : set) {
