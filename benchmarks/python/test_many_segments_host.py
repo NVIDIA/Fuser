@@ -57,6 +57,11 @@ def test_many_segment_benchmark(
             eager_output = matmul_out + add_out
         fd.validate(input, [eager_output])
 
+        # Validate number of segments
+        _ = fd.execute(input, profile=True)
+        num_segments = fd.profile().segments
+        assert num_segments == 12, f"Expected 11 fusion segments, got {num_segments}"
+
     if not disable_validation:
         if host_bench_mode == "dynamic":
             # Run validate for all input sizes.
