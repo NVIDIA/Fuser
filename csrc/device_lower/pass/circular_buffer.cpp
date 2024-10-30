@@ -707,14 +707,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // If there is already an if-then-else with electSync() predicate, use it.
   // Otherwise, create a new one.
   kir::IfThenElse* getElectSyncIfThenElse() {
-    // if (loop_containing_elec_sync_ != for_loop_stack_.back()) {
-    //   elect_sync_if_then_else_ = nullptr;
-    // }
     if (elect_sync_if_then_else_ == nullptr) {
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-      loop_containing_elec_sync_ = for_loop_stack_.back();
-      loop_containing_elec_sync_->body().push_back(elect_sync_if_then_else_);
+      for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
     }
     return elect_sync_if_then_else_;
   }
@@ -861,7 +857,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
   kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
-  ForLoop* loop_containing_elec_sync_ = nullptr;
 
   // The circular buffered TVs for the loop being cloned
   std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
