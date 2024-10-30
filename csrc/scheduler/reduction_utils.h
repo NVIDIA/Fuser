@@ -35,6 +35,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -65,14 +66,11 @@ void propagateRFactor(
 //   is_vectorize: Indicates if vectorization is applied in the scheduler.
 //   cached_inputs: Inputs cached in registers or shared memory.
 //   cached_outputs: Outputs cached in registers.
-//   smem_consumers: Consumers of shared memory persistent buffers, they are
-//                   register cached Tvs after the shared memory tv.
 NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool is_vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& smem_consumers);
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.
 // Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for
@@ -138,6 +136,24 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type);
 std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
+
+/**
+ * @brief Vectorize shared memory consumers
+ *
+ * Applies vectorization to shared memory consumers.
+ * If extent of the last dim multiples vectorization factor exceeds hardware
+ * limitations, additional split is added.
+ *
+ * @param smem_consumers Vector of TensorView pointers representing shared
+ * memory consumers
+ * @param io_vectorization_factor Vectorization factor set for fusion inputs and
+ * outputs
+ * @note TODO: Optimize writing to shared memory and address bank conflicts for
+ * float32 with innermost extent of 8
+ */
+void sharedMemoryConsumerVectorization(
+    std::vector<TensorView*>& smem_consumers,
+    const int64_t io_vectorization_factor);
 
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

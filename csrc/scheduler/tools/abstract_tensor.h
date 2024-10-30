@@ -34,6 +34,14 @@ using AbstractId = dynamic_type::DynamicType<
     IterDomain*,
     ValGroupAndItsGraph>;
 
+inline IterDomain* representativeId(const AbstractId& abs_id) {
+  if (abs_id.is<IterDomain*>()) {
+    return abs_id.as<IterDomain*>();
+  }
+  NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
+  return representativeId(abs_id.as<ValGroupAndItsGraph>().group);
+}
+
 namespace {
 
 struct DispatchSplit {
@@ -338,7 +346,7 @@ struct DispatchParallelize {
 
 // AbstractTensor is similar to TensorView, it has multiple dimensions, where
 // each dimension is represented by an Abstract IterDomain. The interface of
-// AbstractTensor is also similar to that of TesorViews, that is, it has merge,
+// AbstractTensor is also similar to that of TensorViews, that is, it has merge,
 // split, etc. However, it only has a single "domain", instead of having
 // multiple domains like "logical domain", "loop domain", etc.
 //

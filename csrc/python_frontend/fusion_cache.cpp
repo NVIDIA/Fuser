@@ -227,7 +227,8 @@ HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   NVF_CHECK(
       heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  heuristic_params = scheduler->computeHeuristics(
+      fusion(), runtime_info_ref, data_cache.get());
   return heuristic_params.get();
 }
 

@@ -4631,3 +4631,78 @@ fd.execute(inputs)
         self.assertEqual(fd.inputs(), [0, 1])
         self.assertEqual(fd.outputs(), [5])
         self.assertEqual(fd.extents(), [idx for idx in range(-1, -7, -1)])
+
+
+    def test_issue_3292(self):
+        inputs = [
+            torch.testing.make_tensor(
+                (5, 5, 576), dtype=torch.float32, device="cuda:0"
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T2 = fd.define_tensor(
+                shape=[5, 5, 576],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T30 = fd.ops.reshape(T2, new_shape=[5, 5, 1, 9, 64])
+            T31 = fd.ops.permute(T30, dims=[0, 2, 3, 1, 4])
+            T50 = fd.ops.slice(
+                T31,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[5, 1, 7, 5, 64],
+                strides=[1, 1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T108 = fd.ops.reshape(T50, new_shape=[5, 7, 5, 64])
+            T136 = fd.ops.slice(
+                T108,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 7, 5, 32],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T152 = fd.ops.slice(
+                T108,
+                start_indices=[0, 0, 0, 32],
+                end_indices=[5, 7, 5, 64],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T153 = fd.ops.neg(T152)
+            T154 = fd.ops.cat([T153, T136], dim=-1, manual_padding=0)
+            T161 = fd.ops.mul(T108, T108)
+            T168 = fd.ops.mul(T154, T154)
+            T169 = fd.ops.add(T161, T168)
+            T185 = fd.ops.slice(
+                T108,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 7, 5, 32],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T201 = fd.ops.slice(
+                T108,
+                start_indices=[0, 0, 0, 32],
+                end_indices=[5, 7, 5, 64],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T202 = fd.ops.neg(T201)
+            T203 = fd.ops.cat([T202, T185], dim=-1, manual_padding=0)
+            T205 = fd.ops.mul(T203, T203)
+            T222 = fd.ops.slice(
+                T108,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 7, 5, 0],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T223 = fd.ops.cat([T169, T222], dim=-1, manual_padding=0)
+            fd.add_output(T223)
+
+        # is_clonable=False is because translation fails with missing ceilDiv
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=False)
