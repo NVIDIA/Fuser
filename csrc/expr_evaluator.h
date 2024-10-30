@@ -25,12 +25,6 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class ExpressionEvaluator {
-  NVF_API void bind_(
-      const Val* value,
-      PolymorphicValue concrete_value,
-      bool evaluate_validate);
-  void bind_(const std::string& name, PolymorphicValue concrete_value);
-
  public:
   //! Bind a concrete value to an IR variable
   //! If evaluate_validate is true, and value is evaluatable with the
@@ -98,6 +92,18 @@ class ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
+  void bind_(
+      const Val* value,
+      PolymorphicValue concrete_value,
+      bool evaluate_validate);
+
+  void bind_(const std::string& name, PolymorphicValue concrete_value);
+
+  void bindTensorDomain(
+      const TensorView* tv,
+      const at::Tensor& t,
+      bool evaluate_validate);
+
   const PolymorphicValue& getValue(
       const Val* value,
       const std::unordered_map<const Val*, PolymorphicValue>&
