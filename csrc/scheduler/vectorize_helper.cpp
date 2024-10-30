@@ -366,13 +366,13 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   };
 
   auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
-    // on top of the usual thing -> offset/size of tensor that could impact vectorization factor.
-    // slice -> check offset.
-    // pad -> check pad size.
+    // on top of the usual thing -> offset/size of tensor that could impact
+    // vectorization factor. slice -> check offset. pad -> check pad size.
 
     // does index of the resize dimension matter?
-    // pad we can only support innermost dimensions. (Unless we lift the conditional).
-    // slice only impacts vectorization when it's in the collapsed innermost dimensions.
+    // pad we can only support innermost dimensions. (Unless we lift the
+    // conditional). slice only impacts vectorization when it's in the collapsed
+    // innermost dimensions.
 
     IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
     IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
@@ -387,15 +387,17 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     auto pos = std::distance(frontier.begin(), it);
     // project to frontier.
     frontier[pos] = id_to;
-    // I think we still needs to clear left of resize anyway, since vectorization factor can't go across resize.
-    frontier.erase(frontier.begin(), compatible_resize ? it : it+1);
-    
+    // I think we still needs to clear left of resize anyway, since
+    // vectorization factor can't go across resize.
+    frontier.erase(frontier.begin(), compatible_resize ? it : it + 1);
+
     // Nothing to do unless recording
     if (!recording_) {
       return;
     }
 
-    // Note: this should be handled differently depending on the semantics of the resize op.
+    // Note: this should be handled differently depending on the semantics of
+    // the resize op.
     addProjectedExtent(id_to, getProjectedExtent(id_from));
   };
 
