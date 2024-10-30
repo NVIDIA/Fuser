@@ -274,78 +274,11 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
 //! domain must be set as loop domain. For the case of new swizzle, this domain
 //! must be set as allocation domain.
 MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
-  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
-
-  std::pair<int64_t, int64_t> analysis =
-      analyzeSwizzleSharedMemory(shared_mem_tv);
-  int64_t g = analysis.first;
-  int64_t repeated_pattern_size = analysis.second;
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
 
   if (g == 1) {
     return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
   }
-
-  /* Now we know that we have a g-way bank conflict. How do we remove this
-   * bank conflict? The answer is to mix the storage of different matrices.
-   * We first split the matrices along the row axis into g pieces, each piece
-   * has n/g rows. With this split, each piece occupies exactly one pattern.
-   * We want to use some non-traditional storage to let different pieces of
-   * the same matrix to occupy different patterns.
-   *
-   * Because Z/nZ has n items, each pattern has n/g different items, so we
-   * have in total g different patterns. We want to find the corresponding
-   * `init` values of these g different patterns.
-   *
-   * Consider two different init values `init1` and `init2`. When do they
-   * represent the same pattern? They represent the same pattern if and only
-   * if `f(0; init2)` falls on the pattern of `init1`, that is, there exist an
-   * i such that
-   *   f(i; init1) == f(0; init2)
-   * which simplifies to
-   *   init1 + i * stride == init2
-   *   ==> init2 - init1 == i * stride
-   * What values can `i * stride` be? It can be an arbitrary multiple of g:
-   * i * stride in Z/nZ is (i * stride) % n in Z. Let m = n/g, according to
-   * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
-   *   (i * stride) % n = (i * s) % m * g
-   * Because s coprime with m, we know that for an arbitrary value `j` in
-   * Z/mZ, we can take `i = minv(s) * j` to make `i * s == j`.
-   *
-   * That said, for init values that are off by a multiple of g they
-   * correspond to the same pattern, otherwise they belongs to different
-   * patterns. So, we can use
-   *   init = 0, 1, ..., g - 1
-   * to canonically represent g patterns. Let's call the above
-   * `init` values "pattern id".
-   *
-   * Now we have the idea about how to remove bank conflict: We can do an
-   * inner split of our row dimension by `repeated_pattern_size` to get
-   * (repeat, pattern), then different indices of the "repeat" dimension will
-   * be using the same megabank, and different indices of the "pattern"
-   * dimension will be using different megabank. We don't need to touch the
-   * "pattern" dimension, but we need to play with the "repeat" dimension to
-   * interleave it with matrice ids so that each matrix is distributed across
-   * different banks.
-   *
-   * For example, if we have repeated_pattern_size = 4, we would want to do
-   * something like below:
-   *    +----------+----------+
-   *   0|          |          |
-   *   1| matrix 0 | matrix 1 |
-   *   2|          |          |
-   *   3|          |          |
-   *    +----------+----------+
-   *   4|          |          |
-   *   5| matrix 1 | matrix 0 |
-   *   6|          |          |
-   *   7|          |          |
-   *    +----------+----------+
-   *
-   * We can consider each repeated_pattern_size rows as a gigarow, and each
-   * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
-   * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
-   * nearby megabanks in a gigabank has a distance of `g` megabanks
-   */
 
   // 128B swizzle results in 8 x 8 matrix given half precision inputs.
   constexpr int64_t n_rows = 8;
@@ -355,14 +288,11 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
       "Can not partition matrix into megarows");
   int64_t num_gigarows = n_rows / repeated_pattern_size;
   int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
-                             //
+
   /* To further simplify the problem, if we assume: */
   NVF_ERROR(
       num_gigarows % num_gigabanks == 0,
       "Requires non-square swizzle, which is not supported yet");
-  /* Then we can partition gigarows into full waves, each wave has
-   * num_gigabanks gigarows. This partition creates square dimensions, making
-   * the swizzle implementation easier */
 
   return MmaInputSmemSwizzle::B128;
 }
@@ -375,61 +305,12 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
 //! Returns the domain with swizzle. For the case of legacy swizzle, this
 //! domain must be set as loop domain. For the case of new swizzle, this domain
 //! must be set as allocation domain.
-//!
-//! TODO: Refactor this for TMA loads
 template <bool legacy = true>
 AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
-  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
+
+  // Create Abstract Tensor from shared memory tensor loop domain.
   AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
-
-  // Check that the innermost 2 dimensions are concrete and static
-  //  sized so that the swizzle function can be defined.
-  NVF_ERROR(
-      (int64_t)swizzle_domain.size() >= 2,
-      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
-      shared_mem_tv->toString());
-  mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
-  mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
-
-  // Extract the constant sizes of the swizzled tile
-  const int64_t tile_size_x =
-      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
-  const int64_t tile_size_y =
-      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
-
-  // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
-  // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
-  // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
-  NVF_ERROR(data_type_size == 2 || data_type_size == 4);
-
-  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
-  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
-  // Each thread vectorized write 2 items, so 8 items per row.
-  //--0--1--2--3
-  //--4--5--6--7
-  //--8--9--10-11
-  //--12-13-14-15
-  //--16-17-18-19
-  //--20-21-22-23
-  //--24-25-26-27
-  //--28-29-30-31
-  constexpr int64_t n_rows = 8;
-  constexpr int64_t n_cols = 8;
-
-  // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
-  NVF_ERROR(
-      tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
-          tile_size_y >= n_cols && tile_size_y % n_cols == 0,
-      "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
-      tile_size_x,
-      "x",
-      tile_size_y);
-
-  std::pair<int64_t, int64_t> analysis =
-      analyzeSwizzleSharedMemory(shared_mem_tv);
-  int64_t g = analysis.first;
-  int64_t repeated_pattern_size = analysis.second;
 
   if (g == 1) {
     return swizzle_domain; // No need to swizzle in this case.
@@ -496,6 +377,20 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
    * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
    * nearby megabanks in a gigabank has a distance of `g` megabanks
    */
+
+  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+  // Each thread vectorized write 2 items, so 8 items per row.
+  //--0--1--2--3
+  //--4--5--6--7
+  //--8--9--10-11
+  //--12-13-14-15
+  //--16-17-18-19
+  //--20-21-22-23
+  //--24-25-26-27
+  //--28-29-30-31
+  constexpr int64_t n_rows = 8;
+  constexpr int64_t n_cols = 8;
 
   NVF_ERROR(
       n_rows % repeated_pattern_size == 0,
