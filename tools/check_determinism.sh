@@ -48,6 +48,14 @@ FIRSTREPDIR="$KERNELDIR/1"
 retval=0
 for rep in $(seq 1 "$NUMREPS")
 do
+    NUMEXISTINGCUFILES=$(find . -maxdepth 1 -name \*.cu | wc -l)
+    if [[ $NUMEXISTINGCUFILES -ne 0 ]]
+    then
+        KERNELBACKUPDIR=./check_determinism-kernelbackup$(date +%Y%m%d.%H%M%S)
+        echo "Backing up $NUMEXISTINGCUFILES existing .cu files to $KERNELBACKUPDIR"
+        mkdir -p "$KERNELBACKUPDIR"
+        mv ./*.cu "$KERNELBACKUPDIR"
+    fi
     # $CMD does not need to succeed for us to analyze it
     set +e
     $CMD
@@ -63,7 +71,6 @@ do
     then
         echo "Created $NUMFIRST kernels on first repetition and $NUMREP on repetition $rep"
         retval=1
-        continue
     fi
     for newkernel in "$REPDIR"/*.cu
     do
