@@ -123,7 +123,7 @@ class FusionDefinition(_C._FusionDefinition):
             save_repro_inputs (bool): Saves the inputs for last_repro_script() to
                 provide a provide a reproduction script.
             _enable_options/_disable_options (list): NVFUSER_ENABLE/DISABLE options to use.
-                This is an alternative to enviroment variables.
+                This is an alternative to environment variables.
                 Note: Currently, we do not cache/store these options in the FusionCache which makes it
                     plausible to reuse kernels when executing the same fusion definition with different sets of options.
                     Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
