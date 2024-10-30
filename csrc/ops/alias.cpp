@@ -577,6 +577,19 @@ TensorView* pad(
     return set(inp);
   }
 
+  if (std::any_of(inp_dom.begin(), inp_dom.end(), [](IterDomain* id) {
+        Val* input_extent = id->getMaybeExpandedExtent();
+        return input_extent->isConstScalar() &&
+            input_extent->evaluate().as<int64_t>() == 0;
+      })) {
+    // We are padding an empty tensor. Instead of PadOp, use FullOp
+    std::vector<Val*> shape;
+    shape.reserve(logical_ids.size());
+    for (IterDomain* id : logical_ids) {
+      shape.push_back(id->getMaybeExpandedExtent());
+    }
+    return full(shape, value, dt);
+  }
   auto out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           root_ids,
@@ -584,17 +597,7 @@ TensorView* pad(
           logical_ids,
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
       *inp->getDataType());
-
-  if (std::any_of(inp_dom.begin(), inp_dom.end(), [](IterDomain* id) {
-        Val* input_extent = id->getMaybeExpandedExtent();
-        return input_extent->isConstScalar() &&
-            input_extent->evaluate().as<int64_t>() == 0;
-      })) {
-    // We are padding an empty tensor. Instead of PadOp, use FullOp
-    IrBuilder::create<FullOp>(out, value);
-  } else {
-    IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
-  }
+  IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
 
   return out;
 }
