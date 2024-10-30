@@ -371,8 +371,19 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   if (params->vectorization_factor == 1) {
     auto total_unroll = scheduler_utils::safeDiv(
         max_vect_unroll_factor, params->vectorization_factor);
-    params->unroll_factor_inner = total_unroll;
-    params->unroll_factor_outer = 1L;
+    // for 1D scheduler, unroll the inner dimension
+    // since there is no outer dimension.
+    if (break_point == 0) {
+      params->unroll_factor_inner = total_unroll;
+      params->unroll_factor_outer = 1L;
+    } else {
+      // for 2D scheduler, unroll the outer dimension
+      // to prioritize resue across different rows, will
+      // be revised in heuristics tuning, e.g. unroll different
+      // dims based on the broadcast dimension.
+      params->unroll_factor_inner = 1L;
+      params->unroll_factor_outer = total_unroll;
+    }
   }
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
