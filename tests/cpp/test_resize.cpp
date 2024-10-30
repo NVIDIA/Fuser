@@ -5358,4 +5358,24 @@ TEST_F(ResizeTest, NonFusionInputSlicePropagateToInputs) {
   fusion.printKernel();
 }
 
+TEST_F(ResizeTest, ToString) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // fusion.printMath();
+
+  tv1->split(0, 4);
+  tv1->split(0, 8);
+  tv1->merge(0, 1);
+
+  std::cout << tv1->axis(0)->extent()->toInlineString() << "\n";
+}
+
 } // namespace nvfuser

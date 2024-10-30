@@ -25,6 +25,7 @@
 
 #include <c10/util/irange.h>
 
+#include <cctype>
 #include <complex>
 #include <iterator>
 #include <numeric>
@@ -677,13 +678,25 @@ void BinaryOp::printHelper(
   bool istvop = ir_utils::isTvOp(this);
   auto op_type = getBinaryOpType();
   if (auto inline_bop = inline_op_str(op_type)) {
-    ss << lhs;
+    if (lhs.back() == ')' || std::all_of(lhs.begin(), lhs.end(), [](auto c) {
+          return std::isalnum(c);
+        })) {
+      ss << lhs;
+    } else {
+      ss << "(" << lhs << ")";
+    }
     if (istvop) {
       ss << "\n";
       indent(ss, indent_size);
     }
     ss << " " << inline_bop.value() << " ";
-    ss << rhs;
+    if (rhs.back() == ')' || std::all_of(rhs.begin(), rhs.end(), [](auto c) {
+          return std::isalnum(c);
+        })) {
+      ss << rhs;
+    } else {
+      ss << "(" << rhs << ")";
+    }
   } else {
     ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&

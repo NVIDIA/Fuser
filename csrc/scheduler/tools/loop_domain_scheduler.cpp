@@ -582,7 +582,7 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
 }
 
 void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
-  std::cerr << "LoopDomainScheduler::replaceOrAppend: " << tv->toString()
+  std::cerr << "LoopDomainScheduler::replaceAndAppend: " << tv->toString()
             << "\n";
   std::cerr << "Ref: " << toDelimitedString(ref_loop_dom_) << "\n";
 
@@ -659,9 +659,16 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
       }
 
       // This is probably reasonable assumption
-      if (std::find(
-              ref_loop_dom_.begin(), ref_loop_dom_.end(), squeezed_slice) ==
-          ref_loop_dom_.end()) {
+      auto resize_op = dynamic_cast<Resize*>(squeezed_slice->definition());
+      NVF_ERROR(resize_op != nullptr);
+      auto slice_input = resize_op->in();
+      if (std::find_if(
+              ref_loop_dom_.begin(),
+              ref_loop_dom_.end(),
+              [&](IterDomain* ref_loop_id) {
+                return ref_loop_id == squeezed_slice ||
+                    ref_loop_id == slice_input;
+              }) == ref_loop_dom_.end()) {
         std::cerr << "Squeezed slice not found in ref: "
                   << squeezed_slice->toString() << "\n";
         continue;
@@ -806,12 +813,12 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
       // additional id
       IterDomain* output_id = nullptr;
 
-      for (auto squeezed_slice : squeezed_slices_) {
+      for (auto& [squeezed_slice, new_id] : squeezed_slice_new_id_map) {
         if (!output_g->has(squeezed_slice)) {
           continue;
         }
 
-        output_id = squeezed_slice_new_id_map.at(squeezed_slice);
+        output_id = new_id;
       }
 
       // Not found. Create a new one

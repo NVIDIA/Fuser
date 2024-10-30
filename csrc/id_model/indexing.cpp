@@ -1276,28 +1276,30 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     }
   }
 
-  std::cerr << "Singular predicate for " << tv->toString() << "\n";
-  for (const auto& singular_id_info : thread_pred_info.singular_ids) {
-    const auto& id_group = traversalGraph().toGroup(singular_id_info.id);
-    auto index_map_it = index_map.find(id_group);
-    NVF_ERROR(
-        index_map_it != index_map.end(),
-        "Could not find an index for a singular id: ",
-        singular_id_info.id->toString());
+  if (!getenv("SKIP_SINGULAR")) {
+    std::cerr << "Singular predicate for " << tv->toString() << "\n";
+    for (const auto& singular_id_info : thread_pred_info.singular_ids) {
+      const auto& id_group = traversalGraph().toGroup(singular_id_info.id);
+      auto index_map_it = index_map.find(id_group);
+      NVF_ERROR(
+          index_map_it != index_map.end(),
+          "Could not find an index for a singular id: ",
+          singular_id_info.id->toString());
 
-    Val* idx = index_map_it->second;
-    Val* replaced_idx =
-        ir_utils::replaceValRecursively(idx, replacement_map_start);
+      Val* idx = index_map_it->second;
+      Val* replaced_idx =
+          ir_utils::replaceValRecursively(idx, replacement_map_start);
 
-    PredicateInfo pred_info;
-    pred_info.start_offset_ = zero_val;
-    pred_info.start_predicate_ = SimplifyingIrBuilder::eqExpr(
-        replaced_idx, replaced_idx->fusion()->zeroVal());
-    std::cerr << "Singular predicate: "
-              << pred_info.start_predicate_->toInlineString()
-              << ", id: " << singular_id_info.id->toString() << "\n";
-    pred_info.stop_predicate_ = replaced_idx->fusion()->trueVal();
-    info_vec.emplace_back(pred_info);
+      PredicateInfo pred_info;
+      pred_info.start_offset_ = zero_val;
+      pred_info.start_predicate_ = SimplifyingIrBuilder::eqExpr(
+          replaced_idx, replaced_idx->fusion()->zeroVal());
+      std::cerr << "Singular predicate: "
+                << pred_info.start_predicate_->toInlineString()
+                << ", id: " << singular_id_info.id->toString() << "\n";
+      pred_info.stop_predicate_ = replaced_idx->fusion()->trueVal();
+      info_vec.emplace_back(pred_info);
+    }
   }
 
   _debug = false;
