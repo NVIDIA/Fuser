@@ -289,7 +289,7 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
 # 1) It disables the @nvfusertest_serde_check decorator. This disables checking
 # that serde round-trips preserve the definition during testing.
 env_var_debug_serde = os.getenv("DEBUG_SERDE", "").lower()
-debug_serde: bool = env_var_debug_serde == "true"
+debug_serde: bool = env_var_debug_serde == "debug"
 disable_serde: bool = env_var_debug_serde == "disable"
 del env_var_debug_serde
 
@@ -330,6 +330,11 @@ def basic_serde_check():
 # binary. Call FusionCache.reset() to clear the cache after running an error
 # test in `test_python_frontend.py'.
 def atexit_serde_check():
+    if disable_serde:
+        # Ignore FusionCache and automatic serialization if serde check is
+        # disabled
+        return
+
     from nvfuser import FusionCache
 
     if not debug_serde:
