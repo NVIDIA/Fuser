@@ -31,6 +31,8 @@ namespace nvfuser {
 
 namespace {
 
+// Get gcd between megabanks and row stride AND repeated pattern size.
+// If gcd is 1, then there is no swizzle is necessary to resolve bank conflicts.
 std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
     TensorView* shared_mem_tv) {
   NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
@@ -265,14 +267,11 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   return {g, repeated_pattern_size};
 }
 
-//! Automatically generates the shared memory swizzled data layout
-//!  for matmul mainloop and epilogue.
-//! The shared mem data layout is always 2D currently, and this utility
-//!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col]
-//! Returns the domain with swizzle. For the case of legacy swizzle, this
-//! domain must be set as loop domain. For the case of new swizzle, this domain
-//! must be set as allocation domain.
+//! Automatically generates the shared memory swizzled data layout for tma loads
+//! in matmul mainloop. The shared memory data layout is always 2D currently.
+//! This utility function assumes that the shared_mem_tv has the following
+//! structure: [tile_row, tile_col]
+//! Returns which swizzle format to use for mma inputs with tma loads.
 MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
 
@@ -297,8 +296,8 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   return MmaInputSmemSwizzle::B128;
 }
 
-//! Automatically generates the shared memory swizzled data layout
-//!  for matmul mainloop and epilogue.
+//! Automatically generates the shared memory swizzled data layout for matmul
+//! epilogue.
 //! The shared mem data layout is always 2D currently, and this utility
 //!  function assumes that the shared_mem_tv has the following structure:
 //!  [tile_row, tile_col]
@@ -1373,7 +1372,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
   }
 
   /*
-  // Disable loop rotation with tma circular buffering
+  // TODO Investigate. Disable loop rotation with tma circular buffering
   if (params_->circular_buffer_options.circular_buffer_smem_read &&
       params_->circular_buffer_options.circular_buffer_smem_write) {
     // rotate Kg loop
