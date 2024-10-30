@@ -939,42 +939,101 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
 
 class RingAllgatherOverlapTest : public MultiDeviceTest {
  protected:
+  OverlapTestParams params;
+
+  int64_t num_devices_;
+  int64_t my_device_index_;
   int64_t number_of_steps_per_ring_, number_of_rings_;
-  at::Tensor src_buffer_, dst_buffer_;
-  at::Tensor ta_reshaped_, tc_reshaped_;
+  std::vector<int64_t> all_devices_;
+  at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
+  at::Tensor tb_;
+  // stores the backend
+  c10d::Backend* world_communicator_;
+
+  // Define I/O and intermediate Tensor shapes
+  std::vector<int64_t> ta_unsharded_sizes;
+  std::vector<int64_t> tb_unsharded_sizes;
+  std::vector<int64_t> tc_unsharded_sizes;
+  std::vector<int64_t> tb_sizes;
 
   void SetUp() {
-    AllgatherOverlapTest::SetUp();
-    if (!communicator_->is_available()) {
-      return;
-    }
+    MultiDeviceTest::SetUp();
+
+    num_devices_ = communicator_->size();
+    my_device_index_ = communicator_->deviceId();
 
     ASSERT_EQ(params.S % num_devices_, 0);
     number_of_steps_per_ring_ = num_devices_;
     number_of_rings_ = params.S / num_devices_;
 
-    ta_reshaped_ = at::reshape(
-        ta_,
-        {number_of_steps_per_ring_,
-         number_of_rings_,
-         params.M / params.S,
-         params.K / num_devices_});
-    tc_reshaped_ =
-        tc_.reshape({number_of_rings_, params.M / params.S, params.N});
+    // Setup the world communicators
+    std::vector<int64_t> devices(num_devices_);
+    std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
+    world_communicator_ =
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
 
-    std::vector<int64_t> buffer_sizes = {
-        number_of_steps_per_ring_,
-        number_of_rings_,
-        params.M / params.S,
-        params.N};
-    src_buffer_ = at::empty(buffer_sizes, gpu_options_);
-    dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
+
+    // A(M, K)
+    // B(K, sharded(N))
+    // C(M, N)
+    ta_unsharded_sizes = std::vector<int64_t>{params.M, params.K};
+    tb_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+    tb_sizes = std::vector<int64_t>{number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+    tc_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.M, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+
+    // Set up input tensors. We create the full unsharded tensors and define the
+    // actual input as the shard corresponding to the current device. Having the
+    // full unsharded input on each rank makes it possible to compute the
+    // expected result locally, hence, this way of doing is convenient for
+    // validating data correctness.
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, gpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
+    tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
+    tb_ = at::empty(tb_sizes, gpu_options);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_unsharded_sizes()=" << ta_unsharded_.sizes() << std::endl
+              << "tb_unsharded_sizes()=" << tb_unsharded_.sizes() << std::endl
+              << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl
+              << "tb_.sizes()="          << tb_.sizes()           << std::endl;
+    }
+  }
+
+  // Each rank calls uniform_ and gets the same values for ta_ and tb_ because
+  // the random seed is initialized the same Therefore, we do not need to have
+  // one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
+  void initializeIO() {
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    tb_.copy_(tb_unsharded_.select(1, my_device_index_));
+  }
+
+  void validate() {
+    // compute the expected output for data correctness validation
+    auto tc_unsharded_expected_ =
+        torch::matmul(ta_unsharded_.cpu(), tb_unsharded_);
+    EXPECT_TRUE(
+        tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained: " << tc_unsharded_
+        << "expected: " << tc_unsharded_expected_;
   }
 };
 
 TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
+
+  auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
+  auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -988,8 +1047,8 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
         // define the sliced tensors
         auto slice_index =
-            (my_device_index_ + j + 1) % number_of_steps_per_ring_;
-        auto ta_j = ta_reshaped_.select(0, slice_index).select(0, i);
+            (my_device_index_ + j) % number_of_steps_per_ring_;
+        auto tb_j = tb_.select(0, slice_index).select(0, i);
         auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
         auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
 
@@ -1013,7 +1072,6 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
       }
     }
     synchronizeStreams(streams);
-    torch::sum_out(tc_reshaped_, dst_buffer_, 0);
   }
 }
 
