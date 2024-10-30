@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 # A workflow to send CI-related helpful information to PRs
-name: pull
+name: push
 on:
   push:
     branches-ignore:
@@ -14,7 +14,7 @@ on:
 run-name: CI status hello ${{ github.sha }}
 jobs:
   status_hello:
-    name: Send a CI hello status
+    name: send CI hello status
     runs-on: ubuntu-latest
     permissions:
       statuses: write
