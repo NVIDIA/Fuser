@@ -700,6 +700,17 @@ class CloneTmaCircularBufferLoopAndInsertSync
     return wait_exprs;
   }
 
+  // If there is already an if-then-else with electSync() predicate, use it.
+  // Otherwise, create a new one.
+  kir::IfThenElse* getElectSyncIfThenElse() {
+    if (elect_sync_if_then_else_ == nullptr) {
+      elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+      for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
+    }
+    return elect_sync_if_then_else_;
+  }
+
   // This function selects a single thread to launch tma load and mbarrier
   // arrive_expected_tx operations. The remaining threads will simply arrive
   // at the mbarrier.
@@ -719,16 +730,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Create the if-then-else with electSync() predicate for the arrive expect
-    // transaction.
-    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+    // Use the if-then-else with electSync() predicate for the arrive expect
+    // and cpAsyncBulk operations.
+    kir::IfThenElse* if_expr = getElectSyncIfThenElse();
 
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
-    for_loop_stack_.back()->body().push_back(if_expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
@@ -840,6 +849,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
+
+  // ElectSync if-then-else for the cloned loop. We put all the circular buffer
+  // load TMA operations under this if-then-else.
+  kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
 
   // The circular buffered TVs for the loop being cloned
   std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
