@@ -384,6 +384,9 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
     // FIXME
     bool compatible_resize = true;
+    auto pos = std::distance(frontier.begin(), it);
+    // project to frontier.
+    frontier[pos] = id_to;
     // I think we still needs to clear left of resize anyway, since vectorization factor can't go across resize.
     frontier.erase(frontier.begin(), compatible_resize ? it : it+1);
     
