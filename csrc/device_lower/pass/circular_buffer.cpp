@@ -707,9 +707,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // If there is already an if-then-else with electSync() predicate, use it.
   // Otherwise, create a new one.
   kir::IfThenElse* getElectSyncIfThenElse() {
-    if (loop_containing_elec_sync_ != for_loop_stack_.back()) {
-      elect_sync_if_then_else_ = nullptr;
-    }
+    // if (loop_containing_elec_sync_ != for_loop_stack_.back()) {
+    //   elect_sync_if_then_else_ = nullptr;
+    // }
     if (elect_sync_if_then_else_ == nullptr) {
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
