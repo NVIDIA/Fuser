@@ -2,6 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+
 # A workflow to trigger ci on hybrid infra (github + self hosted runner)
 name: Nvfuser-CI Trigger
 on:
