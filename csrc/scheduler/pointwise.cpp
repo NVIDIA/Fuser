@@ -700,6 +700,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
       reference_tv->split(0, 1);
       // [outer, Unswitch | i-remainder, TIDx, Vectorization]
+      // Here and in the following comments:
+      // prefix [i] represent inner dimension
+      // prefix [o] represent inner dimension
+      // [|] separates the outer and inner dimensions
       reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
       reference_tv->axis(3)->parallelize(ParallelType::TIDx);
       // Vectorization are propagated separately
@@ -726,7 +730,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       if (pparams->unroll_factor_outer > 1) {
         reference_tv->split(0, pparams->unroll_factor_outer);
       }
-      // [o-remainder, o-Unroll| i-remainder, i-Unroll, TIDx, Vect]
+      // [o-remainder, o-Unroll, | i-remainder, i-Unroll, TIDx, Vect]
 
       reference_tv->split(0, 1);
       // [o-remainder, Unswitch, o-Unroll | i-remainder, i-Unroll, TIDx, Vect]
