@@ -815,6 +815,15 @@ void scheduleReductionCombinedOuter(
     }
   };
   for (auto& outer_reduction_tv : outer_reduction_tvs) {
+    // Similar to the inner reduction, we need to reorder the outer reduction tv
+    // when there are view operations.
+    if (!ir_utils::getViewOps(fusion).empty()) {
+      // Reorder reference_tv after propagating the view operation. This will
+      // reorder for better merging.
+      outer_reduction_tv->reorder(
+          scheduler_utils::domainReorderAsLogicalMap(outer_reduction_tv));
+    }
+
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
