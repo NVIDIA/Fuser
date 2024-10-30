@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import clear_cuda_cache
 from .core import run_benchmark
 import torch
 
@@ -73,8 +72,6 @@ def test_adaptive_layernorm_fwd_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     B = 1
     T = 30 * 1024
     D = 1024
