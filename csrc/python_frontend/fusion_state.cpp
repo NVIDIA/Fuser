@@ -279,6 +279,9 @@ void FusionState::addExtents() {
   std::vector<Val*> extents = getExtents(fusion_);
   for (Val* extent : extents) {
     int64_t num_extents = (int64_t)extents_fid_.size();
+    // Use negative numbers to represent extent of iterDomains to avoid conflict
+    // with non-negative numbers used for scalars, vectors, and tensors.
+    // The extents are ordered based on the order of the fusion's inputs.
     int64_t extent_fid = -num_extents - 1;
     extents_fid_.push_back(extent_fid);
     // The extent can already exist in the fusion. However, since scalars cannot
