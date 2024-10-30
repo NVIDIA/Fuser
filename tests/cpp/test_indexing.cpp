@@ -5167,4 +5167,46 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
   lower.run();
 }
 
+TEST_F(IndexingTest, Issue3299) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> input_shape{128000, 1024};
+  auto tv0 = makeContigConcreteTensor(input_shape);
+  fusion.addInput(tv0);
+
+  std::vector<Val*> reshape_sizes1{
+      IrBuilder::create<Val>(128000L),
+      IrBuilder::create<Val>(8L),
+      IrBuilder::create<Val>(128L)};
+  auto tv1 = reshape(tv0, reshape_sizes1);
+  auto tv2 = permute(tv1, {1, 0, 2});
+  auto tv3 = broadcast(tv2, {false, true, false, false});
+
+  std::vector<Val*> expand_sizes{
+      IrBuilder::create<Val>(-1L),
+      IrBuilder::create<Val>(4L),
+      IrBuilder::create<Val>(-1L),
+      IrBuilder::create<Val>(-1L)};
+  auto tv4 = expand(tv3, expand_sizes);
+
+  std::vector<Val*> reshape_sizes2{
+      IrBuilder::create<Val>(32L),
+      IrBuilder::create<Val>(128000L),
+      IrBuilder::create<Val>(128L)};
+  auto tv5 = reshape(tv4, reshape_sizes2);
+  fusion.addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128000, 1024}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fec.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

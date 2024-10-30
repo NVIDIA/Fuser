@@ -1377,7 +1377,7 @@ IterDomain* getLogicalIDToTraverse(
     const std::vector<Val*>& consumer_all_ids) {
   const auto& logical_ids =
       GpuLower::current()->caMap()->getLogicalDomainsOfIdGroup(
-          id, IdMappingMode::PERMISSIVE);
+          id, IdMappingMode::ALMOSTEXACT);
   if (logical_ids.empty()) {
     return nullptr;
   }
