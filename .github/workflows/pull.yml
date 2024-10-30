@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 # A workflow to send CI-related helpful information to PRs
+name: pull
 on:
   push:
     branches-ignore:
