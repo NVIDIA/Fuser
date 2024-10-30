@@ -60,7 +60,10 @@ def test_many_segment_benchmark(
         # Validate number of segments
         _ = fd.execute(input, profile=True)
         num_segments = fd.profile().segments
-        assert num_segments == 12, f"Expected 11 fusion segments, got {num_segments}"
+        expected_segments = 12
+        assert (
+            num_segments == expected_segments
+        ), f"Expected {expected_segments} fusion segments, got {num_segments}."
 
     if not disable_validation:
         if host_bench_mode == "dynamic":
