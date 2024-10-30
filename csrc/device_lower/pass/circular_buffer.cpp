@@ -534,10 +534,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
           return out_tv == circular_buffer_tv;
         });
 
-    if (!is_circular_buffer_load_expr) {
-      elect_sync_if_then_else_ = nullptr;
-    }
-
     insertMBarrierWaitBeforeFirstRead(expr);
 
     // Handle Short-Circuit conditions
