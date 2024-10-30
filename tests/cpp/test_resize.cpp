@@ -4083,7 +4083,7 @@ TEST_F(ResizeTest, VectorizePadLower) {
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(ResizeTest, VectorizePlayground) {
+TEST_F(ResizeTest, VectorizeFactorFour) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -4095,11 +4095,6 @@ TEST_F(ResizeTest, VectorizePlayground) {
   fusion.addInput(tv0);
 
   auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
-  // const int64_t slice_offset = 4;
-  // auto tv1 = slice(
-  //     tv0,
-  //     {{IrBuilder::create<Val>(slice_offset),
-  //       sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4110,6 +4105,58 @@ TEST_F(ResizeTest, VectorizePlayground) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto ref = at::pad(t0, {4, 4});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, VectorizeFactorTwo) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic reshape
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(2L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::pad(t0, {4, 4});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, UnrollNonInnermost) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L, 1024L});
+
+  // Using a concrete tensor to avoid dynamic reshape
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::pad(t0, {4, 4, 0, 0});
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
