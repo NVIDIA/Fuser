@@ -31,15 +31,8 @@ namespace nvfuser {
 
 namespace {
 
-//! Automatically generates the shared memory swizzled data layout
-//!  for matmul mainloop and epilogue.
-//! The shared mem data layout is always 2D currently, and this utility
-//!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col]
-//! Returns the domain with swizzle. For the case of legacy swizzle, this
-//! domain must be set as loop domain. For the case of new swizzle, this domain
-//! must be set as allocation domain.
-MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
+std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
+    TensorView* shared_mem_tv) {
   NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
   AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
 
@@ -231,7 +224,7 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
 
   int64_t g = std::gcd(num_megabanks, row_stride_znz);
   if (g == 1) {
-    return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
+    return {g, -1}; // No need to swizzle in this case.
   }
 
   /* For the case where stride does not coprime with n, we note that
@@ -266,6 +259,29 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   int64_t repeated_pattern_size = num_megabanks / g;
 
   if (repeated_pattern_size >= n_rows) {
+    return {g, -1}; // No need to swizzle in this case.
+  }
+
+  return {g, repeated_pattern_size};
+}
+
+//! Automatically generates the shared memory swizzled data layout
+//!  for matmul mainloop and epilogue.
+//! The shared mem data layout is always 2D currently, and this utility
+//!  function assumes that the shared_mem_tv has the following structure:
+//!  [tile_row, tile_col]
+//! Returns the domain with swizzle. For the case of legacy swizzle, this
+//! domain must be set as loop domain. For the case of new swizzle, this domain
+//! must be set as allocation domain.
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
+  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
+
+  std::pair<int64_t, int64_t> analysis =
+      analyzeSwizzleSharedMemory(shared_mem_tv);
+  int64_t g = analysis.first;
+  int64_t repeated_pattern_size = analysis.second;
+
+  if (g == 1) {
     return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
   }
 
@@ -330,6 +346,9 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
    * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
    * nearby megabanks in a gigabank has a distance of `g` megabanks
    */
+
+  // 128B swizzle results in 8 x 8 matrix given half precision inputs.
+  constexpr int64_t n_rows = 8;
 
   NVF_ERROR(
       n_rows % repeated_pattern_size == 0,
@@ -407,185 +426,12 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
       "x",
       tile_size_y);
 
-  /* Note [How to remove bank conflict for ldmatrix?]
-   *
-   * **This note is interleaved with code, I suggest reading this note like
-   *   reading a jupyter notebook**
-   *
-   * Our task is to make sure different rows does not fall into the same
-   * bank of shared memory.
-   *
-   * Introduction to bank conflict can be found at page 54-72 of:
-   * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
-   *
-   * When we talk about bank conflict removal, we are talking about the
-   * following task:
-   *   "there are 32 banks, and each bank contains one 4-byte word, we want to
-   *    make sure different lanes in a warp does not access different word
-   *    addresses in the same bank"
-   * For example, if thread 0 is accessing word address 1, and thread 1 is
-   * accessing word address 33, then these two threads will have a bank
-   * conflict because they are accessing different word addresses in the same
-   * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
-   * accessing byte address 6 then there will be no bank conflict because 4
-   * and 6 both belong to word 1.
-   */
+  std::pair<int64_t, int64_t> analysis =
+      analyzeSwizzleSharedMemory(shared_mem_tv);
+  int64_t g = analysis.first;
+  int64_t repeated_pattern_size = analysis.second;
 
-  constexpr int64_t smem_bytes_per_word = 4;
-  constexpr int64_t smem_banks = 32;
-
-  /* but here, for our convenience, because ldmatrix always use vectorized
-   * access of 8 items = 16 bytes = 4 words, we further group words into
-   * units: we consider each 4 words as a "unit", and each 4 banks as a
-   * "megabank". So we can rephrase our task as:
-   *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
-   *    want to make sure different lanes in a warp does not access different
-   *    unit addresses in the same megabank"
-   * In this terminology, matrices are in the row major format, each matrix
-   * has 8 rows, and each row has exactly one unit.
-   */
-
-  constexpr int64_t items_per_unit = n_cols;
-  const int64_t bytes_per_unit = items_per_unit * data_type_size;
-  const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
-  const int64_t num_megabanks = smem_banks / words_per_unit;
-
-  /* In the following example, each CTA tile contains 2 rows and 3 colums of
-   * matrices, each 8x8 size:
-   *   +----------+----------+----------+
-   *   | matrix 0 | matrix 1 | matrix 2 |
-   *   +----------+----------+----------+
-   *   | matrix 3 | matrix 4 | matrix 5 |
-   *   +----------+----------+----------+
-   * The addresses of different rows in the same matrix are offset by 3 units.
-   * In this perspective, loading a matrix is a strided memory access with the
-   * following stride (in units):
-   */
-
-  // number of units per row
-  int64_t row_stride = tile_size_y / items_per_unit;
-
-  /* So the bank conflicting problem is now converted to the following game:
-   *   I have a clock that has one pointer and `num_megabanks` ticks. I start
-   *   my game by making my pointer pointing to somewhere, and turn forward
-   *   the pointer `n_rows` times, each time by `row_stride` ticks.
-   * This problem can be well modeled by modular arithmetic in number theory
-   * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
-   * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
-   * Additions and multiplications are defined in a cyclic manner:
-   *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
-   *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
-   * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
-   *
-   * It worth mention that Z/nZ is a "commutative ring", that is, we can use
-   * addition and multiplication rules just like using normal integers:
-   *   a + b = b + a, a * (b + c) = a * b + a * c, ...
-   * In short, we can reason about Z/nZ just like we are reasoning about
-   * integers, except that every number is automatically "% n".
-   *
-   * Reference:
-   * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
-   * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
-   *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
-   *     we are only interested in non-negative numbers here, so there is no
-   *     need to worry about this problem
-   */
-
-  // row_stride in Z/nZ, where n is num_megabanks:
-  // assert(row_stride >= 0);
-  // assert(num_megabanks >= 0);
-  int64_t row_stride_znz = row_stride % num_megabanks;
-  /* Consider the following function in Z/nZ:
-   *   f(i; init) = init + i * stride
-   * where init is the initial position of the pointer in the clock when we
-   * start the game, and stride is the number of ticks we move forward each
-   * time, and i is the number of times we move forward. For a fixed init, we
-   * abbrivate f(i; init) as f(i).
-   *
-   * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
-   * `init` is the megabank of the 0th row of the matrix.
-   *
-   * One very important property of f(i) is:
-   * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
-   * This property is true because:
-   *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
-   *
-   * The above property tells us, as we turn the clock forward:
-   * - initially, we will go to a never-visited tick in each turn, but,
-   * - at some point, we will return back to our original position, and,
-   * - after we return, we start repeat the pervious pattern again and again.
-   *
-   * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
-   *     i  0 1 2 3 4 5 6 7
-   *   f(i) 0 6 4 2 0 6 4 2
-   * We can see that f(i) is repeating a pattern of four unique numbers
-   * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
-   * different megabanks, and we have a 2-way conflict.
-   *
-   * The question of interest is, does the above observation generalize? That
-   * is, does f(i) always repeat a pattern of p unique numbers q times? Note
-   * that p and q must satisfy p * q = n.
-   *
-   * The answer to the above question is: yes! Consider the following
-   * equation:
-   *    f(i1 + j) == f(i1)
-   * We want to know what is the smallest positive number j that makes the
-   * above equation true. Because this tells us in how many steps we will see
-   * repeat. This equation can be simplified as:
-   *   f(i1 + j) == f(i1) + j * stride == f(i1)
-   *   ==> j * stride == 0
-   *
-   * An important tool to study this equation is multiplicative inverse:
-   * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
-   * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
-   * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
-   * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
-   * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
-   *   (2 * 8) % 15 = 1
-   *
-   * stride has an multiplicative inverse if and only if stride coprime with
-   * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
-   * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
-   * not repeat, that is: there is no bank conflict.
-   */
-
-  int64_t g = std::gcd(num_megabanks, row_stride_znz);
   if (g == 1) {
-    return swizzle_domain; // No need to swizzle in this case.
-  }
-
-  /* For the case where stride does not coprime with n, we note that
-   * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
-   * can write stride and n as:
-   *   stride = s * g, n = m * g
-   * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
-   * have:
-   *   (j * stride) % n = 0
-   *   ==> (j * s) % m * g = 0
-   *   ==> (j * s) % m = 0
-   * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
-   * further get:
-   *   j == 0 (in Z/mZ)
-   * That is, j is a multiple of m in Z. So the smallest positive j that make
-   * the equation hold is n / g.
-   *
-   * That is: f(i) always repeat a pattern of n/g unique numbers g times.
-   * In other word: we are using n/g megabanks, and we have a g-way bank
-   * conflict.
-   *
-   * Let's use the word "pattern" to refer to the set of values of `f` at
-   * different `i`, that is:
-   *   pattern k = { f(i; init=k) | i in Z/nZ }
-   * For the example of stride = 6 under Z/8Z, we have the following patterns
-   *        f(i): 01234567
-   *   pattern 0: x_x_x_x_
-   *   pattern 1: _x_x_x_x
-   *   (x => occupied, _ => unoccupied)
-   */
-
-  int64_t repeated_pattern_size = num_megabanks / g;
-
-  if (repeated_pattern_size >= n_rows) {
     return swizzle_domain; // No need to swizzle in this case.
   }
 
@@ -838,7 +684,6 @@ void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
   smem_operands.resize(operands.size(), nullptr);
   for (size_t i : c10::irange(operands.size())) {
     TensorView* operand = operands[i];
-    CacheOp cache_op = CacheOp::Unspecified;
 
     NVF_ERROR(operand->uses().size() == 1);
     smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
