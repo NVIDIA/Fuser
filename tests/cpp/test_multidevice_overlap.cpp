@@ -1041,34 +1041,26 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
     initializeIO();
 
     for (auto i : c10::irange(number_of_rings_)) {
+      c10::intrusive_ptr<Work> recv_req{NULL};
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
-        // define the sliced tensors
         auto slice_index =
             (my_device_index_ + j) % number_of_steps_per_ring_;
         auto tb_j = tb_.select(0, slice_index).select(0, i);
-        auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
-        auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
 
-        // define the peer ranks
-        auto send_rank = slice_index;
-        auto recv_rank =
-            (number_of_steps_per_ring_ + my_device_index_ - (j + 1)) %
-            number_of_steps_per_ring_;
+        //auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
+        //auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
 
-        // local compute
-        torch::matmul_out(src_buffer_j, ta_j, tb_);
-        // communication
-        std::vector<at::Tensor> src = {src_buffer_j};
+        // recv next index
         std::vector<at::Tensor> dst = {dst_buffer_j};
+        auto next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
 
-        world_communicator_->startCoalescing();
-        // "tags" are not supported by nccl, so set it to 0
-        world_communicator_->send(src, send_rank, 0);
-        world_communicator_->recv(dst, recv_rank, 0);
-        world_communicator_->endCoalescing()->wait();
+        // send & matmul current index
+        std::vector<at::Tensor> src = {src_buffer_j};
+        auto send_req = world_communicator_->send(src, send_rank, 0);
+        torch::matmul_out(src_buffer_j, ta_, tb_j);
       }
     }
     synchronizeStreams(streams);
