@@ -288,9 +288,10 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
 # DEBUG_SERDE=disable
 # 1) It disables the @nvfusertest_serde_check decorator. This disables checking
 # that serde round-trips preserve the definition during testing.
-env_var_debug_serde = os.getenv("DEBUG_SERDE").lower()
+env_var_debug_serde = os.getenv("DEBUG_SERDE", "").lower()
 debug_serde: bool = env_var_debug_serde == "true"
 disable_serde: bool = env_var_debug_serde == "disable"
+del env_var_debug_serde
 
 
 # The pytest framework and test_python_frontend.py use different arguments for
