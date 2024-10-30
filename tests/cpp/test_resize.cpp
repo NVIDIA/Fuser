@@ -4041,4 +4041,45 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Test that we can cat along broadcast dims that have been expanded
+// See https://github.com/NVIDIA/Fuser/issues/3292
+TEST_F(ResizeTest, CatOfEmpty) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({1, 2, 0});
+  auto tv1 = makeConcreteTensor({1, 2, 0});
+  auto tv2 = makeConcreteTensor({1, 2, 3});
+  auto tv3 = makeConcreteTensor({1, 2, 4});
+
+  // Cat of tensors where some non-cat dimensions are zero results in a FullOp
+  // of the proper size
+  auto tv4 = cat({tv0, tv1}, 0);
+  EXPECT_TRUE(tv4->definition() != nullptr);
+  EXPECT_TRUE(tv4->definition()->isA<FullOp>());
+  ASSERT_TRUE(tv4->axis(0)->extent()->isConstScalar());
+  EXPECT_EQ(tv4->axis(0)->extent()->evaluate().as<int64_t>(), 2);
+
+  // Cat of tensors that are all empty in cat dim results in LoadStoreOp of the
+  // first input
+  auto tv5 = cat({tv0, tv1}, 2);
+  EXPECT_TRUE(tv5->definition() != nullptr);
+  EXPECT_TRUE(tv5->definition()->isA<LoadStoreOp>());
+  EXPECT_TRUE(tv5->definition()->input(0) == tv0);
+
+  // Cat of tensors, some empty and some not, results in ignoring the empty
+  // inputs. In this case that leaves only a set op
+  auto tv6 = cat({tv0, tv1, tv2}, 2);
+  EXPECT_TRUE(tv6->definition() != nullptr);
+  EXPECT_TRUE(tv6->definition()->isA<LoadStoreOp>());
+  EXPECT_TRUE(tv6->definition()->input(0) == tv2);
+
+  // Cat of tensors, some empty and some not, results in ignoring the empty
+  // inputs. In this case that leaves us with a CatOp with two inputs
+  auto tv7 = cat({tv0, tv1, tv2, tv3}, 2);
+  EXPECT_TRUE(tv7->definition() != nullptr);
+  EXPECT_TRUE(tv7->definition()->isA<CatOp>());
+  EXPECT_EQ(tv7->definition()->inputs().size(), 2);
+}
+
 } // namespace nvfuser
