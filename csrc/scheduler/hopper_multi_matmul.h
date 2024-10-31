@@ -192,6 +192,11 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // transforms have been applied and inlining
   void setUpCircularBuffering();
 
+  // Map TensorView's iterDomain to its ValGroup.
+  // Then, find the MatmulDimRole for the ValGroup.
+  // Return MatmulDimRole for IterDomain
+  MatmulDimRole findMatmulDimRole(IterDomain* id);
+
  private:
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
 
