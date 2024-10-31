@@ -55,6 +55,9 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
 }
 
+void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
+}
+
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     TensorView* reference,
     const std::vector<IterDomain*>& ids,
@@ -67,6 +70,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
+
+  initializeResizeInfo(reference->fusion());
+
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
@@ -382,23 +388,43 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       return;
     }
 
-    // FIXME
-    bool compatible_resize = true;
     auto pos = std::distance(frontier.begin(), it);
-    // project to frontier.
-    frontier[pos] = id_to;
-    // I think we still needs to clear left of resize anyway, since
-    // vectorization factor can't go across resize.
-    frontier.erase(frontier.begin(), compatible_resize ? it : it + 1);
+    // logic check:
+    // if (resize_in_pad_.count(resize_op) > 0) {
+    if (true) {
+      // project to frontier.
+      frontier[pos] = id_to;
+      // clear left of resize
+      frontier.erase(frontier.begin(), it);
 
-    // Nothing to do unless recording
-    if (!recording_) {
-      return;
+      if (recording_) {
+        if (it+1 == frontier.end()) {
+          // FIXME: real analysis is needed here
+          // TODO: test on a single sided pad.
+          auto consumer_factor = getProjectedExtent(id_from);
+          auto comp = [](Val* factor, Val* extent) {
+            return SymplifyingIrBuilder::whereExpr(
+              SymplifyingIrBuilder::eqExpr(extent, extent->container()->zeroVal()),
+              factor,
+              SymplifyingIrBuilder::gcdExpr(factor, extent),
+          };
+          consumer_factor = comp(consumer_factor, resize_op->leftExpand());
+          consumer_factor = comp(consumer_factor, resize_op->rightExpand());
+          addProjectedExtent(id_to, consumer_factor);
+        } else {
+          // pad vectorization can only be done at fastest dimension, project it to 0 I believe would avoid that.
+          // FIXME: add a test case for me
+          addProjectedExtent(id_to, id_to->container()->zeroVal());
+        }
+      }
+    } else {
+      frontier.erase(frontier.begin(), it + 1);
     }
+
+
 
     // Note: this should be handled differently depending on the semantics of
     // the resize op.
-    addProjectedExtent(id_to, getProjectedExtent(id_from));
   };
 
   // If `from` is [I1, I2, I3, I4], `to` is [I1, I5, I6, I7], where I2 =
