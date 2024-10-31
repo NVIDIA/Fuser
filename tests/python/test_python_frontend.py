@@ -4708,5 +4708,4 @@ fd.execute(inputs)
             T223 = fd.ops.cat([T169, T222], dim=-1, manual_padding=0)
             fd.add_output(T223)
 
-        # is_clonable=False is because translation fails with missing ceilDiv
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=False)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
