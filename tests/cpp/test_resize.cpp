@@ -4192,6 +4192,7 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 }
 
 TEST_F(ResizeTest, Playground) {
+  nvfuser::preseg_passes::OptimizationPassGuard<nvfuser::preseg_passes::MarkAliasesPreparePass> guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
