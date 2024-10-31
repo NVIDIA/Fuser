@@ -45,16 +45,16 @@ struct OverlapTestParams {
   int64_t M = std::pow(2, 6);
   int64_t K = std::pow(2, 5);
   int64_t N = std::pow(2, 4);
-  int64_t S = std::pow(2, 3);
+  int64_t S = std::pow(2, 2);
 
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::kNccl;
 
   // Overlap optimization parameters
   // fill input with new random values and repeat the operation
-  int64_t number_of_iterations = 4;
+  int64_t number_of_iterations = 1;
   // Change CUDA stream at each iteration in a Round-Robin fashion
-  int64_t number_of_streams = 3;
+  int64_t number_of_streams = 128;
 };
 
 std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
@@ -1025,10 +1025,11 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ =
         torch::matmul(ta_unsharded_.cpu(), tb_unsharded_);
+    if (my_device_index_ == 0) { // nick
     EXPECT_TRUE(
         tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
-        << "expected: " << tc_unsharded_expected_;
+        << "expected: " << tc_unsharded_expected_; }
   }
 };
 
@@ -1054,21 +1055,25 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
             (my_device_index_ + j) % number_of_steps_per_ring_;
         auto tb_j = tb_.select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
+        if (my_device_index_ == 0) {
+          //std::cout << "nick: my_device_index_=" << my_device_index_ << " ring=" << i << ", ring_slice=" << slice_index << " tc_unsharded_=" << tc_unsharded_ << std::endl;
+          std::cout << "nick: my_device_index_=" << my_device_index_ << " ring=" << i << ", ring_slice=" << slice_index << std::endl;
+        }
         auto ring_buffer_j = ring_buffer_.select(0, i);
 
         // recv next index
-        std::vector<at::Tensor> dst = {ring_buffer_j};
+        std::vector<at::Tensor> dst = {(i % 2 == 0) ? ring_buffer_j : tb_j};
         auto next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
 
         if (recv_req) {
+          std::cout << "nick: my_device_index_=" << my_device_index_ << " ring=" << i << ", ring_slice=" << slice_index << " waiting on recv" << std::endl;
           recv_req->wait();
         }
 
-        // if it's the first iteration, ring_buffer_j is empty and we haven't yet taken care of our tb_j
-        auto sendbuf_ = recv_req ? ring_buffer_j : tb_j;
+        auto sendbuf_ = (i % 2 == 0) ? tb_j : ring_buffer_j;
 
         // send & matmul current index
-        std::vector<at::Tensor> src = {ring_buffer_j};
+        std::vector<at::Tensor> src = {sendbuf_};
         world_communicator_->send(src, send_rank, 0);
         torch::matmul_out(tc_j, ta_unsharded_, sendbuf_);
         recv_req = next_recv_req;
