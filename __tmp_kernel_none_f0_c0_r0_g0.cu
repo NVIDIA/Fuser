@@ -10842,7 +10842,7 @@ __device__ __inline__ void ParallelReduce<
 }
 
 } // namespace fused_reduction
-__global__ void 
+__global__ void
 __cluster_dims__(1, 2, 1)
 nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, Tensor<__half, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
@@ -10906,6 +10906,8 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     unsigned i24;
     i24 = i9 + (4096 * i21);
     if ((b17 && Hopper::electSync(4294967295U))) {
+      asm volatile("barrier.cluster.arrive;\n");
+      asm volatile("barrier.cluster.wait;\n");
       mbarrier::arriveExpectTX(toSmem((&T7[i21])), 8192U + 4096U);
       #pragma unroll
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
@@ -10934,6 +10936,8 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     unsigned i34;
     i34 = i6 + (8192 * i32);
     if ((b17 && Hopper::electSync(4294967295U))) {
+      asm volatile("barrier.cluster.arrive;\n");
+      asm volatile("barrier.cluster.wait;\n");
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i27) % 4)])), 8192U + 4096U);
       #pragma unroll
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
