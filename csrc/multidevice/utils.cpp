@@ -304,14 +304,6 @@ void shardFrom(TensorView* from_tv) {
 }
 
 void shardBetween(TensorView* from, TensorView* to, TensorView* ref) {
-  // std::unordered_set<TensorView*> tvs = getAllTVsBetween(from, to);
-    // NVF_CHECK(
-    //   DependencyCheck::isDependencyOf(producer, consumer),
-    //   "Compute At expects ",
-    //   producer->name(),
-    //   " is a dependency of ",
-    //   consumer->name(),
-    //   ", however it is not.");
   auto between_vals =
       DependencyCheck::getAllValsBetween({from}, {to});
   auto between_tvs = ir_utils::filterByType<TensorView>(between_vals);
