@@ -4599,7 +4599,7 @@ fd.execute(inputs)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         for out in nvf_out:
-            self.assertTrue(out.allclose(x[:, 1:, 2:]))    
+            self.assertTrue(out.allclose(x[:, 1:, 2:]))
 
     def test_fusion_information(self):
         inputs = [

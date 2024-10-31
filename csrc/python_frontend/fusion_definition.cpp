@@ -354,16 +354,17 @@ std::vector<at::Tensor> FusionDefinition::execute(
   }
 
   EnableOptionsGuard enable_opt_guard;
-  for (auto _enable_option : _enable_options) {
+  for (const auto& _enable_option : _enable_options) {
     std::optional<EnableOption> opt = stringToEnableOption(_enable_option);
     NVF_CHECK(opt.has_value(), "Unrecognized enable_option: ", _enable_option);
     EnableOptionsGuard::getCurOptions().set(opt.value());
   }
 
   DisableOptionsGuard disable_opt_guard;
-  for (auto _disable_option : _disable_options) {
+  for (const auto& _disable_option : _disable_options) {
     std::optional<DisableOption> opt = stringToDisableOption(_disable_option);
-    NVF_CHECK(opt.has_value(), "Unrecognized disable_option: ", _disable_option);
+    NVF_CHECK(
+        opt.has_value(), "Unrecognized disable_option: ", _disable_option);
     DisableOptionsGuard::getCurOptions().set(opt.value());
   }
 
