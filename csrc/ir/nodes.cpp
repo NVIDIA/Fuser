@@ -2593,7 +2593,7 @@ IterDomain* IterDomain::merge(
       } else {
         expanded_extent = mul(outer->expandedExtent(), inner->extent());
       }
-    } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
+    } else if (!outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
       } else {
