@@ -7534,6 +7534,24 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
 }
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
+    const CpAsyncBulkTensorTileG2SIndex<2>& src,
+    uint32_t smem_addr
+    uint16_t ctaMask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster"
+      " [%0], [%1, {%3, %4}], [%2], %5;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "h"(ctaMask)
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<3>& src,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
@@ -10843,7 +10861,7 @@ __device__ __inline__ void ParallelReduce<
 
 } // namespace fused_reduction
 __global__ void
-__cluster_dims__(2, 2, 1)
+__cluster_dims__(1, 2, 1)
 nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, Tensor<__half, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
@@ -10911,7 +10929,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
       mbarrier::arriveExpectTX(toSmem((&T7[i21])), 8192U + 4096U);
       #pragma unroll
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i25)), i22}), toSmem((&T7[i21])) }), (i23 + (2048 * i25)));
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i25)), i22}), toSmem((&T7[i21])) }), (i23 + (2048 * i25)), 3);
       }
       #pragma unroll
       for(nvfuser_index_t i26 = 0; i26 < 2; ++i26) {
@@ -10941,7 +10959,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i27) % 4)])), 8192U + 4096U);
       #pragma unroll
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i25)), i28}), toSmem((&T7[((3 + i27) % 4)])) }), (i30 + (2048 * i25)));
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i25)), i28}), toSmem((&T7[((3 + i27) % 4)])) }), (i30 + (2048 * i25)), 3);
       }
       #pragma unroll
       for(nvfuser_index_t i26 = 0; i26 < 2; ++i26) {
