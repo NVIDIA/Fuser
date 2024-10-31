@@ -10860,6 +10860,18 @@ __device__ __inline__ void ParallelReduce<
 }
 
 } // namespace fused_reduction
+
+
+void prefetch_tma_descriptor(TensorMap const* desc_ptr) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  // Prefetch TMA Descriptor using generic addressing (i.e. no specific state space: const or param)
+  asm volatile (
+    "prefetch.tensormap [%0];"
+    :
+    : "l"(gmem_int_desc)
+    : "memory");
+}
+
 __global__ void
 // __cluster_dims__(1, 2, 1)
 nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, Tensor<__half, 2, 2> T3) {
@@ -10871,6 +10883,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   i3 = -3 + i2;
   const TensorMap* ptr4;
   ptr4 = &var0;
+  prefetch_tma_descriptor(ptr4);
   nvfuser_index_t i5;
   i5 = 256 * ((nvfuser_index_t)blockIdx.x);
   __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 16512);
@@ -10878,6 +10891,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   i6 = toSmem(T5);
   const TensorMap* ptr7;
   ptr7 = &var1;
+  prefetch_tma_descriptor(ptr7);
   nvfuser_index_t i8;
   i8 = 128 * ((nvfuser_index_t)blockIdx.y);
   __half* T4 = reinterpret_cast<__half*>(array + smem_offset + 128);
