@@ -521,6 +521,13 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 } // namespace
 
+MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
+  ValGroup vg = graph_->toGroup(id);
+  auto it = id_roles_.find(vg);
+  NVF_ERROR(it != id_roles_.end());
+  return it->second;
+}
+
 void HopperMultipleMatmulScheduler::run() {
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs
@@ -812,7 +819,8 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
 
 void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
-                            const std::vector<TensorView*>& smem_operands) {
+                            const std::vector<TensorView*>& smem_operands,
+                            MmaOperand operand_type) {
     blockTileTensors(smem_operands);
     for (TensorView* tv : smem_operands) {
       if (params_->promote_prologue_smem_reuse) {
@@ -820,14 +828,19 @@ void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
       MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv);
+      MatmulDimRole inner_dim_role =
+          findMatmulDimRole(tv->getLogicalDomain().back());
 
-      // TODO Reorder last two iterDomains to have (K, M/N) ordering before
+      // Reorder last two iterDomains to have (K, M/N) ordering before
       // running applyMmaSwizzleForTMALoad
+      if (inner_dim_role == MatmulDimRole::K) {
+        tv->reorder({{-1, -2}, {-2, -1}});
+      }
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
-  scheduleBranch(as_, acw_smems_);
-  scheduleBranch(bs_, bcw_smems_);
+  scheduleBranch(as_, acw_smems_, MmaOperand::A);
+  scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
 }
 
 void HopperMultipleMatmulScheduler::scheduleMmaOperands(
