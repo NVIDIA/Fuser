@@ -947,6 +947,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   std::vector<int64_t> all_devices_;
   at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
   at::Tensor tb_;
+  at::Tensor ring_buffer_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -955,6 +956,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   std::vector<int64_t> tb_unsharded_sizes;
   std::vector<int64_t> tc_unsharded_sizes;
   std::vector<int64_t> tb_sizes;
+  std::vector<int64_t> buffer_sizes;
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -985,6 +987,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     tb_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
     tb_sizes = std::vector<int64_t>{number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
     tc_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.M, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+    buffer_sizes = {params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)}; // same as tb_sizes but without the outermost number_of_rings_ dimension TODO: cpp-esque way of initializing this based on tb_sizes?
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -997,7 +1000,8 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     ta_unsharded_ = at::empty(ta_unsharded_sizes, gpu_options);
     tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
     tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
-    tb_ = at::empty(tb_sizes, gpu_options);
+    tb_           = at::empty(tb_sizes, gpu_options);
+    ring_buffer_  = at::empty(buffer_sizes, gpu_options_);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -1048,19 +1052,24 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
         auto slice_index =
             (my_device_index_ + j) % number_of_steps_per_ring_;
-        auto tb_j = tb_.select(0, slice_index).select(0, i);
+        auto tb_j = tb_.select(0, i);
+        auto tc_j = tc_.select(0, slice_index).select(0, i);
 
         //auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
         //auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
 
         // recv next index
-        std::vector<at::Tensor> dst = {dst_buffer_j};
+        std::vector<at::Tensor> dst = {tb_j};
         auto next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
+
+        if (recv_req) {
+          recv_req->wait();
+        }
 
         // send & matmul current index
         std::vector<at::Tensor> src = {src_buffer_j};
         auto send_req = world_communicator_->send(src, send_rank, 0);
-        torch::matmul_out(src_buffer_j, ta_, tb_j);
+        torch::matmul_out(tc_j, ta_, tb_j);
       }
     }
     synchronizeStreams(streams);
