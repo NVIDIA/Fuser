@@ -403,10 +403,10 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
           // TODO: test on a single sided pad.
           auto consumer_factor = getProjectedExtent(id_from);
           auto comp = [](Val* factor, Val* extent) {
-            return SymplifyingIrBuilder::whereExpr(
-              SymplifyingIrBuilder::eqExpr(extent, extent->container()->zeroVal()),
+            return SimplifyingIrBuilder::whereExpr(
+              SimplifyingIrBuilder::eqExpr(extent, extent->container()->zeroVal()),
               factor,
-              SymplifyingIrBuilder::gcdExpr(factor, extent),
+              SimplifyingIrBuilder::gcdExpr(factor, extent));
           };
           consumer_factor = comp(consumer_factor, resize_op->leftExpand());
           consumer_factor = comp(consumer_factor, resize_op->rightExpand());
