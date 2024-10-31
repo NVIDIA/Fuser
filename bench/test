@@ -1,16 +1,16 @@
 #!/bin/bash
-EXPERIMENT=profile
+EXPERIMENT=profile_driver
 DATE=$(date +%Y%m%d-%H%M)
 LOG_BASE="/opt/pytorch/Fuser/bench/logs"
 
 export LOGS="${LOG_BASE}/${EXPERIMENT}_${DATE}"
 
 mkdir -p $LOGS
-LOG_FILE_INFO="${LOGS}/info.txt"
+export LOG_FILE_INFO="${LOGS}/info.txt"
 echo "Writing to $LOG_FILE_INFO" | tee -a $LOG_FILE_INFO
 
 NP=8
-BACKEND=NCCL
+BACKEND=UCC
 S=4
 M=32768
 K=32768
@@ -28,6 +28,7 @@ MPIFLAGS+=" -x UCC_COLL_TRACE=info"
 MPIFLAGS+=" -x UCC_CL_BASIC_TLS=nccl"
 # MPIFLAGS+=" -x NCCL_DEBUG=TRACE" #INFO
 MPIFLAGS+=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
+MPIFLAGS+=" -x UCC_TL_NCCL_SYNC=driver"
 echo "mpi flags: $MPIFLAGS" | tee -a $LOG_FILE_INFO
 
 TEST_CMD="$BUILD_DIRECTORY/test_multidevice --gtest_filter=${GTEST_FILTER}"
