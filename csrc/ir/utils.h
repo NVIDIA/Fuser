@@ -38,8 +38,6 @@ struct MmaOpDetails {
   // Concrete or broadcast axes that are present in all inputs
   //  and output
   AxesData batch_axes;
-  // A placeholder for mma input layout
-  std::optional<MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
