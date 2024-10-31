@@ -293,7 +293,25 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
       num_gigarows % num_gigabanks == 0,
       "Requires non-square swizzle, which is not supported yet");
 
-  return MmaInputSmemSwizzle::B128;
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+  // Extract the constant sizes of the swizzled tile
+  const int64_t inner_dim_size =
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+
+  auto dtype = shared_mem_tv->getDataType().value();
+  const int64_t B128_elements = 128 / dataTypeSize(dtype);
+  const int64_t B64_elements = 64 / dataTypeSize(dtype);
+  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+
+  if (inner_dim_size >= B128_elements) {
+    return MmaInputSmemSwizzle::B128;
+  } else if (inner_dim_size >= B64_elements) {
+    return MmaInputSmemSwizzle::B64;
+  } else if (inner_dim_size >= B32_elements) {
+    return MmaInputSmemSwizzle::B32;
+  } else {
+    NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
+  }
 }
 
 //! Automatically generates the shared memory swizzled data layout for matmul
@@ -801,15 +819,10 @@ void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
         tv->promoteReuse();
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
-      // Basic tma runs correctly with old indexing
-      // tv->axis(-2)->parallelize(ParallelType::Bulk);
-      // tv->axis(-1)->parallelize(ParallelType::Bulk);
-
-      // Swizzle tma requires new indexing;
-      // Requires LdMatrix for correctness
-      // LdMatrix is custom for old indexing
-      // TODO Add new indexing support for LdMatrix
       MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv);
+
+      // TODO Reorder last two iterDomains to have (K, M/N) ordering before
+      // running applyMmaSwizzleForTMALoad
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
