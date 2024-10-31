@@ -10905,9 +10905,9 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     i23 = i6 + (8192 * i21);
     unsigned i24;
     i24 = i9 + (4096 * i21);
+    asm volatile("barrier.cluster.arrive;\n");
+    asm volatile("barrier.cluster.wait;\n");
     if ((b17 && Hopper::electSync(4294967295U))) {
-      asm volatile("barrier.cluster.arrive;\n");
-      asm volatile("barrier.cluster.wait;\n");
       mbarrier::arriveExpectTX(toSmem((&T7[i21])), 8192U + 4096U);
       #pragma unroll
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
@@ -10935,9 +10935,9 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     i33 = i10 + (4096 * i32);
     unsigned i34;
     i34 = i6 + (8192 * i32);
+    asm volatile("barrier.cluster.arrive;\n");
+    asm volatile("barrier.cluster.wait;\n");
     if ((b17 && Hopper::electSync(4294967295U))) {
-      asm volatile("barrier.cluster.arrive;\n");
-      asm volatile("barrier.cluster.wait;\n");
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i27) % 4)])), 8192U + 4096U);
       #pragma unroll
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
