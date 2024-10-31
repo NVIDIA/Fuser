@@ -171,11 +171,15 @@ class DynamicTransformConcretizationInfo {
     return reshape_transforms_;
   }
 
+  //! Holds input extent, left expansion, right expansion
+  using ConcreteResize = std::tuple<int64_t, int64_t, int64_t>;
+
   //! Return a vector of pairs holding the index of each resized IterDomain in
   //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
   //! along with the IterType it should be concretized to.
-  const std::vector<std::pair<int64_t, IterType>>& getResizeIterTypes() const {
-    return resize_itertypes_;
+  const std::vector<std::pair<int64_t, ConcreteResize>>& getResizeExtents()
+      const {
+    return resize_extents_;
   }
 
   //! Return a vector of pairs holding the index of each expanded TensorView in
@@ -261,8 +265,8 @@ class DynamicTransformConcretizationInfo {
 
   //! Holds the index of the resized IterDomain (output of the Resize op) in the
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
-  //! with its concretized IterType
-  std::vector<std::pair<int64_t, IterType>> resize_itertypes_;
+  //! with its concretized input extent, left and right expansions
+  std::vector<std::pair<int64_t, ConcreteResize>> resize_extents_;
 
   //! Holds the index of the expanded TensorView in the vector returned by
   //! initial_info_->getDynamicExpandedTensorViews(), and a corresponding vector

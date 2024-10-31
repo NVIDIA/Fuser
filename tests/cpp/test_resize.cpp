@@ -3629,7 +3629,7 @@ TEST_F(ResizeTest, Chunk_NegativeSize) {
         auto in_tensor = at::randn({13}).cuda();
         fec.runFusionWithInputs({in_tensor});
       },
-      ThrowsMessage<nvfError>(HasSubstr("Invalid resized domain extent")));
+      ThrowsMessage<nvfError>(HasSubstr("Unexpected size of axis: -2")));
 }
 
 TEST_F(ResizeTest, Chunk_SizeZero) {
