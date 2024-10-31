@@ -7535,7 +7535,7 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<2>& src,
-    uint32_t smem_addr
+    uint32_t smem_addr,
     uint16_t ctaMask) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
