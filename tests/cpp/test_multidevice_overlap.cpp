@@ -1018,7 +1018,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   void initializeIO() {
     ta_unsharded_.uniform_();
     tb_unsharded_.uniform_();
-    tb_.copy_(tb_unsharded_.select(1, my_device_index_));
+    tb_.copy_(tb_unsharded_.select(0, my_device_index_));
   }
 
   void validate() {
@@ -1054,20 +1054,21 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
             (my_device_index_ + j) % number_of_steps_per_ring_;
         auto tb_j = tb_.select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
+        auto ring_buffer_j = ring_buffer_.select(0, i);
 
         // recv next index
-        std::vector<at::Tensor> dst = {ring_buffer_};
+        std::vector<at::Tensor> dst = {ring_buffer_j};
         auto next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
 
         if (recv_req) {
           recv_req->wait();
         }
 
-        // if it's the first iteration, ring_buffer_ is empty and we haven't yet taken care of our tb_j
-        auto sendbuf_ = recv_req ? ring_buffer_ : tb_j;
+        // if it's the first iteration, ring_buffer_j is empty and we haven't yet taken care of our tb_j
+        auto sendbuf_ = recv_req ? ring_buffer_j : tb_j;
 
         // send & matmul current index
-        std::vector<at::Tensor> src = {ring_buffer_};
+        std::vector<at::Tensor> src = {ring_buffer_j};
         world_communicator_->send(src, send_rank, 0);
         torch::matmul_out(tc_j, ta_unsharded_, sendbuf_);
         recv_req = next_recv_req;
