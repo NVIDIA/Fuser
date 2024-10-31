@@ -53,7 +53,6 @@ class FusionDefinition(_C._FusionDefinition):
     def __init__(self, id=None, max_length=1024):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
-        self.inputs = None
 
     def __enter__(self):
         return self._setup_definition()
