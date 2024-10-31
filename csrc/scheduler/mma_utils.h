@@ -462,6 +462,19 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
     IdModel& id_model,
     const std::vector<MatmulPattern>& patterns);
 
+// Utility to check concrete static size
+inline void checkConcreteStaticDim(const AbstractId& abs_id) {
+  IterDomain* id = representativeId(abs_id);
+  NVF_ERROR(
+      !id->isBroadcast() && !id->isReduction(),
+      "no support for reduction or broadcast domains, but got ",
+      id->toString());
+  NVF_ERROR(
+      id->extent()->isConstInt(),
+      "swizzled dimension's extend must be known during scheduling, got ",
+      id->toString());
+}
+
 } // namespace mma_utils
 
 std::string toString(const mma_utils::AbstractMatmulTensor& abten);

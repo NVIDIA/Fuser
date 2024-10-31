@@ -733,7 +733,10 @@ TensorView* cat(
   return out;
 }
 
-TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<Slice>& ranges,
+    bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
@@ -744,7 +747,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+  const auto normalize_slice_range = [&manual_normalization](
+                                         Slice range, Val* extent) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
@@ -756,12 +760,14 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.start->isZeroInt()) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
-      range.start = SimplifyingIrBuilder::maxExpr(
-          zero,
-          SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::ltExpr(range.start, zero),
-              SimplifyingIrBuilder::addExpr(range.start, cast_extent),
-              range.start));
+      if (!manual_normalization) {
+        range.start = SimplifyingIrBuilder::maxExpr(
+            zero,
+            SimplifyingIrBuilder::whereExpr(
+                SimplifyingIrBuilder::ltExpr(range.start, zero),
+                SimplifyingIrBuilder::addExpr(range.start, cast_extent),
+                range.start));
+      }
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
@@ -770,14 +776,16 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      range.stop = SimplifyingIrBuilder::maxExpr(
-          range.start,
-          SimplifyingIrBuilder::minExpr(
-              cast_extent,
-              SimplifyingIrBuilder::whereExpr(
-                  SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                  SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
-                  range.stop)));
+      if (!manual_normalization) {
+        range.stop = SimplifyingIrBuilder::maxExpr(
+            range.start,
+            SimplifyingIrBuilder::minExpr(
+                cast_extent,
+                SimplifyingIrBuilder::whereExpr(
+                    SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                    SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                    range.stop)));
+      }
     }
 
     // Ensure step is of type Index
