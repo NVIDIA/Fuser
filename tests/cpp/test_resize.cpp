@@ -4146,7 +4146,7 @@ TEST_F(ResizeTest, UnrollNonInnermost) {
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4156,7 +4156,7 @@ TEST_F(ResizeTest, UnrollNonInnermost) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto ref = at::pad(t0, {4, 4, 0, 0});
+  auto ref = at::pad(t0, {0, 0, 4, 4});
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
@@ -4188,6 +4188,39 @@ TEST_F(ResizeTest, PadAndCacheUses) {
   NVF_CHECK(ref_0.equal(cg_outputs[0]));
 
   auto ref_1 = at::relu(t0);
+  NVF_CHECK(ref_1.equal(cg_outputs[1]));
+}
+
+TEST_F(ResizeTest, Playground) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic reshape
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  fusion.addOutput(tv1);
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(2L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(2L))}});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref_0 = at::pad(t0, {4, 4});
+  NVF_CHECK(ref_0.equal(cg_outputs[0]));
+
+  auto ref_1 = t0.index({at::indexing::Slice(2, shape[0] - 2)});
   NVF_CHECK(ref_1.equal(cg_outputs[1]));
 }
 } // namespace nvfuser

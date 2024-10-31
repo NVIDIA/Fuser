@@ -398,24 +398,18 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       frontier.erase(frontier.begin(), it);
 
       if (recording_) {
-        if (it+1 == frontier.end()) {
-          // FIXME: real analysis is needed here
-          // TODO: test on a single sided pad.
-          auto consumer_factor = getProjectedExtent(id_from);
-          auto comp = [](Val* factor, Val* extent) {
-            return SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::eqExpr(extent, extent->container()->zeroVal()),
-              factor,
-              SimplifyingIrBuilder::gcdExpr(factor, extent));
-          };
-          consumer_factor = comp(consumer_factor, resize_op->leftExpand());
-          consumer_factor = comp(consumer_factor, resize_op->rightExpand());
-          addProjectedExtent(id_to, consumer_factor);
-        } else {
-          // pad vectorization can only be done at fastest dimension, project it to 0 I believe would avoid that.
-          // FIXME: add a test case for me
-          addProjectedExtent(id_to, id_to->container()->zeroVal());
-        }
+        // FIXME: real analysis is needed here
+        // TODO: test on a single sided pad.
+        auto consumer_factor = getProjectedExtent(id_from);
+        auto comp = [](Val* factor, Val* extent) {
+          return SimplifyingIrBuilder::whereExpr(
+            SimplifyingIrBuilder::eqExpr(extent, extent->container()->zeroVal()),
+            factor,
+            SimplifyingIrBuilder::gcdExpr(factor, extent));
+        };
+        consumer_factor = comp(consumer_factor, resize_op->leftExpand());
+        consumer_factor = comp(consumer_factor, resize_op->rightExpand());
+        addProjectedExtent(id_to, consumer_factor);
       }
     } else {
       frontier.erase(frontier.begin(), it + 1);
