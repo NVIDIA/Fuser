@@ -987,7 +987,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     tb_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
     tb_sizes = std::vector<int64_t>{number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
     tc_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.M, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
-    buffer_sizes = {params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)}; // same as tb_sizes but without the outermost number_of_rings_ dimension TODO: cpp-esque way of initializing this based on tb_sizes?
+    buffer_sizes = tb_sizes;
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -1001,7 +1001,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
     tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
     tb_           = at::empty(tb_sizes, gpu_options);
-    ring_buffer_  = at::empty(buffer_sizes, gpu_options_);
+    ring_buffer_  = at::empty(buffer_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -1045,7 +1045,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
     initializeIO();
 
     for (auto i : c10::irange(number_of_rings_)) {
-      c10::intrusive_ptr<Work> recv_req{NULL};
+      c10::intrusive_ptr<c10d::Work> recv_req = nullptr;
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
@@ -1053,26 +1053,28 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
         auto slice_index =
             (my_device_index_ + j) % number_of_steps_per_ring_;
         auto tb_j = tb_.select(0, i);
-        auto tc_j = tc_.select(0, slice_index).select(0, i);
-
-        //auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
-        //auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
+        auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
         // recv next index
-        std::vector<at::Tensor> dst = {tb_j};
+        std::vector<at::Tensor> dst = {ring_buffer_};
         auto next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
 
         if (recv_req) {
           recv_req->wait();
         }
 
+        // if it's the first iteration, ring_buffer_ is empty and we haven't yet taken care of our tb_j
+        auto sendbuf_ = recv_req ? ring_buffer_ : tb_j;
+
         // send & matmul current index
-        std::vector<at::Tensor> src = {src_buffer_j};
-        auto send_req = world_communicator_->send(src, send_rank, 0);
-        torch::matmul_out(tc_j, ta_, tb_j);
+        std::vector<at::Tensor> src = {ring_buffer_};
+        world_communicator_->send(src, send_rank, 0);
+        torch::matmul_out(tc_j, ta_unsharded_, sendbuf_);
+        recv_req = next_recv_req;
       }
     }
     synchronizeStreams(streams);
+    validate();
   }
 }
 
