@@ -10918,9 +10918,9 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   nvfuser_index_t i19;
   i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
   float T2[128];
-  // ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
-  // asm volatile("wgmma.fence.sync.aligned;\n");
-  // asm volatile("fence.proxy.async;\n");
+  ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+  asm volatile("wgmma.fence.sync.aligned;\n");
+  asm volatile("fence.proxy.async;\n");
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
     if ((b17 && Hopper::electSync(4294967295U))) {
   #pragma unroll
