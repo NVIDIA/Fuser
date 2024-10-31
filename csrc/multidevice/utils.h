@@ -107,6 +107,8 @@ void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
     TensorView* ref);
+void shardBetween(TensorView* from, TensorView* to, TensorView* like);
+void shardFrom(TensorView* from_tv);
 
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);
