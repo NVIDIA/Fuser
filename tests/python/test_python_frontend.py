@@ -4601,6 +4601,42 @@ fd.execute(inputs)
         for out in nvf_out:
             self.assertTrue(out.allclose(x[:, 1:, 2:]))
 
+    def test_fusion_information(self):
+        inputs = [
+            torch.ones(2, 4, 8, device="cuda"),
+            torch.ones(2, 4, 8, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c2 = fd.define_scalar(3.0)
+
+            t3 = fd.ops.add(t0, t1)
+            t4 = fd.ops.mul(t3, c2)
+            t5 = fd.ops.sum(t4, [-1], False, DataType.Float)
+
+            fd.add_output(t5)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.sum((inputs[0] + inputs[1]) * 3.0, dim=-1)
+        self.assertEqual(eager_out, nvf_out[0])
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        nvf_out1 = fd.execute(inputs)
+        self.assertEqual(eager_out, nvf_out1[0])
+
+        # The input tensors are t0 and t1.
+        self.assertEqual(fd.inputs(), [0, 1])
+        # The output tensors is t5.
+        self.assertEqual(fd.outputs(), [5])
+        # The extents correspond with the dimensions for each input tensor.
+        # There are two input tensors with three dimensions each, so the
+        # extents range from [-1, -6].
+        self.assertEqual(fd.extents(), [idx for idx in range(-1, -7, -1)])
+
     def test_issue_3292(self):
         inputs = [
             torch.testing.make_tensor(
