@@ -448,10 +448,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       : ceilDiv(n_elems / max_vect_factor, kThreadX);
   int64_t n_waves_wo_unroll =
       ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
-  int64_t n_elems_limited_unroll =
-      scheduler_utils::roundUpPow2(ceilDiv(n_waves_wo_unroll, target_waves));
+  int64_t n_elems_limited_unroll = scheduler_utils::safeDiv(n_waves_wo_unroll, target_waves);
   std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
             << " empirical_unroll: " << empirical_unroll
+            << " total_blocks: " << total_blocks
+            << " total_blocks: " << total_blocks
             << " total_blocks: " << total_blocks
             << " n_waves_wo_unroll: " << n_waves_wo_unroll << std::endl;
   // limit unroll factor to ensure we have enough blocks for thread level
