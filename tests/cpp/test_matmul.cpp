@@ -140,6 +140,69 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+// Single batch dimension which is broadcast
+TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  // Broadcast inputs to 1, M, 1, K and 1, 1, N, K
+  tv0 = broadcast(tv0, {true, false, false, false});
+  tv1 = broadcast(tv1, {true, false, false, false});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(
+          &fusion,
+          {inputs.first, inputs.second},
+          LaunchParams(),
+          matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  ASSERT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(fe.kernel()));
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref =
+      atMatmul(
+          inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout)
+          .unsqueeze(0);
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -3607,7 +3670,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
@@ -3615,7 +3678,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
-  const int64_t cta_m = 1 * getM(macro);
+  const int64_t cta_m = 2 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
