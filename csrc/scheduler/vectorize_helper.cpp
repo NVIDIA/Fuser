@@ -56,6 +56,7 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
 }
 
 void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
+  auto exprs = fusion->exprs();
   for (auto* pad_op : ir_utils::filterByType<PadOp>(exprs)) {
     if (!pad_op->out()->isA<TensorView>()) {
       continue;
@@ -64,16 +65,15 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
     auto* out_tv = pad_op->out()->as<TensorView>();
     
     auto consumer_exprs = StmtSort::getExprsBetween(
-      fusion,
       {out_tv->getMaybeRootDomain().begin(), out_tv->getMaybeRootDomain().end()},
       {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
 
     // NOTE: if we can assume that PadOp is always on inputs, then we can skip to innermost resize instead.
     auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
     std::copy(
-      reszie_ops.begin(),
-      reszie_ops.end(),
-      std::back_inserter(resize_in_pad_));
+      resize_ops.begin(),
+      resize_ops.end(),
+      std::inserter(resize_in_pad_, resize_in_pad.end()));
   }
 }
 
