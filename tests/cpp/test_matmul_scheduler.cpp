@@ -3076,7 +3076,7 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
 }
 
 TEST_F(MatmulSchedulerTest, HSH_TT) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -3150,7 +3150,7 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
 }
 
 TEST_F(MatmulSchedulerTest, HSH_TN) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -3221,7 +3221,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
 }
 
 TEST_F(MatmulSchedulerTest, HSH_NT) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -3296,7 +3296,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
 }
 
 TEST_F(MatmulSchedulerTest, HSH_NN) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
