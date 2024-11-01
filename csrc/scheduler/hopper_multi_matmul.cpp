@@ -632,11 +632,10 @@ void HopperMultipleMatmulScheduler::addSetsForCacheReads(
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
         ldst && tv_smem->uses().size() == 1) {
       tv_r = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
     } else {
       tv_r = cacheAfter(
           tv_smem,
-          LoadStoreOpType::LdMatrix,
+          LoadStoreOpType::Set,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
     }
