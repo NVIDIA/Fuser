@@ -666,17 +666,19 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
   EXPECT_GT(getVecSizeForPointwise(fec), 1);
 }
 
-using VectUnrollFactors = std::tuple<int64_t, int64_t, int64_t>;
+// vectorization factor, inner unroll factor, outer unroll factor, bcast dim.
+using VectUnrollFactors = std::tuple<int64_t, int64_t, int64_t, int64_t>;
 using PointwiseParamsTest = NVFuserFixtureParamTest<VectUnrollFactors>;
 TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
+  auto [vect_factor, unroll_inner, unroll_outer, bcast_dim] = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-
   auto tv0 = makeContigTensor(2);
   auto tv1 = makeContigTensor(1);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  auto tv2 = broadcast(tv1, {true, false});
+  auto tv2 = broadcast(
+      tv1, {bcast_dim == 0 ? true : false, bcast_dim == 0 ? false : true});
   auto tv3 = add(tv0, tv2);
   fusion->addOutput(tv3);
 
@@ -684,7 +686,7 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   int dim1 = 2048;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
-  auto t1 = at::randn({dim1}, options);
+  auto t1 = at::randn({bcast_dim == 0 ? dim1 : dim0}, options);
   std::vector<c10::IValue> runtime_inputs{t0, t1};
 
   // Generate heuristics
@@ -698,7 +700,6 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   // Modify heuristics to enforce unroll on top of vectorization
 
   // Set unroll factors from test parameters
-  auto [vect_factor, unroll_inner, unroll_outer] = GetParam();
   pparams->unroll_factor_inner = unroll_inner;
   pparams->unroll_factor_outer = unroll_outer;
   pparams->vectorization_factor = vect_factor;
@@ -720,13 +721,15 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         testing::Values(1, 4), // vectorization factors
         testing::Values(1, 2), // inner unroll factors
-        testing::Values(1, 2) // outer unroll factors
+        testing::Values(1, 2), // outer unroll factors
+        testing::Values(0, 1) // broadcast dim
         ),
     [](const testing::TestParamInfo<VectUnrollFactors>& info) -> std::string {
       std::stringstream ss;
       ss << "vect_" << std::get<0>(info.param);
       ss << "_inner_unroll_" << std::get<1>(info.param);
       ss << "_outer_unroll_" << std::get<2>(info.param);
+      ss << "_bcast_dim_" << std::get<3>(info.param);
       return sanitizeTestName(ss.str());
     });
 } // namespace nvfuser
