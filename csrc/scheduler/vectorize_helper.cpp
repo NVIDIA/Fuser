@@ -56,6 +56,25 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
 }
 
 void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
+  for (auto* pad_op : ir_utils::filterByType<PadOp>(exprs)) {
+    if (!pad_op->out()->isA<TensorView>()) {
+      continue;
+    }
+
+    auto* out_tv = pad_op->out()->as<TensorView>();
+    
+    auto consumer_exprs = StmtSort::getExprsBetween(
+      fusion,
+      {out_tv->getMaybeRootDomain().begin(), out_tv->getMaybeRootDomain().end()},
+      {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
+
+    // NOTE: if we can assume that PadOp is always on inputs, then we can skip to innermost resize instead.
+    auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
+    std::copy(
+      reszie_ops.begin(),
+      reszie_ops.end(),
+      std::back_inserter(resize_in_pad_));
+  }
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
@@ -372,8 +391,9 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   };
 
   auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
-    // on top of the usual thing -> offset/size of tensor that could impact
-    // vectorization factor. slice -> check offset. pad -> check pad size.
+    // on top of the usual thing -> offset of tensor could impact vectorization factor on the loading inputs.
+    // But we shouldn't use that to block the propagation.
+    // we'll resolve it in getTvToContigMergeOfInnerSizeMap when we compute the actual vectorization factor.
 
     // does index of the resize dimension matter?
     // pad we can only support innermost dimensions. (Unless we lift the
@@ -389,9 +409,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
 
     auto pos = std::distance(frontier.begin(), it);
-    // logic check:
-    // if (resize_in_pad_.count(resize_op) > 0) {
-    if (true) {
+    if (resize_in_pad_.count(resize_op) == 0) {
       // project to frontier.
       frontier[pos] = id_to;
       // clear left of resize
@@ -414,9 +432,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       frontier.erase(frontier.begin(), it + 1);
     }
-
-
-
     // Note: this should be handled differently depending on the semantics of
     // the resize op.
   };
