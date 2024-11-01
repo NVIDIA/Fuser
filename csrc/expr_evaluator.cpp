@@ -60,7 +60,8 @@ void validateValWithConcreteValue(
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getMaybeAllocationDomain())
+            .size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -133,21 +134,22 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto alloc_domain =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   NVF_ERROR(
-      t.dim() == (int64_t)logical_domain.size(),
+      t.dim() == (int64_t)alloc_domain.size(),
       "Expected ",
       getInputPosString(tv),
       tv->toString(),
       ", to be bound to a tensor of rank ",
-      logical_domain.size(),
+      alloc_domain.size(),
       ", but got a tensor of rank ",
       t.dim());
   for (auto i : c10::irange(t.dim())) {
-    auto id = logical_domain[i];
+    auto id = alloc_domain[i];
     if (id->isBroadcast()) {
       // DIDs are ignored for broadcast.
-      bind_(logical_domain[i]->extent(), 1, evaluate_validate);
+      bind_(alloc_domain[i]->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
@@ -164,11 +166,10 @@ void ExpressionEvaluator::bindTensorDomain(
             t.stride(i),
             " in dimension ",
             i);
-        bind_(
-            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+        bind_(alloc_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
       }
     } else {
-      if (logical_domain[i]->isDeviceDim()) {
+      if (alloc_domain[i]->isDeviceDim()) {
         // Currently we have the restrictions:
         // (1) Devices parallelized axis extent == DeviceMesh's extent
         // (2) Device parallelized axis cannot be split or merged
@@ -191,12 +192,12 @@ void ExpressionEvaluator::bindTensorDomain(
             getInputPosString(tv),
             " has an empty DeviceMesh with DID parallelization")
         bind_(
-            logical_domain[i]->extent(),
+            alloc_domain[i]->extent(),
             static_cast<int64_t>(
-                tv->getDeviceMesh().size(logical_domain[i]->getParallelType())),
+                tv->getDeviceMesh().size(alloc_domain[i]->getParallelType())),
             evaluate_validate);
       } else {
-        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
+        bind_(alloc_domain[i]->extent(), t.size(i), evaluate_validate);
       }
     }
   }

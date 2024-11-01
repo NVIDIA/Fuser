@@ -291,18 +291,14 @@ inferAndValidateAllocationSizesAndStrides(
   }
   const auto& alloc =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& logical = TensorDomain::noReductions(tv->getLogicalDomain());
 
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  NVF_ERROR((int64_t)logical.size() == tensor.dim());
-  for (int64_t i : c10::irange((int64_t)logical.size())) {
-    auto rf_id = logical.at(i);
-    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+  NVF_ERROR((int64_t)alloc.size() == tensor.dim());
+  for (const auto i : c10::irange(alloc.size())) {
+    IterDomain* alloc_id = alloc.at(i);
+    active_ids[alloc_id] = {tensor.size(i), tensor.stride(i)};
   }
-
-  ForwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
-  BackwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
@@ -310,7 +306,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> strides;
   sizes.reserve(alloc.size());
   strides.reserve(alloc.size());
-  for (auto i : c10::irange(alloc.size())) {
+  for (const auto i : c10::irange(alloc.size())) {
     auto id = alloc.at(i);
     sizes.emplace_back(active_ids.at(id).first);
     strides.emplace_back(active_ids.at(id).second);

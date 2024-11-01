@@ -10,6 +10,7 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <ir/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
@@ -662,49 +663,6 @@ class BackwardTraverseFromAllocToLogical {
   }
 };
 
-// Start from a tensor whose dimensions are consistent with the allocation
-// domain of tv, apply a sequence of view/permute to the tensor to transform it
-// into a format whose dimensions are consistent with the logical domain of tv.
-// For example, if the logical domain is [I1, I2], and the allocation domain is
-// [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
-// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
-// Another example, if the logical domain is [I1*I2] and the allocation domain
-// is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
-// get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformFromAllocationToLogical(
-    at::Tensor tensor,
-    TensorView* tv,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
-  // Ignore reductions because reductions does not exist in tensor's definition
-  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
-  auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  // Traverse all affine transformations from allocation domain. Because
-  // allocation domain can be before or after the logical domain, we need both a
-  // forward and a backward traverse.
-  std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
-  NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
-  tensor = ForwardTraverseFromAllocToLogical(tensor, ee, frontier)
-               .run(logical, alloc);
-  tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
-               .run(logical, alloc);
-  NVF_ERROR(frontier.size() == logical.size());
-  // Now that all affine transformations are handled, and frontiers should
-  // contain the same set of IDs as logical. We still need to do a final
-  // permutation so that their orders are also consistent.
-  std::unordered_map<IterDomain*, int64_t> current_dims;
-  int64_t counter = 0;
-  for (auto id : frontier) {
-    current_dims[id] = counter++;
-  }
-  std::vector<int64_t> dims;
-  dims.reserve(frontier.size());
-  for (auto id : logical) {
-    dims.emplace_back(current_dims.at(id));
-  }
-  return tensor.permute(dims);
-}
-
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
@@ -748,11 +706,53 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
   auto meta_tensor =
       at::empty_strided(size_stride.first, size_stride.second, options);
-  // TODO(jiej): we should refactor it here, there's no need to use
-  // meta_tensor at all, size + stride should be used directly in the
-  // `transformFromAllocationToLogical`
-  meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+}
+
+at::Tensor transformFromAllocationToLogical(
+    at::Tensor tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee) {
+  FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
+  // Ignore reductions because reductions does not exist in tensor's definition
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  // Traverse all affine transformations from allocation domain. Because
+  // allocation domain can be before or after the logical domain, we need both a
+  // forward and a backward traverse.
+  std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
+  NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
+  tensor = ForwardTraverseFromAllocToLogical(tensor, ee, frontier)
+               .run(logical, alloc);
+  tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
+               .run(logical, alloc);
+  NVF_ERROR(frontier.size() == logical.size());
+  // Now that all affine transformations are handled, and frontiers should
+  // contain the same set of IDs as logical. We still need to do a final
+  // permutation so that their orders are also consistent.
+  std::unordered_map<IterDomain*, int64_t> current_dims;
+  int64_t counter = 0;
+  for (auto id : frontier) {
+    current_dims[id] = counter++;
+  }
+  std::vector<int64_t> dims;
+  dims.reserve(frontier.size());
+  for (auto id : logical) {
+    dims.emplace_back(current_dims.at(id));
+  }
+  return tensor.permute(dims);
+}
+
+at::Tensor transformFromLogicalToAllocation(at::Tensor tensor, TensorView* tv) {
+  FUSER_PERF_SCOPE("allocations::transformLogicalToAllocation");
+  // Ignore reductions because reduction dimensions are not allocated in
+  // `tensor`.
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+
+  std::vector<int64_t> permutation =
+      *ir_utils::computePermutation(logical, alloc);
+  return tensor.permute(permutation);
 }
 
 } // namespace nvfuser

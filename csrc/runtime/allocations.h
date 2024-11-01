@@ -77,4 +77,20 @@ std::vector<GlobalBufferInfo> getBufferInfos(
     DataType index_dtype,
     const std::vector<Val*>& fusion_outputs);
 
+// Start from a tensor whose dimensions are consistent with the allocation
+// domain of tv, apply a sequence of view/permute to the tensor to transform it
+// into a format whose dimensions are consistent with the logical domain of tv.
+// For example, if the logical domain is [I1, I2], and the allocation domain is
+// [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
+// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
+// Another example, if the logical domain is [I1*I2] and the allocation domain
+// is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
+// get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
+at::Tensor transformFromAllocationToLogical(
+    at::Tensor tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee);
+
+at::Tensor transformFromLogicalToAllocation(at::Tensor tensor, TensorView* tv);
+
 } // namespace nvfuser
