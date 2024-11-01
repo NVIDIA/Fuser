@@ -333,125 +333,244 @@ int64_t computePeakMemory(
 // order reaches its final length, we backtrack until we're able to select the
 // next group on the stack.
 //
+// We can view this as a depth-first traversal of a tree whose nodes correspond
+// to choices of which group to run next. There is an out-edge from each node to
+// each eligible group and each leaf has depth equal to the total number of
+// groups in the segmented fusion. Moving from one node to the next means
+// removing one eligible group (the one corresponding to that node) and
+// posssibly adding more eligible groups (the ones whose in-degree would become
+// zero after removal of that group). Likewise if we move backwards along an
+// edge we can undo changes to the eligible set by adding to the in-degrees and
+// removing any groups whose in-degrees were zero before removal of that edge's
+// node. Then we add the group corresponding to the node we selected in the
+// forward traversal of that edge. This lets us move forward and backward
+// easily. Importantly, it lets us track our position and backtrack,
+// facilitating an efficient traversal of this tree.
+//
 // By default, we preserve chains, meaning that neighboring nodes with in-degree
 // at most one and out-degree at most one are kept adjacent in the returned
 // order. In some fusions this can dramatically reduce the number of orderings
 // we need to search, and it is typically a useful constraint since it
 // encourages L2 locality by immediately consuming the outputs of the previous
 // group for those chain segments.
-std::tuple<std::vector<SegmentedGroup*>, int64_t, bool>
-tryExhaustiveRuntimeOrder(
-    const SegmentedFusion* segmented_fusion,
-    bool preserve_chains = true,
-    const int64_t max_runtime_ms = 0) {
-  // Record the size group of each TensorView
-  std::unordered_map<TensorView*, int64_t> tensor_size;
-  ExpressionEvaluator expr_eval;
-  const auto recordTvSize = [&expr_eval, &tensor_size](TensorView* tv) {
-    if (tensor_size.find(tv) != tensor_size.end()) {
-      return;
-    }
-    int64_t size = 1;
-    for (IterDomain* id : tv->getMaybeAllocationDomain()) {
-      if (id->isBroadcast() || id->isReduction()) {
-        continue;
+class BruteForceRuntimeOrderOptimizer {
+ public:
+  static std::tuple<std::vector<SegmentedGroup*>, int64_t, bool> run(
+      const SegmentedFusion* segmented_fusion,
+      bool preserve_chains = true,
+      const int64_t max_runtime_ms = 100) {
+    BruteForceRuntimeOrderOptimizer opt(
+        segmented_fusion->groups(), preserve_chains, max_runtime_ms);
+    opt.measureAllOrderings();
+
+    NVF_ERROR(opt.best_run_order_.size() == opt.groups_.size());
+
+    return {opt.best_run_order_, opt.best_peak_memory_, opt.complete_};
+  }
+
+ private:
+  BruteForceRuntimeOrderOptimizer(
+      const std::vector<SegmentedGroup*>& groups,
+      bool preserve_chains,
+      const int64_t max_runtime_ms)
+      : groups_(groups),
+        preserve_chains_(preserve_chains),
+        max_runtime_ms_(max_runtime_ms) {
+    best_run_order_.reserve(groups.size());
+    run_order_.reserve(groups.size());
+
+    computeGroupIdMapping();
+
+    computeInDegrees();
+
+    computeTensorSizes();
+  }
+
+  void measureAllOrderings() {
+    NVF_ERROR(
+        !preserve_chains_, "Chain-preserving traversal is not yet implemented");
+
+    complete_ = false;
+    start_time_ = std::chrono::high_resolution_clock::now();
+
+    // Fill available groups
+    for (size_t group_id : c10::irange(groups_.size())) {
+      if (in_degree_[group_id] == 0) {
+        available_groups_.push_back(groups_[group_id]);
       }
-      PolymorphicValue extent = expr_eval.evaluate(id->extent());
-      // If we can't evaluate the extent, just assume it's 2. This is the
-      // smallest non-zero size for an Iteration axis.
-      size *= extent.hasValue() ? extent.as<int64_t>() : 2;
     }
-    size *= dataTypeSize(tv->dtype());
-    tensor_size[tv] = size;
-  };
-  for (SegmentedGroup* group : segmented_fusion->groups()) {
-    for (Val* val : group->inputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(val)) {
-        recordTvSize(tv);
+
+    run_order_.clear();
+    current_coords_.clear();
+    current_coords_.push_back(0);
+
+    while (!available_groups_.empty()) {
+      // Get next available group.
+      NVF_ERROR(!current_coords_.empty());
+      size_t current_index = current_coords_.back();
+
+      NVF_ERROR(current_index < current_coords_.size());
+      SegmentedGroup* next_group = available_groups_.at(current_index);
+      // Remove this group from the list of available groups
+      available_groups_.erase(
+          available_groups_.begin() + (ssize_t)current_index);
+      run_order_.push_back(next_group);
+
+      // Update in-degrees of all neighbors as if we deleted next_group
+      for (const SegmentedEdge* edge : next_group->consumer_edges) {
+        SegmentedGroup* neighbor_group = edge->to;
+        int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
+        if (--deg == 0) {
+          available_groups_.push_back(neighbor_group);
+        }
+      }
+
+      if (available_groups_.empty()) {
+        // We've reached a leaf node in the DFS tree, meaning we have completed
+        // an ordering
+        NVF_ERROR(
+            run_order_.size() == groups_.size(),
+            "No more available groups but runtime order is not complete. ",
+            "Expected ",
+            groups_.size(),
+            " groups in order but found ",
+            run_order_.size(),
+            ". run_order: ",
+            run_order_);
+        int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
+        std::cout << " Checking memory of run order ";
+        for (SegmentedGroup* group : run_order_) {
+          std::cout << " " << group_id_map_.at(group);
+        }
+        std::cout << std::endl;
+        if (best_peak_memory_ == -1 || peak_memory < best_peak_memory_) {
+          std::cout << " Found new best run order with peak memory "
+                    << peak_memory << std::endl;
+          best_peak_memory_ = peak_memory;
+          best_run_order_ = run_order_;
+        }
+
+        // Now backtrack to the most recent point at which we still have choices
+        // left to make
+        while (!run_order_.empty()) {
+          size_t& most_recent_index = current_coords_.back();
+          // SegmentedGroup* most_recent_group = run_order_.back();
+          run_order_.pop_back();
+          // Here we will undo the deletion of "most_recent_group". This means
+          // we need to update in-degrees of consumer groups, remove those that
+          // are no longer available, then insert the most recent group it back
+          // into available_groups at the specified position
+
+          // Now increment the last coordinate. If this causes us to move beyond
+          // the last element of available_groups then we are done processing
+          // this level's subtree, so remove this coordinate and loop to move up
+          // another level in the tree.
+
+          NVF_ERROR(most_recent_index < available_groups_.size());
+          if (++most_recent_index == available_groups_.size()) {
+            current_coords_.back();
+          }
+          current_coords_.pop_back();
+          break;
+        }
+        if (run_order_.empty()) {
+          // We've reached the end of the DFS traversal if we backtrack all the
+          // way out
+          break;
+        }
+      } else {
+        // The ordering is not yet complete. Move to next level
+        current_coords_.push_back(0);
+      }
+
+      // Return early if we have reached the time limit
+      int64_t elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::high_resolution_clock::now() - start_time_)
+              .count();
+      if (elapsed >= max_runtime_ms_ && best_peak_memory_ != -1) {
+        return;
       }
     }
-    for (Val* val : group->outputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(val)) {
-        recordTvSize(tv);
+
+    complete_ = true;
+  }
+
+  // Record the size of each TensorView. Symbolic sizes will be assumed to be 2
+  void computeTensorSizes() {
+    ExpressionEvaluator expr_eval;
+    const auto recordTvSize = [&](TensorView* tv) {
+      if (tensor_size_.find(tv) != tensor_size_.end()) {
+        return;
+      }
+      int64_t size = 1;
+      for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+        if (id->isBroadcast() || id->isReduction()) {
+          continue;
+        }
+        PolymorphicValue extent = expr_eval.evaluate(id->extent());
+        // If we can't evaluate the extent, just assume it's 2. This is the
+        // smallest non-zero size for an Iteration axis.
+        size *= extent.hasValue() ? extent.as<int64_t>() : 2;
+      }
+      size *= dataTypeSize(tv->dtype());
+      tensor_size_[tv] = size;
+    };
+    for (SegmentedGroup* group : groups_) {
+      for (Val* val : group->inputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(val)) {
+          recordTvSize(tv);
+        }
+      }
+      for (Val* val : group->outputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(val)) {
+          recordTvSize(tv);
+        }
       }
     }
   }
 
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
-  auto start = std::chrono::high_resolution_clock::now();
-
-  std::vector<SegmentedGroup*> best_run_order;
-  int64_t best_peak_memory = -1;
-
-  const std::vector<SegmentedGroup*>& groups = segmented_fusion->groups();
-  // TODO: Would it be safe to just use group->groupId() instead of building
-  // this mapping?
-  std::unordered_map<SegmentedGroup*, size_t> group_id_map;
-  for (size_t group_id : c10::irange(groups.size())) {
-    group_id_map[groups[group_id]] = group_id;
+  void computeGroupIdMapping() {
+    for (size_t group_id : c10::irange(groups_.size())) {
+      group_id_map_[groups_[group_id]] = group_id;
+    }
   }
+
+  void computeInDegrees() {
+    in_degree_.resize(groups_.size(), 0ll);
+    for (const SegmentedGroup* group : groups_) {
+      for (const SegmentedEdge* edge : group->consumer_edges) {
+        in_degree_[group_id_map_[edge->to]]++;
+      }
+    }
+  }
+
+ private:
+  const std::vector<SegmentedGroup*>& groups_;
+  bool preserve_chains_;
+  const int64_t max_runtime_ms_;
+
+  std::unordered_map<TensorView*, int64_t> tensor_size_;
+  std::unordered_set<Val*> available_input_;
+
+  std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+
+  std::unordered_map<SegmentedGroup*, size_t> group_id_map_;
 
   // This tracks in-degree of each group after the nodes in the currently
   // selected runtime order have been removed.
-  std::vector<int64_t> in_degree(groups.size(), 0ll);
-  for (const SegmentedGroup* group : groups) {
-    for (const SegmentedEdge* edge : group->consumer_edges) {
-      in_degree[group_id_map[edge->to]]++;
-    }
-  }
+  std::vector<int64_t> in_degree_;
 
-  // This is the collection of available groups that we can consider running
-  // next.
-  std::vector<SegmentedGroup*> next_groups;
-  std::vector<SegmentedGroup*> run_order;
-  run_order.reserve(groups.size());
-  for (size_t group_id : c10::irange(groups.size())) {
-    if (in_degree[group_id] == 0) {
-      next_groups.push_back(groups[group_id]);
-    }
-  }
+  std::vector<SegmentedGroup*> available_groups_;
 
-  while (!next_groups.empty()) {
-    // Return early if we have reached the time limit
-    int64_t elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          std::chrono::high_resolution_clock::now() - start)
-                          .count();
-    if (elapsed >= max_runtime_ms && best_peak_memory != -1) {
-      return {best_run_order, best_peak_memory, false};
-    }
+  std::vector<SegmentedGroup*> run_order_;
+  std::vector<size_t> current_coords_;
 
-    // Get next available group.
-    SegmentedGroup* next_group = next_groups.back();
-    next_groups.pop_back();
+  std::vector<SegmentedGroup*> best_run_order_;
+  int64_t best_peak_memory_ = -1;
 
-    // TODO: backtrack until we are able to add next_group
-
-    run_order.push_back(next_group);
-    // Update in-degrees of all neighbors as if we deleted next_group
-    for (const SegmentedEdge* edge : next_group->consumer_edges) {
-      SegmentedGroup* neighbor_group = edge->to;
-      int64_t& deg = in_degree[group_id_map[neighbor_group]];
-      if (--deg == 0) {
-        next_groups.push_back(neighbor_group);
-      }
-    }
-    if (run_order.size() == groups.size()) {
-      int64_t peak_memory = computePeakMemory(run_order, tensor_size);
-      if (best_peak_memory == -1 || peak_memory < best_peak_memory) {
-        std::cout << " Found new best run order with peak memory "
-                  << peak_memory << std::endl;
-        best_peak_memory = peak_memory;
-        best_run_order = run_order;
-      }
-    }
-  }
-
-  NVF_ERROR(best_run_order.size() == groups.size());
-
-  return {best_run_order, best_peak_memory, true};
-}
+  bool complete_ = false;
+};
 
 } // namespace
 
@@ -478,7 +597,9 @@ void prepareRuntimeOrder(
   std::tie(
       runtime_workspace.group_run_order,
       search_peak_memory_bytes,
-      search_completed) = tryExhaustiveRuntimeOrder(segmented_fusion);
+      search_completed) =
+      BruteForceRuntimeOrderOptimizer::run(
+          segmented_fusion, /*preserve_chains=*/false);
   if (!search_completed) {
     // TODO: use some heuristic methods to try and find a better ordering and
     // compare it to the one found in the incomplete brute force search
