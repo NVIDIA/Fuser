@@ -123,6 +123,12 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
+  // TODO: Computing the runtime order before scheduling/compilation means that
+  // we are not able to detect how much intermediate memory is used for each
+  // kernel. For example, if a grid reduction or grid broadcast is needed then
+  // we will require a temporary buffer for the duration of the kernel's
+  // execution. We should move the runtime order calculation until just after
+  // compilation so that we can more accurately compute our memory usage.
   prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());

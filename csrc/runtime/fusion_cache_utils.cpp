@@ -12,6 +12,7 @@
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
 
+#include <chrono>
 #include <unordered_set>
 
 namespace nvfuser {
@@ -185,13 +186,13 @@ void ArgumentManager::deleteUnusedArgs(int64_t run_order_id) {
   }
 }
 
-void prepareRuntimeOrder(
-    SegmentedFusion* segmented_fusion,
-    RuntimeWorkSpace& runtime_workspace) {
+namespace {
+
+std::vector<SegmentedGroup*> naiveRuntimeOrder(
+    const SegmentedFusion* segmented_fusion) {
   // Setup group run order:
   std::unordered_set<Val*> available_input;
 
-  // setup the order tensor dimensions are bound
   for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
     auto input_val = segmented_fusion->inputs()[i];
     available_input.insert(input_val);
@@ -202,13 +203,14 @@ void prepareRuntimeOrder(
       for (const size_t dim : c10::irange(logical_dom.size())) {
         const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
         available_input.insert(extent);
-        runtime_workspace.group_extent_binding_order.push_back(extent);
       }
     }
   }
 
   // Keep track of groups that has run
   std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
+  std::vector<SegmentedGroup*> run_order;
+  run_order.reserve(group_ran.size());
 
   while (!std::all_of(
       group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
@@ -228,7 +230,7 @@ void prepareRuntimeOrder(
           [&available_input](Val* val) { return available_input.count(val); });
 
       if (ready_to_run) {
-        runtime_workspace.group_run_order.push_back(group);
+        run_order.push_back(group);
         const auto& group_outputs = group->outputs();
 
         // Insert graph segment output to tensor map
@@ -242,6 +244,161 @@ void prepareRuntimeOrder(
     NVF_ERROR(
         one_ran,
         "Couldn't run all groups, something must have gone wrong in segmentation.");
+  }
+
+  return run_order;
+}
+
+// Computes the memory required to compute a segmented fusion in the given
+// order. NOTE:
+int64_t computePeakMemory(const std::vector<SegmentedGroup*> runtime_order) {
+  int64_t peak_mem = 0ll;
+
+  return peak_mem;
+}
+
+// This implements Kahn's algorithm for searching across topological orderings.
+// Since for some graphs this can take combinatorially long, we limit the
+// runtime in milliseconds. If the search exceeds this runtime, we return the
+// best ordering we have inspected so far. We return the peak memory used in
+// this ordering, and bool value indicating whether we were able to execute an
+// exhaustive search in the time allotted.
+//
+// Kahn's algorithm topologically orders a DAG by repeatedly doing the
+// following:
+//   1. Select a node with in-degree zero (i.e. a source node) and append it to
+//      the ordering.
+//   2. Delete that node from the graph
+// Actually deleting nodes from the graph is difficult, so instead one can
+// simply track the in-degree of each node, initializing it to the true
+// in-degree then decreasing the in-degree counts of all the out-neighbors
+// whenever a node is selected. At that point, one can detect new nodes with
+// in-degree zero and add them to a queue.
+//
+// Instead of selecting a single node, we will loop over all possible
+// selections. To do this, we keep a stack of "next groups". We push groups onto
+// this stack immediately whenever their in-degree becomes zero. At each
+// iteration, we pop the next of these nodes and push it onto the runtime order,
+// then update the in-degrees of all its out-neighbors. Whenever the runtime
+// order reaches its final length, we backtrack until we're able to select the
+// next group on the stack.
+//
+// By default, we preserve chains, meaning that neighboring nodes with in-degree
+// at most one and out-degree at most one are kept adjacent in the returned
+// order. In some fusions this can dramatically reduce the number of orderings
+// we need to search, and it is typically a useful constraint since it
+// encourages L2 locality by immediately consuming the outputs of the previous
+// group for those chain segments.
+std::tuple<std::vector<SegmentedGroup*>, int64_t, bool>
+tryExhaustiveRuntimeOrder(
+    const SegmentedFusion* segmented_fusion,
+    bool preserve_chains = true,
+    const int64_t max_runtime_ms = 0) {
+  // Setup group run order:
+  std::unordered_set<Val*> available_input;
+
+  auto start = std::chrono::high_resolution_clock::now();
+
+  std::vector<SegmentedGroup*> best_run_order;
+  int64_t best_peak_memory = -1;
+
+  const std::vector<SegmentedGroup*>& groups = segmented_fusion->groups();
+  // TODO: Would it be safe to just use group->groupId() instead of building
+  // this mapping?
+  std::unordered_map<SegmentedGroup*, size_t> group_id_map;
+  for (size_t group_id : c10::irange(groups.size())) {
+    group_id_map[groups[group_id]] = group_id;
+  }
+
+  // This tracks in-degree of each group after the nodes in the currently
+  // selected runtime order have been removed.
+  std::vector<int64_t> in_degree(groups.size(), 0ll);
+  for (const SegmentedGroup* group : groups) {
+    for (const SegmentedEdge* edge : group->consumer_edges) {
+      in_degree[group_id_map[edge->to]]++;
+    }
+  }
+
+  // This is the collection of available groups that we can consider running
+  // next.
+  std::vector<SegmentedGroup*> next_groups;
+  std::vector<SegmentedGroup*> run_order;
+  run_order.reserve(groups.size());
+  for (size_t group_id : c10::irange(groups.size())) {
+    if (in_degree[group_id] == 0) {
+      next_groups.push_back(groups[group_id]);
+    }
+  }
+
+  while (!next_groups.empty()) {
+    // Return early if we have reached the time limit
+    int64_t elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::high_resolution_clock::now() - start)
+                          .count();
+    if (elapsed >= max_runtime_ms && best_peak_memory != -1) {
+      return {best_run_order, best_peak_memory, false};
+    }
+
+    // Get next available group.
+    SegmentedGroup* next_group = next_groups.back();
+    next_groups.pop_back();
+
+    // TODO: backtrack until we are able to add next_group
+
+    run_order.push_back(next_group);
+    // Update in-degrees of all neighbors as if we deleted next_group
+    for (const SegmentedEdge* edge : next_group->consumer_edges) {
+      SegmentedGroup* neighbor_group = edge->to;
+      int64_t& deg = in_degree[group_id_map[neighbor_group]];
+      if (--deg == 0) {
+        next_groups.push_back(neighbor_group);
+      }
+    }
+    if (run_order.size() == groups.size()) {
+      int64_t peak_memory = computePeakMemory(run_order);
+      if (best_peak_memory == -1 || peak_memory < best_peak_memory) {
+        best_peak_memory = peak_memory;
+        best_run_order = run_order;
+      }
+    }
+  }
+
+  NVF_ERROR(best_run_order.size() == groups.size());
+
+  return {best_run_order, best_peak_memory, true};
+}
+
+} // namespace
+
+void prepareRuntimeOrder(
+    SegmentedFusion* segmented_fusion,
+    RuntimeWorkSpace& runtime_workspace) {
+  // setup the order tensor dimensions are bound
+  for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
+    auto input_val = segmented_fusion->inputs()[i];
+
+    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
+      auto logical_dom =
+          TensorDomain::noReductions(input_tv->getLogicalDomain());
+      for (const size_t dim : c10::irange(logical_dom.size())) {
+        const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
+        runtime_workspace.group_extent_binding_order.push_back(extent);
+      }
+    }
+  }
+
+  // runtime_workspace.group_run_order = naiveRuntimeOrder(segmented_fusion);
+  int64_t search_peak_memory_bytes;
+  bool search_completed;
+  std::tie(
+      runtime_workspace.group_run_order,
+      search_peak_memory_bytes,
+      search_completed) = tryExhaustiveRuntimeOrder(segmented_fusion);
+  if (!search_completed) {
+    // TODO: use some heuristic methods to try and find a better ordering and
+    // compare it to the one found in the incomplete brute force search
+    TORCH_WARN(
+        "Brute-force search was incomplete. Peak memory use might be sub-optimal")
   }
 }
 
