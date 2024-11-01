@@ -502,7 +502,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << " total_blocks: " << total_blocks
             << " n_waves_wo_unroll: " << n_waves_wo_unroll
             << std::endl;  
-  // don't unroll if unroll is input size limited and split is not divisible
+  // limit unroll factor to ensure we have enough blocks for thread level parallelism
+  // don't unroll when unroll factor is limited and split is not divisible.
   if (n_elems_limited_unroll < empirical_unroll) {
     bool divisible_split = break_point > 0
         ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
@@ -517,7 +518,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   } else {
     params->unroll_factor_inner = unroll_factor;
   }
-  gdim_right = ceilDiv(gdim_right, params->unroll_factor_outer);
+  gdim_left = ceilDiv(gdim_left, params->unroll_factor_outer);
+  gdim_right = ceilDiv(gdim_right, params->unroll_factor_inner);
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
