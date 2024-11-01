@@ -482,9 +482,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  auto register_limited_unroll = getTargetUnrollFactor(
+  auto empirical_unroll = getTargetUnrollFactor(
       fusion, break_point, vectorizable_inputs_outputs_entry.get());
-
   // limit unroll factor when n_elems is small (e.g. less than 16K x 4K on H100)
   // to use at least 8 waves to benefit from Thread-Level-Parallelism. Ideally,
   // target wave depends on hardware, when computation latency is close to
@@ -497,24 +496,28 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       : ceilDiv(n_elems / max_vect_factor, kThreadX);
   int64_t n_waves_wo_unroll =
       ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
-  int64_t n_elems_limited_unroll = ceilDiv(n_waves_wo_unroll, target_waves);
+  int64_t n_elems_limited_unroll = scheduler_utils::roundUpPow2(ceilDiv(n_waves_wo_unroll, target_waves));
+  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
+            << " empirical_unroll: " << empirical_unroll
+            << " total_blocks: " << total_blocks
+            << " n_waves_wo_unroll: " << n_waves_wo_unroll
+            << std::endl;  
   // don't unroll if unroll is input size limited and split is not divisible
-  if (n_elems_limited_unroll < register_limited_unroll) {
+  if (n_elems_limited_unroll < empirical_unroll) {
     bool divisible_split = break_point > 0
         ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
         : (n_elems % (params->vectorization_factor * kThreadX) == 0);
     n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
   }
-  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
-            << " register_limited_unroll: " << register_limited_unroll
-            << std::endl;
+
   int64_t unroll_factor =
-      std::min(n_elems_limited_unroll, register_limited_unroll);
+      std::min(n_elems_limited_unroll, empirical_unroll);
   if (is_outer_broadcast) {
     params->unroll_factor_outer = unroll_factor;
   } else {
     params->unroll_factor_inner = unroll_factor;
   }
+  gdim_right = ceilDiv(gdim_right, params->unroll_factor_outer);
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
