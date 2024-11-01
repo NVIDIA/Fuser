@@ -60,60 +60,6 @@ class DomainMap : public pointwise_utils::DomainMap {
   }
 };
 
-// Class to handle expensive operations information and calculation of unroll
-// factors
-class ExpensiveOpInfo {
- public:
-  ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
-
-  void analyzeFusion(Fusion* fusion) {
-    for (auto expr : fusion->exprs()) {
-      if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
-        switch (unary->getUnaryOpType()) {
-          case UnaryOpType::Tanh:
-            n_tanh_++;
-            break;
-          case UnaryOpType::Exp:
-            n_exp_++;
-            break;
-          case UnaryOpType::Reciprocal:
-            n_reciprocal_++;
-            break;
-          default:
-            break;
-        }
-      }
-    }
-  }
-
-  std::string toString() const {
-    std::stringstream ss;
-    ss << "ExpensiveOpInfo: {";
-    ss << "n_tanh: " << n_tanh_ << ", ";
-    ss << "n_exp: " << n_exp_ << ", ";
-    ss << "n_reciprocal: " << n_reciprocal_ << "}";
-    return ss.str();
-  }
-
-  int64_t getComputationFactor() const {
-    auto factor =
-        n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
-    factor = std::max(factor, 1);
-    return factor;
-  }
-
- private:
-  // Number of each expensive operation in the fusion
-  int n_tanh_;
-  int n_exp_;
-  int n_reciprocal_;
-
-  // Empirical factors to consider the cost of each operation
-  static constexpr int f_tanh_ = 4;
-  static constexpr int f_exp_ = 1;
-  static constexpr int f_reciprocal_ = 1;
-};
-
 // Get number of vectorizable non-outer broadcast inputs
 // vectorizable_io_tvs: all vectorizable input and output tensor views
 // break_point: the break point of the broadcast flags.
@@ -153,37 +99,38 @@ int64_t getNumOfNonOuterBcastInputs(
     }
     n_non_bcast_inputs++;
   }
-  return n_non_bcast_inputs;
+  return std::min(n_non_bcast_inputs, 1L);
 }
 
 int64_t getTargetUnrollFactor(
-    Fusion* fusion,
     int64_t break_point,
+    int64_t vectorization_bytes,
     std::vector<TensorView*> vectorizable_io_tvs) {
-  // Multiple loading instructions are issued if there are multiple input tvs,
-  // so we should reduce unroll factor.
-  // Return true if the tensor is used by an outer broadcast operation.
+  // 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
+  constexpr float empirical_gmem_latency = 9.5e-9;
 
-  // Analyze the fusion to determine the number of expensive operations
-  // When computation is expensive, increase unroll to have more overlap between
-  // computation and memory access.
-  ExpensiveOpInfo eops;
-  eops.analyzeFusion(fusion);
-  // Empirical model based on experiment of pointwise gelu, silu, and mul.
-  // (1) start with 2
-  int64_t base_factor = 2;
-  // (2) increase unroll factor if computation is expensive
-  int64_t computation_factor = eops.getComputationFactor();
-  // (3) decrease unroll factor if there are multiple input tensors
-  int64_t n_non_bcast_inputs = getNumOfNonOuterBcastInputs(vectorizable_io_tvs, break_point);
-  int64_t input_factor =
-      std::max(scheduler_utils::lastPow2(n_non_bcast_inputs), 1L);
-  // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
-  int64_t unroll_factor = base_factor * computation_factor / input_factor;
-  std::cout << "computation_factor: " << computation_factor
-            << " input_factor: " << input_factor
-            << " unroll_factor: " << unroll_factor << std::endl;
-  return std::max(unroll_factor, 1L);
+  // Calculate hardware bandwidth and required bytes in flight based on
+  // little's law. bytes_in_flight = bandwidth * latency
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  float hardware_bandwidth = 2 * (dev_prop->memoryBusWidth / 8) *
+      (float)dev_prop->memoryClockRate * 1e3;
+  int64_t n_non_bcast_inputs =
+      getNumOfNonOuterBcastInputs(vectorizable_io_tvs, break_point);
+  int64_t required_bytes_in_flight =
+      (int64_t)(empirical_gmem_latency * hardware_bandwidth);
+  int64_t required_bytes_per_thread =
+      required_bytes_in_flight / (int64_t)dev_prop->maxThreadsPerMultiProcessor;
+  int64_t current_bytes_per_thread = vectorization_bytes * n_non_bcast_inputs;
+  int64_t unroll_factor =
+      std::max(1L, required_bytes_per_thread / current_bytes_per_thread);
+  std::cout << "memoryBusWidth: " << dev_prop->memoryBusWidth
+            << " memoryClockRate: " << dev_prop->memoryClockRate
+            << " required_bytes_in_flight: " << required_bytes_in_flight
+            << " required_bytes_per_thread: " << required_bytes_per_thread
+            << " current_bytes_per_thread: " << current_bytes_per_thread
+            << " unroll_factor: " << unroll_factor
+            << " hardware_bandwidth: " << hardware_bandwidth << std::endl;
+  return unroll_factor;
 }
 
 } // namespace
@@ -482,12 +429,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  auto empirical_unroll = getTargetUnrollFactor(
-      fusion, break_point, vectorizable_inputs_outputs_entry.get());
-  // limit unroll factor when n_elems is small (e.g. less than 16K x 4K on H100)
-  // to use at least 8 waves to benefit from Thread-Level-Parallelism. Ideally,
-  // target wave depends on hardware, when computation latency is close to
-  // memory latency a smaller wave can be used.
+  int64_t vectorization_bytes =
+      params->vectorization_factor * max_input_dtype_size;
+
+  int64_t empirical_unroll = getTargetUnrollFactor(
+      break_point,
+      vectorization_bytes,
+      vectorizable_inputs_outputs_entry.get());
+  // limit unroll factor when n_elems is small (e.g. less than 16K x 4K on
+  // H100) to use at least 8 waves to benefit from Thread-Level-Parallelism.
+  // Ideally, target wave depends on hardware, when computation latency is
+  // close to memory latency a smaller wave can be used.
   const int64_t target_waves = 8L;
   int64_t max_block_per_sm =
       (int64_t)dev_prop->maxThreadsPerMultiProcessor / kThreadX;
@@ -496,23 +448,23 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       : ceilDiv(n_elems / max_vect_factor, kThreadX);
   int64_t n_waves_wo_unroll =
       ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
-  int64_t n_elems_limited_unroll = scheduler_utils::roundUpPow2(ceilDiv(n_waves_wo_unroll, target_waves));
+  int64_t n_elems_limited_unroll =
+      scheduler_utils::roundUpPow2(ceilDiv(n_waves_wo_unroll, target_waves));
   std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
             << " empirical_unroll: " << empirical_unroll
             << " total_blocks: " << total_blocks
-            << " n_waves_wo_unroll: " << n_waves_wo_unroll
-            << std::endl;  
-  // limit unroll factor to ensure we have enough blocks for thread level parallelism
-  // don't unroll when unroll factor is limited and split is not divisible.
+            << " n_waves_wo_unroll: " << n_waves_wo_unroll << std::endl;
+  // limit unroll factor to ensure we have enough blocks for thread level
+  // parallelism don't unroll when unroll factor is limited and split is not
+  // divisible.
   if (n_elems_limited_unroll < empirical_unroll) {
     bool divisible_split = break_point > 0
         ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
         : (n_elems % (params->vectorization_factor * kThreadX) == 0);
     n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
   }
+  int64_t unroll_factor = std::min(n_elems_limited_unroll, empirical_unroll);
 
-  int64_t unroll_factor =
-      std::min(n_elems_limited_unroll, empirical_unroll);
   if (is_outer_broadcast) {
     params->unroll_factor_outer = unroll_factor;
   } else {
