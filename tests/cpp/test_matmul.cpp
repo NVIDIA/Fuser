@@ -3154,6 +3154,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
 
 // Avoid lowering error https://github.com/NVIDIA/Fuser/issues/1808
 TEST_F(MatmulTest, ReproIssue1808) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -3369,6 +3371,8 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
 
 // Matmul test with multiple M and N dimensions that are consecutive
 TEST_F(MatmulTest, MultipleConsecutiveDims) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
   int M1 = 126, M2 = 4, N1 = 68, N2 = 2, K = 248;
 
   Fusion fusion;
@@ -3559,6 +3563,8 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
 // The batch dim is parallelized, so M1 and M2 are consecutive in shared
 // memory.
 TEST_F(MatmulTest, MultipleMDimsBatch) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   int Batch = 2, M1 = 126, N = 136, M2 = 4, K = 248;
 
   Fusion fusion;
