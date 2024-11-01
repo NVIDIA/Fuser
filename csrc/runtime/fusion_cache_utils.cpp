@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <unordered_set>
+#include "expr_evaluator.h"
 
 namespace nvfuser {
 
@@ -250,9 +251,58 @@ std::vector<SegmentedGroup*> naiveRuntimeOrder(
 }
 
 // Computes the memory required to compute a segmented fusion in the given
-// order. NOTE:
-int64_t computePeakMemory(const std::vector<SegmentedGroup*> runtime_order) {
+// order.
+// NOTE: this assumes inputs to the unsegmented fusion already reside in memory
+// and does not count them against the used memory at any time. Fusion outputs
+// are allocated when their producer group is computed and are kept
+// indefinitely.
+int64_t computePeakMemory(
+    const std::vector<SegmentedGroup*>& runtime_order,
+    const std::unordered_map<TensorView*, int64_t>& tensor_size) {
   int64_t peak_mem = 0ll;
+
+  // Record that last consumer group of each TV
+  std::vector<int64_t> freed_bytes(runtime_order.size(), 0);
+  std::unordered_set<TensorView*> seen_tvs;
+  for (int64_t i = (int64_t)runtime_order.size() - 1; i >= 0; i--) {
+    SegmentedGroup* group = runtime_order[(size_t)i];
+    for (Val* val : group->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(val);
+          tv && !tv->isFusionInput() && !tv->isFusionOutput()) {
+        if (seen_tvs.count(tv) == 0) {
+          // This is the last consumer of this TV, so it will be freed after
+          // execution
+          freed_bytes[(size_t)i] += tensor_size.at(tv);
+        }
+      }
+    }
+  }
+
+  int64_t cur_mem = 0ll;
+  for (size_t j : c10::irange(runtime_order.size())) {
+    SegmentedGroup* group = runtime_order[j];
+    // TODO: find intermediate memory used local to each group
+
+    // add all the memory required for outputs of this group
+    int64_t allocated_bytes = 0ll;
+    for (Val* val : group->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(val);
+          tv && !tv->isFusionInput()) {
+        allocated_bytes += tensor_size.at(tv);
+      }
+    }
+    cur_mem += allocated_bytes;
+
+    // Bump peak memory
+    if (cur_mem > peak_mem) {
+      peak_mem = cur_mem;
+    }
+
+    // Now simulate freeing memory
+    cur_mem -= freed_bytes[j];
+  }
+
+  std::cout << "Found peak memory " << peak_mem << " bytes" << std::endl;
 
   return peak_mem;
 }
@@ -294,6 +344,39 @@ tryExhaustiveRuntimeOrder(
     const SegmentedFusion* segmented_fusion,
     bool preserve_chains = true,
     const int64_t max_runtime_ms = 0) {
+  // Record the size group of each TensorView
+  std::unordered_map<TensorView*, int64_t> tensor_size;
+  ExpressionEvaluator expr_eval;
+  const auto recordTvSize = [&expr_eval, &tensor_size](TensorView* tv) {
+    if (tensor_size.find(tv) != tensor_size.end()) {
+      return;
+    }
+    int64_t size = 1;
+    for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+      if (id->isBroadcast() || id->isReduction()) {
+        continue;
+      }
+      PolymorphicValue extent = expr_eval.evaluate(id->extent());
+      // If we can't evaluate the extent, just assume it's 2. This is the
+      // smallest non-zero size for an Iteration axis.
+      size *= extent.hasValue() ? extent.as<int64_t>() : 2;
+    }
+    size *= dataTypeSize(tv->dtype());
+    tensor_size[tv] = size;
+  };
+  for (SegmentedGroup* group : segmented_fusion->groups()) {
+    for (Val* val : group->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(val)) {
+        recordTvSize(tv);
+      }
+    }
+    for (Val* val : group->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(val)) {
+        recordTvSize(tv);
+      }
+    }
+  }
+
   // Setup group run order:
   std::unordered_set<Val*> available_input;
 
@@ -355,8 +438,10 @@ tryExhaustiveRuntimeOrder(
       }
     }
     if (run_order.size() == groups.size()) {
-      int64_t peak_memory = computePeakMemory(run_order);
+      int64_t peak_memory = computePeakMemory(run_order, tensor_size);
       if (best_peak_memory == -1 || peak_memory < best_peak_memory) {
+        std::cout << " Found new best run order with peak memory "
+                  << peak_memory << std::endl;
         best_peak_memory = peak_memory;
         best_run_order = run_order;
       }
