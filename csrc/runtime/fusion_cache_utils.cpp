@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
+#include <sys/select.h>
 
 #include <chrono>
 #include <unordered_set>
@@ -386,6 +387,102 @@ class BruteForceRuntimeOrderOptimizer {
     computeTensorSizes();
   }
 
+  void measureOrdering() {
+    NVF_ERROR(
+        run_order_.size() == groups_.size(),
+        "Cannot measure incomplete ordering. Expected ",
+        groups_.size(),
+        " groups in ordering but found ",
+        run_order_.size(),
+        ". run_order: ",
+        run_order_);
+    int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
+    std::cout << " Checking memory of run order ";
+    for (SegmentedGroup* group : run_order_) {
+      std::cout << " " << group_id_map_.at(group);
+    }
+    std::cout << std::endl;
+    if (best_peak_memory_ == -1 || peak_memory < best_peak_memory_) {
+      std::cout << " Found new best run order with peak memory " << peak_memory
+                << std::endl;
+      best_peak_memory_ = peak_memory;
+      best_run_order_ = run_order_;
+    }
+  }
+
+  SegmentedGroup* selectNextGroup() {
+    // Get next available group.
+    NVF_ERROR(!current_coords_.empty());
+    size_t current_index = current_coords_.back();
+
+    NVF_ERROR(current_index < available_groups_.size());
+    SegmentedGroup* next_group = available_groups_.at(current_index);
+    // Remove this group from the list of available groups
+    available_groups_.erase(available_groups_.begin() + (ssize_t)current_index);
+
+    // Update in-degrees of all neighbors as if we deleted next_group
+    for (const SegmentedEdge* edge : next_group->consumer_edges) {
+      SegmentedGroup* neighbor_group = edge->to;
+      int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
+      if (--deg == 0) {
+        available_groups_.push_back(neighbor_group);
+      }
+    }
+
+    run_order_.push_back(next_group);
+
+    return next_group;
+  }
+
+  // This undoes the steps of selectNextGroup
+  void undoMostRecentSelection() {
+    NVF_ERROR(!run_order_.empty());
+    SegmentedGroup* group = run_order_.back();
+    ;
+    run_order_.pop_back();
+
+    // Update in-degrees of all neighbors to undo deletion of group
+    for (int64_t i = (int64_t)group->consumer_edges.size() - 1; i >= 0; --i) {
+      SegmentedEdge* edge = group->consumer_edges[(size_t)i];
+      SegmentedGroup* neighbor_group = edge->to;
+      int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
+      if (deg++ == 0) {
+        NVF_ERROR(
+            neighbor_group == available_groups_.back(),
+            "Found inconsistency while backtracking");
+        available_groups_.pop_back();
+      }
+    }
+    size_t current_index = current_coords_.back();
+    available_groups_.insert(
+        available_groups_.begin() + (ssize_t)current_index, group);
+  }
+
+  void backTrack() {
+    while (!run_order_.empty()) {
+      size_t& most_recent_index = current_coords_.back();
+      // SegmentedGroup* most_recent_group = run_order_.back();
+      run_order_.pop_back();
+      // Here we will undo the deletion of "most_recent_group". This means
+      // we need to update in-degrees of consumer groups, remove those that
+      // are no longer available, then insert the most recent group it back
+      // into available_groups at the specified position
+      undoMostRecentSelection();
+
+      // Now increment the last coordinate. If this causes us to move beyond
+      // the last element of available_groups then we are done processing
+      // this level's subtree, so remove this coordinate and loop to move up
+      // another level in the tree.
+      NVF_ERROR(most_recent_index < available_groups_.size());
+      if (++most_recent_index < available_groups_.size()) {
+        break;
+      }
+      // If most_recent_index exhausts available_groups_, pop this coord and
+      // continue backtracking
+      current_coords_.pop_back();
+    }
+  }
+
   void measureAllOrderings() {
     NVF_ERROR(
         !preserve_chains_, "Chain-preserving traversal is not yet implemented");
@@ -405,74 +502,17 @@ class BruteForceRuntimeOrderOptimizer {
     current_coords_.push_back(0);
 
     while (!available_groups_.empty()) {
-      // Get next available group.
-      NVF_ERROR(!current_coords_.empty());
-      size_t current_index = current_coords_.back();
-
-      NVF_ERROR(current_index < current_coords_.size());
-      SegmentedGroup* next_group = available_groups_.at(current_index);
-      // Remove this group from the list of available groups
-      available_groups_.erase(
-          available_groups_.begin() + (ssize_t)current_index);
-      run_order_.push_back(next_group);
-
-      // Update in-degrees of all neighbors as if we deleted next_group
-      for (const SegmentedEdge* edge : next_group->consumer_edges) {
-        SegmentedGroup* neighbor_group = edge->to;
-        int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
-        if (--deg == 0) {
-          available_groups_.push_back(neighbor_group);
-        }
-      }
+      selectNextGroup();
 
       if (available_groups_.empty()) {
         // We've reached a leaf node in the DFS tree, meaning we have completed
         // an ordering
-        NVF_ERROR(
-            run_order_.size() == groups_.size(),
-            "No more available groups but runtime order is not complete. ",
-            "Expected ",
-            groups_.size(),
-            " groups in order but found ",
-            run_order_.size(),
-            ". run_order: ",
-            run_order_);
-        int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
-        std::cout << " Checking memory of run order ";
-        for (SegmentedGroup* group : run_order_) {
-          std::cout << " " << group_id_map_.at(group);
-        }
-        std::cout << std::endl;
-        if (best_peak_memory_ == -1 || peak_memory < best_peak_memory_) {
-          std::cout << " Found new best run order with peak memory "
-                    << peak_memory << std::endl;
-          best_peak_memory_ = peak_memory;
-          best_run_order_ = run_order_;
-        }
+        measureOrdering();
 
         // Now backtrack to the most recent point at which we still have choices
         // left to make
-        while (!run_order_.empty()) {
-          size_t& most_recent_index = current_coords_.back();
-          // SegmentedGroup* most_recent_group = run_order_.back();
-          run_order_.pop_back();
-          // Here we will undo the deletion of "most_recent_group". This means
-          // we need to update in-degrees of consumer groups, remove those that
-          // are no longer available, then insert the most recent group it back
-          // into available_groups at the specified position
+        backTrack();
 
-          // Now increment the last coordinate. If this causes us to move beyond
-          // the last element of available_groups then we are done processing
-          // this level's subtree, so remove this coordinate and loop to move up
-          // another level in the tree.
-
-          NVF_ERROR(most_recent_index < available_groups_.size());
-          if (++most_recent_index == available_groups_.size()) {
-            current_coords_.back();
-          }
-          current_coords_.pop_back();
-          break;
-        }
         if (run_order_.empty()) {
           // We've reached the end of the DFS traversal if we backtrack all the
           // way out
