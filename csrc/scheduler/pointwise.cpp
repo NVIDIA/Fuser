@@ -114,15 +114,55 @@ class ExpensiveOpInfo {
   static constexpr int f_reciprocal_ = 1;
 };
 
-int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
+// Get number of vectorizable non-outer broadcast inputs
+// vectorizable_io_tvs: all vectorizable input and output tensor views
+// break_point: the break point of the broadcast flags.
+// If all the dims to the left of the break point are broadcast, then
+// this tv is considered as an outer broadcast.
+// Used to determine the influence of inputs on unroll factor.
+// outer broadcast inputs are not counted since outer unroll is used
+// and they are only loaded once regardless of the unroll factor due to
+// the re-use across different unrolled iterations.
+int64_t getNumOfNonOuterBcastInputs(
+    std::vector<TensorView*> vectorizable_io_tvs,
+    int64_t break_point) {
+  auto isUsedByOuterBcast = [&break_point](TensorView* tv) {
+    const auto& all_consumers = DependencyCheck::getAllDependentVals({tv});
+    for (auto tv : all_consumers) {
+      if (tv->definition()->isA<BroadcastOp>()) {
+        const auto& bcast_flags =
+            tv->definition()->as<BroadcastOp>()->getBroadcastDimFlags();
+
+        if (std::all_of(
+                bcast_flags.begin(),
+                bcast_flags.begin() + break_point,
+                [](bool flag) { return flag; })) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  int64_t n_non_bcast_inputs = 0;
+  for (auto tv : vectorizable_io_tvs) {
+    if (tv->isFusionOutput()) {
+      continue;
+    }
+    if (isUsedByOuterBcast(tv)) {
+      continue;
+    }
+    n_non_bcast_inputs++;
+  }
+  return n_non_bcast_inputs;
+}
+
+int64_t getTargetUnrollFactor(
+    Fusion* fusion,
+    int64_t break_point,
+    std::vector<TensorView*> vectorizable_io_tvs) {
   // Multiple loading instructions are issued if there are multiple input tvs,
   // so we should reduce unroll factor.
-  int64_t n_inputs = 0;
-  for (auto tv : io_tvs) {
-    if (tv->isFusionInput()) {
-      n_inputs++;
-    }
-  }
+  // Return true if the tensor is used by an outer broadcast operation.
 
   // Analyze the fusion to determine the number of expensive operations
   // When computation is expensive, increase unroll to have more overlap between
@@ -135,9 +175,14 @@ int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
   // (2) increase unroll factor if computation is expensive
   int64_t computation_factor = eops.getComputationFactor();
   // (3) decrease unroll factor if there are multiple input tensors
-  int64_t input_factor = std::max(scheduler_utils::lastPow2(n_inputs), 1L);
+  int64_t n_non_bcast_inputs = getNumOfNonOuterBcastInputs(vectorizable_io_tvs, break_point);
+  int64_t input_factor =
+      std::max(scheduler_utils::lastPow2(n_non_bcast_inputs), 1L);
   // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
   int64_t unroll_factor = base_factor * computation_factor / input_factor;
+  std::cout << "computation_factor: " << computation_factor
+            << " input_factor: " << input_factor
+            << " unroll_factor: " << unroll_factor << std::endl;
   return std::max(unroll_factor, 1L);
 }
 
@@ -265,18 +310,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   constexpr int64_t kSixteen = 16; // clang tidy
   auto max_vect_factor = kSixteen / max_input_dtype_size;
-  auto max_unroll_factor =
-      getTargetUnrollFactor(fusion, vectorizable_inputs_outputs_entry.get());
-  auto max_vect_unroll_factor = max_vect_factor * max_unroll_factor;
-  // Don't unroll or vectorize at the cost of getting a full wave on the GPU
-  // Don't need to adjust max_unroll_factor since it will be calculated using
-  // max_vect_unroll_factor and max_vect_factor
-  if (n_elems < device_multiprocessor_count * kThreadX &&
-      max_vect_unroll_factor > 1) {
-    max_vect_unroll_factor = std::min(
-        max_vect_unroll_factor,
+  // Don't vectorize at the cost of getting a full wave on the GPU
+  if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
+    max_vect_factor = std::min(
+        max_vect_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
-    max_vect_factor = std::min(max_vect_factor, max_vect_unroll_factor);
   }
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
@@ -327,6 +365,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     dtype_sum += (int64_t)dataTypeSize(out->getDataType().value(), index_type);
   }
 
+  // Indicates whether we have an outer broadcast or not
+  bool is_outer_broadcast = false;
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -407,8 +447,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           flip_grid_binding = false;
         }
         // Min transfer found, start setting values
-        bdimx = std::min(
-            ceilDiv(cur_right_elem_count, max_vect_unroll_factor), kThreadX);
+        bdimx =
+            std::min(ceilDiv(cur_right_elem_count, max_vect_factor), kThreadX);
         bdimy = 1;
         // Put remainder in bdimy if there's at least a wave of grid level
         // parallelism.
@@ -417,7 +457,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
         auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
         auto remainder_right =
-            ceilDiv(cur_right_elem_count, bdimx * max_vect_unroll_factor);
+            ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
         // Use this break point
         break_point = static_cast<int>(break_point_i);
         min_total_transfer = cur_transfer_size;
@@ -425,6 +465,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         gdim_left = remainder_left;
         gdim_right = remainder_right;
+
+        // when lhs byte multiple is smaller than rhs byte multiple,
+        // there is broadcast in the lhs, which is outer broadcast.
+        is_outer_broadcast = lhs_byte_multiple < rhs_byte_multiple;
       }
     }
   }
@@ -437,6 +481,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache,
           break_point,
           logical_reorder_map));
+
+  auto register_limited_unroll = getTargetUnrollFactor(
+      fusion, break_point, vectorizable_inputs_outputs_entry.get());
 
   // limit unroll factor when n_elems is small (e.g. less than 16K x 4K on H100)
   // to use at least 8 waves to benefit from Thread-Level-Parallelism. Ideally,
@@ -451,17 +498,23 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   int64_t n_waves_wo_unroll =
       ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
   int64_t n_elems_limited_unroll = ceilDiv(n_waves_wo_unroll, target_waves);
-  int64_t resource_limited_unroll = scheduler_utils::safeDiv(
-      max_vect_unroll_factor, params->vectorization_factor);
   // don't unroll if unroll is input size limited and split is not divisible
-  if (n_elems_limited_unroll < resource_limited_unroll) {
+  if (n_elems_limited_unroll < register_limited_unroll) {
     bool divisible_split = break_point > 0
         ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
         : (n_elems % (params->vectorization_factor * kThreadX) == 0);
     n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
   }
-  params->unroll_factor_outer =
-      std::min(n_elems_limited_unroll, resource_limited_unroll);
+  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
+            << " register_limited_unroll: " << register_limited_unroll
+            << std::endl;
+  int64_t unroll_factor =
+      std::min(n_elems_limited_unroll, register_limited_unroll);
+  if (is_outer_broadcast) {
+    params->unroll_factor_outer = unroll_factor;
+  } else {
+    params->unroll_factor_inner = unroll_factor;
+  }
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
