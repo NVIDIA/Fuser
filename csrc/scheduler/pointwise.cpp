@@ -785,7 +785,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     fusion->printMath();
     std::cout << std::endl;
 
-    if (getenv("PROPAGATE_SLICE_TO_INPUTS")) {
+    if (!getenv("PROPAGATE_SLICE_TO_OUTPUTS")) {
       scheduler_tools::propagateSliceToInputs(fusion);
 
       scheduler_tools::propagateCatToInputs(fusion);

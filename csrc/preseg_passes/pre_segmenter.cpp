@@ -48,7 +48,7 @@ namespace nvfuser::preseg_passes {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
-  if (!getenv("DISABLE_MOVE_SPLIT")) {
+  if (getenv("ENABLE_MOVE_SPLIT")) {
     OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   }
   // MovePadPass needs to happen:
@@ -58,7 +58,7 @@ namespace nvfuser::preseg_passes {
   // 2. after MoveSplitCat
   //    to avoid this pass moving PadOp around to break the
   // MoveSplitCat.
-  if (!getenv("DISABLE_MOVE_PAD")) {
+  if (getenv("ENABLE_MOVE_PAD")) {
     OptimizationPass<MovePadPass>::runPass(fusion);
   }
   // NOTE vvv this doesn't really work, since our type promotion to higher
@@ -67,7 +67,7 @@ namespace nvfuser::preseg_passes {
   // open an issue for this and see if we want to have a more aggressive
   // approach inside MovePadPass instead. removes extra cast added from pushing
   // pad out OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  if (!getenv("DISABLE_MARK_ALIASES")) {
+  if (getenv("ENABLE_MARK_ALIASES")) {
     OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   }
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
