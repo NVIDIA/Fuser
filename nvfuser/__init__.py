@@ -177,6 +177,8 @@ class FusionDefinition(_C._FusionDefinition):
 
         results = None
         try:
+            if print_repro:
+                print(self.repro_script_for(inputs))
             results = self._execute(
                 inputs,
                 device=device,
@@ -184,8 +186,6 @@ class FusionDefinition(_C._FusionDefinition):
                 capture_debug_output=capture_debug_output,
                 profile=profile,
             )
-            if print_repro:
-                print(self.repro_script_for(inputs))
             return results
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
