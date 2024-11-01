@@ -4109,6 +4109,7 @@ TEST_F(ResizeTest, VectorizeFactorFour) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// This test is to check that the pad extent is used to limit the vectorization factor.
 TEST_F(ResizeTest, VectorizeFactorTwo) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -4135,18 +4136,19 @@ TEST_F(ResizeTest, VectorizeFactorTwo) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(ResizeTest, UnrollNonInnermost) {
+// This test checks that the vectorization of padding on non-innermost dimension would prevent the resize iterdomain to be merged with its inner most dimensions.
+TEST_F(ResizeTest, VectorizePadNonInnermost) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const std::vector<int64_t> shape({1024L, 1024L});
+  const std::vector<int64_t> shape({1024L, 1024L, 2L});
 
   // Using a concrete tensor to avoid dynamic reshape
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4156,11 +4158,42 @@ TEST_F(ResizeTest, UnrollNonInnermost) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto ref = at::pad(t0, {0, 0, 4, 4});
+  auto ref = at::pad(t0, {0, 0, 4, 4, 0, 0});
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
+  //TODO: check vectorization factor
 }
 
+// This test checks that the propagation vectorization factor is not stopped by padding on non-innermost dimension, when the pad operation isn't the vectorized operation.
+TEST_F(ResizeTest, PropagatePadNonInnermost) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L, 1024L, 2L});
+
+  // Using a concrete tensor to avoid dynamic reshape
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = relu(tv0);
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::pad(t0.relu(), {0, 0, 4, 4, 0, 0});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+  //TODO: check vectorization factor
+}
+
+// this is hitting an error. Figure it out.
 TEST_F(ResizeTest, PadAndCacheUses) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
