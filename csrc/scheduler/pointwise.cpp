@@ -532,6 +532,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
         : (n_elems % (params->vectorization_factor * kThreadX) == 0);
     n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
+
   }
   int64_t unroll_factor = std::min(n_elems_limited_unroll, empirical_unroll);
 

@@ -666,6 +666,7 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
   EXPECT_GT(getVecSizeForPointwise(fec), 1);
 }
 
+
 // vectorization factor, inner unroll factor, outer unroll factor, bcast dim.
 using VectUnrollFactors = std::tuple<int64_t, int64_t, int64_t, int64_t>;
 using PointwiseParamsTest = NVFuserFixtureParamTest<VectUnrollFactors>;
@@ -723,6 +724,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(1, 2), // inner unroll factors
         testing::Values(1, 2), // outer unroll factors
         testing::Values(0, 1) // broadcast dim
+
         ),
     [](const testing::TestParamInfo<VectUnrollFactors>& info) -> std::string {
       std::stringstream ss;
