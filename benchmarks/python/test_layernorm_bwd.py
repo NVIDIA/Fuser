@@ -163,17 +163,21 @@ def test_layernorm_bwd_baseline_benchmark(
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    output = torch.nn.functional.layer_norm(
-        inputs,
-        inputs.shape[1:],
-        weight=weights,
-        bias=bias,
-    )
+    def layernorm_fwd():
+        return torch.nn.functional.layer_norm(
+            inputs,
+            inputs.shape[1:],
+            weight=weights,
+            bias=bias,
+        )
+
+    fwd_fn = torch.compile(layernorm_fwd) if compile else layernorm_fwd
+    output = fwd_fn()
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=layernorm_bwd_iobytes(size, dtype),
     )
