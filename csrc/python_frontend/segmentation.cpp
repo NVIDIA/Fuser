@@ -26,20 +26,24 @@ int64_t SegmentationState::setupSegmentation(
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
 
-  // Clone CPP Fusion
+  // Step 1) Clone preschedFusion CPP Fusion.
   segment_fusion_ = std::make_unique<Fusion>();
+
+  // The IRCloner returned by Fusion::copy acts as map from the original fusion
+  // to the cloned fusion.
   IrCloner original_to_cloned_map = Fusion::copy(fusion, segment_fusion_.get());
 
-  // Get arguments
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
-  // Concretize fusion with input arguments. Then, map original symbolic values
-  // to new concrete values when building map_cloned_value_to_fid_
+  // Step 2) Concretize fusion with input arguments.
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
 
-  // Track mapping from cloned CPP fusion and FusionDefinition indices.
+  // Step 3) Given the map_value_to_original_fid, the IRCloner returned by
+  // Fusion::copy, AND the symbolic_to_concrete map returned by
+  // concretization pass, create a mapping from cloned Vals to original fusion
+  // state indices.
   std::transform(
       map_value_to_original_fid.begin(),
       map_value_to_original_fid.end(),
@@ -71,7 +75,7 @@ int64_t SegmentationState::setupSegmentation(
   // Get the order for fusion segments
   prepareGroupOrder();
 
-  // Return the number of segments
+  // Return the number of segments created by segmentation algorithm.
   return (int64_t)segmented_fusion_->groups().size();
 }
 
@@ -89,21 +93,24 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
           segment_id < (int64_t)segmented_fusion_->groups().size(),
       "The segment id is not valid");
 
-  // Create new fusion segment
+  // Step 1) Use segment id to get SegmentedGroup from group_run_order_.
   SegmentedGroup* sg = group_run_order_.at(segment_id);
   NVF_ERROR(sg != nullptr);
+
+  // Step 2) Create CPP Fusion for SegmentedGroup. The IrCloner acts as a map
+  // from fusion segment to the original fusion.
   std::pair<IrCloner, std::unique_ptr<Fusion>> cloner_segment_pair =
       segmented_fusion_->makeFusion(sg);
   IrCloner original_to_segment_map = cloner_segment_pair.first;
   std::unique_ptr<Fusion> fusion_segment =
       std::move(cloner_segment_pair.second);
 
+  // Step 3) Translate CPP Fusion to Python FusionDefinition
   std::unordered_map<const nvfuser::Val*, size_t>
       map_translated_val_to_segment_fid =
           translate(fusion_segment.get(), &other);
 
-  // Step 1: Get FusionDefinition index for original inputs and outputs.
-  // Use std::transform on inputs and outputs
+  // Step 4) Get FusionDefinition index for original inputs and outputs.
   const std::vector<Val*>& original_inputs = sg->inputs();
   const std::vector<Val*>& original_outputs = sg->outputs();
 
@@ -122,8 +129,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
       std::back_inserter(original_fid),
       [&](Val* v) { return map_cloned_value_to_fid_.at(v); });
 
-  // Step 2: ir_cloner maps original fusion statements to translated statements.
-  // Use std::transform
+  // Step 5: ir_cloner maps original fusion statements to translated statements.
   std::vector<Val*> segment_inputs_outputs;
   segment_inputs_outputs.reserve(
       original_inputs.size() + original_outputs.size());
@@ -140,7 +146,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
       std::back_inserter(segment_inputs_outputs),
       [&](Val* v) { return original_to_segment_map.clone(v); });
 
-  // Step 3: Map translated statements to its FusionDefinition index.
+  // Step 6: Map translated statements to its FusionDefinition index.
   std::vector<int64_t> segment_fid;
   segment_fid.reserve(segment_inputs_outputs.size());
   std::transform(
@@ -149,7 +155,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
       std::back_inserter(segment_fid),
       [&](Val* v) { return map_translated_val_to_segment_fid.at(v); });
 
-  // Step 4: Map original FusionDefinition index to translated Fusion Definition
+  // Step 7: Map original FusionDefinition index to translated Fusion Definition
   // index for inputs and outputs.
   NVF_ERROR(original_fid.size() == segment_fid.size());
 
@@ -168,8 +174,8 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
   // The python definition can require the size of tensor dimensions from
   // original input arguments, which the original segment does not.
 
-  // Step 1a: Create a map from segment to original extents.
-  // Step 1a: Create a map from segment fid to segment extents.
+  // Step 8a: Create a map from segment to original extents.
+  // Step 8b: Create a map from segment fid to segment extents.
   std::unordered_map<Val*, Val*> segment_to_original_extents;
   std::unordered_map<size_t, Val*> segment_fid_to_translated_val;
   for (Val* original_extent : cloned_extents_) {
@@ -185,7 +191,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
     segment_fid_to_translated_val.emplace(segment_fid, segment_extent);
   }
 
-  // Step 2: Find the set difference between all segment input fid and known
+  // Step 9: Find the set difference between all segment input fid and known
   // segment fids.
   std::vector<int64_t> missing_segment_fid;
   for (int64_t input_fid : other.inputs()) {
@@ -194,7 +200,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
     }
   }
 
-  // Step 3: Get segment Val for missing segment input fids.
+  // Step 10: Get segment Val for missing segment input fids.
   std::vector<Val*> missing_segment_val;
   missing_segment_val.reserve(missing_segment_fid.size());
   std::transform(
@@ -205,7 +211,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
         return segment_fid_to_translated_val.at(segment_fid);
       });
 
-  // Step 4: Map segment Val to cloned Val
+  // Step 11: Map segment Val to cloned Val
   std::vector<Val*> missing_cloned_val;
   missing_cloned_val.reserve(missing_segment_val.size());
   std::transform(
@@ -216,7 +222,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
         return segment_to_original_extents.at(segment_val);
       });
 
-  // Step 5: Transform cloned Val to original fid.
+  // Step 12: Transform cloned Val to original fid.
   std::vector<int64_t> missing_cloned_fid;
   missing_cloned_fid.reserve(missing_cloned_val.size());
   std::transform(
@@ -227,12 +233,14 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
         return map_cloned_value_to_fid_.at(original_val);
       });
 
-  // Step 6: Add mapping from segment to original fid.
+  // Step 13: Add mapping from segment to original fid.
   for (size_t idx : c10::irange(missing_segment_fid.size())) {
     segment_fid_to_original_fid_map.emplace(
         missing_segment_fid.at(idx), missing_cloned_fid.at(idx));
   }
 
+  // Return the mapping from the index space of segment FusionDefinition to the
+  // index space of the original FusionDefinition.
   return segment_fid_to_original_fid_map;
 }
 

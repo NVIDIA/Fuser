@@ -55,6 +55,20 @@ class FusionDefinition(_C._FusionDefinition):
         self.profiled = False
 
     def segment(self, inputs):
+        """
+        Decompose this FusionDefinition into a sequence of segment
+        FusionDefinitions.
+
+        This function runs the nvfuser segmentation algorithm and translates the
+        segments into their corresponding FusionDefinitions.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Returns:
+            List[FusionDefinition]: The FusionDefinitions corresponding to the
+            sub-fusion segments of this FusionDefinition.
+        """
         num_segments = self._setup_segmentation(inputs)
         if num_segments == 1:
             self._finalize_segmentation()
@@ -91,6 +105,34 @@ class FusionDefinition(_C._FusionDefinition):
         raise NotImplementedError("definition() should be implemented by child class!")
 
     def _execute_segments(self, input_arguments, *, device=None, profile=False):
+        """
+        Run the sequence of FusionDefinition segments to generate the results
+        of this FusionDefinition.
+
+        This FusionDefinition acts an argument manager. It gathers input
+        arguments for the segments and stores their output results. After
+        running a segment, any redundant intermediate values, which are
+        unnecessary for any other segments, are deleted to save memory.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Kwargs:
+            device (Optional[Union[int, str, torch.device]]): This is a hint to run
+                the Fusion on the given CUDA device. This is not typically
+                necessary, as the device is usually inferred from the locations
+                of input tensors. However, for some fusion definitions, no
+                tensors will be input (for example when all tensors are
+                generated with `full` or `uniform` ops). In these cases, we
+                must either tell NVFuser where to run the resulting kernel, or
+                let it default to 0. Note that passing this option providing
+                and input tensors that lie on another device is an error.
+            profile (bool): Captures a CUPTI based profile of a fusion.
+
+
+        Returns:
+            List[Tensor]: The output results for this FusionDefinition.
+        """
         assert len(self.segments) > 0
         assert len(self.segments) == len(self.segment_maps)
 
