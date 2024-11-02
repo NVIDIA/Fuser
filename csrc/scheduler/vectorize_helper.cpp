@@ -73,7 +73,7 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
     std::copy(
       resize_ops.begin(),
       resize_ops.end(),
-      std::inserter(resize_in_pad_, resize_in_pad.end()));
+      std::inserter(resize_in_pad_, resize_in_pad_.end()));
   }
 }
 
