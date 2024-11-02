@@ -3433,9 +3433,8 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
       fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-// Vectorization through resize is not supported yet. Make sure
-// vectorization is disabled.
-TEST_F(ResizeTest, AvoidVectorization) {
+// Vectorization through pad is supported now!
+TEST_F(ResizeTest, PadVectorization) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3465,9 +3464,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
       tv1->getLoopDomain(),
-      Each(
-          Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
-      << "Unexpected vectorization: " << tv1;
+      Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
+      << "Failed to vectorize: " << tv1;
 
   // Make sure tv2 should be vectorized, i.e., at least one loop IterDomain is
   // vectorized.
