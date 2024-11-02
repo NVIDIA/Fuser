@@ -144,19 +144,24 @@ def test_nanogpt_attn_bwd_baseline_benchmark(
         1, 1, seq_len, seq_len
     )
 
-    # Compute output
-    hs = n_embd // nh
-    attn = inputs / (hs**0.5)
-    attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    output = torch.nn.functional.dropout(attn, p=dropout_p)
+    def nanogpt_attn_fwd():
+        # Compute output
+        hs = n_embd // nh
+        attn = inputs / (hs**0.5)
+        attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
+        attn = torch.nn.functional.softmax(attn, dim=-1)
+        output = torch.nn.functional.dropout(attn, p=dropout_p)
+        return output
 
+    # Compile the fwd fn for torchcompile
+    fwd_fn = torch.compile(nanogpt_attn_fwd) if compile else nanogpt_attn_fwd
+    output = fwd_fn()
     grads = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=nanogpt_attn_bwd_iobytes(size, dtype),
     )

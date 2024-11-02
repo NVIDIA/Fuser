@@ -186,12 +186,17 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
-    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
-    output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+    def dropout_rmsnorm_fwd():
+        x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
+        output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+        return output
+
+    fwd_fn = torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd
+    output = fwd_fn()
 
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype),
     )
