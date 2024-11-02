@@ -264,9 +264,9 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
     // set a max inner unroll factor
     // e.g. 2 blocks per sm, 512 threads per block, 64 regs per thread.
-    // assume 32 regs for loading buffer, each unroll consumes 4 registers,
-    // then max_inner_unroll = 8 for 1 input tensor.
-    // then max_inner_unroll = 4 for 2 input tensors.
+    // assume 48 regs for loading buffer, each unroll consumes 4 registers,
+    // then max_inner_unroll = 12 for 1 input tensor.
+    // then max_inner_unroll = 6 for 2 input tensors.
     const int64_t target_blocks_per_sm = 2;
     const int64_t max_regs_per_thread = std::min(
         255L,
@@ -275,9 +275,12 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     const int64_t bytes_per_unroll =
         max_input_dtype_size * inner_reduction_unroll_factor * n_tensor_inputs;
     const int64_t max_inner_unroll = scheduler_utils::safeDiv(
-        (max_regs_per_thread - 32) * scheduler_utils::bytes_per_register,
+        (max_regs_per_thread - 16) * scheduler_utils::bytes_per_register,
         bytes_per_unroll);
     auto redu_reminder = ceilDiv(after_vect, bdimx);
+    std::cout << "redu_reminder: " << redu_reminder
+              << ", bdimx: " << bdimx
+               << std::endl;    
     if (redu_reminder == 1 && bdimx > 128) {
       bdimx /= 2;
       unroll_factor_top_of_vectorization = 2;
@@ -285,8 +288,11 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       // start from large prime number, e.g. input = 14, want to unroll 7.
       // if start from small value, unroll = 2, then can't further increase to
       // 14 sicne max_inner_unroll > 14.
-      const int factors[] = {7, 5, 3, 2};
+      const int factors[] = {11, 7, 5, 3, 2};
       for (int factor : factors) {
+        if(factor > max_inner_unroll) {
+          continue;
+        }
         while (redu_reminder >= factor && redu_reminder % factor == 0 &&
                unroll_factor_top_of_vectorization * factor <=
                    max_inner_unroll) {
@@ -295,19 +301,25 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
         }
       }
     }
-    // increase bdimx to reduce serial reduction, avoid using a small bdimx
-    // to iterate a large number of elements in the reduction domain.
-    while (redu_reminder > 2 && bdimx * 2 <= target_threads_in_block) {
-      bdimx *= 2;
-      redu_reminder /= 2;
+    // // increase bdimx to reduce serial reduction, avoid using a small bdimx
+    // // to iterate a large number of elements in the reduction domain.
+    // while (redu_reminder >= 2 && bdimx * 2 <= target_threads_in_block) {
+    //   bdimx *= 2;
+    //   redu_reminder /= 2;
+    // } 
+    if(redu_reminder > 1) {
+      bdimx = std::min(target_threads_in_block, after_vect);
+      unroll_factor_top_of_vectorization = 1;
     }
 
     std::cout << "redu_reminder: " << redu_reminder
               << ", target_bdimy: " << target_bdimy
               << ", prefered_min_bdimx: " << prefered_min_bdimx
               << ", max_inner_unroll: " << max_inner_unroll
+              << ", bdimx: " << bdimx
               << ", unroll_factor_top_of_vectorization: "
               << unroll_factor_top_of_vectorization << std::endl;
+             
   }
 
   // If we're not just barely covering the dimension, round to a more friendly
