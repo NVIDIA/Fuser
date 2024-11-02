@@ -2593,7 +2593,7 @@ IterDomain* IterDomain::merge(
       } else {
         expanded_extent = mul(outer->expandedExtent(), inner->extent());
       }
-    } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
+    } else if (!outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
       } else {
@@ -4426,7 +4426,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
 std::string SdpaFwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << attn_out()->toString() << "\n";
+  indent(ss, indent_size) << attn_out()->toString() << ",\n";
+  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size) << philox_offset()->toString() << "\n";
   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";

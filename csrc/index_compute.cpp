@@ -2238,6 +2238,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     DataType as_type) {
   Val* index = nullptr;
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
+      ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(

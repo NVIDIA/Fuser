@@ -84,6 +84,8 @@ using namespace at::indexing;
 
 // Matmul test for Ampere MMA: across supported layouts
 TEST_P(MatmulTestWithLayout, AmpereMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -140,7 +142,72 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+// Single batch dimension which is broadcast
+TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  // Broadcast inputs to 1, M, 1, K and 1, 1, N, K
+  tv0 = broadcast(tv0, {true, false, false, false});
+  tv1 = broadcast(tv1, {true, false, false, false});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(
+          &fusion,
+          {inputs.first, inputs.second},
+          LaunchParams(),
+          matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  ASSERT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(fe.kernel()));
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref =
+      atMatmul(
+          inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout)
+          .unsqueeze(0);
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -195,6 +262,8 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
 }
 
 TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -256,6 +325,8 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
 }
 
 TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -314,6 +385,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
 
 // Matmul test for Ampere MMA: with pipelined gmem load
 TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
@@ -376,6 +449,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
 
 // Matmul test for Ampere MMA: checking CTA Swizzles
 TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int dim = 8192;
   int M = dim, N = dim, K = dim;
@@ -522,6 +597,8 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
 }
 
 TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
@@ -1254,6 +1331,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
 
 // Matmul test for Turing MMA: across supported layouts
 TEST_P(MatmulTestWithLayout, TuringMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -1973,6 +2052,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
 TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2030,6 +2111,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
 
 // Matmul test for Turing MMA: across supported layouts
 TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -2084,6 +2167,8 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
 
 // Tile layout check for symmetric 4-warp recipes
 TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2162,6 +2247,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
 }
 
 TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2235,6 +2322,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
 }
 
 TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2303,6 +2392,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
 TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 2048;
   Fusion fusion;
@@ -2360,6 +2451,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
 
 // Matmul test for Ampere MMA: across supported layouts
 TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int B = 2, M = 504, N = 136, K = 248;
 
@@ -2853,10 +2946,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
 
 // Test the matmul scheduler's single-kernel split-K support
 TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
-  // requires Ampere or higher GPU
-  if (!deviceMajorMinorCheck(8)) {
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-  }
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 8096;
@@ -2931,10 +3021,7 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
 
 // Test splitk with bias epilogue
 TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
-  // requires Ampere or higher GPU
-  if (!deviceMajorMinorCheck(8)) {
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-  }
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 8096;
@@ -3000,10 +3087,7 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
 
 // Same as above but has a batch dimension and splitk
 TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
-  // requires Ampere or higher GPU
-  if (!deviceMajorMinorCheck(8)) {
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-  }
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   // Keep multiples of 8 to keep vectorizable.
   int B = 2, M = 504, N = 136, K = 2048;
@@ -3065,10 +3149,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
 
 // Test batch splitk with bias epilogue
 TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
-  // requires Ampere or higher GPU
-  if (!deviceMajorMinorCheck(8)) {
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-  }
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   // Keep multiples of 8 to keep vectorizable.
   int B = 2, M = 504, N = 136, K = 2048;
@@ -3196,6 +3277,7 @@ TEST_F(MatmulTest, ReproIssue1808) {
 
 // Test matmul with sizes that are not divisible by 8 and with misaligned inputs
 TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   for (bool add_2d_bias : {false, true}) {
     for (bool downcast_output : {false, true}) {
       for (const auto& [M, N, K, alignA, alignB, alignBias] : std::vector<

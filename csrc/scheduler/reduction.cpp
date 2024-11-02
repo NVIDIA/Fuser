@@ -451,9 +451,9 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->cross_grid_inner_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
-
-  bool pad_bdimx =
-      bdimx > 16 && bdimx * bdimy < (int64_t)dev_prop->maxThreadsPerBlock;
+  bool pad_bdimx = bdimx > 16 &&
+      bdimx * bdimy <
+          (int64_t)at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
 
   if (rparams->pad_inner_reduction_to_warp) {
