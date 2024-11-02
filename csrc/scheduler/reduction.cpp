@@ -257,6 +257,45 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
            (after_vect % (bdimx * 2) == 0 || bdimx * 2 <= prefered_min_bdimx)) {
       bdimx *= 2;
     }
+
+    // set a max inner unroll factor
+    // e.g. 2 blocks per sm, 512 threads per block, 64 regs per thread.
+    // assume 32 regs for loading buffer, each unroll consumes 4 registers,
+    // then max_inner_unroll = 8 for 1 input tensor.
+    // then max_inner_unroll = 4 for 2 input tensors.
+    const int64_t target_blocks_per_sm = 2;
+    const int64_t max_regs_per_thread = std::min(
+        255L,
+        getRegPerThreadGivenThreadsPerSM(
+            target_threads_in_block * target_blocks_per_sm));
+    const int64_t bytes_per_unroll =
+        max_input_dtype_size * inner_reduction_unroll_factor * n_tensor_inputs;
+    const int64_t max_inner_unroll = scheduler_utils::safeDiv(
+        (max_regs_per_thread - 32) * scheduler_utils::bytes_per_register,
+        bytes_per_unroll);
+    auto after_vect_bdimx = ceilDiv(after_vect, bdimx);
+    if (after_vect_bdimx == 1 && bdimx > 128) {
+      bdimx /= 2;
+      unroll_factor_top_of_vectorization = 2;
+    } else {
+      // start from large prime number, e.g. input = 14, want to unroll 7.
+      // if start from small value, unroll = 2, then can't further increase to
+      // 14 sicne max_inner_unroll > 14.
+      const int factors[] = {7, 5, 3, 2};
+      for (int factor : factors) {
+        while (after_vect_bdimx >= factor && after_vect_bdimx % factor == 0 &&
+               unroll_factor_top_of_vectorization * factor <=
+                   max_inner_unroll) {
+          unroll_factor_top_of_vectorization *= factor;
+          after_vect_bdimx /= factor;
+        }
+      }
+    }
+
+    std::cout << "after_vect_bdimx: " << after_vect_bdimx
+              << ", max_inner_unroll: " << max_inner_unroll
+              << ", unroll_factor_top_of_vectorization: "
+              << unroll_factor_top_of_vectorization << std::endl;
   }
 
   // If we're not just barely covering the dimension, round to a more friendly
@@ -276,34 +315,20 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     std::cout << "MAX_BDIMX: " << max_bdimx << " bdimx: " << bdimx << std::endl;
   }
 
-  auto after_vect_bdimx = ceilDiv(after_vect, bdimx);
-  if (after_vect_bdimx == 1 && bdimx > 128) {
-    bdimx /= 2;
-    unroll_factor_top_of_vectorization = 2;
-  } else if (after_vect_bdimx >= 2 && after_vect_bdimx % 2 == 0) {
-    unroll_factor_top_of_vectorization = 2;
-  } else if (after_vect_bdimx >= 3 && after_vect_bdimx % 3 == 0) {
-    unroll_factor_top_of_vectorization = 3;
-  } else if (after_vect_bdimx >= 5 && after_vect_bdimx % 5 == 0) {
-    unroll_factor_top_of_vectorization = 5;
-  } else if (after_vect_bdimx >= 7 && after_vect_bdimx % 7 == 0) {
-    unroll_factor_top_of_vectorization = 7;
-  }
-  std::cout << "after_vect_bdimx: " << after_vect_bdimx << "unroll_factor_top_of_vectorization: "
-            << unroll_factor_top_of_vectorization << std::endl;
-
   // // Put some unrolling into the inner dim to fully saturate the memory
   // // bandwidth
-  // if (inner_reduction_unroll_factor * unroll_factor_top_of_vectorization <
-  //     max_unroll) {
-  //   unroll_factor_top_of_vectorization = std::min(
-  //       max_unroll / inner_reduction_unroll_factor,
-  //       ceilDiv(
-  //           inner_most_dimension_numel / inner_reduction_unroll_factor,
-  //           bdimx));
-  //   std::cout << "unroll_factor_top_of_vectorization: "
-  //             << unroll_factor_top_of_vectorization << std::endl;
-  // }
+  if (inner_reduction_unroll_factor * unroll_factor_top_of_vectorization <
+      max_unroll) {
+    unroll_factor_top_of_vectorization = std::min(
+        max_unroll / inner_reduction_unroll_factor,
+        ceilDiv(
+            inner_most_dimension_numel / inner_reduction_unroll_factor, bdimx));
+    std::cout << "max_unroll: " << max_unroll
+              << ", inner_reduction_unroll_factor: "
+              << inner_reduction_unroll_factor
+              << ", unroll_factor_top_of_vectorization: "
+              << unroll_factor_top_of_vectorization << std::endl;
+  }
 
   // Put everything else in bdimy for now
   bdimy = std::max(min_warp_size / bdimx, (int64_t)1);
@@ -543,6 +568,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
             << inner_most_dimension_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "vectorize_factor: " << vectorize_factor << "\n"
+            << "unroll_factor_top_of_vectorization: "
+            << unroll_factor_top_of_vectorization << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")"
