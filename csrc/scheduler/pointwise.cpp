@@ -60,6 +60,60 @@ class DomainMap : public pointwise_utils::DomainMap {
   }
 };
 
+// Class to handle expensive operations information and calculation of unroll
+// factors
+class ExpensiveOpInfo {
+ public:
+  ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
+
+  void analyzeFusion(Fusion* fusion) {
+    for (auto expr : fusion->exprs()) {
+      if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
+        switch (unary->getUnaryOpType()) {
+          case UnaryOpType::Tanh:
+            n_tanh_++;
+            break;
+          case UnaryOpType::Exp:
+            n_exp_++;
+            break;
+          case UnaryOpType::Reciprocal:
+            n_reciprocal_++;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ExpensiveOpInfo: {";
+    ss << "n_tanh: " << n_tanh_ << ", ";
+    ss << "n_exp: " << n_exp_ << ", ";
+    ss << "n_reciprocal: " << n_reciprocal_ << "}";
+    return ss.str();
+  }
+
+  int64_t getComputationFactor() const {
+    auto factor =
+        n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
+    factor = std::max(factor, 1);
+    return factor;
+  }
+
+ private:
+  // Number of each expensive operation in the fusion
+  int n_tanh_;
+  int n_exp_;
+  int n_reciprocal_;
+
+  // Empirical factors to consider the cost of each operation
+  static constexpr int f_tanh_ = 4;
+  static constexpr int f_exp_ = 1;
+  static constexpr int f_reciprocal_ = 1;
+};
+
 // Get number of vectorizable non-outer broadcast inputs
 // vectorizable_io_tvs: all vectorizable input and output tensor views
 // break_point: the break point of the broadcast flags.
@@ -103,14 +157,14 @@ int64_t getNumOfNonOuterBcastInputs(
 }
 
 int64_t getTargetUnrollFactor(
+    Fusion* fusion,
     int64_t break_point,
     int64_t vectorization_bytes,
     std::vector<TensorView*> vectorizable_io_tvs) {
-  // 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
-  constexpr float empirical_gmem_latency = 9.5e-9;
-
   // Calculate hardware bandwidth and required bytes in flight based on
   // little's law. bytes_in_flight = bandwidth * latency
+  // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
+  constexpr float empirical_gmem_latency = 9.5e-9;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   float hardware_bandwidth = 2 * (dev_prop->memoryBusWidth / 8) *
       (float)dev_prop->memoryClockRate * 1e3;
@@ -130,6 +184,19 @@ int64_t getTargetUnrollFactor(
             << " current_bytes_per_thread: " << current_bytes_per_thread
             << " unroll_factor: " << unroll_factor
             << " hardware_bandwidth: " << hardware_bandwidth << std::endl;
+  // If unrolled, further check computation cost to increase overlap between
+  // computation and memory access.
+  if (unroll_factor > 1) {
+    // Analyze the fusion to determine the number of expensive operations
+    // When computation is expensive, increase unroll to have more overlap
+    // between computation and memory access.
+    ExpensiveOpInfo eops;
+    eops.analyzeFusion(fusion);
+    int64_t computation_factor = eops.getComputationFactor();
+    unroll_factor *= computation_factor;
+    std::cout << "computation_factor: " << computation_factor
+              << " unroll_factor: " << unroll_factor << std::endl;
+  }
   return unroll_factor;
 }
 
@@ -433,6 +500,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       params->vectorization_factor * max_input_dtype_size;
 
   int64_t empirical_unroll = getTargetUnrollFactor(
+      fusion,
       break_point,
       vectorization_bytes,
       vectorizable_inputs_outputs_entry.get());
@@ -448,7 +516,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       : ceilDiv(n_elems / max_vect_factor, kThreadX);
   int64_t n_waves_wo_unroll =
       ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
-  int64_t n_elems_limited_unroll = scheduler_utils::safeDiv(n_waves_wo_unroll, target_waves);
+  int64_t n_elems_limited_unroll =
+      scheduler_utils::roundUpPow2(ceilDiv(n_waves_wo_unroll, target_waves));
   std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
             << " empirical_unroll: " << empirical_unroll
             << " total_blocks: " << total_blocks
