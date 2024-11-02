@@ -204,7 +204,10 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     target_threads_in_block +=
         min_warp_size - target_threads_in_block % min_warp_size;
   }
-
+  std::cout << "target_threads_in_block: " << target_threads_in_block
+            << ", target_blocks: " << target_blocks
+            << ", target_unroll: " << target_unroll
+             << std::endl;
   // To get to target threads:
   // Prioritize
   // (1) x dim in reduction
@@ -252,7 +255,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     // after_vect = 512 / 8 = 64, then bdimx = 64
     // after_vect = 5120 / 8 = 640, then bdimx = 128
     // after_vect = 10240 / 8 = 1280, then bdimx = 256
-    const int64_t prefered_min_bdimx = 128;
+    int64_t target_bdimy = ceilDiv(total_iteration_numel, target_blocks);
+    int64_t prefered_min_bdimx = std::max(128L, target_threads_in_block / target_bdimy);
     while (bdimx * 2 <= target_threads_in_block && bdimx * 2 <= after_vect &&
            (after_vect % (bdimx * 2) == 0 || bdimx * 2 <= prefered_min_bdimx)) {
       bdimx *= 2;
@@ -293,6 +297,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     }
 
     std::cout << "after_vect_bdimx: " << after_vect_bdimx
+              << ", target_bdimy: " << target_bdimy
+              << ", prefered_min_bdimx: " << prefered_min_bdimx
               << ", max_inner_unroll: " << max_inner_unroll
               << ", unroll_factor_top_of_vectorization: "
               << unroll_factor_top_of_vectorization << std::endl;
