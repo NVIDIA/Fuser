@@ -8,6 +8,7 @@
 #include <runtime/fusion_cache_utils.h>
 
 #include <fusion_segmenter.h>
+#include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
@@ -359,10 +360,16 @@ class BruteForceRuntimeOrderOptimizer {
   static std::tuple<std::vector<SegmentedGroup*>, int64_t, bool> run(
       const SegmentedFusion* segmented_fusion,
       bool preserve_chains = true,
-      const int64_t max_runtime_ms = 100) {
+      const int64_t max_runtime_ms = 10000) {
     BruteForceRuntimeOrderOptimizer opt(
         segmented_fusion->groups(), preserve_chains, max_runtime_ms);
     opt.measureAllOrderings();
+
+    std::cout << "Checked " << opt.num_checked_ << " topological orderings"
+              << std::endl;
+
+    std::cout << "Found range from " << opt.best_peak_memory_ << " to "
+              << opt.worst_peak_memory_ << " bytes peak memory" << std::endl;
 
     NVF_ERROR(opt.best_run_order_.size() == opt.groups_.size());
 
@@ -396,50 +403,85 @@ class BruteForceRuntimeOrderOptimizer {
         run_order_.size(),
         ". run_order: ",
         run_order_);
-    int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
     std::cout << " Checking memory of run order ";
     for (SegmentedGroup* group : run_order_) {
       std::cout << " " << group_id_map_.at(group);
     }
     std::cout << std::endl;
+    int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
     if (best_peak_memory_ == -1 || peak_memory < best_peak_memory_) {
       std::cout << " Found new best run order with peak memory " << peak_memory
                 << std::endl;
       best_peak_memory_ = peak_memory;
       best_run_order_ = run_order_;
     }
+    if (peak_memory > worst_peak_memory_) {
+      worst_peak_memory_ = peak_memory;
+    }
+    num_checked_++;
   }
 
   SegmentedGroup* selectNextGroup() {
+    std::cout << "selectNextGroup" << std::endl;
     // Get next available group.
     NVF_ERROR(!current_coords_.empty());
-    size_t current_index = current_coords_.back();
+    std::cout << "  current_coords_.size()=" << current_coords_.size()
+              << std::endl;
+    std::cout << "  current_coords_= " << current_coords_ << std::endl;
+    std::cout << "  run_order_=";
+    for (SegmentedGroup* group : run_order_) {
+      std::cout << " " << group_id_map_.at(group);
+    }
+    std::cout << std::endl;
+    int64_t current_index = current_coords_.back();
+
+    NVF_ERROR(current_index <= available_groups_.size());
 
     NVF_ERROR(current_index < available_groups_.size());
-    SegmentedGroup* next_group = available_groups_.at(current_index);
+    SegmentedGroup* next_group = available_groups_.at((size_t)current_index);
     // Remove this group from the list of available groups
     available_groups_.erase(available_groups_.begin() + (ssize_t)current_index);
+
+    std::cout << "  current_index=" << current_index << std::endl;
+    std::cout << "  next_group=" << (void*)next_group << " = "
+              << group_id_map_.at(next_group) << std::endl;
+    std::cout << "  available_groups_.size()=" << available_groups_.size()
+              << std::endl;
 
     // Update in-degrees of all neighbors as if we deleted next_group
     for (const SegmentedEdge* edge : next_group->consumer_edges) {
       SegmentedGroup* neighbor_group = edge->to;
       int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
       if (--deg == 0) {
+        std::cout << "  Pushing group " << (void*)neighbor_group << std::endl;
         available_groups_.push_back(neighbor_group);
       }
     }
 
     run_order_.push_back(next_group);
+    current_coords_.push_back(0);
 
     return next_group;
   }
 
   // This undoes the steps of selectNextGroup
   void undoMostRecentSelection() {
+    std::cout << "undoMostRecentSelection" << std::endl;
     NVF_ERROR(!run_order_.empty());
     SegmentedGroup* group = run_order_.back();
-    ;
+    std::cout << "  run_order_=";
+    for (SegmentedGroup* group : run_order_) {
+      std::cout << " " << group_id_map_.at(group);
+    }
+    std::cout << std::endl;
     run_order_.pop_back();
+    NVF_ERROR(!current_coords_.empty());
+    int64_t current_index = current_coords_.back();
+
+    std::cout << "  group=" << (void*)group << " = " << group_id_map_.at(group)
+              << std::endl;
+    std::cout << "  current_index=" << current_index << std::endl;
+    std::cout << "  current_coords_= " << current_coords_ << std::endl;
 
     // Update in-degrees of all neighbors to undo deletion of group
     for (int64_t i = (int64_t)group->consumer_edges.size() - 1; i >= 0; --i) {
@@ -447,22 +489,19 @@ class BruteForceRuntimeOrderOptimizer {
       SegmentedGroup* neighbor_group = edge->to;
       int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
       if (deg++ == 0) {
+        NVF_ERROR(!available_groups_.empty());
         NVF_ERROR(
             neighbor_group == available_groups_.back(),
             "Found inconsistency while backtracking");
         available_groups_.pop_back();
       }
     }
-    size_t current_index = current_coords_.back();
     available_groups_.insert(
         available_groups_.begin() + (ssize_t)current_index, group);
   }
 
   void backTrack() {
     while (!run_order_.empty()) {
-      size_t& most_recent_index = current_coords_.back();
-      // SegmentedGroup* most_recent_group = run_order_.back();
-      run_order_.pop_back();
       // Here we will undo the deletion of "most_recent_group". This means
       // we need to update in-degrees of consumer groups, remove those that
       // are no longer available, then insert the most recent group it back
@@ -473,6 +512,7 @@ class BruteForceRuntimeOrderOptimizer {
       // the last element of available_groups then we are done processing
       // this level's subtree, so remove this coordinate and loop to move up
       // another level in the tree.
+      int64_t& most_recent_index = current_coords_.back();
       NVF_ERROR(most_recent_index < available_groups_.size());
       if (++most_recent_index < available_groups_.size()) {
         break;
@@ -518,9 +558,6 @@ class BruteForceRuntimeOrderOptimizer {
           // way out
           break;
         }
-      } else {
-        // The ordering is not yet complete. Move to next level
-        current_coords_.push_back(0);
       }
 
       // Return early if we have reached the time limit
@@ -604,12 +641,15 @@ class BruteForceRuntimeOrderOptimizer {
   std::vector<SegmentedGroup*> available_groups_;
 
   std::vector<SegmentedGroup*> run_order_;
-  std::vector<size_t> current_coords_;
+  std::vector<int64_t> current_coords_;
 
   std::vector<SegmentedGroup*> best_run_order_;
   int64_t best_peak_memory_ = -1;
+  int64_t worst_peak_memory_ = -1;
 
   bool complete_ = false;
+
+  int64_t num_checked_ = 0;
 };
 
 } // namespace
@@ -617,6 +657,7 @@ class BruteForceRuntimeOrderOptimizer {
 void prepareRuntimeOrder(
     SegmentedFusion* segmented_fusion,
     RuntimeWorkSpace& runtime_workspace) {
+  FUSER_PERF_SCOPE("prepareRuntimeOrder");
   // setup the order tensor dimensions are bound
   for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
     auto input_val = segmented_fusion->inputs()[i];
