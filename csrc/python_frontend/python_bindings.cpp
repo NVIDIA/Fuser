@@ -642,7 +642,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(PointwiseParams, split_grid_y_dim)
       .PARAM(PointwiseParams, flip_grid_binding)
       .PARAM(PointwiseParams, vectorization_factor)
-      .PARAM(PointwiseParams, unroll_factor);
+      .PARAM(PointwiseParams, unroll_factor_inner)
+      .PARAM(PointwiseParams, unroll_factor_outer);
 
   // Matmul scheduler parameters
   INITHEURISTICPARAMS(MatmulParams)
