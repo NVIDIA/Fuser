@@ -93,6 +93,8 @@ class FusionState {
   NVF_API const std::vector<int64_t>& outputs() const;
   //! Get indicies for the extents of TensorView inputs of FusionState
   NVF_API const std::vector<int64_t>& extents() const;
+  //! Get extents for TensorView inputs in Fusion
+  std::vector<Val*> getExtents(Fusion* fusion);
 
   //! Add a Record
   void addRecord(RecordFunctor* record);
@@ -103,8 +105,6 @@ class FusionState {
   std::unique_ptr<FusionState> clone();
 
  private:
-  //! Get extents for TensorView inputs in Fusion
-  std::vector<Val*> getExtents(Fusion* fusion);
   //! Add extents of TensorView inputs to FusionState
   void addExtents();
   //! Change the fusion ptr and reset its state
