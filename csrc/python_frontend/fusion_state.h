@@ -45,6 +45,9 @@ struct State {
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);
 
+//! Get extents for TensorView inputs in Fusion
+std::vector<Val*> getExtents(Fusion* fusion);
+
 //! FusionState contains the information used to build a new cpp Fusion object.
 //! Unlike FusionDefinition, it does not modify the FusionCache Trie structure.
 class FusionState {
@@ -93,8 +96,6 @@ class FusionState {
   NVF_API const std::vector<int64_t>& outputs() const;
   //! Get indicies for the extents of TensorView inputs of FusionState
   NVF_API const std::vector<int64_t>& extents() const;
-  //! Get extents for TensorView inputs in Fusion
-  std::vector<Val*> getExtents(Fusion* fusion);
 
   //! Add a Record
   void addRecord(RecordFunctor* record);

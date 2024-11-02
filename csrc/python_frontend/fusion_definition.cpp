@@ -674,7 +674,32 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
   return get_val_constants(preschedFusion(), inputs);
 }
 
-void FusionDefinition::prepareGroupOrder() {
+int64_t FusionDefinition::setupSegmentation(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      segmentation_state_ == nullptr, "SegmentationState already exists!");
+  segmentation_state_ = std::make_unique<SegmentationState>();
+  return segmentation_state_->setupSegmentation(
+      preschedFusion(), map_value_to_fid_, inputs);
+}
+
+std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
+    FusionDefinition& other,
+    int64_t segment_id) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_CHECK(
+      segmentation_state_ != nullptr,
+      "Run setupSegmenation first before trying to build segments!");
+  return segmentation_state_->buildSegment(other, segment_id);
+}
+
+void FusionDefinition::finalizeSegmentation() {
+  // Destroy SegmentedState
+  segmentation_state_.reset();
+}
+
+void SegmentationState::prepareGroupOrder() {
   NVF_ERROR(segmented_fusion_ != nullptr);
 
   // Setup group run order
@@ -736,24 +761,25 @@ void FusionDefinition::prepareGroupOrder() {
   }
 }
 
-int64_t FusionDefinition::setupSegmentation(
+int64_t SegmentationState::setupSegmentation(
+    Fusion* fusion,
+    const std::unordered_map<const Val*, int64_t>& map_value_to_original_fid,
     const at::ArrayRef<c10::IValue>& inputs) {
-  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
-  int8_t device = getCommonDeviceCUDA(inputs);
-  NVF_CHECK(
-      inputs.empty() || device > -1, "Inputs are not all on the same device!");
-
-  // Check segmentation state
+  // Check state
+  NVF_ERROR(fusion != nullptr);
   NVF_ERROR(segment_fusion_ == nullptr);
   NVF_ERROR(segmented_fusion_ == nullptr);
   NVF_ERROR(group_run_order_.empty());
   NVF_ERROR(map_cloned_value_to_fid_.empty());
   NVF_ERROR(cloned_extents_.empty());
 
+  int8_t device = getCommonDeviceCUDA(inputs);
+  NVF_CHECK(
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
+
   // Clone CPP Fusion
   segment_fusion_ = std::make_unique<Fusion>();
-  IrCloner original_to_cloned_map =
-      Fusion::copy(preschedFusion(), segment_fusion_.get());
+  IrCloner original_to_cloned_map = Fusion::copy(fusion, segment_fusion_.get());
 
   // Get arguments
   KernelArgumentHolder args =
@@ -764,14 +790,10 @@ int64_t FusionDefinition::setupSegmentation(
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
 
-  // NOTE: The following tests require using the MarkAliasesPreparePass before
-  // segmentation, but not running AllocationDomainPass when running each
-  // segment. See test_issue1953 and test_unpadded_catop_issue2275_repro1.
-
   // Track mapping from cloned CPP fusion and FusionDefinition indices.
   std::transform(
-      map_value_to_fid_.begin(),
-      map_value_to_fid_.end(),
+      map_value_to_original_fid.begin(),
+      map_value_to_original_fid.end(),
       std::inserter(map_cloned_value_to_fid_, map_cloned_value_to_fid_.end()),
       [&](const auto& item) {
         const Val* original_value = item.first;
@@ -804,10 +826,9 @@ int64_t FusionDefinition::setupSegmentation(
   return (int64_t)segmented_fusion_->groups().size();
 }
 
-std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
+std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
     FusionDefinition& other,
     int64_t segment_id) {
-  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
       !other.completed(),
       "Expected an incomplete definition before translation.");
@@ -964,15 +985,6 @@ std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
   }
 
   return segment_fid_to_original_fid_map;
-}
-
-void FusionDefinition::finalizeSegmentation() {
-  // Destroy SegmentedFusion
-  segmented_fusion_.reset(nullptr);
-  segment_fusion_.reset(nullptr);
-  group_run_order_.clear();
-  map_cloned_value_to_fid_.clear();
-  cloned_extents_.clear();
 }
 
 } // namespace nvfuser::python_frontend
