@@ -589,6 +589,11 @@ T pow(T a, T b) {
   }
 }
 
+// Returns true if given number is power of 2
+constexpr bool isPowOf2(int64_t x) {
+  return x > 1 && (x & (x - 1)) == 0;
+}
+
 template <typename T>
 using MaybeUniqueOwningPtr = dynamic_type::
     DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;

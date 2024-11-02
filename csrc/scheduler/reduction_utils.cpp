@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/reduction_utils.h>
-
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
@@ -365,6 +365,7 @@ void multiReductionInliner(
     const bool is_unroll_or_vectorization,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -378,7 +379,7 @@ void multiReductionInliner(
   }
 
   const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, vectorize, cached_inputs, cached_outputs, smem_consumers);
+      reference_tv, vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -386,6 +387,13 @@ void multiReductionInliner(
       use_grouped_reduction,
       reduction_tvs,
       unroll_vectorizable_cached_tvs);
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (vectorize) {
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, vectorizatoin_factor);
+  }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
@@ -445,8 +453,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& smem_consumers) {
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
@@ -483,18 +490,6 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
       }
     } else {
       unroll_vectorizable_tvs.emplace(output);
-    }
-  }
-
-  if (vectorize) {
-    for (auto tv : smem_consumers) {
-      // smem_consumers were added in schedule process
-      // movePersistentBufferToSmem() using cacheAfter()
-      NVF_ERROR(
-          vectorizable_expr(tv->definition()),
-          "Expected a vectorizable expression, but got: ",
-          tv->definition()->toString());
-      unroll_vectorizable_tvs.emplace(tv);
     }
   }
 
@@ -1024,6 +1019,54 @@ std::string toString(ReductionType reduction_type) {
 std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
   os << toString(reduction_type);
   return os;
+}
+
+void sharedMemoryConsumerVectorization(
+    std::vector<TensorView*>& smem_consumers,
+    int64_t io_vectorization_factor) {
+  for (auto tv : smem_consumers) {
+    // they were creatd with cacheAfter.
+    NVF_ERROR(
+        tv->definition()->isA<LoadStoreOp>(),
+        "smem consumers should be LoadStoreOp. Got: ",
+        tv->definition()->toString());
+
+    // non-concretized broadcast domains are moved to the innermost before
+    // transform propagation, should skip these axes.
+    int64_t vect_axis_pos = -1;
+    while (tv->axis(vect_axis_pos)->isBroadcast()) {
+      vect_axis_pos--;
+      NVF_ERROR(
+          vect_axis_pos + tv->nDims() >= 0,
+          "Out of bound access when visiting dim ",
+          vect_axis_pos,
+          " in Tv: ",
+          tv->toString());
+    }
+    // they were transformed with innermost axis has extent equal to
+    // vectorization factor set for io tvs.
+    NVF_ERROR(
+        tv->axis(vect_axis_pos)->extent()->isConst(),
+        "Extent of the innermost axis of smem consumers should be constant. Got: ",
+        tv->toString());
+    auto innermost_extent =
+        tv->axis(vect_axis_pos)->extent()->evaluate().as<int64_t>();
+    NVF_ERROR(
+        innermost_extent == io_vectorization_factor,
+        "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
+        innermost_extent,
+        ", expected: ",
+        io_vectorization_factor);
+    auto dtype_bytes = dataTypeSize(tv->getDataType().value());
+    auto max_vect_factor =
+        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
+    // additional split is added if the innermost extent is greater than max
+    // vectorization factor.
+    if (innermost_extent > max_vect_factor) {
+      tv->split(vect_axis_pos, max_vect_factor);
+    }
+    tv->axis(vect_axis_pos)->parallelize(ParallelType::Vectorize);
+  }
 }
 
 } // namespace reduction_scheduler_utils
