@@ -304,8 +304,6 @@ int64_t computePeakMemory(
     cur_mem -= freed_bytes[j];
   }
 
-  std::cout << "Found peak memory " << peak_mem << " bytes" << std::endl;
-
   return peak_mem;
 }
 
@@ -360,13 +358,13 @@ class BruteForceRuntimeOrderOptimizer {
   static std::tuple<std::vector<SegmentedGroup*>, int64_t, bool> run(
       const SegmentedFusion* segmented_fusion,
       bool preserve_chains = true,
-      const int64_t max_runtime_ms = 10000) {
+      const int64_t max_runtime_ms = 60000) {
     BruteForceRuntimeOrderOptimizer opt(
         segmented_fusion->groups(), preserve_chains, max_runtime_ms);
     opt.measureAllOrderings();
 
-    std::cout << "Checked " << opt.num_checked_ << " topological orderings"
-              << std::endl;
+    std::cout << "Checked " << opt.num_checked_ << " topological orderings in "
+              << opt.elapsed_ms_ << " ms" << std::endl;
 
     std::cout << "Found range from " << opt.best_peak_memory_ << " to "
               << opt.worst_peak_memory_ << " bytes peak memory" << std::endl;
@@ -403,15 +401,8 @@ class BruteForceRuntimeOrderOptimizer {
         run_order_.size(),
         ". run_order: ",
         run_order_);
-    std::cout << " Checking memory of run order ";
-    for (SegmentedGroup* group : run_order_) {
-      std::cout << " " << group_id_map_.at(group);
-    }
-    std::cout << std::endl;
     int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
     if (best_peak_memory_ == -1 || peak_memory < best_peak_memory_) {
-      std::cout << " Found new best run order with peak memory " << peak_memory
-                << std::endl;
       best_peak_memory_ = peak_memory;
       best_run_order_ = run_order_;
     }
@@ -422,17 +413,8 @@ class BruteForceRuntimeOrderOptimizer {
   }
 
   SegmentedGroup* selectNextGroup() {
-    std::cout << "selectNextGroup" << std::endl;
     // Get next available group.
     NVF_ERROR(!current_coords_.empty());
-    std::cout << "  current_coords_.size()=" << current_coords_.size()
-              << std::endl;
-    std::cout << "  current_coords_= " << current_coords_ << std::endl;
-    std::cout << "  run_order_=";
-    for (SegmentedGroup* group : run_order_) {
-      std::cout << " " << group_id_map_.at(group);
-    }
-    std::cout << std::endl;
     int64_t current_index = current_coords_.back();
 
     NVF_ERROR(current_index <= available_groups_.size());
@@ -442,18 +424,14 @@ class BruteForceRuntimeOrderOptimizer {
     // Remove this group from the list of available groups
     available_groups_.erase(available_groups_.begin() + (ssize_t)current_index);
 
-    std::cout << "  current_index=" << current_index << std::endl;
-    std::cout << "  next_group=" << (void*)next_group << " = "
-              << group_id_map_.at(next_group) << std::endl;
-    std::cout << "  available_groups_.size()=" << available_groups_.size()
-              << std::endl;
+    // TODO: automatically select groups along chains as long as they are
+    // available and we are not crossing a valley in memory usage.
 
     // Update in-degrees of all neighbors as if we deleted next_group
     for (const SegmentedEdge* edge : next_group->consumer_edges) {
       SegmentedGroup* neighbor_group = edge->to;
       int64_t& deg = in_degree_[group_id_map_[neighbor_group]];
       if (--deg == 0) {
-        std::cout << "  Pushing group " << (void*)neighbor_group << std::endl;
         available_groups_.push_back(neighbor_group);
       }
     }
@@ -466,22 +444,11 @@ class BruteForceRuntimeOrderOptimizer {
 
   // This undoes the steps of selectNextGroup
   void undoMostRecentSelection() {
-    std::cout << "undoMostRecentSelection" << std::endl;
     NVF_ERROR(!run_order_.empty());
     SegmentedGroup* group = run_order_.back();
-    std::cout << "  run_order_=";
-    for (SegmentedGroup* group : run_order_) {
-      std::cout << " " << group_id_map_.at(group);
-    }
-    std::cout << std::endl;
     run_order_.pop_back();
     NVF_ERROR(!current_coords_.empty());
     int64_t current_index = current_coords_.back();
-
-    std::cout << "  group=" << (void*)group << " = " << group_id_map_.at(group)
-              << std::endl;
-    std::cout << "  current_index=" << current_index << std::endl;
-    std::cout << "  current_coords_= " << current_coords_ << std::endl;
 
     // Update in-degrees of all neighbors to undo deletion of group
     for (int64_t i = (int64_t)group->consumer_edges.size() - 1; i >= 0; --i) {
@@ -561,11 +528,10 @@ class BruteForceRuntimeOrderOptimizer {
       }
 
       // Return early if we have reached the time limit
-      int64_t elapsed =
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::high_resolution_clock::now() - start_time_)
-              .count();
-      if (elapsed >= max_runtime_ms_ && best_peak_memory_ != -1) {
+      elapsed_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::high_resolution_clock::now() - start_time_)
+                        .count();
+      if (elapsed_ms_ >= max_runtime_ms_ && best_peak_memory_ != -1) {
         return;
       }
     }
@@ -631,6 +597,7 @@ class BruteForceRuntimeOrderOptimizer {
   std::unordered_set<Val*> available_input_;
 
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+  int64_t elapsed_ms_;
 
   std::unordered_map<SegmentedGroup*, size_t> group_id_map_;
 
