@@ -277,8 +277,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     const int64_t max_inner_unroll = scheduler_utils::safeDiv(
         (max_regs_per_thread - 32) * scheduler_utils::bytes_per_register,
         bytes_per_unroll);
-    auto after_vect_bdimx = ceilDiv(after_vect, bdimx);
-    if (after_vect_bdimx == 1 && bdimx > 128) {
+    auto redu_reminder = ceilDiv(after_vect, bdimx);
+    if (redu_reminder == 1 && bdimx > 128) {
       bdimx /= 2;
       unroll_factor_top_of_vectorization = 2;
     } else {
@@ -287,16 +287,22 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       // 14 sicne max_inner_unroll > 14.
       const int factors[] = {7, 5, 3, 2};
       for (int factor : factors) {
-        while (after_vect_bdimx >= factor && after_vect_bdimx % factor == 0 &&
+        while (redu_reminder >= factor && redu_reminder % factor == 0 &&
                unroll_factor_top_of_vectorization * factor <=
                    max_inner_unroll) {
           unroll_factor_top_of_vectorization *= factor;
-          after_vect_bdimx /= factor;
+          redu_reminder /= factor;
         }
       }
     }
+    // increase bdimx to reduce serial reduction, avoid using a small bdimx
+    // to iterate a large number of elements in the reduction domain.
+    while(redu_reminder > 2 && bdimx * 2 <= target_threads_in_block) {
+      bdimx *= 2;
+      redu_reminder /= 2;
+    }
 
-    std::cout << "after_vect_bdimx: " << after_vect_bdimx
+    std::cout << "redu_reminder: " << redu_reminder
               << ", target_bdimy: " << target_bdimy
               << ", prefered_min_bdimx: " << prefered_min_bdimx
               << ", max_inner_unroll: " << max_inner_unroll
