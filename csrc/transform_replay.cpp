@@ -52,10 +52,13 @@ class ReplaySelf : public ReplayTransformations {
         loop_ids_.find(mapped) != loop_ids_.end(),
         "Transform traversal failed, modified a node but it was not a loop node.");
 
-    NVF_ERROR(mapped != nullptr);
-
     NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
 
+    // Due to rfactor transformations, the iter types of the outputs
+    // may not follow the default rule. For example, even if the input
+    // is a reduction iter domain, the outputs may not. To replay the
+    // original split expression, the output iter types need to be
+    // specified explicitly.
     auto [ido, idi] = IterDomain::split(
         mapped,
         s->factor(),
