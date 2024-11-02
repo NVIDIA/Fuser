@@ -437,7 +437,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   // Cross grid reduction if we haven't hit our target blocks, and we have manyr
   // reduction elements.
   if ((godim < target_blocks && remainder_in_reduction >= 0) ||
-      (remainder_in_reduction >= kEight)) {
+      (remainder_in_reduction >= kEight && godim < device_multiprocessor_count)) {
     auto grdim = std::min(remainder_in_reduction, bdimx * bdimy * kEight);
 
     gridim = remainder_in_inner_dim;
