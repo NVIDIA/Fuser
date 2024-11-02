@@ -206,8 +206,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   }
   std::cout << "target_threads_in_block: " << target_threads_in_block
             << ", target_blocks: " << target_blocks
-            << ", target_unroll: " << target_unroll
-             << std::endl;
+            << ", target_unroll: " << target_unroll << std::endl;
   // To get to target threads:
   // Prioritize
   // (1) x dim in reduction
@@ -256,7 +255,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     // after_vect = 5120 / 8 = 640, then bdimx = 128
     // after_vect = 10240 / 8 = 1280, then bdimx = 256
     int64_t target_bdimy = ceilDiv(total_iteration_numel, target_blocks);
-    int64_t prefered_min_bdimx = std::max(128L, target_threads_in_block / target_bdimy);
+    int64_t prefered_min_bdimx =
+        std::max(128L, target_threads_in_block / target_bdimy);
     while (bdimx * 2 <= target_threads_in_block && bdimx * 2 <= after_vect &&
            (after_vect % (bdimx * 2) == 0 || bdimx * 2 <= prefered_min_bdimx)) {
       bdimx *= 2;
@@ -297,7 +297,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
     }
     // increase bdimx to reduce serial reduction, avoid using a small bdimx
     // to iterate a large number of elements in the reduction domain.
-    while(redu_reminder > 2 && bdimx * 2 <= target_threads_in_block) {
+    while (redu_reminder > 2 && bdimx * 2 <= target_threads_in_block) {
       bdimx *= 2;
       redu_reminder /= 2;
     }
@@ -405,7 +405,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   int64_t remainder_in_reduction = ceilDiv(
       total_reduction_numel,
-      bdimx * inner_reduction_unroll_factor * bdimz *
+      bdimx * inner_reduction_unroll_factor *
+          unroll_factor_top_of_vectorization * bdimz *
           outer_reduction_unroll_factor * target_iterations);
 
   int64_t remainder_in_inner_dim = ceilDiv(
@@ -436,8 +437,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   constexpr int64_t kEight = 8;
   // Cross grid reduction if we haven't hit our target blocks, and we have manyr
   // reduction elements.
-  if ((godim < target_blocks && remainder_in_reduction >= 0) ||
-      (remainder_in_reduction >= kEight && godim < device_multiprocessor_count)) {
+  if (remainder_in_reduction >= 0 && godim < device_multiprocessor_count) {
     auto grdim = std::min(remainder_in_reduction, bdimx * bdimy * kEight);
 
     gridim = remainder_in_inner_dim;
