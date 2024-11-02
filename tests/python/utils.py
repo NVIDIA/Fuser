@@ -242,14 +242,24 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 
 # Run original FusionDefinition
 # Clone FusionDefinition
+# Apply segmentation if it supported for this FusionDefinition
 # Run cloned python definition
 # Check that the result of cloned python definition matches original results
-def check_cpp_translation(reference_outputs, fd, inputs, device=None):
+def check_cpp_translation(
+    reference_outputs, fd, inputs, supports_segmentation, device=None
+):
     try:
         torch.manual_seed(0)
+
+        # Clone
         cloned_fd = FusionDefinition()
         clone(fd, cloned_fd)
-        cloned_fd.segment(inputs)
+
+        # Segment
+        if supports_segmentation:
+            cloned_fd.segment(inputs)
+
+        # Run
         cloned_outputs = cloned_fd.execute(inputs, device=device)
 
         # Make sure the results of original and cloned definitions match.
@@ -269,6 +279,7 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
         print(
             "(A failure here suggests a mismatch in functionality between the original and cloned definitions.)"
         )
+        print("Does FusionDefinition supports segmentation?\t", supports_segmentation)
         print(fd.getReproErrorString("executing", inputs))
         raise err
 
@@ -420,6 +431,7 @@ class NVFuserTest(TestCase):
         new_fusion_expected=True,
         device=None,
         is_clonable=True,
+        supports_segmentation=True,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
@@ -442,5 +454,7 @@ class NVFuserTest(TestCase):
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
 
         if is_clonable:
-            self.assertTrue(check_cpp_translation(out, fd, inputs_cloned))
+            self.assertTrue(
+                check_cpp_translation(out, fd, inputs_cloned, supports_segmentation)
+            )
         return out, fd

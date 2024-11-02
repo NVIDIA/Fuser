@@ -22,8 +22,9 @@ class FusionDefinition;
 class FusionInterface;
 class FusionState;
 struct RecordFunctor;
-struct UserSchedule;
+class SegmentationState;
 struct TrieNode;
+struct UserSchedule;
 
 //! This is helper function used to print a python formated
 //! Fusion IR DataType when printing a fusion definition.
