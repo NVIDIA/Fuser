@@ -72,9 +72,9 @@ getThreadsPerBlockPerSmAndSmCount() {
       dev_prop->maxThreadsPerMultiProcessor,
       dev_prop->multiProcessorCount};
 }
-
 int64_t getMaxVectUnroll(
-    const int64_t max_vect_bytes,
+    const int64_t max_input_dtype_size,
+    const int64_t max_vectorize_factor,
     const int64_t n_tensor_inputs) {
   // Assume 50% occupancy, each thread uses 64 registers.
   // assume 48 regs for loading buffer, max_vect_bytes is 16 bytes
@@ -83,11 +83,12 @@ int64_t getMaxVectUnroll(
   // then max_vect_unroll = 6 for 2 input tensors.
   // then max_vect_unroll = 4 for 3 input tensors.
   // then max_vect_unroll = 3 for 4 input tensors.
-  const int64_t loading_buffer_bytes = 48 * scheduler_utils::bytes_per_register;
-  const int64_t bytes_per_unroll = max_vect_bytes * n_tensor_inputs;
-  int64_t max_vect_unroll =
+  const int64_t loading_buffer_bytes = 32 * scheduler_utils::bytes_per_register;
+  const int64_t bytes_per_unroll =
+      max_input_dtype_size * max_vectorize_factor * n_tensor_inputs;
+  int64_t max_unroll =
       scheduler_utils::safeDiv(loading_buffer_bytes, bytes_per_unroll);
-  return max_vect_unroll;
+  return max_unroll * max_vectorize_factor;
 }
 
 int64_t getL1L2WarpSize(
@@ -148,34 +149,33 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
 
   // Set max_vect_unroll
   const int64_t max_vect_unroll = getMaxVectUnroll(
-      max_input_dtype_size * max_vectorize_factor, n_tensor_inputs);
+      max_input_dtype_size, max_vectorize_factor, n_tensor_inputs);
+
+  // redu = [i-remainder, i-Unroll, TIDx, Vect]
+  int64_t inner_unroll = 1, bdimx = 1, vect_factor = 1;
 
   // Max vectorization factor
-  int64_t vect_factor = std::min(
+  vect_factor = std::min(
       scheduler_utils::lastPow2(max_vect_unroll),
       (int64_t)max_vectorize_factor);
-  int64_t after_vect = total_reduction_numel / vect_factor;
 
   // Set bdimx, start from 4 warps or lower if reduction is small.
   // If split is divisible, increase bdimx, but don't go over [threads_per_sm /
   // 4] to avoid large communication cost.
-  int64_t bdimx =
-      std::min(std::max(after_vect, min_warp_size), 4 * threads_per_warp);
-  bdimx = scheduler_utils::lastPow2(min_warp_size);
+  int64_t after_vect = total_reduction_numel / vect_factor;
+  bdimx = std::min(std::max(after_vect, min_warp_size), 4 * threads_per_warp);
+  bdimx = scheduler_utils::lastPow2(bdimx);
   int64_t max_threads_per_block = threads_per_sm / 4;
   while (bdimx * 2 <= max_threads_per_block && bdimx * 2 <= after_vect &&
          (after_vect % (bdimx * 2) == 0)) {
     bdimx *= 2;
   }
-  // redu = [i-remainder, i-Unroll, TIDx, Vect]
-  // At this point, i-Unroll = 1, move from i-remainder to i-Unroll,
-  // ensure divisible split.
+  // move from i-remainder to i-Unroll, ensure divisible split.
   // start from large prime number, e.g. i_remainder = 14, max_inner_unroll =
   // 13, want to unroll 7. if start from small value, unroll = 2, then can't
   // further increase to 14 sicne max_inner_unroll < 14.
-  int64_t i_remainder = ceilDiv(after_vect, bdimx);
+  int64_t i_remainder = ceilDiv(ceilDiv(after_vect, bdimx), inner_unroll);
   int64_t max_inner_unroll = max_vect_unroll / vect_factor;
-  int64_t inner_unroll = 1;
   const int factors[] = {11, 7, 5, 3, 2};
   for (int factor : factors) {
     if (factor > max_inner_unroll) {
@@ -187,7 +187,19 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
       i_remainder /= factor;
     }
   }
-
+  // If bdimx >= 256 threads and inner unroll is not used, move
+  // factor 2 to inner unroll to provide more instruction level parallelism.
+  if (inner_unroll == 1 && bdimx / 2 >= 4 * threads_per_warp) {
+    bdimx /= 2;
+    inner_unroll *= 2;
+  }
+  // increase bdimx to reduce serial reduction, avoid using a small bdimx
+  // to iterate a large number of elements in the reduction domain.
+  i_remainder = ceilDiv(ceilDiv(after_vect, bdimx), inner_unroll);
+  while (i_remainder >= 2 && bdimx * 2 <= threads_per_sm / 4) {
+    bdimx *= 2;
+    i_remainder = ceilDiv(ceilDiv(after_vect, bdimx), inner_unroll);
+  }
   // Set iteration dims, iter = [BIDy, o-Unroll, TIDy]
   int64_t bdimy = 1, outer_unroll = 1, godim = 1;
   auto getGodim = [&]() {
@@ -204,16 +216,17 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     }
   }
 
-  // Try to increase outer_unroll to its maximum, revert if godim is less than
-  // sm_count
-  int64_t max_o_unroll = max_vect_unroll / vect_factor / inner_unroll;
-  while (outer_unroll + 1 <= max_o_unroll) {
-    outer_unroll += 1;
-    if (getGodim() < sm_count) {
-      outer_unroll -= 1;
-      break;
-    }
-  }
+  // // Try to increase outer_unroll to its maximum, revert if godim is less
+  // than
+  // // sm_count
+  // int64_t max_o_unroll = max_vect_unroll / vect_factor / inner_unroll;
+  // while (outer_unroll + 1 <= max_o_unroll) {
+  //   outer_unroll += 1;
+  //   if (getGodim() < sm_count) {
+  //     outer_unroll -= 1;
+  //     break;
+  //   }
+  // }
 
   // When iteration dim is small, may have unused SMs, to increase SM usage
   // needs to shift from block reduction to grid reduction. However, grid
