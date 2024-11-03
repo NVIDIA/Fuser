@@ -15,8 +15,126 @@ namespace nvfuser::python_frontend {
 
 class FusionDefinition;
 
+//! Example 1: A simple fusion with two iota operations.
+//!
+//! Original Fusion:
+//! def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
+//!     S0 = fd.define_scalar(2, dtype=DataType.Int)
+//!     S1 = fd.define_scalar(0, dtype=DataType.Int)
+//!     S2 = fd.define_scalar(2, dtype=DataType.Int)
+//!     T3 = fd.ops.iota(S0, S1, S2, dtype=DataType.Int)
+//!     S4 = fd.define_scalar(3, dtype=DataType.Int)
+//!     S5 = fd.define_scalar(100, dtype=DataType.Int32)
+//!     S6 = fd.define_scalar(1, dtype=DataType.Int32)
+//!     T7 = fd.ops.iota(S4, S5, S6, dtype=DataType.Int32)
+//!     fd.add_output(T3)
+//!     fd.add_output(T7)
+//!
+//! After Segmentation:
+//! The original fusion is divided into two segments. There is no dependencies
+//! between either segment so they can run in an order.
+//!
+//!
+//! First Segment:
+//! def nvfuser_fusion_id2(fd : FusionDefinition) -> None :
+//!     S0 = fd.define_scalar(2, dtype=DataType.Int)
+//!     S1 = fd.define_scalar(0, dtype=DataType.Int)
+//!     S2 = fd.define_scalar(2, dtype=DataType.Int)
+//!     T3 = fd.ops.iota(S0, S1, S2, dtype=DataType.Int)
+//!     fd.add_output(T3)
+//!
+//! Second Segment:
+//! def nvfuser_fusion_id3(fd : FusionDefinition) -> None :
+//!     S0 = fd.define_scalar(3, dtype=DataType.Int)
+//!     S1 = fd.define_scalar(100, dtype=DataType.Int32)
+//!     S2 = fd.define_scalar(1, dtype=DataType.Int32)
+//!     T3 = fd.ops.iota(S0, S1, S2, dtype=DataType.Int32)
+//!     fd.add_output(T3)
+//!
+//! The first segment corresponds with [S0, S1, S2, T3] in the original fusion.
+//! The second segment corresponds with [S4, S5, S6, S7] in the original fusion.
+//!
+//! Neither segment requires any input arguments from the original fusion.
+//!
+//! For the first segment, the segment's T3 is mapped to the original's T3.
+//! Segment Index : Original Index Mapping
+//! --------------------------------------
+//! T3 : T3
+//!
+//! For the second segment the segment's T3 is mapped to the original's T7.
+//! Segment Index : Original Index Mapping
+//! --------------------------------------
+//! T3 : T7
+//!
 //! ===========================================================================
-//
+//!
+//! Example 2: A reduction + broadcast + pointwise fusion.
+//!
+//! Original Fusion:
+//! def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
+//!     T0 = fd.define_tensor(shape=[-1, -1],
+//!                           contiguity=[True, True],
+//!                           dtype=DataType.Float,
+//!                           is_cpu=False)
+//!     T1 = fd.define_tensor(shape=[-1, -1],
+//!                           contiguity=[True, True],
+//!                           dtype=DataType.Float,
+//!                           is_cpu=False)
+//!     T2 = fd.ops.sum(T0, dims=[1], keepdim=False, dtype=DataType.Float)
+//!     T3 = fd.ops.broadcast(T2, is_broadcast_dim=[False, True])
+//!     T4 = fd.ops.add(T1, T3)
+//!     fd.add_output(T4)
+//!
+//! After Segmentation:
+//! The reduction scheduler does not support fusing any operations with an
+//! inner reduction, so the original fusion is divided into two segments.
+//! Segment 2 depends on Segment 1, so there is a strict segment ordering.
+//!
+//! First Segment:
+//! def nvfuser_fusion_id2(fd : FusionDefinition) -> None :
+//!    T0 = fd.define_tensor(shape=[-1, -1],
+//!                          contiguity=[True, True],
+//!                          dtype=DataType.Float,
+//!                          is_cpu=False)
+//!    T1 = fd.ops.sum(T0, dims=[1], keepdim=False, dtype=DataType.Float)
+//!    T2 = fd.ops.broadcast(T1, is_broadcast_dim=[False, True])
+//!    fd.add_output(T2)
+//!
+//! Second Segment:
+//! def nvfuser_fusion_id3(fd : FusionDefinition) -> None :
+//!    T0 = fd.define_tensor(shape=[-1, -1],
+//!                          contiguity=[True, True],
+//!                          dtype=DataType.Float,
+//!                          is_cpu=False)
+//!    T1 = fd.define_tensor(shape=[-1, 1],
+//!                          contiguity=[True, None],
+//!                          dtype=DataType.Float,
+//!                          is_cpu=False)
+//!    T2 = fd.ops.add(T0, T1)
+//!    fd.add_output(T2)
+//!
+//! The first segment contains the reduction and broadcast operations, which
+//! corresponds with [T0, T2, T3] in the original fusion. Therefore, the segment
+//! index to original index map has two entries.
+//!
+//! Segment Index : Original Index Mapping
+//! --------------------------------------
+//! T0 : T0 --- The first tensor argument for the original fusion.
+//! T2 : T3 --- The broadcasted, reduction tensor is this segment's output.
+//!
+//! The second segment is the pointwise addition with the broadcasted reduction.
+//! It corresponds with [T1, T3, T4] in the original fusion.
+//!
+//! Segment Index : Original Index Mapping
+//! --------------------------------------
+//! T0 : T1 --- The second tensor argument for the original fusion.
+//! T1 : T3 --- The broadcasted, reduction tensor, which is the output from the
+//!             first segment.
+//! T2 : T4 --- The pointwise addition, which is the output for the original
+//!             fusion.
+//!
+//! ===========================================================================
+//!
 //! setupSegmentation runs the segmentation algorithm on CPP Fusion to create
 //! SegmentedFusion. It returns the number of segments in SegmentedFusion.
 //!
