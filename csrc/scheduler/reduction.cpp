@@ -63,12 +63,12 @@ void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
   }
 }
 
-std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
-                                        const int64_t total_reduction_numel,
-                                        const int64_t total_iteration_numel,
-                                        const int64_t n_tensor_inputs,
-                                        const int64_t max_input_dtype_size,
-                                        const size_t vectorize_factor) {
+std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
+    const size_t vectorize_factor) {
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -207,8 +207,7 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
 
   // Cross grid inner reduction, number of blocks to cross-grid on
   int64_t gridim = 1;
-  // Cross grid outer reduction, number of blocks to cross-grid on
-  int64_t grodim = 1;
+
   // Blocks for outputs
   int64_t godim = 1;
 
@@ -293,7 +292,7 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
   // reduction elements.
   if ((godim < target_blocks && remainder_in_reduction >= 0) ||
       (remainder_in_reduction >= kEight)) {
-    gridim = std::min(remainder_in_reduction, bdimx * bdimy * kEight);
+    gridim = remainder_in_reduction;
   }
 
   // Try to do some cleanup of ragged waves on device
@@ -317,7 +316,7 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
     }
   }
 
-  if (grodim > 1 || gridim > 1) {
+  if (gridim > 1) {
     // Grid reductions do not support unrolling iteration dimension, revert if
     // set. Recalculate godim.
     if (iter_unroll_factor) {
@@ -329,6 +328,7 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
   }
 
   auto rparams = std::make_unique<ReductionParams>();
+  rparams->schedule_3D = false;
   rparams->fastest_dim = true;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -356,11 +356,9 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
   }
 
   rparams->unroll_factor_iter_dom = iter_unroll_factor;
-  rparams->schedule_3D = false;
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
-  int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
   // If we have a cross grid case we want to have gdimy assigned to godim and
   // gdimx assigned to grdim. Otherwise it's helpful to pull godim into gdimx in
@@ -385,22 +383,10 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
     }
   }
 
-  if (rparams->cross_grid_outer_reduction) {
-    if (rparams->cross_block_inner_reduction) {
-      rparams->grid_dim_outer_reduction = ParallelType::BIDz;
-      gdimz = std::min(grodim, scheduler_utils::z_grid_limit);
-      rparams->split_grid_dim_outer_reduction = true;
-    } else {
-      rparams->grid_dim_outer_reduction = ParallelType::BIDy;
-      gdimy = std::min(grodim, scheduler_utils::y_grid_limit);
-      rparams->split_grid_dim_outer_reduction = true;
-    }
-  }
-
   rparams->lparams = LaunchParams(
       gdimx,
       gdimy,
-      gdimz,
+      LaunchParams::UNINITIALIZED_VAL,
       bdimx,
       bdimy > 1 ? bdimy : LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
@@ -419,14 +405,13 @@ std::unique_ptr < ReductionParams > 2dInnerReductionHeuristic(
   return rparams;
 }
 
-std::unique_ptr < ReductionParams >
-    3dInnerReductionHeuristic(
-        const int64_t total_reduction_numel,
-        const int64_t total_iteration_numel,
-        const int64_t inner_most_dimension_numel,
-        const int64_t n_tensor_inputs,
-        const int64_t max_input_dtype_size,
-        const size_t vectorize_factor) {
+std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t inner_most_dimension_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
+    const size_t vectorize_factor) {
   // Set some targets for parallelization
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
@@ -849,12 +834,12 @@ std::unique_ptr < ReductionParams >
                 << (rparams->unroll_factor_inner_reduction > 1) << ", "
                 << rparams->cross_grid_inner_reduction << std::endl;
       }
-      return innerReductionHeuristic(
+      return inner3dReductionHeuristic(
           total_reduction_numel,
           total_iteration_numel,
-          total_reduction_numel,
-          n_tensor_inputs,
-          max_input_dtype_size,
+          inner_most_dimension_numel,
+          (int64_t)n_tensor_inputs,
+          (int64_t)max_input_dtype_size,
           vectorize_factor);
     }
   }
@@ -1410,14 +1395,14 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
     const size_t vectorize_factor) {
   if (fastest_dim_reduction) {
     if (total_reduction_numel == inner_most_dimension_numel) {
-      return 2dInnerReductionHeuristic(
+      return inner2dReductionHeuristic(
           total_reduction_numel,
           total_iteration_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
           vectorize_factor);
     } else {
-      return 3dInnerReductionHeuristic(
+      return inner3dReductionHeuristic(
           total_reduction_numel,
           total_iteration_numel,
           inner_most_dimension_numel,
