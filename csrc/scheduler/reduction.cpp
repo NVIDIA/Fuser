@@ -834,10 +834,9 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
                 << (rparams->unroll_factor_inner_reduction > 1) << ", "
                 << rparams->cross_grid_inner_reduction << std::endl;
       }
-      return inner3dReductionHeuristic(
+      return inner2dReductionHeuristic(
           total_reduction_numel,
           total_iteration_numel,
-          inner_most_dimension_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
           vectorize_factor);
