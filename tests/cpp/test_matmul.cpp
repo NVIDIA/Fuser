@@ -3637,8 +3637,8 @@ TEST_P(MatmulTestWithLayout, HopperMatmul) {
   fusion.addOutput(tv2);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 32);
+  gemm_tile.warp_tile = GemmTile(64, 256, 32);
   gemm_tile.instruction_tile = GemmTile(64, 256, 16);
 
   MatmulParams mparams;
@@ -3646,8 +3646,8 @@ TEST_P(MatmulTestWithLayout, HopperMatmul) {
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
 
-  // TODO: Always use TMA loads on Hopper
-  mparams.async_gmem_load_operands = false;
+  // On Hopper this controls whether or not TMA is used
+  mparams.async_gmem_load_operands = true;
 
   // TODO: Since we do not block tile smem operands, it is difficult to see how
   // we can circular buffer at this time
