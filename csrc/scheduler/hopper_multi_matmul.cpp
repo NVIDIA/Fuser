@@ -31,8 +31,10 @@ namespace nvfuser {
 
 namespace {
 
-// Get gcd between megabanks and row stride AND repeated pattern size.
-// If gcd is 1, then there is no swizzle is necessary to resolve bank conflicts.
+// This function returns a pair of integers. The first integer is the gcd
+// between megabanks and row stride. The second integer is the repeat pattern
+// size. If the gcd is 1, then no swizzle is necessary to resolve bank
+// conflicts. In that case, the second integer is irrelevant and -1 is returned.
 std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
     TensorView* shared_mem_tv) {
   NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
