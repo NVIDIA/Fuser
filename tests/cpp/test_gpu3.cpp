@@ -8892,6 +8892,9 @@ TEST_F(NVFuserTest, RfactorIntermediateIDs) {
 
   auto tv2 = tv1->rFactor({-1});
 
+  EXPECT_TRUE(tv2->axis(-1)->isReduction());
+  EXPECT_FALSE(tv2->axis(-2)->isReduction());
+
   auto split = dynamic_cast<Split*>(tv2->axis(-1)->definition());
   ASSERT_NE(split, nullptr);
 
