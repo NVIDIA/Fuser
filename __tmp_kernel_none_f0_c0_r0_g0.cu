@@ -10912,7 +10912,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   nvfuser_index_t i16;
   i16 = 8 * T1.logical_size[2LL];
   bool b17;
-  b17 = ((((nvfuser_index_t)threadIdx.x) / 32ULL == 0) && (((nvfuser_index_t)threadIdx.y) == 0ULL));
+  b17 = (threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.y * blockDim.x) / 32ULL == 0;
   nvfuser_index_t i18;
   i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
   nvfuser_index_t i19;
