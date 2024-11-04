@@ -1,5 +1,5 @@
 #!/bin/bash
-EXPERIMENT=profile_driver
+EXPERIMENT=profile_ncc_max_connection2
 DATE=$(date +%Y%m%d-%H%M)
 LOG_BASE="/opt/pytorch/Fuser/bench/logs"
 
@@ -10,7 +10,7 @@ export LOG_FILE_INFO="${LOGS}/info.txt"
 echo "Writing to $LOG_FILE_INFO" | tee -a $LOG_FILE_INFO
 
 NP=8
-BACKEND=UCC
+BACKEND=NCCL
 S=4
 M=32768
 K=32768
@@ -28,7 +28,8 @@ MPIFLAGS+=" -x UCC_COLL_TRACE=info"
 MPIFLAGS+=" -x UCC_CL_BASIC_TLS=nccl"
 # MPIFLAGS+=" -x NCCL_DEBUG=TRACE" #INFO
 MPIFLAGS+=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
-MPIFLAGS+=" -x UCC_TL_NCCL_SYNC=driver"
+MPIFLAGS+=" -x UCC_TL_NCCL_SYNC=event"
+MPIFLAGS+=" -x CUDA_DEVICE_MAX_CONNECTIONS=2"
 echo "mpi flags: $MPIFLAGS" | tee -a $LOG_FILE_INFO
 
 TEST_CMD="$BUILD_DIRECTORY/test_multidevice --gtest_filter=${GTEST_FILTER}"

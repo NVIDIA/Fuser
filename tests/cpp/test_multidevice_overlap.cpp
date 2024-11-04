@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
+#include <cuda.h>
 #include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
 
@@ -48,7 +49,8 @@ using OverlapBenchmarkParams = std::tuple<
     /*M=*/int64_t,
     /*K=*/int64_t,
     /*N=*/int64_t,
-    /*number_of_streams=*/int64_t>;
+    /*number_of_streams=*/int64_t,
+    /*add_cuStreamWriteValue32=*/bool>;
 
 class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
  protected:
@@ -78,7 +80,8 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
         M,
         K,
         N,
-        number_of_streams] = GetParam();
+        number_of_streams,
+        add_cuStreamWriteValue32] = GetParam();
 
   GTEST_ASSERT_EQ(M % S, 0);
 
@@ -95,6 +98,13 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
+
+  // CUdeviceptr pDevice;
+  // void* ptr;
+  // if (add_cuStreamWriteValue32) {
+  //   cudaMallocHost(&ptr, 32);
+  //   cudaHostGetDevicePointer((void**)&pDevice, ptr, 0);
+  // }
 
   for (const auto& iteration :
        c10::irange(number_of_warmups + number_of_iterations)) {
@@ -113,6 +123,11 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
 
       // communication
       world->_allgather_base(ta_unsharded_j, ta_j)->wait();
+
+      // if (add_cuStreamWriteValue32) {
+      //   cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
+      // }
+
       // compute
       auto tc_j = torch::matmul(ta_unsharded_j,tb);
     }
@@ -131,6 +146,10 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
   std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
   times.insert({test_name, milliseconds});
   std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
+
+  // if (add_cuStreamWriteValue32) {
+  //   cudaFree(ptr);
+  // }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -142,7 +161,8 @@ INSTANTIATE_TEST_SUITE_P(
     /*M=*/testing::Values(pow(2,10), pow(2,15)),
     /*K=*/testing::Values(pow(2,10), pow(2,15)),
     /*N=*/testing::Values(pow(2,10)),
-    /*number_of_streams=*/testing::Values(3, 8, 32)),
+    /*number_of_streams=*/testing::Values(3, 8, 32),
+    /*add_cuStreamWriteValue32*/testing::Values(false)),
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
@@ -151,7 +171,8 @@ INSTANTIATE_TEST_SUITE_P(
          << "M" << std::get<2>(info.param) << "_"
          << "K" << std::get<3>(info.param) << "_"
          << "N" << std::get<4>(info.param) << "_"
-         << "Streams" << std::get<5>(info.param);
+         << "Streams" << std::get<5>(info.param) << "_"
+         << ((std::get<6>(info.param))? "With" : "Without") << "cuStreamWriteValue32";
       return os.str();
     });
 
