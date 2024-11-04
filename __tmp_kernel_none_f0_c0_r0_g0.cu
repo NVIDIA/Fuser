@@ -10878,7 +10878,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i2;
-  i2 = ceilDiv(T0.logical_size[0LL], 16);
+  i2 = ceilDiv(T0.logical_size[0], 16);
   nvfuser_index_t i3;
   i3 = -3 + i2;
   const TensorMap* ptr4;
@@ -10908,15 +10908,15 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   nvfuser_index_t i14;
   i14 = i11 % 8;
   nvfuser_index_t i15;
-  i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
+  i15 = ((((i12 + ((16 * T1.logical_size[2]) * i13)) + (T1.logical_size[2] * i14)) + ((64 * T1.logical_size[2]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2]) * ((nvfuser_index_t)blockIdx.y));
   nvfuser_index_t i16;
-  i16 = 8 * T1.logical_size[2LL];
+  i16 = 8 * T1.logical_size[2];
   bool b17;
-  b17 = (threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.y * blockDim.x) / 32ULL == 0;
+  b17 = (threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.y * blockDim.x) / 32 == 0;
   nvfuser_index_t i18;
-  i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
+  i18 = ((1 - T1.logical_size[2]) + i12) + i5;
   nvfuser_index_t i19;
-  i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
+  i19 = ((((-T0.logical_size[1]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
   float T2[128];
   ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
   asm volatile("wgmma.fence.sync.aligned;\n");
@@ -11127,7 +11127,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     );
     __syncthreads();
     asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0):"memory");
   }
   #pragma unroll 3
   for(nvfuser_index_t i35 = (i2 - 3); i35 < i2; ++i35) {
@@ -11288,7 +11288,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     }
   }
   asm volatile("wgmma.commit_group.sync.aligned;\n");
-  asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
+  asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0):"memory");
   #pragma unroll
   for(nvfuser_index_t i40 = 0; i40 < 32; ++i40) {
     nvfuser_index_t i41;
