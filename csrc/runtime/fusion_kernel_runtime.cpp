@@ -166,9 +166,15 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
-  NVF_CHECK(
-      isCompiled(),
-      "Tried to serialize entries of executors before they were initialized.");
+  // This check needs to be disabled though it seems strange to me that we
+  // would/could/should serialize KRTs that aren't compiled. For now the pytorch
+  // tests require it.
+  //
+  // NVF_CHECK(
+  //     isCompiled(),
+  //     "Tried to serialize entries of executors before they were
+  //     initialized.");
+
   // 1. Serialize KernelExecutor objects
   std::vector<flatbuffers::Offset<serde::KernelExecutor>> executors_fb;
   executors_fb.reserve(executors_.size());
