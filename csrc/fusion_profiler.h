@@ -194,7 +194,7 @@ class SegmentProfiler {
   void stopKernel();
 
   void setDevice(int64_t device) {
-    device_ = device;
+    device_ = (int)device;
   }
   void inputBytesAccessed(int64_t bytes);
   void outputBytesAccessed(int64_t bytes);
