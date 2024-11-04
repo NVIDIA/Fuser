@@ -102,12 +102,12 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
-  // CUdeviceptr pDevice;
-  // void* ptr;
-  // if (add_cuStreamWriteValue32) {
-  //   cudaMallocHost(&ptr, 32);
-  //   cudaHostGetDevicePointer((void**)&pDevice, ptr, 0);
-  // }
+  CUdeviceptr pDevice;
+  void* ptr;
+  if (add_cuStreamWriteValue32) {
+    cudaMallocHost(&ptr, 32);
+    cudaHostGetDevicePointer((void**)&pDevice, ptr, 0);
+  }
 
   for (const auto& iteration :
        c10::irange(number_of_warmups + number_of_iterations)) {
@@ -129,9 +129,9 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
       // communication
       world->_allgather_base(ta_unsharded_j, ta_j)->wait();
 
-      // if (add_cuStreamWriteValue32) {
-      //   cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
-      // }
+      if (add_cuStreamWriteValue32) {
+        cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
+      }
 
       // compute
       auto tc_j = torch::matmul(ta_unsharded_j,tb);
@@ -152,9 +152,9 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
   times.insert({test_name, milliseconds});
   std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
 
-  // if (add_cuStreamWriteValue32) {
-  //   cudaFree(ptr);
-  // }
+  if (add_cuStreamWriteValue32) {
+    cudaFree(ptr);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -167,7 +167,7 @@ INSTANTIATE_TEST_SUITE_P(
     /*K=*/testing::Values(pow(2,10), pow(2,15)),
     /*N=*/testing::Values(pow(2,10)),
     /*number_of_streams=*/testing::Values(3, 8, 32),
-    /*add_cuStreamWriteValue32*/testing::Values(false),
+    /*add_cuStreamWriteValue32*/testing::Values(false, true),
     /*number_of_pgs=*/testing::Values(1, 2, 4, 8)),
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
