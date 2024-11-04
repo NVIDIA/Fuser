@@ -315,13 +315,13 @@ MLPResult mlp(
     local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
   }
   TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce or Reduce scatter
-  std::vector<bool> bcast_mask(matmul1->nDims()-1, true);
-  bcast_mask[matmul1->nDims()-2] = false;
+  std::vector<bool> bcast_mask(matmul1->nDims() - 1, true);
+  bcast_mask[matmul1->nDims() - 2] = false;
   TensorView* linear1 = add(matmul1, broadcast(b1, bcast_mask));
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  TensorView* dropout_result =  dropout(linear1, prob, scale).output;
+  TensorView* dropout_result = dropout(linear1, prob, scale).output;
 
   // Tensor parallel shardings
   for (auto* tv : {w0, b0, w1}) {
@@ -356,7 +356,7 @@ MHAResult mha(
     TensorView* w1,
     TensorView* b1,
     const DeviceMesh& mesh,
-    bool sequence_parallel=false) {
+    bool sequence_parallel = false) {
   const auto D = w0->axis(0)->extent()->value().as<int64_t>();
   auto dtype = w0->dtype();
 
@@ -366,7 +366,8 @@ MHAResult mha(
     x->axis(0)->parallelize(ParallelType::DIDx);
     x = set(x); // allgather
     x->axis(0)->parallelize(ParallelType::Serial);
-    // Reshape is uncessary, it is here to keep shapes with TP and TP+SP the same for validation.
+    // Reshape is uncessary, it is here to keep shapes with TP and TP+SP the
+    // same for validation.
     x = reshape(x, {D, B * S / D, E}, {B * S, E});
   }
 
@@ -404,13 +405,13 @@ MHAResult mha(
     local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
   }
   TensorView* matmul1 = sum(local_matmul1, {0}); // allreduce
-  std::vector<bool> bcast_mask(matmul1->nDims()-1, true);
-  bcast_mask[matmul1->nDims()-2] = false;
+  std::vector<bool> bcast_mask(matmul1->nDims() - 1, true);
+  bcast_mask[matmul1->nDims() - 2] = false;
   TensorView* linear1 = add(matmul1, broadcast(b1, bcast_mask));
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  TensorView* dropout_result =  dropout(linear1, prob, scale).output;
+  TensorView* dropout_result = dropout(linear1, prob, scale).output;
 
   // Tensor parallel shardings
   for (auto tv : {x, b1}) {
@@ -884,7 +885,6 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
   validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
-
 TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
@@ -896,7 +896,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
   const auto mesh = DeviceMesh::createForNumDevices(D);
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
-  TensorView* tvx = makeContigConcreteTensor({D, B * S/D, E}, dtype);
+  TensorView* tvx = makeContigConcreteTensor({D, B * S / D, E}, dtype);
   TensorView* tvw0 = makeContigConcreteTensor({D, 3 * E / D, E}, dtype);
   TensorView* tvb0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
   TensorView* tvw1 = makeContigConcreteTensor({D, E, E / D}, dtype);
@@ -1135,7 +1135,7 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
   FusionGuard fg(fusion.get());
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
-  TensorView* x = makeContigConcreteTensor({D, B * S/D, E}, dtype);
+  TensorView* x = makeContigConcreteTensor({D, B * S / D, E}, dtype);
   TensorView* ln0_w = makeContigTensor(1);
   TensorView* ln0_b = makeContigTensor(1);
   TensorView* mha_w0 = makeContigConcreteTensor({D, 3 * E / D, E}, dtype);
@@ -1187,12 +1187,13 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
   x->setDeviceMesh(mesh);
   x->axis(0)->parallelize(ParallelType::DIDx);
   // Propagate SP shardings from x through layernorms, dropouts, residual adds.
-  // Even though mha_in is part of the boundary set, residuals allow the shardings to propagate up the graph so we must cut off the
-  // propagation at the outputs of reduce scatters (mha and mlp matmul1)
+  // Even though mha_in is part of the boundary set, residuals allow the
+  // shardings to propagate up the graph so we must cut off the propagation at
+  // the outputs of reduce scatters (mha and mlp matmul1)
   shardBetween({x}, {mha_in, mlp_in, mha_tvs.matmul1, mlp_tvs.matmul1}, x);
-  // Propagate TP sharding for MLP and MHA from sharded weights. We do not need to shard
-  // from mha_b0 or mlp_b0 because they are only consumed by their respective linear0
-  // expression which is sharded from *_w0.
+  // Propagate TP sharding for MLP and MHA from sharded weights. We do not need
+  // to shard from mha_b0 or mlp_b0 because they are only consumed by their
+  // respective linear0 expression which is sharded from *_w0.
   shardBetween({mha_w0}, {mha_tvs.matmul1}, mha_w0);
   shardBetween({mha_w1}, {mha_tvs.matmul1}, mha_w1);
   shardBetween({mlp_w0}, {mlp_tvs.matmul1}, mlp_w0);
@@ -1246,7 +1247,7 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(ln0_out_, 0, mesh), 
+      shardTensor(ln0_out_, 0, mesh),
       shardTensor(mha_out_, 0, mesh),
       shardTensor(ln1_out_, 0, mesh),
       shardTensor(mlp_out_, 0, mesh),
