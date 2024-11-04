@@ -1039,6 +1039,11 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
   auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
   auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  bool rank_0_first = my_device_index_ == 0; // true if im rank 0 and i havent posted any communications yet
+
+  // posting some collective to make sure nccl is initialized
+  //c10d::BarrierOptions barrier_opts = {all_devices_, std::chrono::milliseconds(100), my_device_index_};
+  //world_communicator_->barrier(barrier_opts)->wait();
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1047,6 +1052,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
     for (auto i : c10::irange(number_of_rings_)) {
       c10::intrusive_ptr<c10d::Work> recv_req = nullptr;
+      c10::intrusive_ptr<c10d::Work> next_recv_req = nullptr;
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
@@ -1063,7 +1069,9 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
         // recv next index
         std::vector<at::Tensor> dst = {(i % 2 == 0) ? ring_buffer_j : tb_j};
-        auto next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
+        if (!rank_0_first) {
+          next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
+        }
 
         if (recv_req) {
           std::cout << "nick: my_device_index_=" << my_device_index_ << " ring=" << i << ", ring_slice=" << slice_index << " waiting on recv" << std::endl;
@@ -1076,6 +1084,11 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
         std::vector<at::Tensor> src = {sendbuf_};
         world_communicator_->send(src, send_rank, 0);
         torch::matmul_out(tc_j, ta_unsharded_, sendbuf_);
+        if (rank_0_first) {
+          // let rank 0 post a send before his recv on the first iteration of the loop to avoid deadlock
+          next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
+          rank_0_first = false;
+        }
         recv_req = next_recv_req;
       }
     }
