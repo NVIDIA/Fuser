@@ -213,7 +213,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     // Try use at least a unroll factor  of 2 to provide some instruction level
     // parallelisms.
     if (inner_unroll == 1 && bdimx / 2 >= threads_per_warp &&
-        max_inner_unroll >= 2) {
+        bdimx / 2 % threads_per_warp == 0 && max_inner_unroll >= 2) {
       bdimx /= 2;
       inner_unroll *= 2;
     }
