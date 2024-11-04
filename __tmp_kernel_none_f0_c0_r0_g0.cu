@@ -10951,7 +10951,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
       }
     }
   }
-  #pragma unroll 4
+  // #pragma unroll 4
   for(nvfuser_index_t i27 = 0; i27 < i3; ++i27) {
     nvfuser_index_t i28;
     i28 = 48 + (16 * i27);
