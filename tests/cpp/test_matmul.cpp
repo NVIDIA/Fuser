@@ -185,19 +185,19 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      fe.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(fe.kernel()));
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref =
       atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout)
@@ -2700,7 +2700,7 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  // KernelExecutor::compileFusion would fail otherwise.
+  // KernelExecutor::compile would fail otherwise.
   SKIP_IF_INSUFFICIENT_SMEM(&mparams, data_types);
 
   at::manual_seed(0);

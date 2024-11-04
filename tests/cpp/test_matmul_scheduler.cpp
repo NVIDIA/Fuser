@@ -3140,13 +3140,13 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   //! TODO Disabled because hopper multiple matmul scheduler is currently a copy
   //! of ampere scheduler.
   /*
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
   */
@@ -3211,14 +3211,14 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
@@ -3286,14 +3286,14 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
@@ -3363,13 +3363,13 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   // TODO Disabled because hopper multiple matmul scheduler is currently a copy
   // of ampere scheduler.
   /*
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
   */

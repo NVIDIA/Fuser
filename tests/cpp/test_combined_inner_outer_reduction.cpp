@@ -982,8 +982,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
       std::vector<TensorView*>{tv1};
   scheduler->schedule(&fusion, heuristic_params.get());
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
 
   for (auto tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
@@ -992,8 +992,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       }
     }
   }
-  auto cg_outputs = fe.runFusion(
-      aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+  auto cg_outputs =
+      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

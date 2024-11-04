@@ -8875,9 +8875,9 @@ TEST_F(NVFuserTest, CpAsyncDataTypeBool) {
   //    "r"((uint32_t)((!b3)))
   // );
   // If not correctly lowered, would trigger error in compile
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
