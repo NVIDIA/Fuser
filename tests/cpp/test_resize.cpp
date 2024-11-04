@@ -4074,4 +4074,41 @@ TEST_F(ResizeTest, VectorizePadLowering) {
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
 }
 
+// manual scheduling that should have vectorized load.
+TEST_F(ResizeTest, VectorizeWhereLowering) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Note: nvfuser currently only supports vectorization with a single
+  // TensorView input.
+  auto s0 = IrBuilder::create<Val>(DataType::Bool);
+  fusion.addInput(s0);
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv1);
+  auto tv1 = where(s0, IrBuilder::create<Val>(2.0), tv0);
+  fusion.addOutput(tv1);
+
+  tv3->split(0, 4);
+  tv3->split(0, 128);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({at::Scalar(0), t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  // Note: we cannot use at::where, because aten only support tensor as
+  // predicate.
+  ASSERT_TRUE(t1.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser

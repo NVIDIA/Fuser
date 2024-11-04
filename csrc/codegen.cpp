@@ -1058,8 +1058,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
 
       if (is_vector_op) {
-        NVF_CHECK(!top->in2()->isScalar(), "input2 should be a tensor");
-        NVF_CHECK(top->in3()->isScalar(), "input3 should be a scalar");
+        NVF_CHECK(
+            top->in1()->isScalar(),
+            "predicate should be a scalar for vectorized TernaryOp::where");
         NVF_CHECK(
             !top->out()->isScalar(),
             "scalar output in vectorization isn't supported");
@@ -1070,27 +1071,35 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent() << gen(top->in1()) << "\n";
         indent() << kTab << "? ";
 
+        auto vec_load = [&out_tv, &top, &vector_word_size, this](Val* in) {
+          if (in->isScalar()) {
+            if (out_tv->getMemoryType() == MemoryType::Local &&
+                !out_tv->isCircularBuffered()) {
+              // Vectorized initialization, explicit type conversion is needed
+              // for complex numbers
+              code_ << kTab << ": " << genVariableName(out_tv) << ".set("
+                    << genCall(out_tv->dtype(), gen(top->in3())) << ")\n";
+            } else {
+              // Note: currently arraySet option is not vectorized, so it will
+              //  rely on auto vectorization pass of cuda compiler.
+              code_ << kTab << ": "
+                    << "arraySet<" << out_tv->getDataType().value() << ", "
+                    << vector_word_size << ">(&" << gen(top->out()) << ", ("
+                    << out_tv->getDataType().value() << ")" << gen(top->in3())
+                    << ")\n";
+            }
+          } else {
+            generateVectorizedLdSt(
+                top->in2(), top->out(), CacheOp::AllLevels, vector_word_size);
+          }
+        };
+
         // TODO: should we have the option to specify cache level?
-        generateVectorizedLdSt(
-            top->in2(), top->out(), CacheOp::AllLevels, vector_word_size);
+        vec_load(top->in2());
         code_ << "\n";
-
-        if (out_tv->getMemoryType() == MemoryType::Local &&
-            !out_tv->isCircularBuffered()) {
-          // Vectorized initialization, explicit type conversion is needed for
-          // complex numbers
-          indent() << kTab << ": " << genVariableName(out_tv) << ".set("
-                   << genCall(out_tv->dtype(), gen(top->in3())) << ");\n";
-        } else {
-          // Note: currently arraySet option is not vectorized, so it will
-          //  rely on auto vectorization pass of cuda compiler.
-          indent() << kTab << ": "
-                   << "arraySet<" << out_tv->getDataType().value() << ", "
-                   << vector_word_size << ">(&" << gen(top->out()) << ", ("
-                   << out_tv->getDataType().value() << ")" << gen(top->in3())
-                   << ");\n";
-        }
-
+        indent() << kTab << ": ";
+        vec_load(top->in3());
+        code_ << ";\n";
         return;
       }
     }
