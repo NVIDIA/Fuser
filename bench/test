@@ -1,5 +1,5 @@
 #!/bin/bash
-EXPERIMENT=profile_cuStreamWrite_NCCL
+EXPERIMENT=profile_UCC_TL_CUDA
 DATE=$(date +%Y%m%d-%H%M)
 LOG_BASE="/opt/pytorch/Fuser/bench/logs"
 
@@ -10,14 +10,14 @@ export LOG_FILE_INFO="${LOGS}/info.txt"
 echo "Writing to $LOG_FILE_INFO" | tee -a $LOG_FILE_INFO
 
 NP=8
-BACKEND=NCCL
-S=8
+BACKEND=UCC
+S=4
 M=32768
 K=32768
 N=1024
 Streams=8
 Pgs=1
-cuStreamWrite=WithcuStreamWriteValue32_
+# cuStreamWrite=WithcuStreamWriteValue32_
 GTEST_PREFIX="OverlapBenchmark.DummyBenchmark/"
 GTEST_POSTFIX="${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}_${cuStreamWrite}Pgs${Pgs}"
 export GTEST_FILTER="${GTEST_PREFIX}${GTEST_POSTFIX}"
@@ -25,11 +25,21 @@ echo "gtest filter: $GTEST_FILTER" | tee -a $LOG_FILE_INFO
 ``
 MPIFLAGS=" -np $NP"
 MPIFLAGS+=" -x UCX_NET_DEVICES=mlx5_0:1"
+MPIFLAGS+=" -x UCC_CL_BASIC_TLS=nccl"
+# MPIFLAGS+=" -x UCC_CL_BASIC_TLS=cuda"
+# MPIFLAGS+=" -x UCC_EC_CUDA_EXEC_NUM_WORKERS=8"
+# MPIFLAGS+=" -x UCC_EC_CUDA_USE_COOPERATIVE_LAUNCH=0"
+# MPIFLAGS+=" -x UCC_EC_CUDA_STREAM_TASK_MODE=kernel"
+# MPIFLAGS+=" -x UCC_EC_CUDA_EXEC_COPY_LARGE_THRESH=1M"
+# MPIFLAGS+=" -x UCC_EC_CUDA_EXEC_NUM_THREADS=512"
+# MPIFLAGS+=" -x UCC_TL_CUDA_SCRATCH_SIZE=32mb"
+# MPIFLAGS+=" -x UCC_TL_CUDA_ALLGATHER_RING_MAX_RINGS=32"
+# MPIFLAGS+=" -x UCC_TL_CUDA_ALLGATHER_RING_NUM_CHUNKS=32"
+
 # MPIFLAGS+=" -x UCC_CL_BASIC_TLS=^sharp,mlx5"
 # MPIFLAGS+=" -x UCC_COLL_TRACE=info"
-MPIFLAGS+=" -x UCC_CL_BASIC_TLS=nccl"
+# MPIFLAGS+=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
 # MPIFLAGS+=" -x NCCL_DEBUG=TRACE" #INFO
-MPIFLAGS+=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
 # MPIFLAGS+=" -x UCC_TL_NCCL_SYNC=event"
 # MPIFLAGS+=" -x CUDA_DEVICE_MAX_CONNECTIONS=2"
 echo "mpi flags: $MPIFLAGS" | tee -a $LOG_FILE_INFO
