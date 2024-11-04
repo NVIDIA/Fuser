@@ -642,7 +642,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(PointwiseParams, split_grid_y_dim)
       .PARAM(PointwiseParams, flip_grid_binding)
       .PARAM(PointwiseParams, vectorization_factor)
-      .PARAM(PointwiseParams, unroll_factor);
+      .PARAM(PointwiseParams, unroll_factor_inner)
+      .PARAM(PointwiseParams, unroll_factor_outer);
 
   // Matmul scheduler parameters
   INITHEURISTICPARAMS(MatmulParams)
@@ -999,6 +1000,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
+      .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
+      .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
           "__repr__",
           [](FusionDefinition& self) {
