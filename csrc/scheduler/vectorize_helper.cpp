@@ -409,7 +409,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
 
     auto pos = std::distance(frontier.begin(), it);
-    if (resize_in_pad_.count(resize_op) == 0) {
+    if (resize_in_pad_.count(resize_op) != 0) {
       // project to frontier.
       frontier[pos] = id_to;
       // clear left of resize
