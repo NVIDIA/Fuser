@@ -11,15 +11,16 @@ echo "Writing to $LOG_FILE_INFO" | tee -a $LOG_FILE_INFO
 
 NP=8
 BACKEND=UCC
-S=4
+S=8
 M=32768
 K=32768
 N=1024
 Streams=8
 Pgs=1
+UNFUSE="_unfused"
 # cuStreamWrite=WithcuStreamWriteValue32_
 GTEST_PREFIX="OverlapBenchmark.DummyBenchmark/"
-GTEST_POSTFIX="${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}_${cuStreamWrite}Pgs${Pgs}"
+GTEST_POSTFIX="${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}_${cuStreamWrite}Pgs${Pgs}${UNFUSE}"
 export GTEST_FILTER="${GTEST_PREFIX}${GTEST_POSTFIX}"
 echo "gtest filter: $GTEST_FILTER" | tee -a $LOG_FILE_INFO
 ``

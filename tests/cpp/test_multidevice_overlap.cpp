@@ -51,7 +51,8 @@ using OverlapBenchmarkParams = std::tuple<
     /*N=*/int64_t,
     /*number_of_streams=*/int64_t,
     /*add_cuStreamWriteValue32=*/bool,
-    /*number_of_pgs=*/int64_t>;
+    /*number_of_pgs=*/int64_t,
+    /*unfuse_loops=*/bool>;
 
 class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
  protected:
@@ -83,7 +84,8 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
         N,
         number_of_streams,
         add_cuStreamWriteValue32,
-        number_of_pgs] = GetParam();
+        number_of_pgs,
+        unfuse_loops] = GetParam();
 
   GTEST_ASSERT_EQ(M % S, 0);
 
@@ -132,9 +134,20 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
       if (add_cuStreamWriteValue32) {
         cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
       }
+      if (unfuse_loops == false) {
+        // compute
+        auto tc_j = torch::matmul(ta_unsharded_j,tb);
+      }
+    }
+    if (unfuse_loops) {
+      for (auto j : c10::irange(S)) {
+        int64_t stream_index = j % streams.size();
+        setCurrentCUDAStream(streams.at(stream_index));
+        auto ta_unsharded_j = ta_unsharded.select(0, j);
 
-      // compute
-      auto tc_j = torch::matmul(ta_unsharded_j,tb);
+        // compute
+        auto tc_j = torch::matmul(ta_unsharded_j,tb);
+      }
     }
     setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(communicator_->deviceId()));
     synchronizeStreams(streams);
@@ -168,7 +181,8 @@ INSTANTIATE_TEST_SUITE_P(
     /*N=*/testing::Values(pow(2,10)),
     /*number_of_streams=*/testing::Values(3, 8, 32),
     /*add_cuStreamWriteValue32*/testing::Values(false, true),
-    /*number_of_pgs=*/testing::Values(1, 2, 4, 8)),
+    /*number_of_pgs=*/testing::Values(1, 2, 4, 8),
+    /*unfuse_loops=*/testing::Values(false, true)),
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
@@ -179,7 +193,8 @@ INSTANTIATE_TEST_SUITE_P(
          << "N" << std::get<4>(info.param) << "_"
          << "Streams" << std::get<5>(info.param) << "_"
          << ((std::get<6>(info.param))? "WithcuStreamWriteValue32_" : "")
-         << "Pgs" << std::get<7>(info.param);
+         << "Pgs" << std::get<7>(info.param)
+         << ((std::get<8>(info.param))? "_unfused" : "");
       return os.str();
     });
 
