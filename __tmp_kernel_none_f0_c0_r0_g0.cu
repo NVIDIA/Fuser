@@ -10980,7 +10980,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i26)), i28}), toSmem((&T7[i29])) }), (i31 + (2048 * i26)));
       }
     }
-    mbarrier::waitParity(toSmem((&T7[(i27 % 4)])), (uint32_t)(((i27) / 4U) % 2U));
+    mbarrier::waitParity(toSmem((&T7[i32])), (uint32_t)(i32 % 2));
     // __syncthreads();
     // continue;
     asm volatile(
