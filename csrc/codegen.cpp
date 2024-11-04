@@ -402,7 +402,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
-  void generateVectorizedLdSt(Val* in, Val* out, CacheOp cache_op) {
+  void generateVectorizedLdSt(
+      Val* in,
+      Val* out,
+      CacheOp cache_op,
+      int64_t vector_word_size) {
     auto out_tv = out->as<kir::TensorIndex>()->view();
     auto in_tv = in->as<kir::TensorIndex>()->view();
 
@@ -1067,7 +1071,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent() << kTab << "? ";
 
         // TODO: should we have the option to specify cache level?
-        generateVectorizedLdSt(top->in2(), top->out(), CacheOp::AllLevels);
+        generateVectorizedLdSt(
+            top->in2(), top->out(), CacheOp::AllLevels, vector_word_size);
 
         if (out_tv->getMemoryType() == MemoryType::Local &&
             !out_tv->isCircularBuffered()) {
@@ -1426,7 +1431,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               "Invalid input to unary op with tensor output, found: ",
               ldst->in()->toString());
 
-          generateVectorizedLdSt(ldst->in(), ldst->out(), ldst->cacheOp());
+          generateVectorizedLdSt(
+              ldst->in(), ldst->out(), ldst->cacheOp(), vector_word_size);
         }
         return;
       }
