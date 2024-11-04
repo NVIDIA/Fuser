@@ -429,13 +429,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "loadLocalToGlobal<" << out->dtype() << ", /*vec_size=*/"
                << vector_word_size << ", /*is_volatile=*/"
                << (is_volatile_to ? "true" : "false") << ">(";
-      code_ << " &" << gen(out) << ", &" << gen(in) << ");\n";
+      code_ << " &" << gen(out) << ", &" << gen(in) << ")";
     } else if (globalToLocal) {
       indent() << "loadGlobalToLocal<" << out->dtype() << ", /*vec_size=*/"
                << vector_word_size << ", /*is_volatile=*/"
                << (is_volatile_from ? "true" : "false") << ", "
                << "CacheOp::" << cache_op << ">(&" << gen(out) << ", ";
-      code_ << " &" << gen(in) << ");\n";
+      code_ << " &" << gen(in) << ")";
     } else if (globalToGlobal) {
       indent() << "loadGlobalToGlobal<" << out->dtype() << ", /*vec_size=*/"
                << vector_word_size << ", /*is_volatile_to=*/"
@@ -443,12 +443,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << ", /*is_volatile_from=*/"
                << (is_volatile_from ? "true" : "false") << ">(";
       code_ << " &" << gen(out) << ", ";
-      code_ << " &" << gen(in) << ");\n";
+      code_ << " &" << gen(in) << ")";
     } else {
       indent() << "loadGeneric<" << out->dtype() << ", " << vector_word_size
                << ">(";
       code_ << " &" << gen(out) << ", ";
-      code_ << " &" << gen(in) << ");\n";
+      code_ << " &" << gen(in) << ")";
     }
   }
 
@@ -1073,6 +1073,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // TODO: should we have the option to specify cache level?
         generateVectorizedLdSt(
             top->in2(), top->out(), CacheOp::AllLevels, vector_word_size);
+        code_ << "\n";
 
         if (out_tv->getMemoryType() == MemoryType::Local &&
             !out_tv->isCircularBuffered()) {
@@ -1433,6 +1434,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
           generateVectorizedLdSt(
               ldst->in(), ldst->out(), ldst->cacheOp(), vector_word_size);
+          code_ << ";\n";
         }
         return;
       }
