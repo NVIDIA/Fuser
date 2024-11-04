@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -149,8 +149,6 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    clear_cuda_cache()
-
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
@@ -200,7 +198,6 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
     dtype: torch.dtype,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
 
@@ -211,16 +208,22 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    output = torch.nn.functional.layer_norm(
-        input2 + torch.nn.functional.dropout(input1, p=dropout_p),
-        normalized_shape=input1.shape[1:],
-        weight=weights,
-        bias=bias,
-    )
+    def dropout_layernorm_fwd():
+        return torch.nn.functional.layer_norm(
+            input2 + torch.nn.functional.dropout(input1, p=dropout_p),
+            normalized_shape=input1.shape[1:],
+            weight=weights,
+            bias=bias,
+        )
+
+    # Compile the fwd fn for torchcompile
+    fwd_fn = torch.compile(dropout_layernorm_fwd) if compile else dropout_layernorm_fwd
+    output = fwd_fn()
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=dropout_layernorm_bwd_iobytes(size, dtype),
     )

@@ -109,6 +109,7 @@ union RecordData {
   BatchNorm,
   Broadcast,
   BroadcastInDim,
+  Cat,
   Dimension,
   Dtype,
   Norm,
@@ -255,6 +256,12 @@ table BroadcastInDim {
   broadcast_dims: [long];
 }
 
+// Data for CatOpRecord
+table Cat {
+  dim: long;
+  manual_padding: bool;
+}
+
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord
 table Dtype {
   dtype: long;
@@ -296,9 +303,7 @@ table Size {
 
 // Data for SliceOpRecord
 table Slice {
-  start_indices: [long];
-  end_indices:[long];
-  strides: [long];
+  manual_normalization: bool;
 }
 
 // Data for SqueezeOpRecord

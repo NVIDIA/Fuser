@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
-from .core import run_benchmark, clear_dynamo_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES
 import numpy as np
@@ -58,11 +58,6 @@ def softmax_bwd_fusion(
     fd.add_output(T19)
 
 
-def unary_bwd_torch(inputs: list):  # [in_tensor, output, grads]
-    inputs[1].backward(inputs[2], retain_graph=True)
-    return inputs[0].grad
-
-
 def softmax_bwd_iobytes(size: tuple, dtype: torch.dtype):
     # Total IO bytes = output + grad_out + grad_input
     return int(np.prod(size) * dtype.itemsize * 3)
@@ -79,8 +74,6 @@ def test_softmax_bwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
         torch.randn(size, device="cuda", dtype=dtype),
@@ -109,15 +102,20 @@ def test_softmax_bwd_baseline_benchmark(
     reduction_axis: int,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    output = torch.nn.functional.softmax(input, dim=reduction_axis)
+
+    def softmax_fwd():
+        return torch.nn.functional.softmax(input, dim=reduction_axis)
+
+    fwd_fn = torch.compile(softmax_fwd) if compile else softmax_fwd
+    output = fwd_fn()
+
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [input, output, grads],
+        unary_bwd_torch,
+        [output, grads],
         iobytes=softmax_bwd_iobytes(size, dtype),
     )
