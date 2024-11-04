@@ -43,7 +43,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
-      "Missing mapping from operation string to nvfuser function in serde deserialization.");
+      "Missing mapping from operation string to nvfuser function in serde deserialization: ",
+      buffer->name()->str());
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
@@ -540,7 +541,9 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SliceOpRecord(
-        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Slice()->manual_normalization());
   };
   registerParser(RecordType::SliceOp, deserializeSliceRecord);
 
@@ -837,6 +840,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
   NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)
   NVFUSER_BINARY_TV_OP("gcd", gcd)
+  NVFUSER_BINARY_TV_OP("ceilDiv", ceilDiv)
 
   NVFUSER_BINARY_TV_ALPHA_OP("add_alpha", add_alpha)
   NVFUSER_BINARY_TV_ALPHA_OP("sub_alpha", sub_alpha)

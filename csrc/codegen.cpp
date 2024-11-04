@@ -3165,6 +3165,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent();
     }
 
+    auto getTypeOrIndexType = [](Val* value) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+        if (isPointerType(ti->index()->dtype())) {
+          return ti->index()->dtype();
+        }
+      }
+      return value->dtype();
+    };
+
     if (asm_->hasBooleanInput()) {
       code_ << "\"{\\n\"\n";
       int64_t boolean_counter = 0;
@@ -3173,14 +3182,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           &asm_->outputs(), &asm_->inputs()};
       for (const auto* io : outputs_and_inputs) {
         for (auto val : *io) {
-          if (val->dtype() == DataType::Bool) {
+          // don't treat pointer to bool as bool
+          auto val_dtype = getTypeOrIndexType(val);
+          if (val_dtype == DataType::Bool) {
             indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
             indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
                      << counter << ", 0;\\n\"\n";
             boolean_counter++;
           }
-          if (std::holds_alternative<ArrayType>(val->dtype().type)) {
-            counter += (int64_t)std::get<ArrayType>(val->dtype().type).size;
+          if (std::holds_alternative<ArrayType>(val_dtype.type)) {
+            counter += (int64_t)std::get<ArrayType>(val_dtype.type).size;
           } else {
             counter++;
           }
@@ -3227,9 +3238,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               next_line();
             }
             first = false;
-            if (std::holds_alternative<ArrayType>(register_->dtype().type)) {
-              for (auto i : c10::irange(
-                       std::get<ArrayType>(register_->dtype().type).size)) {
+            auto reg_dtype = getTypeOrIndexType(register_);
+            if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
+              for (auto i :
+                   c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
                 if (i > 0) {
                   next_line();
                 }
@@ -3239,11 +3251,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               }
             } else {
               code_ << "\"" << constraint << "\"(";
-              if (register_->dtype() == DataType::Bool) {
+              if (reg_dtype == DataType::Bool) {
                 code_ << "(uint32_t)(";
               }
               code_ << gen(register_);
-              if (register_->dtype() == DataType::Bool) {
+              if (reg_dtype == DataType::Bool) {
                 code_ << ")";
               }
               code_ << ")";
