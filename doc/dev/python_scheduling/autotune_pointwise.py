@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import thunder
 import torch
 import itertools
 import random
-from nvfuser import FusionCache, FusionDefinition, SchedulerType
+from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType
 
 # ============================ Description ============================
 
@@ -34,13 +35,13 @@ from nvfuser import FusionCache, FusionDefinition, SchedulerType
 
 # Settings for input tensor generation
 num_dimensions = 2
-outer_shapes = [512]
+outer_shapes = [16384]
 inner_shapes = [2**i for i in range(5, 15)]
 
 # For pointwise scheduler, we test the cartesian product of vectorization and
 # unroll factors.
 parameter_configurations = [
-    vectorize_range := [1, 2, 4],
+    vectorize_range := [1, 2, 4, 8],
     unroll_range := list(range(1, 10)),
 ]
 
@@ -49,7 +50,7 @@ parameter_configurations = [
 test_data_percentage = 0.1
 
 # The selected batch size for empirical and nvfuser comparison.
-empirical_batch_size = 512
+empirical_batch_size = 16384
 
 # The range of hidden sizes for empirical and nvfuser comparision.
 empirical_hidden_sizes = list(range(256, 28672, 256))
@@ -58,19 +59,47 @@ empirical_hidden_sizes = list(range(256, 28672, 256))
 # A decorator to create a pointwise fusion given some input arguments.
 def create_fusion_func(inputs):
     def fusion_func(fd: FusionDefinition):
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        c0 = fd.define_scalar(3.0)
-        t2 = fd.ops.add(t0, t1)
-        t3 = fd.ops.mul(t2, c0)
-        fd.add_output(t3)
+        T0 = fd.define_tensor(
+            shape=[1, -1],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T6 = fd.ops.cast(T1, dtype=DataType.Float)
+        T7 = fd.ops.cast(T0, dtype=DataType.Float)
+        T8 = fd.ops.add(T6, T7)
+        T9 = fd.ops.mul(T8, T8)
+        T10 = fd.ops.mul(T9, T8)
+        S11 = fd.define_scalar(0.500000, dtype=DataType.Double)
+        T12 = fd.ops.mul(S11, T8)
+        S13 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+        T14 = fd.ops.mul(S13, T10)
+        T15 = fd.ops.add(T8, T14)
+        S16 = fd.define_scalar(0.797885, dtype=DataType.Double)
+        T17 = fd.ops.mul(S16, T15)
+        T18 = fd.ops.tanh(T17)
+        S19 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T20 = fd.ops.add(S19, T18)
+        T21 = fd.ops.mul(T12, T20)
+        T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
+        fd.add_output(T22)
 
     return fusion_func
 
 
 # The pytorch eager mode reference used to validating nvfuser kernel.
 def eager_reference(inputs):
-    return (inputs[0] + inputs[1]) * 3
+    return torch.nn.functional.gelu(
+        inputs[0] + inputs[1].unsqueeze(0), approximate="tanh"
+    )
 
 
 # ============================ Function Definitions ============================
@@ -104,7 +133,7 @@ def run_profile(presched_fd, inputs, config=None):
     nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
     # validate correctness
-    assert torch.allclose(nvf_outputs[0], eager_reference(inputs))
+    assert torch.allclose(nvf_outputs[0], eager_reference(inputs), atol=1e-2, rtol=1e-2)
 
     prof = scheduled_fd.profile()
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
@@ -141,8 +170,8 @@ performance = []
 for shape in itertools.product(outer_shapes, inner_shapes):
     print(shape)
     inputs = [
-        torch.randn(*shape, device="cuda"),
-        torch.randn(*shape, device="cuda"),
+        torch.randn(1, shape[-1], dtype=torch.bfloat16, device="cuda"),
+        torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
     ]
 
     with FusionDefinition() as presched_fd:
@@ -230,8 +259,8 @@ print("======================= compare performance =========================")
 
 for shape, estimate_config in mismatch_configs:
     inputs = [
-        torch.randn(*shape, device="cuda"),
-        torch.randn(*shape, device="cuda"),
+        torch.randn(1, shape[-1], dtype=torch.bfloat16, device="cuda"),
+        torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
     ]
 
     with FusionDefinition() as presched_fd:
@@ -261,8 +290,10 @@ FusionCache.reset()
 est_perfs = []
 for hidden_shape in empirical_hidden_sizes:
     inputs = [
-        torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
-        torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
+        torch.randn(1, hidden_shape, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(
+            empirical_batch_size, hidden_shape, dtype=torch.bfloat16, device="cuda"
+        ),
     ]
     estimate_config = find_best_parameters(
         clf, (empirical_batch_size, hidden_shape), parameter_configurations
@@ -281,8 +312,10 @@ FusionCache.reset()
 nvf_perfs = []
 for hidden_shape in empirical_hidden_sizes:
     inputs = [
-        torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
-        torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
+        torch.randn(1, hidden_shape, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(
+            empirical_batch_size, hidden_shape, dtype=torch.bfloat16, device="cuda"
+        ),
     ]
 
     with FusionDefinition() as presched_fd:
