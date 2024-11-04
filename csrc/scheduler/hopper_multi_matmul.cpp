@@ -881,6 +881,17 @@ void HopperMultipleMatmulScheduler::scheduleMmaOperands(
 }
 
 void HopperMultipleMatmulScheduler::scheduleMmaResults() {
+  // If cta_tile is not divisible by instruction tile the mma instruction will
+  // be predicated.
+  NVF_ERROR(
+      params_->tile_sizes.cta_tile.m % getM(params_->mma_macro) == 0 &&
+      params_->tile_sizes.cta_tile.n % getN(params_->mma_macro) == 0 &&
+      params_->tile_sizes.cta_tile.k % getK(params_->mma_macro) == 0,
+      "CTA tile must be divisible by macro size but found cta_tile: ",
+      toString(params_->tile_sizes.cta_tile),
+      " and macro: ",
+      toString(params_->mma_macro));
+
   auto all_merged_roles = blockTileTensors(mma_results_);
   for (size_t i : c10::irange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
