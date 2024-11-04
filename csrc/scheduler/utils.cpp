@@ -1555,16 +1555,13 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
       continue;
     }
 
-
-// Slice op is explicitly not enabled for vectorized load. 
-if (std::all_of(
-        input_tv->uses().begin(), input_tv->uses().end(),
-[](Expr* e) -> bool {
-  return e->isA<SliceOp>();
-}
-)) {
-  continue;
-}
+    // Slice op is explicitly not enabled for vectorized load.
+    if (std::all_of(
+            input_tv->uses().begin(),
+            input_tv->uses().end(),
+            [](Expr* e) -> bool { return e->isA<SliceOp>(); })) {
+      continue;
+    }
 
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);

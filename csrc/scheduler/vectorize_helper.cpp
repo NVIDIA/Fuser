@@ -63,17 +63,19 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
     }
 
     auto* out_tv = pad_op->out()->as<TensorView>();
-    
-    auto consumer_exprs = StmtSort::getExprsBetween(
-      {out_tv->getMaybeRootDomain().begin(), out_tv->getMaybeRootDomain().end()},
-      {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
 
-    // NOTE: if we can assume that PadOp is always on inputs, then we can skip to innermost resize instead.
+    auto consumer_exprs = StmtSort::getExprsBetween(
+        {out_tv->getMaybeRootDomain().begin(),
+         out_tv->getMaybeRootDomain().end()},
+        {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
+
+    // NOTE: if we can assume that PadOp is always on inputs, then we can skip
+    // to innermost resize instead.
     auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
     std::copy(
-      resize_ops.begin(),
-      resize_ops.end(),
-      std::inserter(resize_in_pad_, resize_in_pad_.end()));
+        resize_ops.begin(),
+        resize_ops.end(),
+        std::inserter(resize_in_pad_, resize_in_pad_.end()));
   }
 }
 
@@ -391,9 +393,10 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   };
 
   auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
-    // on top of the usual thing -> offset of tensor could impact vectorization factor on the loading inputs.
-    // But we shouldn't use that to block the propagation.
-    // we'll resolve it in getTvToContigMergeOfInnerSizeMap when we compute the actual vectorization factor.
+    // on top of the usual thing -> offset of tensor could impact vectorization
+    // factor on the loading inputs. But we shouldn't use that to block the
+    // propagation. we'll resolve it in getTvToContigMergeOfInnerSizeMap when we
+    // compute the actual vectorization factor.
 
     // does index of the resize dimension matter?
     // pad we can only support innermost dimensions. (Unless we lift the
@@ -421,9 +424,10 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
         auto consumer_factor = getProjectedExtent(id_from);
         auto comp = [](Val* factor, Val* extent) {
           return SimplifyingIrBuilder::whereExpr(
-            SimplifyingIrBuilder::eqExpr(extent, extent->container()->zeroVal()),
-            factor,
-            SimplifyingIrBuilder::gcdExpr(factor, extent));
+              SimplifyingIrBuilder::eqExpr(
+                  extent, extent->container()->zeroVal()),
+              factor,
+              SimplifyingIrBuilder::gcdExpr(factor, extent));
         };
         consumer_factor = comp(consumer_factor, resize_op->leftExpand());
         consumer_factor = comp(consumer_factor, resize_op->rightExpand());
