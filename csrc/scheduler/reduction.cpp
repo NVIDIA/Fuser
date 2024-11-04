@@ -211,9 +211,8 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
                 << " i_remainder: " << i_remainder << std::endl;
     }
     // Try use at least a unroll factor  of 2 to provide some instruction level
-    // parallelisms.
-    if (inner_unroll == 1 && bdimx / 2 >= threads_per_warp &&
-        bdimx / 2 % threads_per_warp == 0 && max_inner_unroll >= 2) {
+    // parallelisms, keep at least 4 warps.
+    if (inner_unroll == 1 && ceilDiv(bdimx / 2, threads_per_warp) >= 4) {
       bdimx /= 2;
       inner_unroll *= 2;
     }
