@@ -10922,9 +10922,9 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   asm volatile("wgmma.fence.sync.aligned;\n");
   asm volatile("fence.proxy.async;\n");
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
-    if ((b17 && Hopper::electSync(4294967295U))) {
-  #pragma unroll
-  for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
+  if ((b17 && Hopper::electSync(4294967295U))) {
+    #pragma unroll
+    for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
       mbarrier::init(toSmem((&T7[i20])), 1U);
     }
   }
