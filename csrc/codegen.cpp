@@ -402,6 +402,52 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void generateVectorizedLdSt(Val* in, Val* out, CacheOp cache_op) {
+    auto out_tv = out->as<kir::TensorIndex>()->view();
+    auto in_tv = in->as<kir::TensorIndex>()->view();
+
+    bool localToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
+        in_tv->getMemoryType() == MemoryType::Local;
+
+    bool globalToLocal = out_tv->getMemoryType() == MemoryType::Local &&
+        in_tv->getMemoryType() == MemoryType::Global;
+
+    bool globalToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
+        in_tv->getMemoryType() == MemoryType::Global;
+
+    bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
+        kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
+
+    bool is_volatile_from = in_tv->getMemoryType() == MemoryType::Global &&
+        kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
+
+    if (localToGlobal) {
+      indent() << "loadLocalToGlobal<" << out->dtype() << ", /*vec_size=*/"
+               << vector_word_size << ", /*is_volatile=*/"
+               << (is_volatile_to ? "true" : "false") << ">(";
+      code_ << " &" << gen(out) << ", &" << gen(in) << ");\n";
+    } else if (globalToLocal) {
+      indent() << "loadGlobalToLocal<" << out->dtype() << ", /*vec_size=*/"
+               << vector_word_size << ", /*is_volatile=*/"
+               << (is_volatile_from ? "true" : "false") << ", "
+               << "CacheOp::" << cache_op << ">(&" << gen(out) << ", ";
+      code_ << " &" << gen(in) << ");\n";
+    } else if (globalToGlobal) {
+      indent() << "loadGlobalToGlobal<" << out->dtype() << ", /*vec_size=*/"
+               << vector_word_size << ", /*is_volatile_to=*/"
+               << (is_volatile_to ? "true" : "false")
+               << ", /*is_volatile_from=*/"
+               << (is_volatile_from ? "true" : "false") << ">(";
+      code_ << " &" << gen(out) << ", ";
+      code_ << " &" << gen(in) << ");\n";
+    } else {
+      indent() << "loadGeneric<" << out->dtype() << ", " << vector_word_size
+               << ">(";
+      code_ << " &" << gen(out) << ", ";
+      code_ << " &" << gen(in) << ");\n";
+    }
+  }
+
   // Cannot just use ConstIrVisitor::handle as it expects a vector of
   // const Expr*, whereas most of the IR API returns a vector of
   // non-const Expr*.
@@ -1017,57 +1063,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             top->getTernaryOpType() == TernaryOpType::Where,
             "vectorization only works on TernaryOp::where");
 
-        auto in_tv = top->in2()->as<kir::TensorIndex>()->view();
-
-        bool localToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
-            in_tv->getMemoryType() == MemoryType::Local;
-
-        bool globalToLocal = out_tv->getMemoryType() == MemoryType::Local &&
-            in_tv->getMemoryType() == MemoryType::Global;
-
-        bool globalToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
-            in_tv->getMemoryType() == MemoryType::Global;
-
-        bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
-            kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
-
-        bool is_volatile_from = in_tv->getMemoryType() == MemoryType::Global &&
-            kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
-
         indent() << gen(top->in1()) << "\n";
         indent() << kTab << "? ";
 
-        if (localToGlobal) {
-          code_ << "loadLocalToGlobal<" << top->out()->dtype()
-                << ", /*vec_size=*/" << vector_word_size << ", /*is_volatile=*/"
-                << (is_volatile_to ? "true" : "false") << ">(";
-          code_ << " &" << gen(top->out()) << ", &" << gen(top->in2()) << ")";
-        } else if (globalToLocal) {
-          code_ << "loadGlobalToLocal<" << top->out()->dtype()
-                << ", /*vec_size=*/" << vector_word_size << ", /*is_volatile=*/"
-                << (is_volatile_from ? "true" : "false")
-                << ", "
-                // << "CacheOp::" << ldst->cacheOp() << ">(&"
-                << "CacheOp::Streaming>(&" << gen(top->out()) << ", ";
-          code_ << " &" << gen(top->in2()) << ")";
-        } else if (globalToGlobal) {
-          code_ << "loadGlobalToGlobal<" << top->out()->dtype()
-                << ", /*vec_size=*/" << vector_word_size
-                << ", /*is_volatile_to=*/"
-                << (is_volatile_to ? "true" : "false")
-                << ", /*is_volatile_from=*/"
-                << (is_volatile_from ? "true" : "false") << ">(";
-          code_ << " &" << gen(top->out()) << ", ";
-          code_ << " &" << gen(top->in2()) << ")";
-        } else {
-          code_ << "loadGeneric<" << top->out()->dtype() << ", "
-                << vector_word_size << ">(";
-          code_ << " &" << gen(top->out()) << ", ";
-          code_ << " &" << gen(top->in2()) << ")";
-        }
-
-        code_ << "\n";
-        // TODO: handle the local buffer. checkout LoadStoreOp
+        // TODO: should we have the option to specify cache level?
+        generateVectorizedLdSt(top->in2(), top->out(), CacheOp::AllLevels);
 
         if (out_tv->getMemoryType() == MemoryType::Local &&
             !out_tv->isCircularBuffered()) {
@@ -1426,53 +1426,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               "Invalid input to unary op with tensor output, found: ",
               ldst->in()->toString());
 
-          auto in_tv = ldst->in()->as<kir::TensorIndex>()->view();
-          bool localToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
-              in_tv->getMemoryType() == MemoryType::Local;
-
-          bool globalToLocal = out_tv->getMemoryType() == MemoryType::Local &&
-              in_tv->getMemoryType() == MemoryType::Global;
-
-          bool globalToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
-              in_tv->getMemoryType() == MemoryType::Global;
-
-          bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
-              kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
-
-          bool is_volatile_from =
-              in_tv->getMemoryType() == MemoryType::Global &&
-              kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
-
-          if (localToGlobal) {
-            indent() << "loadLocalToGlobal<" << ldst->out()->dtype()
-                     << ", /*vec_size=*/" << vector_word_size
-                     << ", /*is_volatile=*/"
-                     << (is_volatile_to ? "true" : "false") << ">(";
-            code_ << " &" << gen(ldst->out()) << ", &" << gen(ldst->in())
-                  << ");\n";
-          } else if (globalToLocal) {
-            indent() << "loadGlobalToLocal<" << ldst->out()->dtype()
-                     << ", /*vec_size=*/" << vector_word_size
-                     << ", /*is_volatile=*/"
-                     << (is_volatile_from ? "true" : "false") << ", "
-                     << "CacheOp::" << ldst->cacheOp() << ">(&"
-                     << gen(ldst->out()) << ", ";
-            code_ << " &" << gen(ldst->in()) << ");\n";
-          } else if (globalToGlobal) {
-            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype()
-                     << ", /*vec_size=*/" << vector_word_size
-                     << ", /*is_volatile_to=*/"
-                     << (is_volatile_to ? "true" : "false")
-                     << ", /*is_volatile_from=*/"
-                     << (is_volatile_from ? "true" : "false") << ">(";
-            code_ << " &" << gen(ldst->out()) << ", ";
-            code_ << " &" << gen(ldst->in()) << ");\n";
-          } else {
-            indent() << "loadGeneric<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ">(";
-            code_ << " &" << gen(ldst->out()) << ", ";
-            code_ << " &" << gen(ldst->in()) << ");\n";
-          }
+          generateVectorizedLdSt(ldst->in(), ldst->out(), ldst->cacheOp());
         }
         return;
       }
