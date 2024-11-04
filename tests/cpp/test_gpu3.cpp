@@ -8874,6 +8874,31 @@ TEST_F(NVFuserTest, CpAsyncDataTypeBool) {
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+// Intermediate IDs generaetd by rFactor should also remain
+// reductions. See #3327 for more info.
+TEST_F(NVFuserTest, RfactorIntermediateIDs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1, 2});
+  fusion.addOutput(tv1);
+
+  tv1->merge(1, 2);
+  tv1->split(1, 4);
+
+  auto tv2 = tv1->rFactor({-1});
+
+  auto split = dynamic_cast<Split*>(tv2->axis(-1)->definition());
+  ASSERT_NE(split, nullptr);
+
+  auto merge_out = split->in();
+  EXPECT_TRUE(merge_out->isReduction());
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
