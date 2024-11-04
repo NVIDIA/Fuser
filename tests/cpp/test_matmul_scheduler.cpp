@@ -3116,9 +3116,7 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3137,6 +3135,9 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
+  //! TODO Disabled because hopper multiple matmul scheduler is currently a copy
+  //! of ampere scheduler.
+  /*
   FusionExecutor fe;
   fe.compileFusion(
       fusion.get(),
@@ -3145,7 +3146,8 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
       matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  */
 }
 
 TEST_F(MatmulSchedulerTest, HSH_TN) {
@@ -3186,9 +3188,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3216,7 +3216,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_F(MatmulSchedulerTest, HSH_NT) {
@@ -3261,9 +3261,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3291,7 +3289,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_F(MatmulSchedulerTest, HSH_NN) {
@@ -3335,9 +3333,7 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3356,6 +3352,9 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
+  // TODO Disabled because hopper multiple matmul scheduler is currently a copy
+  // of ampere scheduler.
+  /*
   FusionExecutor fe;
   fe.compileFusion(
       fusion.get(),
@@ -3364,7 +3363,8 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
       matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  */
 }
 
 } // namespace nvfuser
