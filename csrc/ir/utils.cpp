@@ -1201,7 +1201,58 @@ bool isFunctional(const Val* v) {
       return false;
     }
   }
+
   return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
+bool isRecursivelyDefined(Val* val) {
+  NVF_ERROR(val != nullptr);
+
+  std::deque<Val*> vals_to_visit;
+  vals_to_visit.push_back(val);
+
+  std::unordered_set<Val*> visited_vals;
+
+  while (!vals_to_visit.empty()) {
+    auto v = vals_to_visit.front();
+    vals_to_visit.pop_front();
+
+    visited_vals.insert(v);
+
+    auto v_def = v->definition();
+    if (v_def == nullptr) {
+      continue;
+    }
+
+    for (const auto inp : v_def->inputs()) {
+      if (inp == val) {
+        // Recursive dependency detected
+        return true;
+      }
+      // Don't visit the same multiple times
+      if (!visited_vals.count(inp)) {
+        vals_to_visit.push_back(inp);
+      }
+    }
+  }
+
+  return false;
+}
+
+// This is not guaranteed to work in the presence of recursive
+// definitions, but should be better than nothing
+void validateNoRecursiveDefinition(Fusion* fusion) {
+  auto stmts = StmtSort::getStmts(
+      fusion,
+      /*traverse_members=*/true,
+      /*traverse_attributes=*/true,
+      /*traverse_siblings=*/true);
+  for (auto val : ir_utils::filterByType<Val>(stmts)) {
+    NVF_ERROR(
+        !isRecursivelyDefined(val),
+        "Detected a recursively defined val: ",
+        val->toString());
+  }
 }
 
 } // namespace nvfuser::ir_utils

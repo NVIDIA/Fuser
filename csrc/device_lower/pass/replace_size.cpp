@@ -112,6 +112,8 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     }
     NVF_ERROR(rep != nullptr);
     Val* rep_ext = rep->extent();
+    NVF_ERROR(!ir_utils::isRecursivelyDefined(rep_ext));
+
     for (Val* v : *group) {
       auto* id = v->as<IterDomain>();
       Val* ext = id->extent();
@@ -121,6 +123,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       }
     }
   }
+
   return simplification_map;
 }
 
@@ -129,6 +132,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
   std::unordered_map<Val*, Val*> tensor_dim_map;
+
+  // std::cout << "replaceSymbolicSizes\n";
+  // fusion->print();
+  // std::cout << std::endl;
 
   // Grab inputs and outputs
   std::vector<TensorView*> inputs_and_outputs;
