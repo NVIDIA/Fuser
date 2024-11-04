@@ -10948,7 +10948,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     }
     if (Hopper::electSync(4294967295U) && b17) {
       mbarrier::arriveExpectTX(toSmem((&T7[i21 + (1 + threadIdx.y) * 4])), 2048U);
-      Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * threadIDx.y)), i22}), toSmem((&T7[i21 + (1 + threadIdx.y) * 4])) }), (i24 + (2048 * i26)));
+      Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * threadIDx.y)), i22}), toSmem((&T7[i21 + (1 + threadIdx.y) * 4])) }), (i24 + (2048 * threadIdx.y)));
     }
   }
   #pragma unroll 4
