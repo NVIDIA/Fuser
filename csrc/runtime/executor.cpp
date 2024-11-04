@@ -1156,6 +1156,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(computeBytes(args));
     sprof.scheduler(toString(scheduler_type_));
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
     sprof.startKernel();
   }
 
