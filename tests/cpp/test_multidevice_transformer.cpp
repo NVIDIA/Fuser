@@ -287,8 +287,7 @@ MLPResult mlp(
     TensorView* w1,
     TensorView* b1,
     const DeviceMesh& mesh,
-    bool sequence_parallel = false,
-    TensorView* mask = nullptr) {
+    bool sequence_parallel = false) {
   const DataType dtype = w0->dtype();
 
   if (sequence_parallel) {
@@ -316,16 +315,13 @@ MLPResult mlp(
     local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
   }
   TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce or Reduce scatter
-  TensorView* linear1 = add(matmul1, broadcast(b1, {true, true, false}));
+  std::vector<bool> bcast_mask(matmul1->nDims()-1, true);
+  bcast_mask[matmul1->nDims()-2] = false;
+  TensorView* linear1 = add(matmul1, broadcast(b1, bcast_mask));
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  if (mask == nullptr) {
-    auto rand_vals = rand_like(linear1);
-    mask = lt(rand_vals, prob);
-  }
-  auto apply_mask = mul(linear1, mask);
-  auto dropout_result = mul(apply_mask, scale);
+  TensorView* dropout_result =  dropout(linear1, prob, scale).output;
 
   // Tensor parallel shardings
   for (auto* tv : {w0, b0, w1}) {
@@ -340,8 +336,6 @@ MLPResult mlp(
   if (sequence_parallel) {
     matmul1->setDeviceMesh(mesh);
     matmul1->axis(1)->parallelize(ParallelType::DIDx);
-    mask->setDeviceMesh(mesh);
-    mask->axis(0)->parallelize(ParallelType::DIDx);
   }
 
   return {linear0, gelu, matmul1, linear1, dropout_result};
@@ -372,8 +366,7 @@ MHAResult mha(
     x->axis(0)->parallelize(ParallelType::DIDx);
     x = set(x); // allgather
     x->axis(0)->parallelize(ParallelType::Serial);
-    // Note: Reshape is uncessary, it is here to keep
-    // rehsapes with TP and TP+SP the same.
+    // Reshape is uncessary, it is here to keep shapes with TP and TP+SP the same for validation.
     x = reshape(x, {D, B * S / D, E}, {B * S, E});
   }
 
@@ -417,10 +410,7 @@ MHAResult mha(
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  auto rand_vals = rand_like(linear1);
-  auto mask = lt(rand_vals, prob);
-  auto apply_mask = mul(linear1, mask);
-  auto dropout_result = mul(apply_mask, scale);
+  TensorView* dropout_result =  dropout(linear1, prob, scale).output;
 
   // Tensor parallel shardings
   for (auto tv : {x, b1}) {
@@ -715,12 +705,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   fusion->addOutput(tvsout.linear1);
   fusion->addOutput(tvsout.output);
 
-  shardFrom(tvw0);
-  if (communicator_->deviceId() == 0) {
-    fusion->print();
-  }
-  // shardBetween({tvw0, tvb0, tvw1}, {tvsout[3]}, tvw0);
-  // shardBetween({tvx, tvb1}, {tvsout[3]}, tvx);
+  shardBetween({tvw0}, {tvsout.output}, tvw0);
+  shardBetween({tvw1}, {tvsout.output}, tvw1);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -780,37 +766,26 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   TensorView* b0 = makeContigConcreteTensor({D, 4 * E / D}, dtype);
   TensorView* w1 = makeContigConcreteTensor({D, E, 4 * E / D}, dtype);
   TensorView* b1 = makeContigConcreteTensor({E}, dtype);
-  TensorView* mask =
-      makeContigConcreteTensor({D, B * S / D, E}, DataType::Bool);
 
   // Input x is sharded on B*S dimension.
   // Note only the sequence (S) dimension that is sharded
   // but to avoid DID parallelizations of inner logical axes
   // B*S is sharded.
-  auto tvsout = mlp(x, w0, b0, w1, b1, mesh, true, mask);
+  auto tvsout = mlp(x, w0, b0, w1, b1, mesh, true);
 
   fusion->addInput(x);
   fusion->addInput(w0);
   fusion->addInput(b0);
   fusion->addInput(w1);
   fusion->addInput(b1);
-  fusion->addInput(mask);
 
   fusion->addOutput(tvsout.linear0);
   fusion->addOutput(tvsout.gelu);
   fusion->addOutput(tvsout.linear1);
   fusion->addOutput(tvsout.output);
 
-  // Ensure broadcasts of bias are sharded.
-  // shardBetween({b1}, {tvsout[2]}, tvsout[2]);
-  // // Needed to ensure that rand_like is sharded initially.
-  // // sharding from linear1 to dropout like dropout
-  // shardBetween({tvsout[2]}, {tvsout[3]}, tvsout[3]);
-  shardFrom(w0);
-  shardFrom(tvsout.matmul1);
-  if (communicator_->deviceId() == 0) {
-    fusion->print();
-  }
+  shardBetween({w0}, {tvsout.matmul1}, w0);
+  shardBetween({tvsout.matmul1}, {tvsout.output}, tvsout.matmul1);
 
   auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -832,8 +807,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
       shardTensor(w0_, 0, mesh),
       shardTensor(b0_, 0, mesh),
       shardTensor(w1_, 1, mesh),
-      b1_,
-      shardTensor(mask_, 0, mesh)};
+      b1_};
 
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(reference_outs[0], 1, mesh),
@@ -877,7 +851,8 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
   fusion->addOutput(tv_outs.linear1);
   fusion->addOutput(tv_outs.output);
 
-  shardFrom(tvw0);
+  shardBetween({tvw0}, {tv_outs.output}, tvw0);
+  shardBetween({tvw1}, {tv_outs.output}, tvw1);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -939,8 +914,10 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
   fusion->addOutput(tv_outs.linear1);
   fusion->addOutput(tv_outs.output);
 
-  shardFrom(tvw0);
-  shardFrom(tv_outs.matmul1); // reduce scatter manual sharding.
+  // shardFrom(tvw0);
+  // shardFrom(tv_outs.matmul1); // reduce scatter manual sharding.
+  shardBetween({tvw0}, {tv_outs.matmul1}, tvw0);
+  shardBetween({tv_outs.matmul1}, {tv_outs.output}, tv_outs.matmul1);
 
   // shardBetween(tvw0, tv_outs[1], tvw0);
   // shardBetween(tvw1, tv_outs[2], tvw1); // ensures transposes is sharded
@@ -1214,35 +1191,18 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
 
   x->setDeviceMesh(mesh);
   x->axis(0)->parallelize(ParallelType::DIDx);
+  // Propagate SP shardings from x through layernorms, dropouts, residual adds.
+  // Even though mha_in is part of the boundary set, residuals allow the shardings to propagate up the graph so we must cut off the
+  // propagation at the outputs of reduce scatters (mha and mlp matmul1)
+  shardBetween({x}, {mha_in, mlp_in, mha_tvs.matmul1, mlp_tvs.matmul1}, x);
+  // Propagate TP sharding for MLP and MHA from sharded weights. We do not need to shard
+  // from mha_b0 or mlp_b0 because they are only consumed by their respective linear0
+  // expression which is sharded from *_w0.
+  shardBetween({mha_w0}, {mha_tvs.matmul1}, mha_w0);
+  shardBetween({mha_w1}, {mha_tvs.matmul1}, mha_w1);
+  shardBetween({mlp_w0}, {mlp_tvs.matmul1}, mlp_w0);
+  shardBetween({mlp_w1}, {mlp_tvs.matmul1}, mlp_w1);
 
-  shardBetween(mha_w0, mha_tvs.sdpa, mha_w0);
-  shardBetween(mha_w1, mha_tvs.linear1, mha_w1); // ensures transposes is sharded
-  shardBetween(mha_b1, mha_tvs.linear1, mha_tvs.linear1);
-
-  shardFrom(x);
-  shardFrom(resid0); // The addition automatically applies parallelization? This seems wrong
-  shardBetween(ln0_w, mha_in, mha_in);
-  shardBetween(ln0_b, mha_in, mha_in);
-
-  // Propagate TP shardings from MHA linear0 up to MHA linear1
-  shardBetween(mha_tvs.linear0, mha_tvs.linear1, mha_tvs.linear0);
-  // Propagate SP shardings from MHA linear1 to MLP linear0.
-  shardBetween(mha_tvs.linear1, mlp_in, mha_tvs.linear1); 
-  shardBetween(ln1_w, mlp_in, mlp_in);
-  shardBetween(ln1_b, mlp_in, mlp_in);
-
-  // Propagate TP sharding from MLP linear0 to MLP linear1.
-  shardBetween(mlp_w0, mlp_tvs.gelu, mlp_w0);
-  shardBetween(mlp_w1, mlp_tvs.linear1, mlp_w1); // ensures transposes is sharded
-  shardBetween(mlp_b1, mlp_tvs.linear1, mlp_tvs.linear1);
-
-  shardBetween(mlp_tvs.linear0, mlp_tvs.linear1, mlp_tvs.linear0);
-  // Propagate SP sharding from MLP linear1 to output.
-  shardBetween(mlp_tvs.linear1, resid1, mlp_tvs.linear1);
-
-  // if (communicator_->deviceId() == 0) {
-  //   fusion->print();
-  // }
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options);
@@ -1367,13 +1327,9 @@ TEST_P(DistributedTransformerTest, Forward) {
     tv->setDeviceMesh(mesh);
   }
 
-  shardBetween(mlp_w1, mlp_out, mlp_w1);
   shardBetween({mha_in->definition()}, {mha_out->definition()}, mha_w0);
   shardBetween({mlp_in->definition()}, {mlp_out->definition()}, mlp_w0);
   shardBetween({x}, {mha_in}, x);
-  if (communicator_->deviceId() == 0) {
-    fusion->print();
-  }
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());

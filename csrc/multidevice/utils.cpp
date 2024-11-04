@@ -165,10 +165,6 @@ bool haveDifferentShardings(
       continue;
     }
 
-    if(p_id->isBroadcast()) {
-      continue;
-    }
-
     auto c_id = i->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
@@ -251,78 +247,6 @@ void shardBetween(
   }
 
   shardBetween(from_tvs, to_tvs, ref);
-}
-
-// Shards all TV reachable from from_tv that do not pass a through
-// a manually sharded TV.
-// Note: In general it is safer to use shardBetween but there are two corner
-// cases not covered by shardBetween.
-// (1) Factory TVs 
-void shardFrom(TensorView* from_tv) {
-  std::unordered_set<TensorView*> tv_group;
-  std::queue<TensorView*> tensors_to_visit;
-  auto addIfNotVisited = [&](TensorView* tv) {
-    if (tv_group.find(tv) == tv_group.end() && !tv->hasDeviceMesh()) {
-      tv_group.emplace(tv);
-      tensors_to_visit.push(tv);
-    }
-  };
-
-  tensors_to_visit.push(from_tv);
-  while (!tensors_to_visit.empty()) {
-    auto next_tv = tensors_to_visit.front();
-    tensors_to_visit.pop();
-    // visit consumers
-    for (auto tv : ir_utils::consumerTvsOf(next_tv)) {
-      addIfNotVisited(tv);
-    }
-    // visit siblings
-    for (auto tv : ir_utils::siblingTvsOf(next_tv)) {
-      addIfNotVisited(tv);
-    }
-    // visit producer
-    for (auto tv : ir_utils::producerTvsOf(next_tv)) {
-      addIfNotVisited(tv);
-    }
-  }
-
-  std::cout << "SHARD FROM " << from_tv->toString() << std::endl;
-  for (auto i : tv_group) {
-    std::cout << "   " << i->toString() << std::endl;
-  }
-
-  shardAllLike(from_tv, {tv_group.begin(), tv_group.end()});
-
-  // Remove DID parallelizations on reduction axes.
-  for (auto* tv : tv_group) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
-}
-
-void shardBetween(TensorView* from, TensorView* to, TensorView* ref) {
-  auto between_vals =
-      DependencyCheck::getAllValsBetween({from}, {to});
-  auto between_tvs = ir_utils::filterByType<TensorView>(between_vals);
-  std::vector<TensorView*> tvs = {between_tvs.begin(), between_tvs.end()};
-  tvs.erase(std::remove(tvs.begin(), tvs.end(), to), tvs.end());
-  std::cout << "SHARD BETWEEN " << from->toString() << " " << to->toString() << std::endl;
-  for (auto i : tvs) {
-    std::cout << "   " << i->toString() << std::endl;
-  }
-  shardAllLike(ref, tvs);
-
-  // Remove DID parallelizations on reduction axes.
-  for (auto* tv : tvs) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
 }
 
 void shardBetween(
