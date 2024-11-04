@@ -50,7 +50,8 @@ using OverlapBenchmarkParams = std::tuple<
     /*K=*/int64_t,
     /*N=*/int64_t,
     /*number_of_streams=*/int64_t,
-    /*add_cuStreamWriteValue32=*/bool>;
+    /*add_cuStreamWriteValue32=*/bool,
+    /*number_of_pgs=*/int64_t>;
 
 class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
  protected:
@@ -81,11 +82,13 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
         K,
         N,
         number_of_streams,
-        add_cuStreamWriteValue32] = GetParam();
+        add_cuStreamWriteValue32,
+        number_of_pgs] = GetParam();
 
   GTEST_ASSERT_EQ(M % S, 0);
 
-  auto world = communicator_->getWorld(backend);
+  std::vector<RankType> all_ranks(communicator_->size());
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
 
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(number_of_streams, communicator_->deviceId());
@@ -117,6 +120,8 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
     for (auto j : c10::irange(S)) {
       int64_t stream_index = j % streams.size();
       setCurrentCUDAStream(streams.at(stream_index));
+
+      auto world = communicator_->getBackendForTeam(all_ranks, backend, std::to_string(j % number_of_pgs));
 
       auto ta_j = ta.select(0, j);
       auto ta_unsharded_j = ta_unsharded.select(0, j);
@@ -162,7 +167,8 @@ INSTANTIATE_TEST_SUITE_P(
     /*K=*/testing::Values(pow(2,10), pow(2,15)),
     /*N=*/testing::Values(pow(2,10)),
     /*number_of_streams=*/testing::Values(3, 8, 32),
-    /*add_cuStreamWriteValue32*/testing::Values(false)),
+    /*add_cuStreamWriteValue32*/testing::Values(false),
+    /*number_of_pgs=*/testing::Values(1, 2, 4, 8)),
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
@@ -172,7 +178,8 @@ INSTANTIATE_TEST_SUITE_P(
          << "K" << std::get<3>(info.param) << "_"
          << "N" << std::get<4>(info.param) << "_"
          << "Streams" << std::get<5>(info.param) << "_"
-         << ((std::get<6>(info.param))? "With" : "Without") << "cuStreamWriteValue32";
+         << ((std::get<6>(info.param))? "WithcuStreamWriteValue32_" : "")
+         << "Pgs" << std::get<7>(info.param);
       return os.str();
     });
 
