@@ -86,7 +86,7 @@ int64_t getMaxVectUnroll(
   // 16 inputs, vect_factor = 4, max_unroll = 1
   // 32 inputs, vect_factor = 2, max_unroll = 1
   // 64 inputs, vect_factor = 1, max_unroll = 1
-  const int64_t loading_buffer_bytes = 32 * scheduler_utils::bytes_per_register;
+  const int64_t loading_buffer_bytes = 16 * scheduler_utils::bytes_per_register;
   // prioritize vectorization, less than 16 bytes if too many inputs
   int64_t vect_factor = scheduler_utils::safeDiv(
       loading_buffer_bytes, max_input_dtype_size * n_tensor_inputs);
