@@ -45,16 +45,16 @@ struct OverlapTestParams {
   int64_t M = std::pow(2, 6);
   int64_t K = std::pow(2, 5);
   int64_t N = std::pow(2, 4);
-  int64_t S = std::pow(2, 2);
+  int64_t S = std::pow(2, 3);
 
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::kNccl;
 
   // Overlap optimization parameters
   // fill input with new random values and repeat the operation
-  int64_t number_of_iterations = 1;
+  int64_t number_of_iterations = 4;
   // Change CUDA stream at each iteration in a Round-Robin fashion
-  int64_t number_of_streams = 128;
+  int64_t number_of_streams = 3;
 };
 
 std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
