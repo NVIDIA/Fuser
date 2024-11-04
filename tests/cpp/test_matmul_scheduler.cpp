@@ -3176,10 +3176,10 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -3190,7 +3190,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
 
   // TODO Create prefetch parameter
   // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
