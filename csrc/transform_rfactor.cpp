@@ -116,6 +116,10 @@ class ReplayRFactor : public ReplayTransformations {
     bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
         static_logical_ids_.count(s->inner());
 
+    // Let IterDomain::split determine the correct IterType, except
+    // when the output is a reduction domain but not part of the
+    // rfactored domains. If it isn't involved in the rfactor, it's no
+    // longer a redunction domain
     std::optional<IterType> outer_iter_type;
     if (s->outer()->isReduction() && !rfactor_dep_ids_.count(s->outer())) {
       outer_iter_type = IterType::Iteration;
@@ -171,8 +175,9 @@ class ReplayRFactor : public ReplayTransformations {
         " however one or both are not loop nodes.");
 
     // Let IterDomain::merge determine the correct IterType, except
-    // when m->out is a reduction domain. If it isn't involved in
-    // the rfactor, it's no longer a redunction domain
+    // when the output is a reduction domain but not part of the
+    // rfactored domains. If it isn't involved in the rfactor, it's no
+    // longer a redunction domain
     std::optional<IterType> iter_type;
     if (m->out()->isReduction() && !rfactor_dep_ids_.count(m->out())) {
       iter_type = IterType::Iteration;
