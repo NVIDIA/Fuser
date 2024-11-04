@@ -388,9 +388,6 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   bool pad_bdimx = bdimx > 16 &&
       bdimx * bdimy <
           (int64_t)at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
-  // If barely just covering reduction dim, don't pad to the next warp
-  pad_bdimx = pad_bdimx &&
-      bdimx * inner_reduction_unroll_factor != inner_most_dimension_numel;
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
 
   if (rparams->pad_inner_reduction_to_warp) {
@@ -1259,6 +1256,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
       unroll,
       vectorize,
       use_iter_grouped_reduction,
+      rparams->unroll_factor_inner_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs);
