@@ -167,6 +167,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   vect_factor = std::min(
       scheduler_utils::lastPow2(max_vect_unroll),
       (int64_t)max_vectorize_factor);
+  int64_t four_warps = 4 * threads_per_warp;
   int64_t target_threads_per_block = threads_per_sm / 4;
   int64_t max_inner_unroll = max_vect_unroll / vect_factor;
 
@@ -174,22 +175,14 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   // If split is divisible, increase bdimx, but don't go over [threads_per_sm /
   // 4] to avoid large communication cost.
   int64_t after_vect = total_reduction_numel / vect_factor;
-  bool unroll_may_remove_reduction_iteration =
-      target_threads_per_block * max_vect_unroll >= total_reduction_numel;
-  bool is_reduction_iteration_removed = false;
-  if (unroll_may_remove_reduction_iteration) {
+  if (four_warps * max_vect_unroll >= total_reduction_numel) {
     int64_t i_remainder = ceilDiv(ceilDiv(after_vect, bdimx), inner_unroll);
     if (after_vect <= target_threads_per_block) {
       bdimx = std::max(after_vect, min_warp_size);
       i_remainder = 1;
     } else {
       // cap bdimx at 4 warps, leave room for unrolling
-      bdimx =
-          std::min(std::max(after_vect, min_warp_size), 4 * threads_per_warp);
-      while (bdimx * 2 <= target_threads_per_block && bdimx * 2 <= after_vect &&
-             (after_vect % (bdimx * 2) == 0)) {
-        bdimx *= 2;
-      }
+      bdimx = std::min(std::max(after_vect, min_warp_size), four_warps);
       std::cout << "1bdimx: " << bdimx << std::endl;
       // move from i-remainder to i-Unroll, ensure divisible split.
       // start from large prime number, e.g. i_remainder = 14, max_inner_unroll
@@ -221,19 +214,11 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     i_remainder = ceilDiv(ceilDiv(after_vect, bdimx), inner_unroll);
     std::cout << "3bdimx: " << bdimx << " inner_unroll: " << inner_unroll
               << " i_remainder: " << i_remainder << std::endl;
-
-    while (i_remainder >= 2 && bdimx * 2 <= threads_per_sm / 4) {
-      bdimx *= 2;
-      i_remainder = ceilDiv(ceilDiv(after_vect, bdimx), inner_unroll);
+    if (i_remainder > 1) {
+      inner_unroll = 1;
     }
-    std::cout << "4bdimx: " << bdimx << " inner_unroll: " << inner_unroll
-              << " i_remainder: " << i_remainder << std::endl;
-
-    is_reduction_iteration_removed = (i_remainder == 1);
   }
-
-  if (!is_reduction_iteration_removed) {
-    inner_unroll = 1;
+  if (inner_unroll == 1) {
     bdimx =
         std::min(std::max(after_vect, min_warp_size), target_threads_per_block);
   }
