@@ -131,8 +131,12 @@ class LaunchParams {
     assertValid();
   }
 
-  // Binds dim assocaited with p_type to val
+  // Binds dim associated with p_type to val.
+  // Checks if ParallelType already has been assigned a value.
   void bind(int64_t val, ParallelType p_type);
+
+  // Binds dim associated with p_type to val.
+  void bindUnsafe(int64_t val, ParallelType p_type);
 
   // Adjusted value based on get functions above for each value
   NVF_API int64_t getDim(ParallelType p_type) const;
