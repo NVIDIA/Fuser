@@ -184,6 +184,8 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
 } // namespace
 
 TEST_P(MatmulSASSTestWithLayout, AmpereSanity) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 

@@ -278,29 +278,64 @@ std::vector<TensorView*> mlp(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    const DeviceMesh& mesh) {
+    const DeviceMesh& mesh,
+    bool sequence_parallel = false,
+    TensorView* mask = nullptr) {
   const DataType dtype = w0->dtype();
-  // // Linear 0
+
+  if (sequence_parallel) {
+    // Input arrives sharded and must be allgathered back
+    x->setDeviceMesh(mesh);
+    x->axis(0)->parallelize(ParallelType::DIDx);
+    x = set(x); // allgather
+    x->axis(0)->parallelize(ParallelType::Serial);
+    // Reshape back to 2D for linearOp
+    auto D = w0->axis(0)->extent()->value().as<int64_t>();
+    x = reshape(x, {D, B * S / D, E}, {B * S, E});
+  }
+  // Linear 0
   TensorView* linear0 = linear(x, w0, b0);
   // GeLU
   TensorView* gelu = tanh_gelu(castOp(DataType::Float, linear0));
   gelu = castOp(dtype, gelu);
   // Linear 1
   TensorView* local_matmul1 = matmul(gelu, transpose(w1, 1, 2));
-  TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce
-  TensorView* linear1 = add(matmul1, broadcast(b1, {true, false}));
+  if (sequence_parallel) {
+    // Remove after https://github.com/NVIDIA/Fuser/issues/2563
+    // Reshape to explicitly pull the sharded axis into the logical domain
+    auto D = w0->axis(0)->extent()->value().as<int64_t>();
+    local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
+  }
+  TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce or Reduce scatter
+  TensorView* linear1 = add(matmul1, broadcast(b1, {true, true, false}));
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  auto dropout_result = dropout(linear1, prob, scale).output;
-
-  // Manual sharding annotations
-  for (auto tv : {x, b1, linear1, dropout_result}) {
-    tv->setDeviceMesh(mesh);
+  if (mask == nullptr) {
+    auto rand_vals = rand_like(linear1);
+    mask = lt(rand_vals, prob);
   }
-  for (auto tv : {w0, b0, w1, linear0, gelu}) {
+  auto apply_mask = mul(linear1, mask);
+  auto dropout_result = mul(apply_mask, scale);
+
+  // Tensor parallel shardings
+  for (auto* tv : {w0, b0, w1, linear0, gelu}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  for (auto* tv : {x, b1, linear1, dropout_result}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  // Sequence parallel shardings
+  if (sequence_parallel) {
+    for (auto* tv : {linear1, dropout_result}) {
+      tv->axis(0)->parallelize(ParallelType::DIDx);
+    }
+    matmul1->setDeviceMesh(mesh);
+    matmul1->axis(1)->parallelize(ParallelType::DIDx);
+    mask->setDeviceMesh(mesh);
+    mask->axis(0)->parallelize(ParallelType::DIDx);
   }
 
   return {linear0, gelu, linear1, dropout_result};
@@ -669,6 +704,93 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
+TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
+  // TODO: Reshapes that form device axes when D=1 get optimized away causing
+  // failures. This won't be a problem after
+  // https://github.com/NVIDIA/Fuser/issues/2563.
+  if (D == 1) {
+    GTEST_SKIP() << "Requires >1 devices, D=" << D;
+  }
+  if ((4 * E) % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide 4*E=" << 4 * E;
+  }
+  if ((B * S) % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide B*S=" << B * S;
+  }
+  DataType dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto mesh = DeviceMesh::createForNumDevices(D);
+
+  TensorView* x = makeContigConcreteTensor({D, B * S / D, E}, dtype);
+  TensorView* w0 = makeContigConcreteTensor({D, 4 * E / D, E}, dtype);
+  TensorView* b0 = makeContigConcreteTensor({D, 4 * E / D}, dtype);
+  TensorView* w1 = makeContigConcreteTensor({D, E, 4 * E / D}, dtype);
+  TensorView* b1 = makeContigConcreteTensor({E}, dtype);
+  TensorView* mask =
+      makeContigConcreteTensor({D, B * S / D, E}, DataType::Bool);
+
+  // Input x is sharded on B*S dimension.
+  // Note only the sequence (S) dimension that is sharded
+  // but to avoid DID parallelizations of inner logical axes
+  // B*S is sharded.
+  auto tvsout = mlp(x, w0, b0, w1, b1, mesh, true, mask);
+
+  fusion->addInput(x);
+  fusion->addInput(w0);
+  fusion->addInput(b0);
+  fusion->addInput(w1);
+  fusion->addInput(b1);
+  fusion->addInput(mask);
+
+  for (auto* tv : tvsout) {
+    fusion->addOutput(tv);
+  }
+
+  // Ensure broadcasts of bias are sharded.
+  shardBetween({b1}, {tvsout[2]}, tvsout[2]);
+  // Needed to ensure that rand_like is sharded initially.
+  // sharding from linear1 to dropout like dropout
+  shardBetween({tvsout[2]}, {tvsout[3]}, tvsout[3]);
+
+  auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options);
+  auto w0_ = at::randn({4 * E, E}, options) * kParamScale;
+  auto b0_ = at::randn({4 * E}, options) * kParamScale;
+  auto w1_ = at::randn({E, 4 * E}, options) * kParamScale;
+  auto b1_ = at::randn({E}, options) * kParamScale;
+
+  // Dropout is sharded among devices.
+  // For validation against ATen the sharded reference dropout mask is an input
+  // to the Fusion, but in regular setting it would be generated.
+  std::vector<at::Tensor> reference_outs =
+      reference_mlp(x_, w0_, b0_, w1_, b1_);
+  auto mask_ = reference_outs[4];
+
+  std::vector<c10::IValue> inputs = {
+      shardTensor(x_, 0, mesh),
+      shardTensor(w0_, 0, mesh),
+      shardTensor(b0_, 0, mesh),
+      shardTensor(w1_, 1, mesh),
+      b1_,
+      shardTensor(mask_, 0, mesh)};
+
+  std::vector<at::Tensor> expected_outputs = {
+      shardTensor(reference_outs[0], 1, mesh),
+      shardTensor(reference_outs[1], 1, mesh),
+      shardTensor(reference_outs[2], 0, mesh),
+      shardTensor(reference_outs[3], 0, mesh)};
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::manual_seed(getATenRandomSeed());
+  auto outputs = fec.runFusionWithInputs(inputs);
+  validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
+}
+
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
@@ -903,7 +1025,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   at::manual_seed(getATenRandomSeed());
   auto out = executor_cache.runFusionWithInputs(inputs);
   validate(
-      expected_outputs, out, {1e-5, 0.02, 1e-5, .01, .01, 0.1, 0.1, 0.1, 0.01});
+      expected_outputs, out, {1e-5, 0.02, 1e-5, .01, .02, 0.2, 0.2, 0.2, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, Forward) {

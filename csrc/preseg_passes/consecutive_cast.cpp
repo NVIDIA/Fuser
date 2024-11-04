@@ -170,9 +170,6 @@ void castOptimizationPass(Fusion* fusion) {
         // if output dtype is identical to starting_anchor dtype, we can't keep
         // the last cast op and will need to re-write all uses here
         ir_utils::replaceValue(fusion, {{expr->output(0), starting_anchor}});
-        if (expr->output(0)->isFusionOutput()) {
-          fusion->replaceOutput(expr->output(0), starting_anchor);
-        }
       } else {
         replaceInputInCast(expr->output(0), starting_anchor);
       }

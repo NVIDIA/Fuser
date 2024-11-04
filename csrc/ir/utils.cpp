@@ -475,6 +475,12 @@ class ValReplacementMutator : private OptOutMutator {
     for (auto stmt : more_stmts) {
       dispatchMutate(stmt);
     }
+
+    for (const auto& [old_v, new_v] : replacement_map_) {
+      if (old_v->isFusionOutput()) {
+        fusion->replaceOutput(old_v, new_v);
+      }
+    }
   }
 
  private:
@@ -523,6 +529,7 @@ class ValReplacementMutator : private OptOutMutator {
 void replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map) {
+  // NOLINTNEXTLINE(bugprone-unused-raii)
   ValReplacementMutator(fusion, replacement_map);
 }
 
@@ -1182,6 +1189,21 @@ std::string nullOrToInlineString(const Statement* id) {
   return id ? id->toInlineString() : "nullptr";
 }
 
+bool isFunctional(const Val* v) {
+  auto def = v->definition();
+  if (def == nullptr) {
+    return true;
+  }
+  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+    // ElectSync is not functional, it does not return the same value
+    // every time it is called, so we do not want to reuse it.
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
+  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {
@@ -1200,55 +1222,6 @@ TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
     }
   }
   return details;
-}
-
-MmaLayout getInputLayout(
-    const TensorViewDetails& in_a,
-    const TensorViewDetails& in_b,
-    const MmaOp::AxesData& m_axes,
-    const MmaOp::AxesData& n_axes,
-    const MmaOp::AxesData& k_axes) {
-  // TT layout (b - broadcast, r - reduction):
-  // A = [M, K, b]
-  // B = [b, K, N]
-  // C = [M, r, N] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_a.bcasts.front()) &&
-      (in_b.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaLayout::TT;
-  }
-  // TN layout (b - broadcast, r - reduction):
-  // A = [M, b, K]
-  // B = [b, N, K]
-  // C = [M, N, r] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (in_a.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front()) &&
-      (in_b.bcasts.front() < k_axes.front())) {
-    return MmaLayout::TN;
-  }
-  // NT layout (b - broadcast, r - reduction):
-  // A = [K, M, b]
-  // B = [K, b, N]
-  // C = [r, M, N] (root domain)
-  if ((k_axes.front() < in_a.bcasts.front()) &&
-      (m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_b.bcasts.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaLayout::NT;
-  }
-  // NN layout (b - broadcast, r - reduction):
-  // A = [b, K, M]
-  // B = [N, K, b]
-  // C = [N, r, M] (root domain)
-  if ((in_a.bcasts.front() < k_axes.front()) &&
-      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
-      (k_axes.front() < in_b.bcasts.front())) {
-    return MmaLayout::NN;
-  }
-
-  NVF_THROW("Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(
@@ -1382,15 +1355,6 @@ MmaOpDetails getMmaOpDetails(
   NVF_ERROR(
       !details.k_axes.empty(),
       "MmaOp inputs must define at least a single K dimension");
-
-  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
-  // rules may be needed
-  details.input_layout = getInputLayout(
-      in_a_details,
-      in_b_details,
-      details.m_axes,
-      details.n_axes,
-      details.k_axes);
 
   return details;
 }

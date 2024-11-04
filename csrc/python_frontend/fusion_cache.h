@@ -11,6 +11,7 @@
 
 #include <python_frontend/fusion_record.h>
 #include <runtime/fusion_executor_cache.h>
+#include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
 
 #include <memory>
@@ -32,6 +33,9 @@ struct UserSchedule {
 
   //! The parameters for scheduler heuristic.
   std::unique_ptr<HeuristicParams> heuristic_params;
+
+  //! The compile-time data cache.
+  std::unique_ptr<HeuristicDataCache> data_cache;
 
   //! Concretized, Scheduled Fusion IR
   std::unique_ptr<Fusion> scheduled_fusion;
@@ -103,6 +107,14 @@ struct FusionSchedules {
   std::mutex scheds_lock;
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
+  //! Fusion IDs of input arguments for FusionState
+  std::vector<int64_t> inputs_fid_;
+  //! IDs for Extents for TensorView input arguments for FusionState
+  std::vector<int64_t> extents_fid_;
+  //! Fusion IDs of output arguments for FusionState
+  std::vector<int64_t> outputs_fid_;
+  //! Map Fusion Val to its corresponding FusionDefinition index
+  std::unordered_map<const Val*, int64_t> map_value_to_fid_;
 };
 
 //! \struct TrieNode

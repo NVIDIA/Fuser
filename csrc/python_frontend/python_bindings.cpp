@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <mma_type.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
@@ -22,9 +23,11 @@
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -557,6 +560,109 @@ void verifyShape(const std::vector<int64_t>& shape) {
         " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
   }
 }
+
+void defineHeuristicParamBindings(py::module& nvfuser) {
+#define DEFINECLASS(type) py::class_<type>(nvfuser, #type)
+
+#define TOSTRINGTOPLEVEL(type) \
+  def("__repr__", [](const type& self) { return toString(self); })
+#define TOSTRINGMETHOD(type) \
+  def("__repr__", [](const type& self) { return self.toString(); })
+
+#define PARAM(internal_type, name) def_readwrite(#name, &internal_type::name)
+
+  DEFINECLASS(GemmTile)
+      .PARAM(GemmTile, m)
+      .PARAM(GemmTile, n)
+      .PARAM(GemmTile, k)
+      .TOSTRINGTOPLEVEL(GemmTile);
+
+#undef GEMMTILEDIMPARAM
+  DEFINECLASS(MatMulTileOptions)
+      .PARAM(MatMulTileOptions, cta_tile)
+      .PARAM(MatMulTileOptions, warp_tile)
+      .PARAM(MatMulTileOptions, instruction_tile)
+      .TOSTRINGTOPLEVEL(MatMulTileOptions);
+
+  DEFINECLASS(MatmulParams::CircularBufferOptions)
+      .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_read)
+      .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_write)
+      .PARAM(MatmulParams::CircularBufferOptions, smem_circular_buffer_stage)
+      .TOSTRINGMETHOD(MatmulParams::CircularBufferOptions);
+
+  DEFINECLASS(MatmulParams::SupportedVectorization)
+      .PARAM(MatmulParams::SupportedVectorization, a)
+      .PARAM(MatmulParams::SupportedVectorization, b)
+      .PARAM(MatmulParams::SupportedVectorization, epilogue)
+      .TOSTRINGMETHOD(MatmulParams::SupportedVectorization);
+
+  py::enum_<MatmulParams::TileRasterizationOrder>(
+      nvfuser, "MatmulTileRasterizationOrder")
+      .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
+      .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
+  py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
+      .value("no_mma", MmaMacroEncode::Arch::NoMma)
+      .value("volta", MmaMacroEncode::Arch::Volta)
+      .value("turing", MmaMacroEncode::Arch::Turing)
+      .value("ampere", MmaMacroEncode::Arch::Ampere)
+      .value("hopper", MmaMacroEncode::Arch::Hopper);
+  // NOTE: MmaMacro is a uint64_t. To modify it, we convert to and from
+  // MmaMacroEncode
+#define MMAMACROPROP(prop, type)                                      \
+  def_property(                                                       \
+      #prop,                                                          \
+      [](const MmaMacro& self) { return MmaMacroEncode(self).prop; }, \
+      [](MmaMacro& self, type x) {                                    \
+        auto enc = MmaMacroEncode(self);                              \
+        enc.prop = x;                                                 \
+        self = enc;                                                   \
+      })
+  DEFINECLASS(MmaMacro)
+      .MMAMACROPROP(arch, MmaMacroEncode::Arch)
+      .MMAMACROPROP(m, uint16_t)
+      .MMAMACROPROP(n, uint16_t)
+      .MMAMACROPROP(k, uint16_t)
+      .TOSTRINGTOPLEVEL(MmaMacro);
+#undef MMAMACROPROP
+
+  // Base class for scheduler parameters
+  DEFINECLASS(HeuristicParams).TOSTRINGMETHOD(HeuristicParams);
+
+#define INITHEURISTICPARAMS(internal_type)                            \
+  py::class_<internal_type, HeuristicParams>(nvfuser, #internal_type) \
+      .def(py::init())                                                \
+      .def("__repr__", [](const internal_type& self) {                \
+        return self.toString();                                       \
+      })
+
+  // Pointwise scheduler parameters
+  INITHEURISTICPARAMS(PointwiseParams)
+      .PARAM(PointwiseParams, break_point)
+      .PARAM(PointwiseParams, split_block)
+      .PARAM(PointwiseParams, split_grid_y_dim)
+      .PARAM(PointwiseParams, flip_grid_binding)
+      .PARAM(PointwiseParams, vectorization_factor)
+      .PARAM(PointwiseParams, unroll_factor_inner)
+      .PARAM(PointwiseParams, unroll_factor_outer);
+
+  // Matmul scheduler parameters
+  INITHEURISTICPARAMS(MatmulParams)
+      .PARAM(MatmulParams, tile_sizes)
+      .PARAM(MatmulParams, circular_buffer_options)
+      .PARAM(MatmulParams, supported_vec_size)
+      .PARAM(MatmulParams, async_gmem_load_operands)
+      .PARAM(MatmulParams, rotate_ldmatrix_out_of_main_loop)
+      .PARAM(MatmulParams, grid_swizzle_factor)
+      .PARAM(MatmulParams, use_smem_epilogue)
+      .PARAM(MatmulParams, promote_prologue_smem_reuse)
+      .PARAM(MatmulParams, splitk_factor)
+      .PARAM(MatmulParams, cta_order)
+      .PARAM(MatmulParams, mma_macro);
+
+#undef PARAM
+#undef INITPARAMS
+}
+
 } // namespace
 
 void initNvFuserPythonBindings(PyObject* module) {
@@ -674,53 +780,45 @@ void initNvFuserPythonBindings(PyObject* module) {
         return ss.str();
       });
 
-  // Base class for scheduler parameters
-  py::class_<HeuristicParams> heuristic_params(nvfuser, "HeuristicParams");
-  heuristic_params.def(
-      "__repr__", [](const HeuristicParams& self) { return self.toString(); });
+  defineHeuristicParamBindings(nvfuser);
 
-  // Pointwise scheduler parameters
-  py::class_<PointwiseParams, HeuristicParams> pointwise_config(
-      nvfuser, "PointwiseParams");
-  pointwise_config.def(py::init());
-  pointwise_config.def_property(
-      "breakpoint",
-      [](PointwiseParams& self) { return self.break_point; },
-      [](PointwiseParams& self, int64_t break_point_) {
-        self.break_point = break_point_;
+  py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
+      nvfuser, "SchedulerHyperParameters");
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def_property(
+      "vectorize_factor",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.vectorize_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t vectorize_factor_) {
+        self.vectorize_factor = vectorize_factor_;
       });
-  pointwise_config.def_property(
-      "split_block",
-      [](PointwiseParams& self) { return self.split_block; },
-      [](PointwiseParams& self, bool split_block_) {
-        self.split_block = split_block_;
-      });
-  pointwise_config.def_property(
-      "split_grid_y_dim",
-      [](PointwiseParams& self) { return self.split_grid_y_dim; },
-      [](PointwiseParams& self, bool split_grid_y_dim_) {
-        self.split_grid_y_dim = split_grid_y_dim_;
-      });
-  pointwise_config.def_property(
-      "flip_grid_binding",
-      [](PointwiseParams& self) { return self.flip_grid_binding; },
-      [](PointwiseParams& self, bool flip_grid_binding_) {
-        self.flip_grid_binding = flip_grid_binding_;
-      });
-  pointwise_config.def_property(
-      "vectorization_factor",
-      [](PointwiseParams& self) { return self.vectorization_factor; },
-      [](PointwiseParams& self, int64_t vectorization_factor_) {
-        self.vectorization_factor = vectorization_factor_;
-      });
-  pointwise_config.def_property(
+  hyperparameters.def_property(
       "unroll_factor",
-      [](PointwiseParams& self) { return self.unroll_factor; },
-      [](PointwiseParams& self, int64_t unroll_factor_) {
-        self.unroll_factor = unroll_factor_;
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.unroll_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t unroll_factor_) { self.unroll_factor = unroll_factor_; });
+  hyperparameters.def_property(
+      "threads_per_block_min",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.threads_per_block_min;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t threads_per_block_min_) {
+        self.threads_per_block_min = threads_per_block_min_;
       });
-  pointwise_config.def(
-      "__repr__", [](const PointwiseParams& self) { return self.toString(); });
+  hyperparameters.def_property(
+      "threads_per_block_max",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.threads_per_block_max;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t threads_per_block_max_) {
+        self.threads_per_block_max = threads_per_block_max_;
+      });
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
@@ -902,6 +1000,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
+      .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
+      .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
           "__repr__",
           [](FusionDefinition& self) {
@@ -1344,7 +1445,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::Operators> nvf_ops(fusion_def, "Operators");
   nvf_ops.def(py::init<FusionDefinition*>());
 
-  // ******************** INSERT OP BINDINGS BELOW HERE ********************
+// ******************** INSERT OP BINDINGS BELOW HERE ********************
 #define OP_PREFIX "Operators."
 #define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                \
@@ -3751,6 +3852,39 @@ void initNvFuserPythonBindings(PyObject* module) {
         HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::PointWise);
         return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_matmul_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::Matmul);
+        return *parameters->as<MatmulParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "schedule_hyperparameters",
+      [](FusionDefinition::SchedOperators& self)
+          -> scheduler_utils::SchedulerHyperParameters& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto scheduler_hyperparameters_entry = HeuristicDataCacheEntry<
+            HeuristicCompileTime::SchedulerHyperParameters>(
+            sched->data_cache.get(), []() {
+              return std::make_unique<
+                  scheduler_utils::SchedulerHyperParameters>(
+                  /*vectorize_factor=*/1,
+                  /*unroll_factor=*/1,
+                  /*threads_per_block_min=*/1,
+                  /*threads_per_block_max=*/1);
+            });
+        return scheduler_hyperparameters_entry.get();
       },
       py::return_value_policy::reference);
 }

@@ -201,7 +201,7 @@ class MatmulParams : public HeuristicParams {
                                                                   : "int32_t")
                : "unavailable")
        << "\n"
-       << "Tile rastrization order: "
+       << "Tile rasterization order: "
        << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
                                                            : "column-major")
        << "\n"

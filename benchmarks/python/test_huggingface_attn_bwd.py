@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -75,8 +75,6 @@ def test_huggingface_attn_bwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     batch_size, seq_len, nh, n_embd = size
 
     dropout_p = 0.2
@@ -118,7 +116,6 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     dtype: torch.dtype,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
@@ -129,16 +126,22 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
-    attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    output = torch.nn.functional.dropout(attn, p=dropout_p)
 
+    def huggingface_attn_fwd():
+        attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
+        attn = torch.nn.functional.softmax(attn, dim=-1)
+        output = torch.nn.functional.dropout(attn, p=dropout_p)
+        return output
+
+    # Compile the fwd fn for torchcompile
+    fwd_fn = torch.compile(huggingface_attn_fwd) if compile else huggingface_attn_fwd
+    output = fwd_fn()
     grads = torch.randn(batch_size * nh, seq_len, seq_len, device="cuda", dtype=dtype)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=huggingface_attn_bwd_iobytes(size, dtype),
     )

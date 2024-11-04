@@ -129,6 +129,79 @@ void validateValWithConcreteValue(
 
 } // namespace
 
+void ExpressionEvaluator::bindTensorDomain(
+    const TensorView* tv,
+    const at::Tensor& t,
+    const bool evaluate_validate) {
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  NVF_ERROR(
+      t.dim() == (int64_t)logical_domain.size(),
+      "Expected ",
+      getInputPosString(tv),
+      tv->toString(),
+      ", to be bound to a tensor of rank ",
+      logical_domain.size(),
+      ", but got a tensor of rank ",
+      t.dim());
+  for (auto i : c10::irange(t.dim())) {
+    auto id = logical_domain[i];
+    if (id->isBroadcast()) {
+      // DIDs are ignored for broadcast.
+      bind_(logical_domain[i]->extent(), 1, evaluate_validate);
+      if (id->hasExpandedExtent()) {
+        // Verify that t is also expanded
+        NVF_ERROR(
+            t.size(i) == 1 || t.stride(i) == 0,
+            "IterDomain ",
+            id->toString(),
+            " in ",
+            getInputPosString(tv),
+            "TensorView ",
+            tv->toString(),
+            " has expanded extent but input tensor has size ",
+            t.size(i),
+            " and stride ",
+            t.stride(i),
+            " in dimension ",
+            i);
+        bind_(
+            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      }
+    } else {
+      if (logical_domain[i]->isDeviceDim()) {
+        // Currently we have the restrictions:
+        // (1) Devices parallelized axis extent == DeviceMesh's extent
+        // (2) Device parallelized axis cannot be split or merged
+        // Therefore, the device parallelized extents will always be allocated
+        // with size 1, but the symbolic axis extent is binded with the extent
+        // of the DeviceMesh
+        NVF_CHECK(
+            1 == t.size(i),
+            "TensorView ",
+            tv->toString(),
+            getInputPosString(tv),
+            " IterDomain ",
+            id->toString(),
+            "is sharded and must have size 1, but input tensor has size ",
+            t.size(i));
+        NVF_CHECK(
+            tv->hasDeviceMesh(),
+            "TV ",
+            tv->toString(),
+            getInputPosString(tv),
+            " has an empty DeviceMesh with DID parallelization")
+        bind_(
+            logical_domain[i]->extent(),
+            static_cast<int64_t>(
+                tv->getDeviceMesh().size(logical_domain[i]->getParallelType())),
+            evaluate_validate);
+      } else {
+        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
+      }
+    }
+  }
+}
+
 void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value,
@@ -162,75 +235,7 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
-    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-    NVF_ERROR(
-        t.dim() == (int64_t)logical_domain.size(),
-        "Expected ",
-        getInputPosString(tv),
-        tv->toString(),
-        ", to be bound to a tensor of rank ",
-        logical_domain.size(),
-        ", but got a tensor of rank ",
-        t.dim());
-    for (auto i : c10::irange(t.dim())) {
-      auto id = logical_domain[i];
-      if (id->isBroadcast()) {
-        // DIDs are ignored for broadcast.
-        bind_(logical_domain[i]->extent(), 1, evaluate_validate);
-        if (id->hasExpandedExtent()) {
-          // Verify that t is also expanded
-          NVF_ERROR(
-              t.size(i) == 1 || t.stride(i) == 0,
-              "IterDomain ",
-              id->toString(),
-              " in ",
-              getInputPosString(tv),
-              "TensorView ",
-              tv->toString(),
-              " has expanded extent but input tensor has size ",
-              t.size(i),
-              " and stride ",
-              t.stride(i),
-              " in dimension ",
-              i);
-          bind_(
-              logical_domain[i]->expandedExtent(),
-              t.size(i),
-              evaluate_validate);
-        }
-      } else {
-        if (logical_domain[i]->isDeviceDim()) {
-          // Currently we have the restrictions:
-          // (1) Devices parallelized axis extent == DeviceMesh's extent
-          // (2) Device parallelized axis cannot be split or merged
-          // Therefore, the device parallelized extents will always be allocated
-          // with size 1, but the symbolic axis extent is binded with the extent
-          // of the DeviceMesh
-          NVF_CHECK(
-              1 == t.size(i),
-              "TensorView ",
-              tv->toString(),
-              getInputPosString(tv),
-              " IterDomain ",
-              id->toString(),
-              "is sharded and must have size 1, but input tensor has size ",
-              t.size(i));
-          NVF_CHECK(
-              tv->hasDeviceMesh(),
-              "TV ",
-              tv->toString(),
-              getInputPosString(tv),
-              " has an empty DeviceMesh with DID parallelization")
-          bind_(
-              logical_domain[i]->extent(),
-              static_cast<int64_t>(tv->getDeviceMesh().size(
-                  logical_domain[i]->getParallelType())),
-              evaluate_validate);
-        } else {
-          bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
-        }
-      }
-    }
+    bindTensorDomain(tv, t, evaluate_validate);
   }
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] =
