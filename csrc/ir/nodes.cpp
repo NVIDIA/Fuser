@@ -1236,12 +1236,8 @@ BroadcastOp::BroadcastOp(
       } else {
         auto in_id = in_dom[i - num_new_broadcasts];
         auto out_id = out_dom[i];
-        if (!in_id->sameAs(out_id)) {
-          std::cout << "in_id " << in_id->toString() << " " << out_id->toString() << std::endl;
-
-        }
-        // NVF_ERROR(
-        //     in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
+        NVF_ERROR(
+            in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
       }
     }
     NVF_ERROR(

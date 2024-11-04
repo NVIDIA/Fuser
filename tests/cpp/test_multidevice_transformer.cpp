@@ -785,6 +785,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   fusion->addOutput(tvsout.output);
 
   shardBetween({w0}, {tvsout.matmul1}, w0);
+  shardBetween({w1}, {tvsout.matmul1}, w1);
   shardBetween({tvsout.matmul1}, {tvsout.output}, tvsout.matmul1);
 
   auto options =
@@ -914,15 +915,9 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
   fusion->addOutput(tv_outs.linear1);
   fusion->addOutput(tv_outs.output);
 
-  // shardFrom(tvw0);
-  // shardFrom(tv_outs.matmul1); // reduce scatter manual sharding.
   shardBetween({tvw0}, {tv_outs.matmul1}, tvw0);
+  shardBetween({tvw1}, {tv_outs.matmul1}, tvw1);
   shardBetween({tv_outs.matmul1}, {tv_outs.output}, tv_outs.matmul1);
-
-  // shardBetween(tvw0, tv_outs[1], tvw0);
-  // shardBetween(tvw1, tv_outs[2], tvw1); // ensures transposes is sharded
-  // shardBetween(tvb1, tv_outs[2], tv_outs[2]);
-  // shardBetween(tv_outs[4], tv_outs[3], tv_outs[2]);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
