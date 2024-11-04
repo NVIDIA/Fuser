@@ -16,6 +16,7 @@
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
+#include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
 
@@ -31,6 +32,9 @@ HostIrExecutor::HostIrExecutor(
 
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
+  if (fusion->isA<hir::HostIrContainer>()) {
+    return true;
+  }
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
@@ -56,16 +60,26 @@ void HostIrExecutor::compile(Fusion* fusion) {
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).startCompile();
   }
-  std::vector<Expr*> exprs = fusion->exprs();
-  host_ir_container_ = std::make_unique<hir::HostIrContainer>();
-  IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
-  for (Expr* e : exprs) {
-    std::vector<Communication*> communications =
-        lowerCommunication(cloner.clone(e));
-    for (auto* communication : communications) {
-      host_ir_container_->pushBackTopLevelExprs(communication);
+
+  if (fusion->isA<hir::HostIrContainer>()) {
+    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+    for (auto expr : fusion->as<hir::HostIrContainer>()->topLevelExprs()) {
+      host_ir_container_->pushBackTopLevelExprs(cloner.clone(expr));
+    }
+  } else {
+    std::vector<Expr*> exprs = fusion->exprs();
+    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+    for (Expr* e : exprs) {
+      std::vector<Communication*> communications =
+          lowerCommunication(cloner.clone(e));
+      for (auto* communication : communications) {
+        host_ir_container_->pushBackTopLevelExprs(communication);
+      }
     }
   }
+
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
   }
@@ -283,17 +297,34 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
-    HostIrExecutor& hire = hire_[hu];
-    if (!hire.isCompiled()) {
-      Fusion* fusion = hu->fusion_to_execute();
-      DynamicTransform::concretizeFusion(fusion, input_IValues);
-      hire.compile(fusion);
-    }
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
-    outputs = hire.run(args);
-    if (!params_.cache_fusion_executor) {
-      hire_.erase(hu);
+    // This path should generally be avoided as it will likely send the fusion
+    // held in HostUnit directly to FusionExecutor which means it will try to
+    // compile and run a device kernel with a single thread.
+    if (auto it = executors_.find(hu); it != executors_.end()) {
+      std::unique_ptr<ExecutorAbstract>& ea = it->second;
+      KernelArgumentHolder args =
+          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+
+    } else {
+      DynamicTransform::concretizeFusion(
+          hu->fusion_to_execute(), input_IValues);
+      auto it2 = executors_.insert(
+          {hu,
+           ExecutorDispatch::makeExecutor(
+               hu->fusion_to_execute(), 1, 1, 1, 1)});
+      std::unique_ptr<ExecutorAbstract>& ea = it2.first->second;
+      if (ea->isA<KernelExecutor>()) {
+        KernelArgumentHolder args =
+            KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+        ExecutorDispatch::compile(
+            ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
+      } else {
+        ExecutorDispatch::compile(ea, hu->fusion_to_execute());
+      }
+      KernelArgumentHolder args =
+          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
     }
   }
 
