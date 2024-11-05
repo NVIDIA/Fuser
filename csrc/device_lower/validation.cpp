@@ -668,6 +668,8 @@ class VectorizeValidator : public OptInDispatch {
         tv_def != nullptr,
         "Tv has no definition, cannot validate vectorization:",
         tv);
+    // TernaryOp(where) is a could have multiple inputs. But we only support
+    // single TensorView input for vectorization.
     TensorView* producer_tv = nullptr;
     for (auto input : tv_def->inputs()) {
       if (!input->isA<TensorView>()) {
@@ -688,6 +690,9 @@ class VectorizeValidator : public OptInDispatch {
             producer_tv, vector_word_size);
       }
     }
+    NVF_ERROR(
+        producer_tv != nullptr,
+        "Vectorization validation requires a TensorView input");
 
     VectorizedSetInfo vectorized_set_info;
     vectorized_set_info.consumer_tv = tv;
