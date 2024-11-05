@@ -8902,6 +8902,57 @@ TEST_F(NVFuserTest, RfactorIntermediateIDs) {
   EXPECT_TRUE(merge_out->isReduction());
 }
 
+TEST_F(NVFuserTest, PreferSimplerExtents) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto i0 = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(i0);
+
+  auto tv2 = reshape(tv0, {i0});
+  auto tv3 = reshape(tv1, {i0});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  ExpressionEvaluator expr_eval;
+
+  expr_eval.bind(tv0->axis(0)->extent(), 2L);
+  expr_eval.bind(tv0->axis(1)->extent(), 4L);
+  expr_eval.bind(tv0->axis(2)->extent(), 8L);
+  expr_eval.bind(tv1->axis(0)->extent(), 8L);
+  expr_eval.bind(tv1->axis(1)->extent(), 8L);
+  expr_eval.bind(i0, 64L);
+
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+  DynamicTransform::concretizeFusion(&fusion, &info);
+
+  replaceSymbolicSizes(&fusion);
+
+  fusion.printMath();
+
+  // All expr output tensors should use the extent of the tv3 since it
+  // has only one merge, whereas tv2 has two merges
+  for (auto expr : fusion.exprs()) {
+    auto tv_output = ir_utils::getTvOutput(expr);
+    ASSERT_EQ(tv_output->nDims(), 1);
+    auto ext = tv_output->axis(0)->extent();
+    auto ext_def = dynamic_cast<BinaryOp*>(ext->definition());
+    ASSERT_NE(ext_def, nullptr);
+    ASSERT_EQ(ext_def->getBinaryOpType(), BinaryOpType::Mul);
+    auto lhs = ext_def->input(0);
+    auto rhs = ext_def->input(1);
+    ASSERT_NE(dynamic_cast<GetItem*>(lhs->definition()), nullptr);
+    ASSERT_NE(dynamic_cast<GetItem*>(rhs->definition()), nullptr);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
