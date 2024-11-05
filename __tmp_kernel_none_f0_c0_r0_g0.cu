@@ -10927,6 +10927,10 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
       mbarrier::init(toSmem((&T7[i20])), 1U);
     }
+    #pragma unroll
+    for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
+      mbarrier::init(toSmem((&T7[i20 + 4])), 128U);
+    }
   }
   __syncthreads();
   #pragma unroll
@@ -11125,9 +11129,9 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
        "n"(1),
        "n"(1)
     );
-    __syncthreads();
     asm volatile("wgmma.commit_group.sync.aligned;\n");
     asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0):"memory");
+    // mbarrier::arrive(toSmem((&T7[i32 + 4])));
   }
   #pragma unroll 3
   for(nvfuser_index_t i35 = (i2 - 3); i35 < i2; ++i35) {
@@ -11283,7 +11287,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   }
   if ((b17 && Hopper::electSync(4294967295U))) {
     #pragma unroll
-    for(nvfuser_index_t i39 = 0; i39 < 4; ++i39) {
+    for(nvfuser_index_t i39 = 0; i39 < 8; ++i39) {
       mbarrier::inval(toSmem((&T7[i39])));
     }
   }
