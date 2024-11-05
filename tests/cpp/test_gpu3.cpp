@@ -8880,6 +8880,60 @@ TEST_F(NVFuserTest, CpAsyncDataTypeBool) {
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+// Intermediate IDs generaetd by rFactor should also remain
+// reductions. See #3327 for more info.
+TEST_F(NVFuserTest, RfactorIntermediateIDs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1, 2});
+  fusion.addOutput(tv1);
+
+  tv1->merge(1, 2);
+  tv1->split(1, 4);
+
+  auto tv2 = tv1->rFactor({-1});
+
+  EXPECT_TRUE(tv2->axis(-1)->isReduction());
+  EXPECT_FALSE(tv2->axis(-2)->isReduction());
+
+  auto split = dynamic_cast<Split*>(tv2->axis(-1)->definition());
+  ASSERT_NE(split, nullptr);
+
+  auto merge_out = split->in();
+  EXPECT_TRUE(merge_out->isReduction());
+}
+
+// Simple test to make sure replacement with a dependent val is
+// detected as an error
+TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto i0 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(i0);
+
+  auto i1 = mul(i0, IrBuilder::create<Val>(1, DataType::Int));
+
+  auto tv0 = TensorViewBuilder().shape({i1}).build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::unordered_map<Val*, Val*> replacement_map;
+  replacement_map.emplace(i0, i1);
+
+  EXPECT_THAT(
+      [&]() { ir_utils::replaceValue(&fusion, replacement_map); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "not allowed as it would result in a recursive definition")));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
