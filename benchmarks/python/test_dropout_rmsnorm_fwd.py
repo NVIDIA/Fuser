@@ -169,7 +169,7 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
         "eager": dropout_rmsnorm_fwd,
         "torchcompile": torch.compile(dropout_rmsnorm_fwd),
     }
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

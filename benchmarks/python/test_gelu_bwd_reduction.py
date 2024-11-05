@@ -120,12 +120,12 @@ def test_gelu_bwd_reduction_baseline_benchmark(
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     grads = torch.randn(size, device="cuda", dtype=dtype)
     eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
-    
+
     benchmark_fn = {
         "eager": gelu_bwd_reduction_torch,
         "torchcompile": torch.compile(gelu_bwd_reduction_torch),
     }
-    
+
     run_benchmark(
         benchmark,
         benchmark_fn[executor],

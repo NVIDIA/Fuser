@@ -110,10 +110,7 @@ def test_softmax_bwd_baseline_benchmark(
     def softmax_fwd():
         return torch.nn.functional.softmax(input, dim=reduction_axis)
 
-    fwd_fn = {
-        "eager": softmax_fwd,
-        "torchcompile": torch.compile(softmax_fwd)
-    }
+    fwd_fn = {"eager": softmax_fwd, "torchcompile": torch.compile(softmax_fwd)}
     outputs = fwd_fn[executor]()
 
     run_benchmark(

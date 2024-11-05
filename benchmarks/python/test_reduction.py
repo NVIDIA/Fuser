@@ -67,10 +67,10 @@ def test_reduction_baseline_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype)
-    
+
     benchmark_fn = {
         "eager": reduction_fwd_fn,
-        "torchcompile": torch.compile(reduction_fwd_fn)
+        "torchcompile": torch.compile(reduction_fwd_fn),
     }
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(

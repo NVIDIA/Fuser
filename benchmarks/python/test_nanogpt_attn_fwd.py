@@ -154,12 +154,12 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
     )
-    
+
     benchmark_fn = {
         "eager": nanogpt_attn_fwd,
-        "torchcompile": torch.compile(nanogpt_attn_fwd)
+        "torchcompile": torch.compile(nanogpt_attn_fwd),
     }
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

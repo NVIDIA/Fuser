@@ -102,7 +102,7 @@ def test_rmsnorm_fwd_baseline_benchmark(
 
     benchmark_fn = {
         "eager": rmsnorm_fwd_fn,
-        "torchcompile": torch.compile(rmsnorm_fwd_fn)
+        "torchcompile": torch.compile(rmsnorm_fwd_fn),
     }
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

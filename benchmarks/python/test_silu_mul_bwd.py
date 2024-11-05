@@ -98,10 +98,7 @@ def test_silu_mul_bwd_baseline_benchmark(
         return torch.nn.functional.silu(x) * y
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = {
-        "eager": silu_mul_fwd,
-        "torchcompile": torch.compile(silu_mul_fwd)
-    }
+    fwd_fn = {"eager": silu_mul_fwd, "torchcompile": torch.compile(silu_mul_fwd)}
     outputs = fwd_fn[executor]()
 
     run_benchmark(

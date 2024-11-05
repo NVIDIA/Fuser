@@ -83,12 +83,12 @@ def test_reduction_epilogue_baseline_benchmark(
     x = torch.randn(size, device="cuda", dtype=dtype)
     epilogue = torch.randn(size[reduction_axis - 1], device="cuda", dtype=dtype)
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
-    
+
     benchmark_fn = {
         "eager": reduction_epilogue_fwd_fn,
-        "torchcompile": torch.compile(reduction_epilogue_fwd_fn)
+        "torchcompile": torch.compile(reduction_epilogue_fwd_fn),
     }
-    
+
     run_benchmark(
         benchmark,
         benchmark_fn[executor],

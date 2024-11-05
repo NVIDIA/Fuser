@@ -111,10 +111,10 @@ def test_bcast_add_baseline_benchmark(
     if not contiguous:
         x = x.t()
     assert x.is_contiguous() == contiguous
-    
+
     benchmark_fn = {
         "eager": bcast_add_fwd_fn,
-        "torchcompile": torch.compile(bcast_add_fwd_fn)
+        "torchcompile": torch.compile(bcast_add_fwd_fn),
     }
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation

@@ -136,7 +136,7 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     # Compile the fwd fn for torchcompile
     fwd_fn = {
         "eager": huggingface_attn_fwd,
-        "torchcompile": torch.compile(huggingface_attn_fwd)
+        "torchcompile": torch.compile(huggingface_attn_fwd),
     }
     outputs = fwd_fn[executor]()
     grads = torch.randn(batch_size * nh, seq_len, seq_len, device="cuda", dtype=dtype)

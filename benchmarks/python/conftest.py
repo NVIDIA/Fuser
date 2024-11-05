@@ -96,36 +96,33 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(session, config, items):
     """
-    The baseline benchmarks use `executor` parameter with 
+    The baseline benchmarks use `executor` parameter with
     values ["eager", "torchcompile", "thunder"] that are optionally
-    run using `--benchmark-{executor}` flag. They are skipped by 
+    run using `--benchmark-{executor}` flag. They are skipped by
     default.
     """
 
     from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
     def get_test_executor(item) -> str | None:
-        if (
-            hasattr(item, "callspec")
-            and "executor" in item.callspec.params
-        ):
+        if hasattr(item, "callspec") and "executor" in item.callspec.params:
             return item.callspec.params["executor"]
         return None
-    
+
     executors_to_skip = []
 
     for executor in ["eager", "torchcompile", "thunder"]:
         if not config.getoption(f"--benchmark-{executor}"):
             executors_to_skip.append(executor)
-    
+
     for item in items:
         item.obj = retry_on_oom_or_skip_test(item.obj)
-        
+
         test_executor = get_test_executor(item)
-        
+
         if test_executor is not None and test_executor in executors_to_skip:
             item.add_marker(
-                pytest.mark.skip(reason=f"need --benchmark-{test_executor} option to run.")
+                pytest.mark.skip(
+                    reason=f"need --benchmark-{test_executor} option to run."
+                )
             )
-                
-

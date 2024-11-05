@@ -159,7 +159,7 @@ def test_nanogpt_attn_bwd_baseline_benchmark(
         "torchcompile": torch.compile(nanogpt_attn_fwd),
     }
     outputs = fwd_fn[executor]()
-    
+
     grads = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
 
     # Manually compute IOBytes: See PR #1725

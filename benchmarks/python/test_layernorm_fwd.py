@@ -128,7 +128,7 @@ def test_layernorm_fwd_baseline_benchmark(
         "eager": layernorm_fwd,
         "torchcompile": torch.compile(layernorm_fwd),
     }
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

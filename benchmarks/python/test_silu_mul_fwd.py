@@ -71,9 +71,9 @@ def test_silu_mul_fwd_baseline_benchmark(
 
     benchmark_fn = {
         "eager": silu_mul_fwd_fn,
-        "torchcompile": torch.compile(silu_mul_fwd_fn)
+        "torchcompile": torch.compile(silu_mul_fwd_fn),
     }
-    
+
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,

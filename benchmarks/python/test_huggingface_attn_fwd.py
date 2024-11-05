@@ -157,7 +157,7 @@ def test_huggingface_attn_fwd_baseline_benchmark(
         "eager": huggingface_attn_fwd,
         "torchcompile": torch.compile(huggingface_attn_fwd),
     }
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

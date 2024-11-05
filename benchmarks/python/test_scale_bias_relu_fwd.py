@@ -97,11 +97,8 @@ def test_sbr_fwd_baseline_benchmark(
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     scale = torch.ones(size[-1], device="cuda", dtype=dtype)
 
-    benchmark_fn = {
-        "eager": sbr_fwd_fn,
-        "torchcompile": torch.compile(sbr_fwd_fn)
-    }
-    
+    benchmark_fn = {"eager": sbr_fwd_fn, "torchcompile": torch.compile(sbr_fwd_fn)}
+
     run_benchmark(
         benchmark,
         benchmark_fn[executor],

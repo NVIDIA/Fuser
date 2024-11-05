@@ -99,10 +99,7 @@ def test_sbr_bwd_baseline_benchmark(
         return torch.nn.functional.relu(inputs * scale + bias)
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = {
-        "eager": sbr_fwd,
-        "torchcompile": torch.compile(sbr_fwd)
-    }
+    fwd_fn = {"eager": sbr_fwd, "torchcompile": torch.compile(sbr_fwd)}
     outputs = fwd_fn[executor]()
 
     run_benchmark(

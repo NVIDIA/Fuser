@@ -82,13 +82,11 @@ def test_gelu_fwd_baseline_benchmark(
         torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
         torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
     ]
-    
+
     benchmark_fn = {
         "eager": gelu_fwd_fn,
         "torchcompile": torch.compile(gelu_fwd_fn),
     }
-    
+
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
-    run_benchmark(
-        benchmark, benchmark_fn[executor], inputs
-    )
+    run_benchmark(benchmark, benchmark_fn[executor], inputs)

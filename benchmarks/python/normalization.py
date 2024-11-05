@@ -452,11 +452,8 @@ def norm_fwd_baseline_benchmark(
         inputs = inputs.to(memory_format=torch.channels_last)
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
-    
-    benchmark_fn = {
-        "eager": norm_fwd_fn,
-        "torchcompile": torch.compile(norm_fwd_fn)
-    }
+
+    benchmark_fn = {"eager": norm_fwd_fn, "torchcompile": torch.compile(norm_fwd_fn)}
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
@@ -496,10 +493,7 @@ def norm_bwd_baseline_benchmark(
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = {
-        "eager": norm_fwd_fn,
-        "torchcompile": torch.compile(norm_fwd_fn)
-    }
+    fwd_fn = {"eager": norm_fwd_fn, "torchcompile": torch.compile(norm_fwd_fn)}
     outputs = fwd_fn[executor]([inputs, weight, bias, running_mean, running_var])
 
     # Manually compute IOBytes: See PR #1725

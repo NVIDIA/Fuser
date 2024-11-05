@@ -220,7 +220,7 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
     fwd_fn = {
         "eager": dropout_layernorm_fwd,
         "torchcompile": torch.compile(dropout_layernorm_fwd),
-    } 
+    }
     outputs = fwd_fn[executor]()
 
     # Manually compute IOBytes: See PR #1725

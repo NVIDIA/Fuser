@@ -180,11 +180,11 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
         torch.zeros(size[1], device="cuda", dtype=dtype),
         dropout_p,
     ]
-    
+
     benchmark_fn = {
         "eager": dropout_layernorm_fwd,
         "torchcompile": torch.compile(dropout_layernorm_fwd),
-    } 
+    }
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

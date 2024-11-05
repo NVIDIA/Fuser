@@ -98,7 +98,7 @@ def test_softmax_fwd_baseline_benchmark(
 
     benchmark_fn = {
         "eager": softmax_fwd_fn,
-        "torchcompile": torch.compile(softmax_fwd_fn)
+        "torchcompile": torch.compile(softmax_fwd_fn),
     }
     run_benchmark(
         benchmark,
