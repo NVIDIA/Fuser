@@ -426,27 +426,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
 
     if (localToGlobal) {
-      indent() << "loadLocalToGlobal<" << out->dtype() << ", /*vec_size=*/"
-               << vector_word_size << ", /*is_volatile=*/"
-               << (is_volatile_to ? "true" : "false") << ">(";
+      code_ << "loadLocalToGlobal<" << out->dtype() << ", /*vec_size=*/"
+            << vector_word_size << ", /*is_volatile=*/"
+            << (is_volatile_to ? "true" : "false") << ">(";
       code_ << " &" << gen(out) << ", &" << gen(in) << ")";
     } else if (globalToLocal) {
-      indent() << "loadGlobalToLocal<" << out->dtype() << ", /*vec_size=*/"
-               << vector_word_size << ", /*is_volatile=*/"
-               << (is_volatile_from ? "true" : "false") << ", "
-               << "CacheOp::" << cache_op << ">(&" << gen(out) << ", ";
+      code_ << "loadGlobalToLocal<" << out->dtype() << ", /*vec_size=*/"
+            << vector_word_size << ", /*is_volatile=*/"
+            << (is_volatile_from ? "true" : "false") << ", "
+            << "CacheOp::" << cache_op << ">(&" << gen(out) << ", ";
       code_ << " &" << gen(in) << ")";
     } else if (globalToGlobal) {
-      indent() << "loadGlobalToGlobal<" << out->dtype() << ", /*vec_size=*/"
-               << vector_word_size << ", /*is_volatile_to=*/"
-               << (is_volatile_to ? "true" : "false")
-               << ", /*is_volatile_from=*/"
-               << (is_volatile_from ? "true" : "false") << ">(";
+      code_ << "loadGlobalToGlobal<" << out->dtype() << ", /*vec_size=*/"
+            << vector_word_size << ", /*is_volatile_to=*/"
+            << (is_volatile_to ? "true" : "false") << ", /*is_volatile_from=*/"
+            << (is_volatile_from ? "true" : "false") << ">(";
       code_ << " &" << gen(out) << ", ";
       code_ << " &" << gen(in) << ")";
     } else {
-      indent() << "loadGeneric<" << out->dtype() << ", " << vector_word_size
-               << ">(";
+      code_ << "loadGeneric<" << out->dtype() << ", " << vector_word_size
+            << ">(";
       code_ << " &" << gen(out) << ", ";
       code_ << " &" << gen(in) << ")";
     }
@@ -1051,46 +1050,64 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const TernaryOp* top) final {
-    // Get vectorization information
+    // Note: vectorized TernaryOp looks something like:
+    //   ```
+    //     predicate
+    //       ? LoadGlobalToLocal(&dst[0], &in2[index])
+    //       : arraySet(&dst[0], in3);
+    //   ```
+    //
+    // Current limitation:
+    //   1. only TernaryOpType::Where is supported;
+    //   2. predicate needs to be a scalar;
+    //   3. output needs to be a TensorView;
+    //   4. one and only one of the inputs needs to be a TensorView. (This is
+    //   coming from validation analysis.)
     if (top->out()->isA<kir::TensorIndex>()) {
+      // Get vectorization information
       auto out_tv = top->out()->as<kir::TensorIndex>()->view();
       int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
       bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
 
       if (is_vector_op) {
-        NVF_CHECK(!top->in2()->isScalar(), "input2 should be a tensor");
-        NVF_CHECK(top->in3()->isScalar(), "input3 should be a scalar");
+        NVF_CHECK(
+            top->in1()->isScalar(),
+            "predicate should be a scalar for vectorized TernaryOp::where");
         NVF_CHECK(
             !top->out()->isScalar(),
             "scalar output in vectorization isn't supported");
         NVF_CHECK(
             top->getTernaryOpType() == TernaryOpType::Where,
             "vectorization only works on TernaryOp::where");
-
         indent() << gen(top->in1()) << "\n";
         indent() << kTab << "? ";
+        auto vec_load = [&out_tv, &top, &vector_word_size, this](Val* in) {
+          if (in->isScalar()) {
+            if (out_tv->getMemoryType() == MemoryType::Local &&
+                !out_tv->isCircularBuffered()) {
+              // Vectorized initialization, explicit type conversion is needed
+              // for complex numbers
+              code_ << genVariableName(out_tv) << ".set("
+                    << genCall(out_tv->dtype(), gen(in)) << ")";
+            } else {
+              // Note: currently arraySet option is not vectorized, so it will
+              //  rely on auto vectorization pass of cuda compiler.
+              code_ << "arraySet<" << out_tv->getDataType().value() << ", "
+                    << vector_word_size << ">(&" << gen(top->out()) << ", ("
+                    << out_tv->getDataType().value() << ")" << gen(in) << ")";
+            }
+          } else {
+            generateVectorizedLdSt(
+                in, top->out(), CacheOp::AllLevels, vector_word_size);
+          }
+        };
 
         // TODO: should we have the option to specify cache level?
-        generateVectorizedLdSt(
-            top->in2(), top->out(), CacheOp::AllLevels, vector_word_size);
+        vec_load(top->in2());
         code_ << "\n";
-
-        if (out_tv->getMemoryType() == MemoryType::Local &&
-            !out_tv->isCircularBuffered()) {
-          // Vectorized initialization, explicit type conversion is needed for
-          // complex numbers
-          indent() << kTab << ": " << genVariableName(out_tv) << ".set("
-                   << genCall(out_tv->dtype(), gen(top->in3())) << ");\n";
-        } else {
-          // Note: currently arraySet option is not vectorized, so it will
-          //  rely on auto vectorization pass of cuda compiler.
-          indent() << kTab << ": "
-                   << "arraySet<" << out_tv->getDataType().value() << ", "
-                   << vector_word_size << ">(&" << gen(top->out()) << ", ("
-                   << out_tv->getDataType().value() << ")" << gen(top->in3())
-                   << ");\n";
-        }
-
+        indent() << kTab << ": ";
+        vec_load(top->in3());
+        code_ << ";\n";
         return;
       }
     }
@@ -1432,6 +1449,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               "Invalid input to unary op with tensor output, found: ",
               ldst->in()->toString());
 
+          indent();
           generateVectorizedLdSt(
               ldst->in(), ldst->out(), ldst->cacheOp(), vector_word_size);
           code_ << ";\n";
