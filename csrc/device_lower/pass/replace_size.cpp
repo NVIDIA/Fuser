@@ -52,6 +52,25 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 
   std::unordered_map<Val*, Val*> simplification_map;
 
+  auto get_number_of_defs = [](Val* val) -> int64_t {
+    std::deque<Val*> vals;
+    vals.push_back(val);
+    int64_t num_defs = 0;
+    while (!vals.empty()) {
+      auto v = vals.front();
+      vals.pop_front();
+      auto def = v->definition();
+      if (def == nullptr) {
+        continue;
+      }
+      ++num_defs;
+      for (auto inp : def->inputs()) {
+        vals.push_back(inp);
+      }
+    }
+    return num_defs;
+  };
+
   for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
     // For each ValGroup, find a single extent to use for all extents of
     // IterDomains in the group. These are chosen in descending order of
@@ -64,6 +83,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     bool group_is_const = false;
     IterDomain* rep = nullptr;
     bool rep_is_input_id = false;
+    int64_t rep_num_defs = 0;
     std::unordered_set<Val*> dynamic_scalars;
     for (Val* v : *group) {
       auto* id = dynamic_cast<IterDomain*>(v);
@@ -73,6 +93,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       if (rep == nullptr) {
         rep = id;
         rep_is_input_id = is_input_id;
+        rep_num_defs = get_number_of_defs(rep->extent());
         continue;
       }
       Val* ext = id->extent();
@@ -103,9 +124,11 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         if (group_is_const || rep_is_input_id) {
           continue;
         }
-        if (id->name() < rep->name()) {
+        auto num_defs = get_number_of_defs(id->extent());
+        if (num_defs < rep_num_defs || id->name() < rep->name()) {
           rep = id;
           rep_is_input_id = is_input_id;
+          rep_num_defs = num_defs;
           continue;
         }
       }
@@ -121,6 +144,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       }
     }
   }
+
   return simplification_map;
 }
 
@@ -129,6 +153,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
   std::unordered_map<Val*, Val*> tensor_dim_map;
+
+  // std::cout << "replaceSymbolicSizes\n";
+  // fusion->print();
+  // std::cout << std::endl;
 
   // Grab inputs and outputs
   std::vector<TensorView*> inputs_and_outputs;
