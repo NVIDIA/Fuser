@@ -159,14 +159,14 @@ TEST_F(Tutorial, Memcpy) {
 
   // Since the fusion is modified, we need to recompile it.
   KernelExecutor ke2;
-  fe2.compileFusion(&fusion, aten_inputs);
+  ke2.compileFusion(&fusion, aten_inputs);
 
   // This time, the kernel is launched with multiple threads and
   // thread blocks. Note that the launch configurations, i.e., the
   // thread block and grid shapes, are autoatically inferred from the
   // given inputs. To see how many threads are used, run this test
   // with NVFUSER_DUMP=launch_param
-  outputs = fe2.runFusion(aten_inputs);
+  outputs = ke2.runFusion(aten_inputs);
 
   ASSERT_TRUE(outputs[0].equal(t0));
 }
