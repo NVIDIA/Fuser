@@ -34,10 +34,10 @@ struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class FusionExecutor : public NonCopyable {
+class KernelExecutor : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  NVF_API FusionExecutor();
+  NVF_API KernelExecutor();
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -135,7 +135,7 @@ class FusionExecutor : public NonCopyable {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
-  // Function to query whether compilation was attempted for a `FusionExecutor`
+  // Function to query whether compilation was attempted for a `KernelExecutor`
   bool isCompiled() const {
     int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
         (host_ir_container_ != nullptr);
@@ -143,7 +143,7 @@ class FusionExecutor : public NonCopyable {
     return num_compiled_artifacts == 1;
   };
 
-  // function to query whether a `FusionExecutor` has a compiled kernel to
+  // function to query whether a `KernelExecutor` has a compiled kernel to
   // execute
   bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
@@ -355,12 +355,12 @@ class FusionExecutor : public NonCopyable {
   }
 
   //! Serialize Fusion Executor using flatbuffers
-  flatbuffers::Offset<serde::FusionExecutor> serialize(
+  flatbuffers::Offset<serde::KernelExecutor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor using flatbuffers
   void deserialize(
-      const serde::FusionExecutor* buffer,
+      const serde::KernelExecutor* buffer,
       Fusion* fusion,
       int8_t device_index,
       CompileParams compile_params,
@@ -428,9 +428,9 @@ class FusionExecutor : public NonCopyable {
       flatbuffers::FlatBufferBuilder& builder,
       const executor_utils::CompiledKernel* kernel) const;
 
-  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // ExecutorEntry is an internal POD struct for the KernelExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
-  // FusionExecutor.
+  // KernelExecutor.
   flatbuffers::Offset<serde::ExecutorEntry> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const ExecutorEntry& data) const;
@@ -438,9 +438,9 @@ class FusionExecutor : public NonCopyable {
   //! Deserialize ExecutorEntry using flatbuffers
   ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
 
-  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // GlobalBufferInfo is an internal POD struct for the KernelExecutor class.
   // We define GlobalBufferInfo's serialize and deserialize as private methods
-  // in FusionExecutor.
+  // in KernelExecutor.
   flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const GlobalBufferInfo& data,

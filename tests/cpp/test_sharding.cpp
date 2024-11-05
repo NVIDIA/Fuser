@@ -155,7 +155,7 @@ TEST_P(ShardingTest, ComputeIndex) {
   // Dimension 2 has size 1 because that dimension is DIDx parallelized.
   auto a_tensor = at::randn({4, 2, 1, 5}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {a_tensor});
   auto outputs = fe.runFusion({a_tensor});
   testValidate(fusion.get(), outputs, {a_tensor}, __LINE__, __FILE__);

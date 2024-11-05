@@ -689,7 +689,7 @@ void validateVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("FusionExecutor::validateVectorizedTensors");
+  FUSER_PERF_SCOPE("KernelExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
       kernel, args, outputs, data_cache, expr_eval);

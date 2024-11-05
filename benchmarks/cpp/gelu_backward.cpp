@@ -162,7 +162,7 @@ static void NvFuserScheduler_GeluBackward_Compile(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    FusionExecutor executor;
+    KernelExecutor executor;
     executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
   }
 }
@@ -187,7 +187,7 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -218,7 +218,7 @@ static void NvFuserScheduler_GeluBackward_RunFusion_GpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   runBenchmarkIterations(
@@ -247,7 +247,7 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.setExecuteKernelFlag(false);
   executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
 

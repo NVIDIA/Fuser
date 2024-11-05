@@ -1115,7 +1115,7 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
 
   at::Tensor t0 = at::randn({8}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
 
   EXPECT_THAT(

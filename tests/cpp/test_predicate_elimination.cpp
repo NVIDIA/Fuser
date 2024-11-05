@@ -77,7 +77,7 @@ TEST_F(PredicateEliminationTest, 2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -127,7 +127,7 @@ TEST_F(PredicateEliminationTest, 3) {
   for (auto size : {1, 2, 999, 1001, 1234, 10000}) {
     auto t0 = at::randn({size}, options);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
 
@@ -180,7 +180,7 @@ TEST_F(PredicateEliminationTest, 4) {
     for (auto s1 : sizes) {
       auto t0 = at::randn({s0, s1}, options);
 
-      FusionExecutor fe;
+      KernelExecutor fe;
       fe.compileFusion(&fusion, {t0});
       auto cg_outputs = fe.runFusion({t0});
 
@@ -228,7 +228,7 @@ TEST_F(PredicateEliminationTest, 5) {
   for (auto s0 : sizes) {
     auto t0 = at::randn({s0}, options);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
 
@@ -277,7 +277,7 @@ TEST_F(PredicateEliminationTest, 6) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -313,7 +313,7 @@ TEST_F(PredicateEliminationTest, 7) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({123}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -431,7 +431,7 @@ TEST_F(PredicateEliminationTest, 9) {
   //  with TIDx in this tensor
   EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
@@ -470,7 +470,7 @@ TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10 * 32}, options);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.registerLoweringHook([&](GpuLower* lower) {
     lower->passes().insert(
         lower->passes().begin(),

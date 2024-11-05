@@ -19,7 +19,7 @@ namespace nvfuser {
 namespace {
 void assertIsCompiledToHostIrContainer(const FusionExecutorCache& fec) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
-  const std::vector<FusionExecutor>& executors = runtime->executors();
+  const std::vector<KernelExecutor>& executors = runtime->executors();
   EXPECT_THAT(executors, testing::SizeIs(1));
   for (const auto& executor : executors) {
     EXPECT_TRUE(executor.fusion()->isA<hir::HostIrContainer>())

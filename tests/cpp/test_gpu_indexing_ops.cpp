@@ -396,7 +396,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   std::vector<c10::IValue> aten_inputs = {input1, input0, input_idx};
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::Reduction, aten_inputs);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, heuristic_params->lparams);
   fe.runFusion(aten_inputs, {cg_output}, heuristic_params->lparams);
 

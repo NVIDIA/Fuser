@@ -223,7 +223,7 @@ int64_t runBenchmarkIterations(
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
+    KernelExecutor* fusion_executor,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {

@@ -164,7 +164,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
 
   at::Tensor t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -219,7 +219,7 @@ TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dimx}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -261,7 +261,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
 
   at::Tensor t0 = at::randn({123}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -307,7 +307,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
 
   at::Tensor t0 = at::randn({345, 10}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -346,7 +346,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 
   at::Tensor t0 = at::randn({345, 10}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -449,7 +449,7 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   const std::vector<int64_t> input_shape{N, H, W, C};
   auto t0 = at::randn(input_shape, options_half);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0}, LaunchParams());
   auto cg_outputs = fe.runFusion({t0});
 

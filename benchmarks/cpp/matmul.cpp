@@ -175,7 +175,7 @@ static void SingleMatmulBase(
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
       getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
@@ -355,7 +355,7 @@ static void SingleMatmulPartitionedK(
   cparams.index_type = computeIndexType(M, N, K);
 
   // Compile kernel
-  FusionExecutor fe;
+  KernelExecutor fe;
   auto lparams = LaunchParams();
   fe.compileFusion(fusion, args, lparams, cparams);
   NVF_CHECK(
@@ -461,7 +461,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 

@@ -229,7 +229,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());

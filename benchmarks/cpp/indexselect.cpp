@@ -132,7 +132,7 @@ static void NvFuserScheduler_IndexSelect_Compile(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    FusionExecutor executor;
+    KernelExecutor executor;
     executor.compileFusion(
         &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
@@ -155,7 +155,7 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.compileFusion(
       &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
 

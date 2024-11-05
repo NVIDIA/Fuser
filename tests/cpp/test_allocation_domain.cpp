@@ -58,7 +58,7 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
 
   at::Tensor t0 = at::randn({32, 32}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
@@ -96,7 +96,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
 
   at::Tensor t0 = at::randn({n, c, h, w}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   auto cg_outputs = fe.runFusion({t0});
@@ -135,7 +135,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
 
   at::Tensor t0 = at::randn({n, c, h, w}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   auto cg_outputs = fe.runFusion({t0});
@@ -175,7 +175,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
 
   at::Tensor t0 = at::randn({n, c, h, w}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   auto cg_outputs = fe.runFusion({t0});
@@ -222,7 +222,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 
   at::Tensor t0 = at::randn({n1, n2, h * w * c}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   auto cg_outputs = fe.runFusion({t0});
@@ -282,7 +282,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
 
   at::Tensor t0 = at::randn({n1, n2, c * h * w}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   auto cg_outputs = fe.runFusion({t0});
@@ -338,7 +338,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -397,7 +397,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -453,7 +453,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -514,7 +514,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -582,7 +582,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -647,7 +647,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -724,7 +724,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -789,7 +789,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -860,7 +860,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -932,7 +932,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -1022,7 +1022,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
@@ -1225,7 +1225,7 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   at::Tensor t0 =
       at::randn({4 * 5 * 7}).cuda().as_strided({4, 5, 7}, {7, 4, 1});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -1275,7 +1275,7 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   out->cacheBefore();
 
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));

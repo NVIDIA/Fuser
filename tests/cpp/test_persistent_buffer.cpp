@@ -1297,7 +1297,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), aten_inputs);
   // Shared memory access should be vectorized.
   // getBankConflictInfo(fe.kernel()) triggers error "std::get: wrong index for

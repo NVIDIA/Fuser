@@ -46,7 +46,7 @@ TEST_F(MBarrierTest, Simple) {
   tv2->axis(0)->parallelize(ParallelType::TIDy);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   fe.registerPostLoweringHook([](kir::Kernel* kernel) {
     // Replace block sync with mbarrier

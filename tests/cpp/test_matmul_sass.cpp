@@ -98,7 +98,7 @@ sass::Container getSASSFor(
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
@@ -161,7 +161,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
   const double alpha = 2.5;
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion,
       {inputs.first, inputs.second, alpha},

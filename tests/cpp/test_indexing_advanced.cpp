@@ -72,7 +72,7 @@ TEST_P(AdvancedIndexingTest, InlineBroadcast) {
   at::Tensor t0 = at::randn({123}, options);
   at::Tensor t1 = at::randn({3, 123}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
 
   auto outputs = fe.runFusion({t0, t1});
@@ -117,7 +117,7 @@ TEST_P(AdvancedIndexingTest, 1) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
@@ -168,7 +168,7 @@ TEST_P(AdvancedIndexingTest, 2) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
@@ -229,7 +229,7 @@ TEST_P(AdvancedIndexingTest, 4) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -263,7 +263,7 @@ TEST_P(AdvancedIndexingTest, 5) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -345,7 +345,7 @@ TEST_P(AdvancedIndexingTest, 7) {
   auto at_t0 = at::randn({numel_x}, options);
   auto at_t1 = at::randn({numel_x, numel_y}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {at_t0, at_t1});
   auto cg_outputs = fe.runFusion({at_t0, at_t1});
 
@@ -391,7 +391,7 @@ TEST_P(AdvancedIndexingTest, 8) {
   auto at_t0 = at::randn({numel_x}, options);
   auto at_t1 = at::randn({numel_x, numel_y}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {at_t0, at_t1});
   auto cg_outputs = fe.runFusion({at_t0, at_t1});
 
@@ -484,7 +484,7 @@ TEST_P(AdvancedIndexingTest, 10) {
   at::Tensor input2 = at::rand_like(input1);
   at::Tensor output = at::empty_like(input1);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {input1, input2});
   fe.runFusion({input1, input2}, {output});
 
@@ -531,7 +531,7 @@ TEST_P(AdvancedIndexingTest, 11) {
 
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   at::Tensor t0 = at::randn({w, x, y, z}, options);
   at::Tensor t1 = at::randn({x}, options);
@@ -574,7 +574,7 @@ TEST_P(AdvancedIndexingTest, 12) {
 
   std::vector<at::Tensor> aten_outputs = {t2, t4};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
@@ -623,7 +623,7 @@ TEST_P(AdvancedIndexingTest, 13) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -665,7 +665,7 @@ TEST_P(AdvancedIndexingTest, 14) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -700,7 +700,7 @@ TEST_P(AdvancedIndexingTest, 15) {
   at::Tensor t3 = at::randn({bx, by, bz}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t3};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -732,7 +732,7 @@ TEST_P(AdvancedIndexingTest, 16) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -767,7 +767,7 @@ TEST_P(AdvancedIndexingTest, 17) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -804,7 +804,7 @@ TEST_P(AdvancedIndexingTest, 18) {
   at::Tensor t1 = at::randn({5, 3}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
 
@@ -848,7 +848,7 @@ TEST_P(AdvancedIndexingTest, 19) {
   at::Tensor t1 = at::randn({5, 11}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, inputs);
   auto outputs = fe.runFusion(inputs);
 
@@ -913,7 +913,7 @@ TEST_F(AdvancedIndexingIdModelTest, 20) {
   at::Tensor t2 = at::randn({7, 13}, options);
   std::vector<c10::IValue> inputs = {t0, t1, t2};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, inputs);
   auto outputs = fe.runFusion(inputs);
 
@@ -978,7 +978,7 @@ TEST_F(AdvancedIndexingIdModelTest, 21) {
   auto t6 = at::randn({3, 5, 7}, options);
   std::vector<c10::IValue> inputs = {t0, t3, t6};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, inputs);
   auto outputs = fe.runFusion(inputs);
 
@@ -1022,7 +1022,7 @@ TEST_F(AdvancedIndexingIdModelTest, MultiPromotion1) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -1119,7 +1119,7 @@ TEST_F(AdvancedIndexingIdModelTest, IndexSplitMerge) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 

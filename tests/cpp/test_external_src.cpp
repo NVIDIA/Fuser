@@ -28,7 +28,7 @@ class ExternalSrcExample : public NVFuserTest {};
 TEST_F(ExternalSrcExample, Reduction_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   // By default, this env var should not be defined. To test using an
   // external source file, set it to the path to the external source
@@ -99,7 +99,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
 TEST_F(ExternalSrcExample, Matmul_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   // By default, this env var should not be defined. To test using an
   // external source file, set it to the path to the external source

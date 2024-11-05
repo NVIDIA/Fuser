@@ -352,7 +352,7 @@ TEST_F(TensorFactoryTest, TensorConstruct) {
   auto output = tensor(std::vector<std::vector<Val*>>{{i00, i01}, {i10, i11}});
   fusion->addOutput(output);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get());
   auto cg_outputs = fe.runFusion({00, 01, 10, 11});
 
@@ -403,7 +403,7 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto input0 = at::randn({2, 3, 4, 5}, options);
   auto input1 = at::randn({6, 7, 8, 9}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get());
   auto cg_outputs = fe.runFusion({input0, input1});
 

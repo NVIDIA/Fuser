@@ -155,7 +155,7 @@ static void NvFuserScheduler_LstmCell_Compile(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    FusionExecutor executor;
+    KernelExecutor executor;
     executor.compileFusion(&fusion, inputs);
   }
 }
@@ -182,7 +182,7 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.compileFusion(&fusion, inputs);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -220,7 +220,7 @@ static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.compileFusion(&fusion, inputs);
 
   runBenchmarkIterations(
@@ -259,7 +259,7 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
+  KernelExecutor executor;
   executor.setExecuteKernelFlag(false);
   executor.compileFusion(&fusion, inputs);
 

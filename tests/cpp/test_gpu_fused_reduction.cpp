@@ -115,7 +115,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -164,7 +164,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -212,7 +212,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx, ny}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -257,7 +257,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -319,7 +319,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   auto t0 = at::randn({iter, nx}, options);
   auto t5 = at::randn({bdimy, bdimx}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0, t5});
   auto cg_outputs = fe.runFusion({t0, t5});
 
@@ -371,7 +371,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -417,7 +417,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -467,7 +467,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx, ny}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -586,7 +586,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   GpuLower gpulw(&fusion);
   validateNoParallelBroadcastExist(gpulw.run());
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   LaunchParams launch_params(2, 2, -1, -1, -1, -1);
   fe.compileFusion(&fusion, aten_inputs, launch_params);
   auto cg_outputs = fe.runFusion(aten_inputs, launch_params);
@@ -653,7 +653,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction1_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -698,7 +698,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -741,7 +741,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction3_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -829,7 +829,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -892,7 +892,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -937,7 +937,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -983,7 +983,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1023,7 +1023,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1076,7 +1076,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce2_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1124,7 +1124,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce3_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1177,7 +1177,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1265,7 +1265,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 
   std::vector<at::indexing::TensorIndex> indices({at::indexing::Slice(0, 10)});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto outputs = fe.runFusion(aten_inputs);
 
@@ -1428,7 +1428,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   GpuLower gpulw(&fusion);
   validateNoParallelBroadcastExist(gpulw.run());
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
 
   if (bidx * bidy > deviceSMCount()) {
@@ -1534,7 +1534,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
 
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1649,7 +1649,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   auto t2 = at::randn({shape.back()}, options_float);
   std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto outputs = fe.runFusion(aten_inputs);
 
@@ -1780,7 +1780,7 @@ TEST_F(
   auto t2 = at::randn({shape.back()}, options_float);
   std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto outputs = fe.runFusion(aten_inputs);
 
@@ -1868,7 +1868,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -1946,7 +1946,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -2030,7 +2030,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -2122,7 +2122,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -2183,7 +2183,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -2248,7 +2248,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
@@ -2385,7 +2385,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
         params.N, params.H, params.W, params.C};
     auto t0 = at::randn(input_shape, options);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     fe.compileFusion(&fusion, {t0});
 
     // Skip the rest of this test size if the required number of SMs
@@ -2541,7 +2541,7 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
       at::randint(0, num_classes, {batch_size}, options.dtype(at::kLong));
   std::vector<c10::IValue> inputs = {at_log_probs, at_labels};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
 

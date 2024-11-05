@@ -2811,7 +2811,7 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -2844,7 +2844,7 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -2880,7 +2880,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -2918,7 +2918,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -2955,7 +2955,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -2992,7 +2992,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -3029,7 +3029,7 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -3140,7 +3140,7 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   //! TODO Disabled because hopper multiple matmul scheduler is currently a copy
   //! of ampere scheduler.
   /*
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
@@ -3211,7 +3211,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
@@ -3286,7 +3286,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
@@ -3363,7 +3363,7 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   // TODO Disabled because hopper multiple matmul scheduler is currently a copy
   // of ampere scheduler.
   /*
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
