@@ -785,9 +785,9 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
       shardTensor(reference_outs[2], 0, mesh),
       shardTensor(reference_outs[3], 0, mesh)};
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
