@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ATen/Functions.h>
+#include <ATen/cuda/CUDAGraph.h>
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
 #include <fusion.h>
@@ -52,7 +53,8 @@ using OverlapBenchmarkParams = std::tuple<
     /*number_of_streams=*/int64_t,
     /*add_cuStreamWriteValue32=*/bool,
     /*number_of_pgs=*/int64_t,
-    /*unfuse_loops=*/bool>;
+    /*unfuse_loops=*/bool,
+    /*use_cuda_graph=*/bool>;
 
 class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
  protected:
@@ -72,8 +74,11 @@ class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterf
 std::map<std::string, float> OverlapBenchmark::times = {};
 
 TEST_P(OverlapBenchmark, DummyBenchmark) {
-  int64_t number_of_warmups = 50;
+  constexpr int64_t number_of_warmups = 50;
   constexpr int64_t number_of_iterations = 100;
+  constexpr int64_t iteration_profiler_start = 10;
+  constexpr int64_t iteration_profiler_end = 15;
+  constexpr int64_t iteration_cuda_graph_capture = 5;
 
 
   const int64_t D = communicator_->size();
@@ -85,7 +90,8 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
         number_of_streams,
         add_cuStreamWriteValue32,
         number_of_pgs,
-        unfuse_loops] = GetParam();
+        unfuse_loops,
+        use_cuda_graph] = GetParam();
 
   GTEST_ASSERT_EQ(M % S, 0);
 
@@ -94,6 +100,7 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
 
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(number_of_streams, communicator_->deviceId());
+  setCurrentCUDAStream(streams.at(0));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   auto ta = at::randn({S, M/S,K}, options);
@@ -104,6 +111,8 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
+  at::cuda::CUDAGraph cuda_graph;
+
   CUdeviceptr pDevice;
   void* ptr;
   if (add_cuStreamWriteValue32) {
@@ -113,45 +122,56 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
 
   for (const auto& iteration :
        c10::irange(number_of_warmups + number_of_iterations)) {
-    if (iteration == 10) {
+    if (iteration == iteration_profiler_start) {
       cudaProfilerStart();;
     }
     if (iteration == number_of_warmups) {
       cudaEventRecord(start);
     }
-    for (auto j : c10::irange(S)) {
-      int64_t stream_index = j % streams.size();
-      setCurrentCUDAStream(streams.at(stream_index));
-
-      auto world = communicator_->getBackendForTeam(all_ranks, backend, std::to_string(j % number_of_pgs));
-
-      auto ta_j = ta.select(0, j);
-      auto ta_unsharded_j = ta_unsharded.select(0, j);
-
-      // communication
-      world->_allgather_base(ta_unsharded_j, ta_j)->wait();
-
-      if (add_cuStreamWriteValue32) {
-        cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
+    if (iteration <= iteration_cuda_graph_capture) {
+      if (iteration == iteration_cuda_graph_capture) {
+        cuda_graph.capture_begin();
       }
-      if (unfuse_loops == false) {
-        // compute
-        auto tc_j = torch::matmul(ta_unsharded_j,tb);
-      }
-    }
-    if (unfuse_loops) {
       for (auto j : c10::irange(S)) {
         int64_t stream_index = j % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
+
+        auto world = communicator_->getBackendForTeam(all_ranks, backend, std::to_string(j % number_of_pgs));
+
+        auto ta_j = ta.select(0, j);
         auto ta_unsharded_j = ta_unsharded.select(0, j);
 
-        // compute
-        auto tc_j = torch::matmul(ta_unsharded_j,tb);
+        // communication
+        world->_allgather_base(ta_unsharded_j, ta_j)->wait();
+
+        if (add_cuStreamWriteValue32) {
+          cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
+        }
+        if (unfuse_loops == false) {
+          // compute
+          auto tc_j = torch::matmul(ta_unsharded_j,tb);
+        }
       }
+      if (unfuse_loops) {
+        for (auto j : c10::irange(S)) {
+          int64_t stream_index = j % streams.size();
+          setCurrentCUDAStream(streams.at(stream_index));
+          auto ta_unsharded_j = ta_unsharded.select(0, j);
+
+          // compute
+          auto tc_j = torch::matmul(ta_unsharded_j,tb);
+        }
+      }
+      if (iteration == iteration_cuda_graph_capture) {
+        cuda_graph.capture_end();
+      } else {
+        setCurrentCUDAStream(streams.at(0));
+        synchronizeStreams(streams);
+      }
+    } else {
+      cuda_graph.replay();
     }
-    setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(communicator_->deviceId()));
-    synchronizeStreams(streams);
-    if (iteration == 15) {
+    if (iteration == iteration_profiler_end) {
       cudaProfilerStop();;
     }
   }
@@ -182,7 +202,8 @@ INSTANTIATE_TEST_SUITE_P(
     /*number_of_streams=*/testing::Values(3, 8, 32),
     /*add_cuStreamWriteValue32*/testing::Values(false, true),
     /*number_of_pgs=*/testing::Values(1, 2, 4, 8),
-    /*unfuse_loops=*/testing::Values(false, true)),
+    /*unfuse_loops=*/testing::Values(false, true),
+    /*use_cuda_graph=*/testing::Values(false)), // cuda graphs not supported: ucc does not supports it (segfault) and nccl PG has a "syncStream" that throws
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
@@ -194,7 +215,8 @@ INSTANTIATE_TEST_SUITE_P(
          << "Streams" << std::get<5>(info.param) << "_"
          << ((std::get<6>(info.param))? "WithcuStreamWriteValue32_" : "")
          << "Pgs" << std::get<7>(info.param)
-         << ((std::get<8>(info.param))? "_unfused" : "");
+         << ((std::get<8>(info.param))? "_unfused" : "")
+         << ((std::get<9>(info.param))? "_WithCudaGraph" : "");
       return os.str();
     });
 
