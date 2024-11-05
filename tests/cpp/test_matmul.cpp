@@ -3608,7 +3608,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   FusionGuard fg(&fusion);
 
   constexpr int64_t M = 2048, N = 2048, K = 8192;
-  constexpr auto macro = MmaMacro::Hopper_64_256_16;
+  constexpr auto macro = MmaMacro::Hopper_64_128_16;
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
@@ -3616,7 +3616,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
   const int64_t cta_m = 2 * getM(macro);
-  const int64_t cta_n = 1 * getN(macro);
+  const int64_t cta_n = 2 * getN(macro);
 
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
   auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
@@ -3681,8 +3681,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
     // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
     tv2->reorder({{-4, -3}});
-    tv2->merge(-5);
-    tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    tv2->axis(-5)->parallelize(ParallelType::TIDy);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         tv2,
         -1,
