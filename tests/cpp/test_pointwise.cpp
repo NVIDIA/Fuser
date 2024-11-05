@@ -549,9 +549,9 @@ TEST_F(PointwiseTest, ShardedPointwise) {
         unsharded_pparams->flip_grid_binding);
 
     pwise_scheduler->schedule(&sharded_fusion, sharded_params.get());
-    KernelExecutor fe;
-    fe.compileFusion(&sharded_fusion, sharded_inputs, sharded_params->lparams);
-    auto cg_outputs = fe.runFusion(sharded_inputs, sharded_params->lparams);
+    KernelExecutor ke;
+    ke.compileFusion(&sharded_fusion, sharded_inputs, sharded_params->lparams);
+    auto cg_outputs = ke.runFusion(sharded_inputs, sharded_params->lparams);
     testValidate(
         &sharded_fusion, cg_outputs, sharded_inputs, __LINE__, __FILE__);
   }
@@ -705,10 +705,10 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
 
   // Schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
-  KernelExecutor fe;
-  fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
-  auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
-  const auto& lparams = fe.lastLaunchParams();
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
+  auto cg_outputs = ke.runFusion(runtime_inputs, pparams->lparams);
+  const auto& lparams = ke.lastLaunchParams();
   ASSERT_EQ(lparams.gdimy(), dim0 / unroll_outer);
   ASSERT_EQ(
       lparams.gdimx(), dim1 / vect_factor / lparams.bdimx() / unroll_inner);

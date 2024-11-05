@@ -105,10 +105,10 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
   auto heuristic_params = scheduler->computeHeuristics(fusion, runtime_info);
   scheduler->schedule(fusion, heuristic_params.get());
 
-  KernelExecutor fe;
-  fe.compileFusion(fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(fusion, aten_inputs);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -152,10 +152,10 @@ static void NvFuserScheduler_Softmax_WarpReduce(
     }
   }
 
-  KernelExecutor fe;
-  fe.compileFusion(fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(fusion, aten_inputs);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

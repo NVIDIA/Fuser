@@ -40,7 +40,7 @@ namespace nvfuser {
 struct CGResultsPackage {
   std::vector<at::Tensor> outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
-  std::unique_ptr<KernelExecutor> fusion_executor;
+  std::unique_ptr<KernelExecutor> kernel_executor;
 };
 
 // Grabs heuristics and schedules with the provided scheduler type, compiles and

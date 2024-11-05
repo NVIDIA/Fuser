@@ -142,8 +142,8 @@ FusionKernelRuntime::FusionKernelRuntime(
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
-  for (auto& fe : executors_) {
-    fe.evictCache(input_id);
+  for (auto& ke : executors_) {
+    ke.evictCache(input_id);
   }
 }
 

@@ -394,17 +394,17 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      const KernelExecutor& fe = runtime->executors().at(group->groupId());
+      const KernelExecutor& ke = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
-        if (storesToOutput(fe, i)) {
+        if (storesToOutput(ke, i)) {
           num_stores++;
         }
       }
       EXPECT_EQ(num_stores, 1)
           << "The generated CUDA kernel is expected to store data to one output:"
           << std::endl
-          << fe.kernelString();
+          << ke.kernelString();
     }
   }
 }
@@ -469,17 +469,17 @@ TEST_F(AliasTest, Issue1452) {
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      const KernelExecutor& fe = runtime->executors().at(group->groupId());
+      const KernelExecutor& ke = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
-        if (storesToOutput(fe, i)) {
+        if (storesToOutput(ke, i)) {
           num_stores++;
         }
       }
       EXPECT_EQ(num_stores, 1)
           << "The generated CUDA kernel is expected to store data to one output:"
           << std::endl
-          << fe.kernelString();
+          << ke.kernelString();
     }
   }
 }
@@ -504,11 +504,11 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  const KernelExecutor& fe = onlyExecutorInMostRecentRuntime(fec);
-  EXPECT_FALSE(storesToOutput(fe, /*out_index=*/0))
+  const KernelExecutor& ke = onlyExecutorInMostRecentRuntime(fec);
+  EXPECT_FALSE(storesToOutput(ke, /*out_index=*/0))
       << "The generated CUDA kernel shouldn't store data to output 0:"
       << std::endl
-      << fe.kernelString();
+      << ke.kernelString();
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -960,7 +960,7 @@ TEST_F(AliasTest, ReuseBuffer) {
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 
-TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
+TEST_F(AliasTest, ReuseBuffer_KernelExecutor) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeContigTensor(1);
@@ -972,9 +972,9 @@ TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
   auto tensor = at::randn({10}, options);
   auto expected_tensor = tensor + 1.0;
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {tensor});
-  fe.runFusion({tensor}, {tensor});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {tensor});
+  ke.runFusion({tensor}, {tensor});
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 
@@ -1164,11 +1164,11 @@ TEST_F(AliasTest, KernelExecutor) {
   // output on the host instead of launching a CUDA kernel.
   fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
 
-  KernelExecutor fe;
+  KernelExecutor ke;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10, 10}, options);
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  ke.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = ke.runFusion({in_tensor})[0];
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 

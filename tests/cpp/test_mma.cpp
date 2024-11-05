@@ -172,10 +172,10 @@ std::vector<at::Tensor> scheduleCompileAndRun(
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  return fe.runFusion({inputs.first, inputs.second});
+  return ke.runFusion({inputs.first, inputs.second});
 }
 
 TEST_P(MmaTest, SingleTile) {
@@ -388,11 +388,11 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -484,11 +484,11 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -650,10 +650,10 @@ TEST_P(HopperSS, SingleTile) {
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -779,10 +779,10 @@ TEST_P(HopperSS, SingleTileTransposed) {
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -958,10 +958,10 @@ TEST_P(HopperSS, MultipleTile) {
       layout,
       data_type_to_aten(dtype));
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),

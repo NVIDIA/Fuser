@@ -634,9 +634,9 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
 
   at::Tensor qv_cg_output = at::empty({dim1}, options);
   auto qv_aten_output = tv_input.to(at::kFloat).sum({0});
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
-  fe.runFusion(
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
+  ke.runFusion(
       {tv_input},
       {tv_cg_output, qv_cg_output},
       launch_constraints,
@@ -811,9 +811,9 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   at::Tensor qv_cg_output = at::empty({dim1}, options);
   at::Tensor tv_input2 = at::ones({dim0, dim1}, options);
   auto qv_aten_output = tv_input2.to(at::kFloat).sum({0});
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
-  fe.runFusion(
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
+  ke.runFusion(
       {tv_input},
       {tv_cg_output, qv_cg_output},
       launch_constraints,
@@ -980,8 +980,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
       std::vector<TensorView*>{tv1};
   scheduler->schedule(&fusion, heuristic_params.get());
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
 
   for (auto tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
@@ -990,7 +990,7 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       }
     }
   }
-  auto cg_outputs = fe.runFusion(
+  auto cg_outputs = ke.runFusion(
       aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }

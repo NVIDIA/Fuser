@@ -194,8 +194,8 @@ std::string FusionExecutorCache::getCode(
 
   if (intrinsic_code) {
     const auto& execs = kernel_runtime->executors();
-    const KernelExecutor& fe = execs[0];
-    auto index_type = fe.kernel()->indexType();
+    const KernelExecutor& ke = execs[0];
+    auto index_type = ke.kernel()->indexType();
     // Make sure all the segment index types match. All segments currently
     // use the same index type but this code change in the future.
     for (const auto& exec : execs) {
@@ -206,7 +206,7 @@ std::string FusionExecutorCache::getCode(
           " ",
           exec.kernel()->indexType());
     }
-    std::string full_code = fe.getStructuredCode(kernel_code, index_type);
+    std::string full_code = ke.getStructuredCode(kernel_code, index_type);
     return full_code;
   } else {
     return kernel_code;
