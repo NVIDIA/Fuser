@@ -52,6 +52,22 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
   return fusion_copy;
 }
 
+// Used in distributed setting where we only want to allocate output space and
+// receive output data from a different rank instead of computing them.
+std::vector<at::Tensor> allocateOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device) {
+  FUSER_PERF_SCOPE("multidevice::executor::allocateOutputSpace");
+  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
+
+  auto output_info =
+      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
+
+  return allocateOutputs(fusion, output_info, device, expr_eval);
+}
+
 } // namespace
 
 MultiDeviceExecutor::MultiDeviceExecutor(
@@ -186,7 +202,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   }
 
   auto allocations =
-      allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
+      allocateOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
   NVF_ERROR(vals_to_allocate_.size() == allocations.size());
   for (auto i : c10::irange(allocations.size())) {
     val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);
