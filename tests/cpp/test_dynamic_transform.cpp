@@ -209,10 +209,10 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   at::Tensor t1 = at::randn(shape_after, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test multiple patterns of reshape
@@ -1281,7 +1281,7 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
       tv1, std::vector<bool>({false, true})); // Squeeze second dimension
   fusion->addOutput(tv2);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 2}, options);
@@ -1289,14 +1289,14 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
   // An invalid input has a second dimension that cannot be squeezed
   std::vector<c10::IValue> invalid_inputs = {t0, 2, 3};
 
-  auto outputs = fec.runFusionWithInputs(valid_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(valid_inputs);
 
   testValidate(fusion, outputs, valid_inputs, __LINE__, __FILE__);
 
   // An informative error message should be given by
   // SqueezeOp::checkConcretization
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      [&]() { executor_cache.runFusionWithInputs(invalid_inputs); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           " must concretize to IterType::Broadcast but found")));
 }
@@ -1325,7 +1325,7 @@ TEST_F(NVFuserTest, SymbolicExpand) {
 
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 2}, options);
@@ -1333,13 +1333,14 @@ TEST_F(NVFuserTest, SymbolicExpand) {
   // An invalid input has a second dimension that cannot be expanded
   std::vector<c10::IValue> invalid_inputs = {t0, 2, 3, 2, 5};
 
-  auto outputs = fec.runFusionWithInputs(valid_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(valid_inputs);
 
-  testValidate(fec.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
 
   // An informative error message should be given during concretization
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      [&]() { executor_cache.runFusionWithInputs(invalid_inputs); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
 }
@@ -1380,13 +1381,13 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
 
   fusion->addOutput(tv5);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4096, 12288}, options);
   std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -1417,13 +1418,13 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
   auto tv2 = sum(tv1, {0, 2, 3, 4});
   fusion->addOutput(tv2);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
   std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -1455,13 +1456,13 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
   fusion->addOutput(res.mean);
   fusion->addOutput(res.var);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
   std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }

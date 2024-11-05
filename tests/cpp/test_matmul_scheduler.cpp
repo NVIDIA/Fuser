@@ -3069,8 +3069,8 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   auto y_ref = at::randn({N, K}, options);
   std::vector<c10::IValue> inputs{x_ref, y_ref};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }

@@ -1119,8 +1119,8 @@ TEST_F(AllocationDomainTest, ContiguityIssue1021) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 8}, {1, 8});
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
@@ -1145,8 +1145,8 @@ TEST_F(AllocationDomainTest, ContiguityForBroadcast) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1, 1}, options).as_strided({1, 1}, {0, 3});
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
@@ -1172,8 +1172,8 @@ TEST_F(AllocationDomainTest, ContiguityForExplicitBroadcast) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 8}, options).as_strided({3, 8, 4}, {0, 1, 8});
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
@@ -1250,14 +1250,14 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
 
   at::Tensor in_tensor = at::randn({2 * 4}).cuda().as_strided({2, 3}, {4, 1});
 
-  FusionExecutorCache fec(std::move(fusion));
-  fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({in_tensor});
 
   // The initial issue was detected in the pointwise scheduler, so I added these
   // checks to make sure it's a valid regression test. The transpose scheduler
   // could accept this but decided not to because of a small problem size.
   const std::vector<SegmentedGroup*>& groups =
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
   EXPECT_EQ(group->schedulerType(), SchedulerType::PointWise);
@@ -1311,8 +1311,8 @@ TEST_F(AllocationDomainTest, Issue1524) {
       {permute_out->axis(1), permute_out->axis(0)}, true);
 
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  FusionExecutorCache fec(std::move(fusion));
-  fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({in_tensor});
 }
 
 TEST_F(AllocationDomainTest, EmptyAllocationDomainApi) {

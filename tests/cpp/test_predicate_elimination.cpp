@@ -382,12 +382,12 @@ TEST_F(PredicateEliminationTest, 8) {
   at::Tensor aten_t3 = at::randn(full_size, options); // tv0 - 3
   at::Tensor aten_t4 = at::randn({channel_size}, options); // tv4 - 4
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs =
-      fec.runFusionWithInputs({aten_t0, aten_t1, aten_t2, aten_t3, aten_t4});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(
+      {aten_t0, aten_t1, aten_t2, aten_t3, aten_t4});
 
   const auto& compiled_executors =
-      fec.getMostRecentKernelRuntime()->executors();
+      executor_cache.getMostRecentKernelRuntime()->executors();
   NVF_CHECK(compiled_executors.size() == 1, "Unexpected scheduling");
   NVF_CHECK(
       !PredicatedChecker::isPredicated(tv6, compiled_executors.at(0).kernel()),

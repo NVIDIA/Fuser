@@ -528,8 +528,8 @@ at::Tensor getSwizzledTensor(
   fusion.addOutput(swizzle.first);
   fusion.addOutput(swizzle.second);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs({size_x, size_y});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({size_x, size_y});
 
   return input.index_put({outputs[0], outputs[1]}, input);
 }

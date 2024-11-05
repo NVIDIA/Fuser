@@ -6263,10 +6263,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -6319,10 +6319,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   auto var = at::mul(sum, 1.0 / NORM_SIZE);
   auto aten_rstd = at::pow(at::add(var, kEps), -0.5);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_rstd, aten_weight};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto in_mul_rstd = at::mul(aten_input, aten_rstd);
   auto grad_out_mul = at::mul(aten_grad_out, in_mul_rstd);

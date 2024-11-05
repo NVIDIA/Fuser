@@ -1328,14 +1328,15 @@ TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(
+        executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -2267,7 +2268,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   // tv1 is of shape {0, 5}
   fusion->addOutput(tv2);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -2275,14 +2276,14 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0, 20});
 
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto ref0 = t0.flatten();
 
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs({t0, 10}); },
+      [&]() { executor_cache.runFusionWithInputs({t0, 10}); },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
@@ -3374,7 +3375,7 @@ TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   auto tv4 = expand(tv3, {s0, s1, s3});
   fusion->addOutput(tv4);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3}, options).as_strided({3, 4}, {1, 0});
@@ -3382,7 +3383,7 @@ TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   auto ref = t0.add(t1).as_strided({3, 4, 5}, {4, 1, 0});
 
   std::vector<c10::IValue> aten_inputs({t0, t1});
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
@@ -3424,13 +3425,18 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto ref = at::squeeze(at::slice(t0, 1, 2, 3), 1);
 
   testValidate(
-      fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 // Vectorization through resize is not supported yet. Make sure
@@ -3602,14 +3608,18 @@ TEST_F(ResizeTest, Issue2552) {
   TensorView* z = add(x, y);
   fusion->addOutput(z);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor x_tensor = at::randn({1, 3}, options);
   at::Tensor y_tensor = at::randn({1, 3}, options);
   std::vector<at::Tensor> out_tensors =
-      fec.runFusionWithInputs({x_tensor, y_tensor});
+      executor_cache.runFusionWithInputs({x_tensor, y_tensor});
   testValidate(
-      fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {x_tensor, y_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(ResizeTest, Chunk_NegativeSize) {
@@ -3623,11 +3633,11 @@ TEST_F(ResizeTest, Chunk_NegativeSize) {
     fusion->addOutput(out);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   EXPECT_THAT(
       [&]() {
         auto in_tensor = at::randn({13}).cuda();
-        fec.runFusionWithInputs({in_tensor});
+        executor_cache.runFusionWithInputs({in_tensor});
       },
       ThrowsMessage<nvfError>(HasSubstr("Invalid resized domain extent")));
 }
@@ -3643,10 +3653,11 @@ TEST_F(ResizeTest, Chunk_SizeZero) {
     fusion->addOutput(out);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto in_tensor = at::randn({15}).cuda();
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   EXPECT_EQ(out_tensors.back().numel(), 0);
 }
@@ -3662,10 +3673,11 @@ TEST_F(ResizeTest, Chunk_Uneven) {
     fusion->addOutput(out);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto in_tensor = at::randn({16}).cuda();
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   EXPECT_EQ(out_tensors.back().numel(), 1);
 }

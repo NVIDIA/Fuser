@@ -343,8 +343,8 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({aten_t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({aten_t0});
 
   testValidate(&fusion, cg_outputs, {aten_t0}, __LINE__, __FILE__);
 }
@@ -611,8 +611,8 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
           hidden_size * dataTypeSize(dtype),
       "Persistent buffer size is not correct!");
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
@@ -679,8 +679,8 @@ TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
       persistent_buffer_info2.persistent_buffers.size() == 1,
       "After project to other buffers, should have one persistent buffer!");
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
@@ -1172,10 +1172,10 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
   auto t1 = at::randn({dim0, dim1}, options);
   auto t2 = at::sum(t0, {1}).unsqueeze(1) + t0;
   auto t4 = t2 + t1;
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   NVF_CHECK(
-      !fec.getMostRecentKernelRuntime()->isSegmented(),
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "unexpected segmentation!");
 
   testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
@@ -1211,10 +1211,10 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
   auto t1 = at::randn({dim0, dim1, dim2}, options);
   auto t2 = at::sum(t0, {1, 2}).unsqueeze(-1).unsqueeze(-1) + t0;
   auto t4 = t2 + t1;
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   NVF_CHECK(
-      !fec.getMostRecentKernelRuntime()->isSegmented(),
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "unexpected segmentation!");
 
   testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
@@ -1243,15 +1243,16 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
                      .device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> aten_inputs = {t0};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // should be segmented since buffer size is larger than 32K and smem
   // persistent is not supported yet for 3D reduction.
-  EXPECT_TRUE(fec.getMostRecentKernelRuntime()->isSegmented());
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
-  testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
