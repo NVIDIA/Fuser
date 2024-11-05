@@ -89,7 +89,7 @@ def custom_pointwise_scheduler(fd, config):
         if config is not None:
             vectorization_factor, unroll_factor = config
             schedule_params.vectorization_factor = vectorization_factor
-            schedule_params.unroll_factor = unroll_factor
+            schedule_params.unroll_factor_inner = unroll_factor
 
         # Schedule fusion
         fd.sched.schedule()

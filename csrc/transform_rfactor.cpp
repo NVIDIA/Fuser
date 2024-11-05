@@ -108,9 +108,6 @@ class ReplayRFactor : public ReplayTransformations {
         loop_ids_.find(mapped) != loop_ids_.end(),
         "Transform traversal failed, modified a node but it was not a loop node.");
 
-    // outer loop size
-    Val* remainder = ceilDiv(mapped->extent(), s->factor());
-
     // Check if we need to mark the outputs as an logical domain meaning this
     // transformation must be present in replays otherwise it breaks the compute
     // definition of the fusion. Iter domains are actually not static, its the
@@ -119,32 +116,27 @@ class ReplayRFactor : public ReplayTransformations {
     bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
         static_logical_ids_.count(s->inner());
 
-    // Manually replay the split, making reduction = false and rfactor = true
-    // outer IterDomain
-    IterDomain* ido =
-        IterDomainBuilder(
-            s->container()->zeroVal(),
-            s->innerSplit() ? remainder : s->factor())
-            .iter_type(
-                rfactor_axes_.count(s->outer()) ? IterType::Reduction
-                                                : IterType::Iteration)
-            .is_rfactor_domain(static_logical_outputs)
-            .build();
+    // Let IterDomain::split determine the correct IterType, except
+    // when the output is a reduction domain but not part of the
+    // rfactored domains. If it isn't involved in the rfactor, it's no
+    // longer a redunction domain
+    std::optional<IterType> outer_iter_type;
+    if (s->outer()->isReduction() && !rfactor_dep_ids_.count(s->outer())) {
+      outer_iter_type = IterType::Iteration;
+    }
 
-    // inner IterDomain
-    IterDomain* idi =
-        IterDomainBuilder(
-            s->container()->zeroVal(),
-            s->innerSplit() ? s->factor() : remainder)
-            .iter_type(
-                rfactor_axes_.count(s->inner()) ? IterType::Reduction
-                                                : IterType::Iteration)
-            .is_rfactor_domain(static_logical_outputs)
-            .build();
+    std::optional<IterType> inner_iter_type;
+    if (s->inner()->isReduction() && !rfactor_dep_ids_.count(s->inner())) {
+      inner_iter_type = IterType::Iteration;
+    }
 
-    // Generate the split node
-    IrBuilder::createInContainer<Split>(
-        s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
+    auto [ido, idi] = IterDomain::split(
+        mapped,
+        s->factor(),
+        s->innerSplit(),
+        static_logical_outputs,
+        outer_iter_type,
+        inner_iter_type);
 
     // Remove mapped id from loop IDs
     loop_ids_.erase(mapped);
@@ -182,23 +174,20 @@ class ReplayRFactor : public ReplayTransformations {
         id_inner_mapped,
         " however one or both are not loop nodes.");
 
-    Val* merged_id_size =
-        mul(id_outer_mapped->extent(), id_inner_mapped->extent());
+    // Let IterDomain::merge determine the correct IterType, except
+    // when the output is a reduction domain but not part of the
+    // rfactored domains. If it isn't involved in the rfactor, it's no
+    // longer a redunction domain
+    std::optional<IterType> iter_type;
+    if (m->out()->isReduction() && !rfactor_dep_ids_.count(m->out())) {
+      iter_type = IterType::Iteration;
+    }
 
-    bool is_bcast =
-        id_outer_mapped->isBroadcast() && id_inner_mapped->isBroadcast();
-    auto iter_type = rfactor_axes_.count(m->out())
-        ? IterType::Reduction
-        : (is_bcast ? IterType::Broadcast : IterType::Iteration);
-
-    IterDomain* merged_id =
-        IterDomainBuilder(m->container()->zeroVal(), merged_id_size)
-            .iter_type(iter_type)
-            .is_rfactor_domain(static_logical_ids_.count(m->out()))
-            .build();
-
-    IrBuilder::createInContainer<Merge>(
-        m->container(), merged_id, id_outer_mapped, id_inner_mapped);
+    IterDomain* merged_id = IterDomain::merge(
+        id_outer_mapped,
+        id_inner_mapped,
+        static_logical_ids_.count(m->out()),
+        iter_type);
 
     // Remove inputs from the loop IDs
     loop_ids_.erase(id_outer_mapped);
@@ -236,6 +225,9 @@ class ReplayRFactor : public ReplayTransformations {
   // The IterDomains in the original_domain that are being factored into the
   // first stage of the two stage reduction (the producer).
   std::unordered_set<IterDomain*> rfactor_axes_;
+  // All iter domains between the logical and the loop that the
+  // rfactor_axes_ depend on
+  std::unordered_set<IterDomain*> rfactor_dep_ids_;
   // Iter domains whose history cannot be changed as it would break rfactor
   // dependencies.
   std::unordered_set<IterDomain*> static_logical_ids_;
@@ -262,6 +254,14 @@ class ReplayRFactor : public ReplayTransformations {
         rfactor_axes_(std::move(rfactor_axes)),
         static_logical_ids_(std::move(static_logical_ids)),
         logical_domain_(original_domain->logical()) {
+    const auto all_dep_vals = DependencyCheck::getAllValsBetween(
+        {original_domain->maybeRoot().begin(),
+         original_domain->maybeRoot().end()},
+        {rfactor_axes_.begin(), rfactor_axes_.end()});
+
+    auto all_dep_ids = ir_utils::filterByType<IterDomain>(all_dep_vals);
+    rfactor_dep_ids_.insert(all_dep_ids.begin(), all_dep_ids.end());
+
     setErrorOnFailure(false);
   }
 };

@@ -465,11 +465,6 @@ class NVF_API Fusion : public IrContainer {
   }
 
  private:
-  // Determine if the two values are compatible for aliasing
-  // Same DataType, ValType, and number of dimensions
-  bool isAliasCompatible(Val* left, Val* right);
-
- private:
   // Fusion inputs and outputs
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
