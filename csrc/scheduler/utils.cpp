@@ -1198,12 +1198,36 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(tv)) {
+        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp>(tv)) {
       // Right now, tensors that are input to the slice, select, and pad ops
       // can't be cached as they must be in global memory.
       continue;
     }
-    auto cached_tv = tv->cacheAfter();
+
+    // TODO: might need to reverse this when scheduler handles pad directly
+    // Do not insert a cache for pad as vectorization needs to be
+    // done directly.
+    //
+    // Note that this means that if an input is padded and also is
+    // used without padding, it will be read twice, once for pad and
+    // once more for caching load. It would make sense to use the PTX
+    // caching load instructions.
+    std::unordered_set<Expr*> cached_uses;
+    for (auto use : tv->uses()) {
+      if (!use->isA<PadOp>()) {
+        cached_uses.insert(use);
+      }
+    }
+
+    if (cached_uses.empty()) {
+      continue;
+    }
+
+    auto cached_tv = tv->cacheAfter(
+        /*op_type=*/LoadStoreOpType::Set,
+        /*cache_op=*/CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/true,
+        /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;

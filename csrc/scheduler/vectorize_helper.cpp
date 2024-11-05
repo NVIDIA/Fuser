@@ -399,9 +399,9 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     // compute the actual vectorization factor.
 
     // does index of the resize dimension matter?
-    // pad we can only support innermost dimensions. (Unless we lift the
-    // conditional). slice only impacts vectorization when it's in the collapsed
-    // innermost dimensions.
+    // pad needs to consider the gcd on each padded length. I think slice needed
+    // the same thing, which looks a bit strange when the prototype PR only
+    // takes the offset into consideration.
 
     IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
     IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();

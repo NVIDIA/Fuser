@@ -1168,15 +1168,26 @@ TensorView* TensorView::cacheFork() {
 TensorView* TensorView::cacheAfter(
     LoadStoreOpType op_type,
     CacheOp cache_op,
-    bool propagate_allocation_domain) {
+    bool propagate_allocation_domain,
+    const std::unordered_set<Expr*>& cached_uses) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
+  auto target_uses = fusion()->unordered_uses(this);
+  if (!cached_uses.empty()) {
+    for (auto use : cached_uses) {
+      NVF_ERROR(
+          target_uses.count(use),
+          "cached_uses is not among the use of the TensorView");
+    }
+    target_uses = cached_uses;
+  }
+
   // Get all the uses for this Tensorview
   NVF_CHECK(
-      !uses().empty(),
+      !target_uses.empty(),
       "Error adding cacheAfter ",
       this,
       " we restrict using cacheAfter on tensors that have no further uses.");
@@ -1198,7 +1209,7 @@ TensorView* TensorView::cacheAfter(
   // input and the outputs of its consumers have computeAt. Make sure
   // we no longer rely on that behavior.
   if (isFusionInput()) {
-    for (const auto& expr : uses()) {
+    for (const auto& expr : target_uses) {
       for (TensorView* output :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         NVF_CHECK(
@@ -1241,7 +1252,7 @@ TensorView* TensorView::cacheAfter(
   // After:  This TV -> [Set Op] -> New CA TV -> [Use Op] -> Next TV
 
   // Expr* consumer_uses =
-  for (auto expr : fusion()->unordered_uses(this)) {
+  for (auto expr : target_uses) {
     ir_utils::replaceValInExprInputs(expr, this, consumer);
   }
 
