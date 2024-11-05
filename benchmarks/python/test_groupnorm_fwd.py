@@ -148,7 +148,7 @@ def test_groupnorm_fwd_baseline_benchmark(
     benchmark_fn = {
         "eager": groupnorm_fwd,
         "torchcompile": torch.compile(groupnorm_fwd),
-        "thunder": thunder.jit(groupnorm_fwd, , nv_enable_bookend=False, executors=[nvfuserex])
+        "thunder": thunder.jit(groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex])
     }
     run_benchmark(
         benchmark,
