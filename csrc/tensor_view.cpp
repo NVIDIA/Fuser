@@ -1201,9 +1201,9 @@ TensorView* TensorView::cacheAfter(
   // disallow cache on operation where we require data remain in global memory.
   for (auto use : target_uses) {
     NVF_ERROR(
-        !use->isOneOf<SliceOp, SelectOp, PadOp>() &&
+        !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
             !(use->isA<IndexSelectOp>() && use->input(0) == this),
-        "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.")
+        "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.");
   }
 
   // It also did additional transformation when this tensor is an
