@@ -8,6 +8,8 @@ import torch
 import itertools
 import random
 from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType
+from dataclasses import dataclass
+
 
 # ============================ Description ============================
 
@@ -35,15 +37,8 @@ from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType
 
 # Settings for input tensor generation
 num_dimensions = 2
-outer_shapes = [16384]
+outer_shapes = [256]
 inner_shapes = [2**i for i in range(5, 15)]
-
-# For pointwise scheduler, we test the cartesian product of vectorization and
-# unroll factors.
-parameter_configurations = [
-    vectorize_range := [1, 2, 4, 8],
-    unroll_range := list(range(1, 10)),
-]
 
 # We profile a range of input shapes with various configurations.
 # This argument determines how much of the profiled data to keep as a test set.
@@ -54,6 +49,25 @@ empirical_batch_size = 16384
 
 # The range of hidden sizes for empirical and nvfuser comparision.
 empirical_hidden_sizes = list(range(256, 28672, 256))
+
+
+# For pointwise scheduler, we test the cartesian product of vectorization and
+# unroll factors.
+def generate_parameter_configurations(num_dimensions):
+    breakpoints = range(num_dimensions)
+    vectorize_range = [1, 2, 4, 8]
+    unroll_ranges_1d = [[1], list(range(1, 10))]
+    unroll_ranges_2d = [list(range(1, 4)), list(range(1, 4))]
+
+    configs = []
+    for bp in breakpoints:
+        unroll_range = unroll_ranges_1d if bp == 0 else unroll_ranges_2d
+        outer_unroll_range, inner_unroll_range = unroll_range
+        config = itertools.product(
+            [bp], vectorize_range, outer_unroll_range, inner_unroll_range
+        )
+        configs.append(config)
+    return itertools.chain(*configs)
 
 
 # A decorator to create a pointwise fusion given some input arguments.
@@ -116,9 +130,11 @@ def custom_pointwise_scheduler(fd, config):
 
         # Modify original parameters
         if config is not None:
-            vectorization_factor, unroll_factor = config
-            schedule_params.vectorization_factor = vectorization_factor
-            schedule_params.unroll_factor_inner = unroll_factor
+            break_point, vectorize_factor, outer_unroll, inner_unroll = config
+            schedule_params.break_point = break_point
+            schedule_params.vectorization_factor = vectorize_factor
+            schedule_params.unroll_factor_outer = outer_unroll
+            schedule_params.unroll_factor_inner = inner_unroll
 
         # Schedule fusion
         fd.sched.schedule()
@@ -156,7 +172,7 @@ def argmax(map_config_to_perf):
 def find_best_parameters(predictor, input_shape, parameter_configurations):
     map_config_to_performance = {
         config: predictor.predict([[*input_shape, *config]])
-        for config in itertools.product(*parameter_configurations)
+        for config in parameter_configurations
     }
     return argmax(map_config_to_performance)
 
@@ -178,7 +194,7 @@ for shape in itertools.product(outer_shapes, inner_shapes):
         create_fusion_func(inputs)(presched_fd)
 
     # unroll and vectorization configurations
-    for config in itertools.product(vectorize_range, unroll_range):
+    for config in generate_parameter_configurations(num_dimensions):
         perf_metric, _ = run_profile(presched_fd, inputs, config)
         parameters.append((*shape, *config))
         performance.append(perf_metric)
