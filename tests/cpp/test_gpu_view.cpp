@@ -279,8 +279,8 @@ void reductionViewAddFusion(
   at::Tensor at_bias = at::randn(bias_shape, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -445,8 +445,8 @@ void persistentViewAddFusion(
     at::Tensor at_bias = at::randn(bias_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
@@ -668,8 +668,8 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain2) {
   at::Tensor at_bias = at::randn(output_shape, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -704,8 +704,8 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain3) {
   at::Tensor at_z = at::randn(other_shape, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_z};
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }

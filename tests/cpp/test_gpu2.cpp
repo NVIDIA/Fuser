@@ -5894,8 +5894,8 @@ TEST_F(NVFuserTest, FusionSegmentIslands_CUDA) {
   at::Tensor t0 = at::randn({16, 16}, options);
   at::Tensor t1 = at::randn({16, 16}, options);
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion));
-  fusion_executor_cache.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({t0, t1});
 }
 
 TEST_F(NVFuserTest, FusionBackOffInnerBroadcast_CUDA) {

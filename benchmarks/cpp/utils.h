@@ -40,7 +40,7 @@ std::string toString(LaunchParams lparams);
 //! if not segmented.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     std::vector<c10::IValue>& aten_inputs);
 
 //! Run benchmark iterations with a fusion executor and

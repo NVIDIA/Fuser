@@ -8408,8 +8408,8 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor at_x = at::ones(input_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x};
-    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }

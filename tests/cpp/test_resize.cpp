@@ -3087,23 +3087,23 @@ TEST_P(ResizeTest, ReshapeToPad) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({4, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at_x, 1, 1, 3, 4};
   auto at_y = at::pad(at_x.reshape({3, 4}), {0, 1, 0, 1});
 
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // Assert that we segmented into two segments
   auto seg_fusion =
-      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   EXPECT_TRUE(seg_fusion->isSegmented());
   EXPECT_EQ(seg_fusion->groups().size(), 2);
 
   testValidate(
-      fusion_executor_cache.fusion(),
+      executor_cache.fusion(),
       outputs,
       aten_inputs,
       {at_y},
@@ -3132,23 +3132,23 @@ TEST_F(ResizeTest, ReshapeToSlice) {
   auto tv2 = slice(tv1, {{fusion.zeroVal(), s0}, {fusion.zeroVal(), s1}});
   fusion.addOutput(tv2);
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({4, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at_x, 3, 2, 3, 4};
   auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
 
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // Assert that we segmented into two segments
   auto seg_fusion =
-      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   EXPECT_TRUE(seg_fusion->isSegmented());
   EXPECT_EQ(seg_fusion->groups().size(), 2);
 
   testValidate(
-      fusion_executor_cache.fusion(),
+      executor_cache.fusion(),
       outputs,
       aten_inputs,
       {at_y},
