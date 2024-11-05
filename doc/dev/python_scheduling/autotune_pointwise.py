@@ -135,6 +135,7 @@ def custom_pointwise_scheduler(fd, config):
             schedule_params.vectorization_factor = vectorize_factor
             schedule_params.unroll_factor_outer = outer_unroll
             schedule_params.unroll_factor_inner = inner_unroll
+            schedule_params.lparams.bdimx = 128
 
         # Schedule fusion
         fd.sched.schedule()
@@ -260,7 +261,9 @@ print(
 correctness_count = 0
 mismatch_configs = []
 for shape in test_shapes:
-    estimate_config = find_best_parameters(clf, shape, parameter_configurations)
+    estimate_config = find_best_parameters(
+        clf, shape, generate_parameter_configurations(num_dimensions)
+    )
 
     match_config = estimate_config == best_test_config[shape]
     if not match_config:
@@ -312,7 +315,9 @@ for hidden_shape in empirical_hidden_sizes:
         ),
     ]
     estimate_config = find_best_parameters(
-        clf, (empirical_batch_size, hidden_shape), parameter_configurations
+        clf,
+        (empirical_batch_size, hidden_shape),
+        generate_parameter_configurations(num_dimensions),
     )
 
     with FusionDefinition() as presched_fd:

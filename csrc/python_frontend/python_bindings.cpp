@@ -562,34 +562,45 @@ void verifyShape(const std::vector<int64_t>& shape) {
 }
 
 void defineHeuristicParamBindings(py::module& nvfuser) {
-  py::class_<LaunchParams> launch_parameters(
-      nvfuser, "LaunchParams");
+  py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
   launch_parameters.def(
       py::init<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>());
   launch_parameters.def_property(
       "bdimx",
       [](LaunchParams& self) { return self.bdimx(); },
-      [](LaunchParams& self, int64_t val) { self.bind(val, ParallelType::TIDx); });
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::TIDx);
+      });
   launch_parameters.def_property(
       "bdimy",
       [](LaunchParams& self) { return self.bdimy(); },
-      [](LaunchParams& self, int64_t val) { self.bind(val, ParallelType::TIDy); });
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::TIDy);
+      });
   launch_parameters.def_property(
       "bdimz",
       [](LaunchParams& self) { return self.bdimz(); },
-      [](LaunchParams& self, int64_t val) { self.bind(val, ParallelType::TIDz); });
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::TIDz);
+      });
   launch_parameters.def_property(
       "gdimx",
       [](LaunchParams& self) { return self.gdimx(); },
-      [](LaunchParams& self, int64_t val) { self.bind(val, ParallelType::BIDx); });
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::BIDx);
+      });
   launch_parameters.def_property(
       "gdimy",
       [](LaunchParams& self) { return self.gdimy(); },
-      [](LaunchParams& self, int64_t val) { self.bind(val, ParallelType::BIDy); });
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::BIDy);
+      });
   launch_parameters.def_property(
       "gdimy",
       [](LaunchParams& self) { return self.gdimz(); },
-      [](LaunchParams& self, int64_t val) { self.bind(val, ParallelType::BIDz); });
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::BIDz);
+      });
 
 #define DEFINECLASS(type) py::class_<type>(nvfuser, #type)
 
