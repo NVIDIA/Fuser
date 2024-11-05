@@ -78,8 +78,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     // 1. Constant ints. These might be non-immediate constants
     // 2. Extents of input TVs.
     // 3. Extents of non-input TVs.
-    // Within these three classes, we find the IterDomain with the smallest
-    // name().
+    // Within these three classes, we find the IterDomain with the
+    // smallest name(). For case 3, we also prefer the IterDomain with
+    // the simplest extent, which has the smallest number of defining
+    // expessions.
     bool group_is_const = false;
     IterDomain* rep = nullptr;
     bool rep_is_input_id = false;
@@ -144,7 +146,6 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       }
     }
   }
-
   return simplification_map;
 }
 
@@ -153,10 +154,6 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
   std::unordered_map<Val*, Val*> tensor_dim_map;
-
-  // std::cout << "replaceSymbolicSizes\n";
-  // fusion->print();
-  // std::cout << std::endl;
 
   // Grab inputs and outputs
   std::vector<TensorView*> inputs_and_outputs;
