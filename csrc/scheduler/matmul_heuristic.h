@@ -138,9 +138,6 @@ class MatmulParams : public HeuristicParams {
     }
   } supported_vec_size;
 
-  //! Whether to rotate the ldmatrix out of the main loop
-  bool rotate_ldmatrix_out_of_main_loop = true;
-
   //! (Ampere+) Use cp.async to load operands.
   bool async_gmem_load_operands = false;
 
@@ -191,8 +188,6 @@ class MatmulParams : public HeuristicParams {
        << circular_buffer_options.toString() << "\n"
        << supported_vec_size.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
-       << "Rotate ldmatrix out of main loop: "
-       << (rotate_ldmatrix_out_of_main_loop ? "true" : "false") << "\n"
        << "Async global mem load: "
        << (async_gmem_load_operands ? "true" : "false") << "\n"
        << "Indexing mode: "
@@ -216,9 +211,8 @@ class MatmulParams : public HeuristicParams {
 
   size_t hash() const override {
     // combine boolean flags for hashing
-    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 3) |
-        (static_cast<size_t>(use_smem_epilogue) << 2) |
-        (static_cast<size_t>(rotate_ldmatrix_out_of_main_loop) << 1) |
+    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 2) |
+        (static_cast<size_t>(use_smem_epilogue) << 1) |
         (static_cast<size_t>(async_gmem_load_operands));
 
     // combined hash
@@ -240,8 +234,6 @@ class MatmulParams : public HeuristicParams {
 
     return other->cparams == cparams && other->mma_macro == mma_macro &&
         other->async_gmem_load_operands == async_gmem_load_operands &&
-        other->rotate_ldmatrix_out_of_main_loop ==
-        rotate_ldmatrix_out_of_main_loop &&
         other->tile_sizes == tile_sizes &&
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&
