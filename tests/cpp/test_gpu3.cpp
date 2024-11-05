@@ -8902,6 +8902,32 @@ TEST_F(NVFuserTest, RfactorIntermediateIDs) {
   EXPECT_TRUE(merge_out->isReduction());
 }
 
+// Simple test to make sure replacement with a dependent val is
+// detected as an error
+TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto i0 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(i0);
+
+  auto i1 = mul(i0, IrBuilder::create<Val>(1, DataType::Int));
+
+  auto tv0 = TensorViewBuilder().shape({i1}).build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::unordered_map<Val*, Val*> replacement_map;
+  replacement_map.emplace(i0, i1);
+
+  EXPECT_THAT(
+      [&]() { ir_utils::replaceValue(&fusion, replacement_map); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "not allowed as it would result in a recursive definition")));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
