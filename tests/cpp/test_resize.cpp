@@ -4078,9 +4078,9 @@ TEST_F(ResizeTest, VectorizePadLowering) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {4, 4});
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
@@ -4114,9 +4114,9 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({at::Scalar(false), t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.
