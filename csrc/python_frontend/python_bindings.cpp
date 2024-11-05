@@ -781,9 +781,18 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   defineHeuristicParamBindings(nvfuser);
 
+  // TODO Use macros
   py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
       nvfuser, "SchedulerHyperParameters");
-  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def(
+      py::init<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def_property(
+      "break_point",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.break_point;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t break_point_) { self.break_point = break_point_; });
   hyperparameters.def_property(
       "vectorize_factor",
       [](scheduler_utils::SchedulerHyperParameters& self) {
@@ -794,12 +803,23 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.vectorize_factor = vectorize_factor_;
       });
   hyperparameters.def_property(
-      "unroll_factor",
+      "outer_unroll_factor",
       [](scheduler_utils::SchedulerHyperParameters& self) {
-        return self.unroll_factor;
+        return self.outer_unroll_factor;
       },
       [](scheduler_utils::SchedulerHyperParameters& self,
-         int64_t unroll_factor_) { self.unroll_factor = unroll_factor_; });
+         int64_t outer_unroll_factor_) {
+        self.outer_unroll_factor = outer_unroll_factor_;
+      });
+  hyperparameters.def_property(
+      "inner_unroll_factor",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.inner_unroll_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t inner_unroll_factor_) {
+        self.inner_unroll_factor = inner_unroll_factor_;
+      });
   hyperparameters.def_property(
       "threads_per_block_min",
       [](scheduler_utils::SchedulerHyperParameters& self) {
@@ -3878,8 +3898,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             sched->data_cache.get(), []() {
               return std::make_unique<
                   scheduler_utils::SchedulerHyperParameters>(
+                  /*break_point=*/0,
                   /*vectorize_factor=*/1,
-                  /*unroll_factor=*/1,
+                  /*outer_unroll_factor=*/1,
+                  /*inner_unroll_factor=*/1,
                   /*threads_per_block_min=*/1,
                   /*threads_per_block_max=*/1);
             });

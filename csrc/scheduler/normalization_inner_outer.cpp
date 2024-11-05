@@ -750,8 +750,10 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
           data_cache, [&]() {
             return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
+                /*break_point*/ 0,
                 /*vectorize_factor=*/vectorize_factor,
-                /*unroll_factor=*/1,
+                /*outer_unroll_factor=*/1,
+                /*inner_unroll_factor=*/1,
                 /*threads_per_block_min=*/
                 InnerOuterPersistentKernelScheduler::threads_per_block_min,
                 /*threads_per_block_max=*/
@@ -1282,8 +1284,10 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
           data_cache, [&]() {
             return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
+                /*break_point=*/0,
                 /*vectorize_factor=*/vectorize_factor,
-                /*unroll_factor=*/1,
+                /*outer_unroll_factor=*/1,
+                /*inner_unroll_factor=*/1,
                 /*threads_per_block_min=*/
                 InnerOuterPersistentKernelScheduler::threads_per_block_min,
                 /*threads_per_block_max=*/

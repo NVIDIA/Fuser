@@ -179,20 +179,30 @@ inline void parallelizeAllLike(
 // HeuristicParams for the scheduler.
 struct SchedulerHyperParameters {
   SchedulerHyperParameters(
+      int64_t break_point_,
       int64_t vectorize_factor_,
-      int64_t unroll_factor_,
+      int64_t outer_unroll_factor_,
+      int64_t inner_unroll_factor_,
       int64_t threads_per_block_min_,
       int64_t threads_per_block_max_)
-      : vectorize_factor(vectorize_factor_),
-        unroll_factor(unroll_factor_),
+      : break_point(break_point_),
+        vectorize_factor(vectorize_factor_),
+        outer_unroll_factor(outer_unroll_factor_),
+        inner_unroll_factor(inner_unroll_factor_),
         threads_per_block_min(threads_per_block_min_),
         threads_per_block_max(threads_per_block_max_) {}
+
+  //! Which iterDomain to divide pointwise scheduler into 2D scheduler?
+  int64_t break_point = 0;
 
   //! Number of elements to load per vectorize load.
   int64_t vectorize_factor = 1;
 
   //! Number of iterations to unroll for-loop.
-  int64_t unroll_factor = 1;
+  int64_t outer_unroll_factor = 1;
+
+  //! Number of iterations to unroll for-loop.
+  int64_t inner_unroll_factor = 1;
 
   //! Minimum number of threads per block.
   int64_t threads_per_block_min = 1;
