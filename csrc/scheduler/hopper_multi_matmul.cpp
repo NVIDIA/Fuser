@@ -884,7 +884,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
     //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
-    TensorView* smem_epilogue = mma_result;
+    TensorView* smem_epilogue;
     if (params_->use_smem_epilogue) {
       // Note that for split-K
       //   splitk_sum = sum(mma_result)
@@ -914,16 +914,16 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     // TODO: Lift this constraint. Use commitLeafToLogical if necessary. We
     // might just want to match using id_roles_
     NVF_ERROR(merged_roles.size() >= 3);
-    const auto checkSingleDimRole = [&merged_roles](
-                                        int pos, MatmulDimRole expected_role) {
-      if (pos < 0) {
-        pos += merged_roles.size();
-      }
-      NVF_ERROR(pos >= 0);
-      NVF_ERROR(pos < (int)merged_roles.size());
-      const auto& actual_role = merged_roles[(size_t)pos];
-      NVF_ERROR(actual_role == expected_role);
-    };
+    const auto checkSingleDimRole =
+        [&merged_roles](int64_t pos, MatmulDimRole expected_role) {
+          if (pos < 0) {
+            pos += (int64_t)merged_roles.size();
+          }
+          NVF_ERROR(pos >= 0);
+          NVF_ERROR(pos < (int64_t)merged_roles.size());
+          const auto& actual_role = merged_roles[(size_t)pos];
+          NVF_ERROR(actual_role == expected_role);
+        };
     checkSingleDimRole(-3, MatmulDimRole::M);
     checkSingleDimRole(-2, MatmulDimRole::N);
     checkSingleDimRole(-1, MatmulDimRole::K);
