@@ -91,7 +91,7 @@ def test_softmax_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
@@ -100,9 +100,9 @@ def test_softmax_bwd_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     reduction_axis: int,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
@@ -110,12 +110,15 @@ def test_softmax_bwd_baseline_benchmark(
     def softmax_fwd():
         return torch.nn.functional.softmax(input, dim=reduction_axis)
 
-    fwd_fn = torch.compile(softmax_fwd) if compile else softmax_fwd
-    output = fwd_fn()
+    fwd_fn = {
+        "eager": softmax_fwd,
+        "torchcompile": torch.compile(softmax_fwd)
+    }
+    outputs = fwd_fn[executor]()
 
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [output, grads],
+        [outputs, grads],
         iobytes=softmax_bwd_iobytes(size, dtype),
     )

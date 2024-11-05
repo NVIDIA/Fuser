@@ -79,16 +79,16 @@ def test_silu_mul_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [grads, x, y])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_silu_mul_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     x = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     y = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
@@ -98,12 +98,15 @@ def test_silu_mul_bwd_baseline_benchmark(
         return torch.nn.functional.silu(x) * y
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = torch.compile(silu_mul_fwd) if compile else silu_mul_fwd
-    eager_output = fwd_fn()
+    fwd_fn = {
+        "eager": silu_mul_fwd,
+        "torchcompile": torch.compile(silu_mul_fwd)
+    }
+    outputs = fwd_fn[executor]()
 
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [eager_output, grads],
+        [outputs, grads],
         iobytes=silu_mul_bwd_iobytes(size, dtype),
     )

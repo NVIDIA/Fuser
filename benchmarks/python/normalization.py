@@ -433,10 +433,10 @@ def norm_fwd_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     channels_last: bool,
-    compile: bool,
+    executor: str,
     norm: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
@@ -452,11 +452,16 @@ def norm_fwd_baseline_benchmark(
         inputs = inputs.to(memory_format=torch.channels_last)
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
+    
+    benchmark_fn = {
+        "eager": norm_fwd_fn,
+        "torchcompile": torch.compile(norm_fwd_fn)
+    }
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(norm_fwd_fn) if compile else norm_fwd_fn,
+        benchmark_fn[executor],
         [inputs, weight, bias, running_mean, running_var],
         iobytes=norm_fwd_iobytes(size, dtype, norm),
     )
@@ -467,10 +472,10 @@ def norm_bwd_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     channels_last: bool,
-    compile: bool,
+    executor: str,
     norm: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
@@ -491,13 +496,16 @@ def norm_bwd_baseline_benchmark(
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
     # Compile the fwd fn for torchcompile
-    norm_fwd_fn = torch.compile(norm_fwd_fn) if compile else norm_fwd_fn
-    output = norm_fwd_fn([inputs, weight, bias, running_mean, running_var])
+    fwd_fn = {
+        "eager": norm_fwd_fn,
+        "torchcompile": torch.compile(norm_fwd_fn)
+    }
+    outputs = fwd_fn[executor]([inputs, weight, bias, running_mean, running_var])
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [output, grads],
+        [outputs, grads],
         iobytes=norm_bwd_iobytes(size, dtype, norm),
     )

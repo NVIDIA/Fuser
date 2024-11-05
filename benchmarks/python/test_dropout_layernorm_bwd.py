@@ -189,16 +189,16 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
         )
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_layernorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
 
     dropout_p = 0.2
@@ -217,13 +217,16 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
         )
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = torch.compile(dropout_layernorm_fwd) if compile else dropout_layernorm_fwd
-    output = fwd_fn()
+    fwd_fn = {
+        "eager": dropout_layernorm_fwd,
+        "torchcompile": torch.compile(dropout_layernorm_fwd),
+    } 
+    outputs = fwd_fn[executor]()
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [output, grads],
+        [outputs, grads],
         iobytes=dropout_layernorm_bwd_iobytes(size, dtype),
     )
