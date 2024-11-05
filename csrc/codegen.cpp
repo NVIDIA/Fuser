@@ -1078,19 +1078,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               // Vectorized initialization, explicit type conversion is needed
               // for complex numbers
               code_ << kTab << ": " << genVariableName(out_tv) << ".set("
-                    << genCall(out_tv->dtype(), gen(top->in3())) << ")\n";
+                    << genCall(out_tv->dtype(), gen(in)) << ")\n";
             } else {
               // Note: currently arraySet option is not vectorized, so it will
               //  rely on auto vectorization pass of cuda compiler.
               code_ << kTab << ": "
                     << "arraySet<" << out_tv->getDataType().value() << ", "
                     << vector_word_size << ">(&" << gen(top->out()) << ", ("
-                    << out_tv->getDataType().value() << ")" << gen(top->in3())
+                    << out_tv->getDataType().value() << ")" << gen(in)
                     << ")\n";
             }
           } else {
             generateVectorizedLdSt(
-                top->in2(), top->out(), CacheOp::AllLevels, vector_word_size);
+                in, top->out(), CacheOp::AllLevels, vector_word_size);
           }
         };
 

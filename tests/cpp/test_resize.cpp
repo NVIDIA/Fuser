@@ -4087,16 +4087,16 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
   auto s0 = IrBuilder::create<Val>(DataType::Bool);
   fusion.addInput(s0);
   auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv1);
+  fusion.addInput(tv0);
   auto tv1 = where(s0, IrBuilder::create<Val>(2.0), tv0);
   fusion.addOutput(tv1);
 
-  tv3->split(0, 4);
-  tv3->split(0, 128);
+  tv1->split(0, 4);
+  tv1->split(0, 128);
 
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv3->axis(1)->parallelize(ParallelType::TIDx);
-  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -4108,7 +4108,7 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
 
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.
-  ASSERT_TRUE(t1.equal(cg_outputs[0]));
+  ASSERT_TRUE(t0.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser
