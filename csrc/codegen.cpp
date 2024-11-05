@@ -1050,8 +1050,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const TernaryOp* top) final {
-    // Get vectorization information
+    // Note: vectorized TernaryOp looks something like:
+    //   ```
+    //     predicate
+    //       ? LoadGlobalToLocal(&dst[0], &in2[index])
+    //       : arraySet(&dst[0], in3);
+    //   ```
+    //
+    // Current limitation:
+    //   1. only TernaryOpType::Where is supported;
+    //   2. predicate needs to be a scalar;
+    //   3. output needs to be a TensorView;
+    //   4. one and only one of the inputs needs to be a TensorView. (This is
+    //   coming from validation analysis.)
     if (top->out()->isA<kir::TensorIndex>()) {
+      // Get vectorization information
       auto out_tv = top->out()->as<kir::TensorIndex>()->view();
       int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
       bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
@@ -1066,10 +1079,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         NVF_CHECK(
             top->getTernaryOpType() == TernaryOpType::Where,
             "vectorization only works on TernaryOp::where");
-
         indent() << gen(top->in1()) << "\n";
         indent() << kTab << "? ";
-
         auto vec_load = [&out_tv, &top, &vector_word_size, this](Val* in) {
           if (in->isScalar()) {
             if (out_tv->getMemoryType() == MemoryType::Local &&
