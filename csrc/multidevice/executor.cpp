@@ -6,10 +6,12 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
+
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+#include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
