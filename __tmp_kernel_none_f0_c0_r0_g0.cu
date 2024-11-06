@@ -11102,8 +11102,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     mbarrier::arrive(toSmem((&T7[4 + i32])));
   }
   #pragma unroll
-  for(nvfuser_index_t i39 = 0; i39 < 8; ++i39) {
-    if ((b17 && Hopper::electSync(4294967295U))) {
+  if ((b17 && Hopper::electSync(4294967295U))) {
+    for(nvfuser_index_t i39 = 0; i39 < 8; ++i39) {
       mbarrier::inval(toSmem((&T7[i39])));
     }
   }
