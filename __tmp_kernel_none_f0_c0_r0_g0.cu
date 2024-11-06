@@ -10939,9 +10939,9 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   mbarrier::arrive(toSmem((&T7[6])));
   mbarrier::arrive(toSmem((&T7[7])));
   float T2[128];
-  // ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
-  // asm volatile("wgmma.fence.sync.aligned;\n");
-  // asm volatile("fence.proxy.async;\n");
+  ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+  asm volatile("wgmma.fence.sync.aligned;\n");
+  asm volatile("fence.proxy.async;\n");
   #pragma unroll 4
   for(nvfuser_index_t i27 = 0; i27 < i2; ++i27) {
     nvfuser_index_t i29;
@@ -11093,7 +11093,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[127])
       :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i33)) >> 4ULL))),
        "l"((4611686293313683456ULL | ((262143ULL & (uint64_t)(i34)) >> 4ULL))),
-       "r"((uint32_t)(i2 != 0)),
+       "n"((uint32_t)(true)),
        "n"(1),
        "n"(1),
        "n"(1),
