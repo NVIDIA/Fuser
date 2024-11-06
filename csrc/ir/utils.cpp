@@ -1238,6 +1238,32 @@ bool isRecursivelyDefined(Val* val) {
   return false;
 }
 
+int64_t getOperationCount(Val* val) {
+  int64_t num_ops = 0;
+
+  // Start with the given val and recursively count the number of ops
+  // by traversing inputs
+  std::deque<Val*> vals;
+  vals.push_back(val);
+
+  while (!vals.empty()) {
+    auto v = vals.front();
+    vals.pop_front();
+
+    auto def = v->definition();
+    if (def == nullptr) {
+      continue;
+    }
+    ++num_ops;
+
+    for (auto inp : def->inputs()) {
+      vals.push_back(inp);
+    }
+  }
+
+  return num_ops;
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {

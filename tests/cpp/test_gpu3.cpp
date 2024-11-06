@@ -8928,8 +8928,8 @@ TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
           "not allowed as it would result in a recursive definition")));
 }
 
-// Repro of issue #3347
-TEST_F(NVFuserTest, ReplaceSymbolicSizesRepro3347) {
+// Was also a repro of issue #3347
+TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -8962,8 +8962,21 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesRepro3347) {
 
   replaceSymbolicSizes(&fusion);
 
+  // All expr output tensors should use the extent of the tv3 since it
+  // has only one merge, whereas tv2 has two merges
   // All expr output tensors should use the same extent.
   auto ref_ext = fusion.outputs().at(0)->as<TensorView>()->axis(0)->extent();
+
+  // ref_ext should look like getMetaData(T1).logical_size[0] *
+  // getMetaData(T1).logical_size[1]
+  auto ext_def = dynamic_cast<BinaryOp*>(ref_ext->definition());
+  ASSERT_NE(ext_def, nullptr);
+  ASSERT_EQ(ext_def->getBinaryOpType(), BinaryOpType::Mul);
+  auto lhs = ext_def->input(0);
+  auto rhs = ext_def->input(1);
+  ASSERT_NE(dynamic_cast<GetItem*>(lhs->definition()), nullptr);
+  ASSERT_NE(dynamic_cast<GetItem*>(rhs->definition()), nullptr);
+
   for (auto expr : fusion.exprs()) {
     auto tv_output = ir_utils::getTvOutput(expr);
     ASSERT_EQ(tv_output->nDims(), 1);
