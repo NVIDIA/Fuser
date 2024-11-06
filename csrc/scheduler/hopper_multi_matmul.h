@@ -165,6 +165,10 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! defineOperandCaches().
   void scheduleOperandSmemStores();
 
+  //! Check that there is no computation in the prologues, since we do not
+  //! support that (yet)
+  void inspectPrologues() const;
+
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
   void newScheduling();

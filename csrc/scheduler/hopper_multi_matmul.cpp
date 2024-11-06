@@ -543,6 +543,8 @@ void HopperMultipleMatmulScheduler::run() {
   // This also collects mma_results_
   defineOperandCaches();
 
+  inspectPrologues();
+
   scheduleOperandSmemStores();
 
   newScheduling();
@@ -813,6 +815,21 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
   return all_merged_roles;
 }
 
+void HopperMultipleMatmulScheduler::inspectPrologues() const {
+  for (TensorView* mma_result : mma_results_) {
+    for (Val* v : mma_result->definition()->inputs()) {
+      TensorView* op_input = v->as<TensorView>();
+
+      // We currently require all operands to lie in smem, meaning we cannot yet
+      // handle any prologue computation. This includes `BroadcastOp` which
+      // might be introduced when translating a MatmulOp or LinearOp to MmaOp.
+      Expr* def = op_input->definition();
+      NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
+      NVF_ERROR(def->input(0)->isFusionInput());
+    }
+  }
+}
+
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
@@ -980,8 +997,6 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     mma_result->axis(-2)->parallelize(ParallelType::Mma);
     mma_result->axis(-3)->parallelize(ParallelType::Mma);
   }
-
-  return;
 }
 
 void HopperMultipleMatmulScheduler::schedulePrologues() {
