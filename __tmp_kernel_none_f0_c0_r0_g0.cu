@@ -10958,7 +10958,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     i33 = i10 + (4096 * i32);
     unsigned i34;
     i34 = i6 + (8192 * i32);
-    mbarrier::waitParity(toSmem((&T7[(i27 % 4)])), (uint32_t)((i27 / 4U) % 2U));
+    mbarrier::waitParity(toSmem((&T7[i32])), (uint32_t)((i27 / 4U) % 2U));
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
