@@ -11110,8 +11110,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       mbarrier::inval(toSmem((&T7[i39])));
     }
   }
-  // asm volatile("wgmma.commit_group.sync.aligned;\n");
-  // asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
+  asm volatile("wgmma.commit_group.sync.aligned;\n");
+  asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   #pragma unroll
   for(nvfuser_index_t i40 = 0; i40 < 32; ++i40) {
     nvfuser_index_t i41;
