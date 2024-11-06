@@ -3246,18 +3246,18 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 128, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 256, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
