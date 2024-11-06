@@ -10898,7 +10898,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   }
   __syncthreads();
   if (threadIdx.y == 2) {
-    if (threadIdx.x / 32ULL != 0) {
+    if (threadIdx.x / 32 != 0) {
       return;
     }
     asm volatile( "setmaxnreg.dec.sync.aligned.u32 %0;\n" : : "n"(40) );
