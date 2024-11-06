@@ -216,9 +216,17 @@ void FusionKernelRuntime::deserialize(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
+  // find the flatbuffer with the same group_id for SegmentedGroup
+  auto get_buffer = [&](int64_t group_id) {
+    for (auto buffer : *buffer->executors()) {
+      if (buffer->group_id() == group_id) {
+        return buffer;
+      }
+    }
+  };
+
   // 1. Deserialize KernelExecutor objects
-  int64_t ke_id = 0;
-  for (auto idx : c10::irange(buffer->executors()->size())) {
+  for (auto idx : c10::irange(executors_.size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
     // Create and schedule Fusion for this SegmentedGroup
@@ -231,9 +239,16 @@ void FusionKernelRuntime::deserialize(
     FusionGuard fg(fusion_to_run.get());
     SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
         ->schedule(fusion_to_run.get(), heuristic_params);
-    if (auto ke = dynamic_cast<KernelExecutor*>(executors_.at(ke_id++).get())) {
+
+    // Initialize associated executors
+    executors_[group_id] = ExecutorDispatch::makeExecutor(
+        fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+
+    // Deserialize KernelExecutor; Otherwise use ExecutorDispatch
+    if (auto ke =
+            dynamic_cast<KernelExecutor*>(executors_.at(group_id).get())) {
       ke->deserialize(
-          buffer->executors()->Get(group_id),
+          get_buffer(group_id),
           fusion_to_run.get(),
           device_index,
           heuristic_params->cparams,
@@ -242,6 +257,14 @@ void FusionKernelRuntime::deserialize(
           concrete_id_,
           runtime_id_,
           group_id);
+    } else {
+      ExecutorDispatch::compile(
+          executors_.at(group_id),
+          fusion_to_run.get(),
+          args_metadata_,
+          heuristic_params->lparams,
+          heuristic_params->cparams,
+          heuristic_params->scheduler_type);
     }
   }
 }
