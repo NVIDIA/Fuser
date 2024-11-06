@@ -4126,7 +4126,6 @@ TEST_F(ResizeTest, VectorizeFactorFour) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
@@ -4167,6 +4166,8 @@ TEST_F(ResizeTest, VectorizeFactorTwo) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that we vectorize 2
   bool found_vectorize = false;
@@ -4212,6 +4213,8 @@ TEST_F(ResizeTest, VectorizePadNonInnermost) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that we vectorize 4
   bool found_vectorize = false;
@@ -4249,6 +4252,8 @@ TEST_F(ResizeTest, PadAndCacheUses) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that pad vectorize 4
   bool found_vectorize = false;
@@ -4294,7 +4299,6 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 //   // Using a concrete tensor to avoid dynamic reshape
 //   auto tv0 = makeContigConcreteTensor(shape);
 //   fusion.addInput(tv0);
-//
 //   auto tv1 = relu(tv0);
 //   auto tv2 =
 //       pad(tv1,
@@ -4309,6 +4313,8 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 //   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 //   auto t0 = at::randn(shape, options);
 //   std::vector<c10::IValue> aten_inputs({t0});
+//   auto cg_outputs =
+//       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 //
 //   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 //   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
