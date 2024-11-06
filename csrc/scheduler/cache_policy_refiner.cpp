@@ -58,6 +58,12 @@ bool isLoadGlobalToLocal(const Expr* expr) {
   if (ldst->opType() != LoadStoreOpType::Set) {
     return false;
   }
+  // It should not be necessary to check the output since it should be
+  // always a TensorView as long as the input is a TensorView, but
+  // just in case.
+  if (!ldst->in()->isA<TensorView>() || !ldst->out()->isA<TensorView>()) {
+    return false;
+  }
   if (ldst->in()->as<TensorView>()->getMemoryType() != MemoryType::Global) {
     return false;
   }
