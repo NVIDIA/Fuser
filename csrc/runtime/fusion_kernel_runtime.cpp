@@ -226,7 +226,6 @@ void FusionKernelRuntime::deserialize(
   };
 
   // 1. Deserialize KernelExecutor objects
-  int64_t ke_id = 0;
   for (auto idx : c10::irange(executors_.size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
