@@ -52,25 +52,6 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 
   std::unordered_map<Val*, Val*> simplification_map;
 
-  auto get_number_of_defs = [](Val* val) -> int64_t {
-    std::deque<Val*> vals;
-    vals.push_back(val);
-    int64_t num_defs = 0;
-    while (!vals.empty()) {
-      auto v = vals.front();
-      vals.pop_front();
-      auto def = v->definition();
-      if (def == nullptr) {
-        continue;
-      }
-      ++num_defs;
-      for (auto inp : def->inputs()) {
-        vals.push_back(inp);
-      }
-    }
-    return num_defs;
-  };
-
   for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
     // For each ValGroup, find a single extent to use for all extents of
     // IterDomains in the group. These are chosen in descending order of
@@ -103,6 +84,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         rep = id;
         rep_is_input_id = is_input_id;
         group_is_const = ext_is_const;
+        // If neigher const nor input, record the number of exprs
+        if (!ext_is_const && !is_input_id) {
+          rep_num_defs = ir_utils::getOperationCount(id->extent());
+        }
         continue;
       }
 
@@ -128,7 +113,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         if (group_is_const || rep_is_input_id) {
           continue;
         }
-        auto num_defs = get_number_of_defs(id->extent());
+        auto num_defs = ir_utils::getOperationCount(id->extent());
         if (num_defs < rep_num_defs || id->name() < rep->name()) {
           rep = id;
           rep_is_input_id = is_input_id;

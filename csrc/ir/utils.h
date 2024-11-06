@@ -733,4 +733,8 @@ bool isFunctional(const Val* v);
 // such as the Kernel IR
 bool isRecursivelyDefined(Val* val);
 
+// Return the number of operations that are used to define val. One
+// instance of Expr is counted as a single operation.
+int64_t getOperationCount(Val* val);
+
 } // namespace nvfuser::ir_utils

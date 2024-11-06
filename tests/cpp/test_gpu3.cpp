@@ -8929,7 +8929,7 @@ TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
 }
 
 // Was also a repro of issue #3347
-TEST_F(NVFuserTest, PreferSimplerExtents) {
+TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -8967,7 +8967,8 @@ TEST_F(NVFuserTest, PreferSimplerExtents) {
   // All expr output tensors should use the same extent.
   auto ref_ext = fusion.outputs().at(0)->as<TensorView>()->axis(0)->extent();
 
-  // ref_ext should look like getMetaData(T1).logical_size[0] * getMetaData(T1).logical_size[1]
+  // ref_ext should look like getMetaData(T1).logical_size[0] *
+  // getMetaData(T1).logical_size[1]
   auto ext_def = dynamic_cast<BinaryOp*>(ref_ext->definition());
   ASSERT_NE(ext_def, nullptr);
   ASSERT_EQ(ext_def->getBinaryOpType(), BinaryOpType::Mul);
