@@ -342,22 +342,23 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
   // mark output TensorViews as propagation destinations
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  std::vector<TensorView*> dsts;
-  dsts.reserve(output_tvs.size());
+  // std::vector<TensorView*> dsts;
+  // dsts.reserve(output_tvs.size());
   // TODO: instead of exclusion to propagation, this pass should mark it clear
   // that the propagated allocation order is strictly an optimization hint,
   // rather than a semantic requirement coming from computation definition.
   // Scheduler/segmenter would be able to coordinate and discard optimization
   // hint, but they should respect semantic requirement.
   // see issue: https://github.com/NVIDIA/Fuser/pull/2425
-  for (TensorView* output : output_tvs) {
-    if (output->isDefinitionType<LinearOp>() ||
-        output->isDefinitionType<MatmulOp>() ||
-        output->isDefinitionType<MmaOp>()) {
-      continue;
-    }
-    dsts.push_back(output);
-  }
+  // for (TensorView* output : output_tvs) {
+  //   if (output->isDefinitionType<LinearOp>() ||
+  //       output->isDefinitionType<MatmulOp>() ||
+  //       output->isDefinitionType<MmaOp>()) {
+  //     continue;
+  //   }
+  //   dsts.push_back(output);
+  // }
+  std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
 }

@@ -57,11 +57,16 @@ void ExprEvalScheduler::schedule(
       "Invalid heuristic sent to ExprEval scheduler: ",
       params);
 
-  std::for_each(
-      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
-        fusion->aliasOutputToInput(
-            out, /*input=*/nullptr, AllocationType::Evaluate);
-      });
+  for (Val* out: fusion->outputs()){
+    TensorView* out_tv = out->as<TensorView>();
+    if (out_tv->domain()->hasAllocation() && !fusion->getOutputStrideOrder(out_tv).has_value()){
+      // Clear allocation domain
+      auto& alloc_domain = tv->getAllocationDomain();
+      alloc_domain.clear();
+      tv->setAllocationDomain(alloc_domain);
+    }
+    fusion->aliasOutputToInput(out, /*input=*/nullptr, AllocationType::Evaluate);
+  }
 }
 
 std::unique_ptr<HeuristicParams> ExprEvalScheduler::computeHeuristics(
