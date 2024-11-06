@@ -10875,9 +10875,6 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
   __syncthreads();
   if (threadIdx.y == 2) {
     asm volatile( "setmaxnreg.dec.sync.aligned.u32 %0;\n" : : "n"(40));
-    if (threadIdx.x / 32 != 0) {
-      return;
-    }
     if (!Hopper::electSync(4294967295U)) {
       return;
     }
@@ -10885,12 +10882,15 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
     ptr4 = &var0;
     const TensorMap* ptr7;
     ptr7 = &var1;
+    nvfuser_index_t i29;
+    i29 = threadIdx.x / 32;
     #pragma unroll 4
-    for(nvfuser_index_t i27 = 0; i27 < i2; ++i27) {
+    for(nvfuser_index_t i27 = 0; i27 < i2; i27 += 4) {
+      if (i27 + i29 >= i2) {
+        return;
+      }
       nvfuser_index_t i28;
       i28 = 16 * i27;
-      nvfuser_index_t i29;
-      i29 = i27 % 4;
       unsigned i30;
       i30 = i6 + (8192 * i29);
       unsigned i31;
