@@ -10905,7 +10905,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     #pragma unroll 4
     for(nvfuser_index_t i27 = 0; i27 < i2; ++i27) {
       nvfuser_index_t i28;
-      i28 = 48 + (16 * i27);
+      i28 = 16 * i27;
       nvfuser_index_t i29;
       i29 = i27 % 4;
       unsigned i30;
@@ -10944,8 +10944,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   asm volatile("fence.proxy.async;\n");
   #pragma unroll 4
   for(nvfuser_index_t i27 = 0; i27 < i2; ++i27) {
-    nvfuser_index_t i28;
-    i28 = 48 + (16 * i27);
     nvfuser_index_t i29;
     i29 = i27 % 4;
     unsigned i30;
