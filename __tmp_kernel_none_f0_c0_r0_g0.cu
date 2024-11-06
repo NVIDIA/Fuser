@@ -10901,7 +10901,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     }
   }
   __syncthreads();
-  if (threadId.y == 2) {
+  if (threadIdx.y == 2) {
     return;
   }
   mbarrier::arrive(toSmem((&T7[7])));
