@@ -25,30 +25,28 @@ class ExecutorDispatch {
       int64_t runtime_id = -1,
       int64_t group_id = -1);
 
-  static void compile(
-      std::unique_ptr<ExecutorAbstract>& executor,
-      Fusion* fusion);
+  static void compile(ExecutorAbstract* executor, Fusion* fusion);
 
   static void compile(
-      std::unique_ptr<ExecutorAbstract>& executor,
+      ExecutorAbstract* executor,
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
       SchedulerType scheduler_type = SchedulerType::None);
 
-  static bool isCompiled(const std::unique_ptr<ExecutorAbstract>& executor);
+  static bool isCompiled(const ExecutorAbstract* executor);
 
   static std::vector<at::Tensor> run(
-      std::unique_ptr<ExecutorAbstract>& executor,
+      ExecutorAbstract* executor,
       KernelArgumentHolder& args,
       std::vector<at::Tensor> outputs = {});
 
   static std::vector<at::Tensor> run(
-      std::unique_ptr<ExecutorAbstract>& executor,
+      ExecutorAbstract* executor,
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
+      const CompileParams& compile_params = CompileParams(),
       std::vector<at::Tensor> outputs = {});
 
  private:

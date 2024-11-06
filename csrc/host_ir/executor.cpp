@@ -301,7 +301,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
-      std::unique_ptr<ExecutorAbstract>& ea = it->second;
+      ExecutorAbstract* ea = it->second.get();
       KernelArgumentHolder args =
           KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
       outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
@@ -313,7 +313,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           {hu,
            ExecutorDispatch::makeExecutor(
                hu->fusion_to_execute(), 1, 1, 1, 1)});
-      std::unique_ptr<ExecutorAbstract>& ea = it2.first->second;
+      ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
         KernelArgumentHolder args =
             KernelArgumentHolder::createKernelArgumentHolder(input_IValues);

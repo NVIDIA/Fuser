@@ -40,15 +40,13 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
   NVF_THROW("No executor supports provided fusion.");
 }
 
-void ExecutorDispatch::compile(
-    std::unique_ptr<ExecutorAbstract>& executor,
-    Fusion* fusion) {
+void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     hire->compile(fusion);
     return;
   }
-  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
+  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     eee->compile(fusion);
     return;
   }
@@ -60,7 +58,7 @@ void ExecutorDispatch::compile(
 }
 
 void ExecutorDispatch::compile(
-    std::unique_ptr<ExecutorAbstract>& executor,
+    ExecutorAbstract* executor,
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -68,15 +66,15 @@ void ExecutorDispatch::compile(
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     hire->compile(fusion);
     return;
   }
-  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
+  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     eee->compile(fusion);
     return;
   }
-  if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+  if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     ke->compile(
         fusion, args, launch_constraints, compile_params, scheduler_type);
     return;
@@ -84,55 +82,54 @@ void ExecutorDispatch::compile(
   NVF_THROW("Unsupported Executor detected.");
 }
 
-bool ExecutorDispatch::isCompiled(
-    const std::unique_ptr<ExecutorAbstract>& executor) {
+bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
   if (!executor) {
     return false;
   }
   FUSER_PERF_SCOPE("ExecutorDispatch::isCompiled");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<const HostIrExecutor*>(executor)) {
     return hire->isCompiled();
   }
-  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
+  if (auto eee = dynamic_cast<const ExprEvalExecutor*>(executor)) {
     return eee->isCompiled();
   }
-  if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+  if (auto ke = dynamic_cast<const KernelExecutor*>(executor)) {
     return ke->isCompiled();
   }
   NVF_THROW("Unsupported Executor detected.");
 }
 
 std::vector<at::Tensor> ExecutorDispatch::run(
-    std::unique_ptr<ExecutorAbstract>& executor,
+    ExecutorAbstract* executor,
     KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     return hire->run(args, outputs);
   }
-  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
+  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     return eee->run(args, outputs);
   }
-  if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+  if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     return ke->run(args, LaunchParams(), CompileParams(), outputs);
   }
   NVF_THROW("Unsupported Executor detected.");
 }
 
 std::vector<at::Tensor> ExecutorDispatch::run(
-    std::unique_ptr<ExecutorAbstract>& executor,
+    ExecutorAbstract* executor,
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params,
+    const CompileParams& compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run2");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     return hire->run(args, outputs);
   }
-  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
+  if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     return eee->run(args, outputs);
   }
-  if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+  if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     return ke->run(args, launch_constraints, compile_params, outputs);
   }
   NVF_THROW("Unsupported Executor detected.");

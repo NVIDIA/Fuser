@@ -155,7 +155,7 @@ bool FusionKernelRuntime::isCompiled() const {
   std::lock_guard<std::mutex> guard(mutex_);
   return std::all_of(
       executors_.begin(), executors_.end(), [](const auto& executor) {
-        return ExecutorDispatch::isCompiled(executor);
+        return ExecutorDispatch::isCompiled(executor.get());
       });
 }
 
@@ -258,7 +258,7 @@ void FusionKernelRuntime::deserialize(
           group_id);
     } else {
       ExecutorDispatch::compile(
-          executors_.at(group_id),
+          executors_.at(group_id).get(),
           fusion_to_run.get(),
           args_metadata_,
           heuristic_params->lparams,
@@ -638,10 +638,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
-  auto& ea = executors_.at(group_id);
+  ExecutorAbstract* ea = executors_.at(group_id).get();
 
   if (profiling_) {
-    most_recent_executor_log_.fusion_executor = ea.get();
+    most_recent_executor_log_.fusion_executor = ea;
     most_recent_executor_log_.params = heuristic_params->clone();
   }
 
@@ -649,7 +649,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   // kernel is not compiled. Perhaps the gorup/segment Id needs to be
   // specified to the executor at its constructor.  Currently, initialization
   // is ad hoc.
-  if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
+  if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
   auto outputs = ExecutorDispatch::run(ea, args, launch_params, compile_params);
@@ -687,7 +687,7 @@ void FusionKernelRuntime::compileKernel(
       fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
 
   ExecutorDispatch::compile(
-      executors_.at(group_id),
+      executors_.at(group_id).get(),
       fusion_to_run.get(),
       args,
       heuristic_params->lparams,
