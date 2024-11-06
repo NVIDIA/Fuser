@@ -10849,8 +10849,6 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
   const unsigned smem_offset = 0;
   nvfuser_index_t i2;
   i2 = ceilDiv(T0.logical_size[0LL], 16);
-  nvfuser_index_t i3;
-  i3 = -3 + i2;
   nvfuser_index_t i5;
   i5 = 256 * ((nvfuser_index_t)blockIdx.x);
   __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 16512);
