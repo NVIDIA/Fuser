@@ -17,7 +17,6 @@ namespace nvfuser {
 
 class ExecutorAbstract : public PolymorphicBase, public NonCopyable {
  public:
-  //   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   ExecutorAbstract(
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,

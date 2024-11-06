@@ -32,9 +32,9 @@ HostIrExecutor::HostIrExecutor(
 
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
-  if (fusion->isA<hir::HostIrContainer>()) {
-    return true;
-  }
+  // if (fusion->isA<hir::HostIrContainer>()) {
+  //   return true;
+  // }
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
@@ -298,7 +298,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
     // This path should generally be avoided as it will likely send the fusion
-    // held in HostUnit directly to FusionExecutor which means it will try to
+    // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       std::unique_ptr<ExecutorAbstract>& ea = it->second;

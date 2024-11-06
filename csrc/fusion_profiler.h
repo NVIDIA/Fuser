@@ -22,7 +22,6 @@ namespace nvfuser {
 //! \enum ProfilerState
 //! \brief An enum used to represent the state of a profiling state machine
 enum class ProfilerState {
-  None,
   Ready,
   Running,
   Finished,
@@ -230,7 +229,7 @@ class SegmentProfiler {
   int64_t input_bytes_ = -1;
   int64_t output_bytes_ = -1;
   std::string scheduler_ = "None";
-  ProfilerState kernel_profile_state_ = ProfilerState::None;
+  ProfilerState kernel_profile_state_;
 };
 
 //! \struct FusionProfiler

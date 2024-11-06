@@ -144,9 +144,6 @@ FusionKernelRuntime::FusionKernelRuntime(
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
-  NVF_CHECK(
-      isCompiled(),
-      "Tried to evict cache entries of executors before they were initialized.");
   for (auto& ea : executors_) {
     if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
       ke->evictCache(input_id);
@@ -223,6 +220,8 @@ void FusionKernelRuntime::deserialize(
         return buffer;
       }
     }
+    NVF_THROW(
+        "Could not find the serialized group associated with id: ", group_id);
   };
 
   // 1. Deserialize KernelExecutor objects
