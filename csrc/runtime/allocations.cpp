@@ -405,7 +405,7 @@ namespace {
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Forward traverse split from allocation to logical. Needs to, for example,
@@ -522,7 +522,7 @@ class ForwardTraverseFromAllocToLogical {
  public:
   ForwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -542,7 +542,7 @@ class ForwardTraverseFromAllocToLogical {
 // transformations.
 class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Backward traverse split from allocation to logical. Needs to, for example,
@@ -646,7 +646,7 @@ class BackwardTraverseFromAllocToLogical {
  public:
   BackwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -712,7 +712,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 at::Tensor transformFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
-    ExpressionEvaluator& ee) {
+    const ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
   // Ignore reductions because reductions does not exist in tensor's definition
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());

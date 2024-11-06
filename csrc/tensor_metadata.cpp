@@ -14,6 +14,7 @@
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <runtime/allocations.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {
@@ -365,30 +366,19 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
 
-  if (isSharded(tv)) {
-    auto [unsharded_sizes, unsharded_strides] =
-        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
-    metadata->logical_size_data = std::move(unsharded_sizes);
-    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-    metadata->logical_stride_data = std::move(unsharded_strides);
-    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
-  } else {
-    metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
-  }
+  metadata->alloc_size = input.sizes();
+  metadata->alloc_stride = input.strides();
 
-  if (tv->hasAllocation()) {
-    auto allocation_data =
-        inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-    metadata->alloc_size_data = std::move(allocation_data.first);
-    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-    metadata->alloc_stride_data = std::move(allocation_data.second);
-    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
-  } else {
-    metadata->alloc_size = metadata->logical_size;
-    metadata->alloc_stride = metadata->logical_stride;
-    // TODO: validateAllocationSizesAndStrides
-  }
+  at::Tensor meta_input = at::empty_like(input, at::device(at::kMeta));
+  // FIXME: change size-1 to the device mesh size.
+  meta_input = transformFromAllocationToLogical(meta_input, tv, ee);
+  std::vector<int64_t> logical_sizes = meta_input.sizes().vec();
+  std::vector<int64_t> logical_strides = meta_input.strides().vec();
+  metadata->logical_size_data = std::move(logical_sizes);
+  metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+  metadata->logical_stride_data = std::move(logical_strides);
+  metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+
   return {PolymorphicValue(std::move(struct_))};
 }
 

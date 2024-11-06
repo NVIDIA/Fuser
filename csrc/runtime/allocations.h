@@ -89,7 +89,7 @@ std::vector<GlobalBufferInfo> getBufferInfos(
 at::Tensor transformFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
-    ExpressionEvaluator& ee);
+    const ExpressionEvaluator& ee);
 
 at::Tensor transformFromLogicalToAllocation(at::Tensor tensor, TensorView* tv);
 
