@@ -10851,38 +10851,16 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
   i2 = ceilDiv(T0.logical_size[0LL], 16);
   nvfuser_index_t i3;
   i3 = -3 + i2;
-  const TensorMap* ptr4;
-  ptr4 = &var0;
   nvfuser_index_t i5;
   i5 = 256 * ((nvfuser_index_t)blockIdx.x);
   __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 16512);
   unsigned i6;
   i6 = toSmem(T5);
-  const TensorMap* ptr7;
-  ptr7 = &var1;
   nvfuser_index_t i8;
   i8 = 128 * ((nvfuser_index_t)blockIdx.y);
   __half* T4 = reinterpret_cast<__half*>(array + smem_offset + 128);
   unsigned i9;
   i9 = toSmem(T4);
-  nvfuser_index_t i11;
-  i11 = ((nvfuser_index_t)threadIdx.x) / 4;
-  nvfuser_index_t i12;
-  i12 = 2 * (((nvfuser_index_t)threadIdx.x) % 4);
-  nvfuser_index_t i13;
-  i13 = i11 / 8;
-  nvfuser_index_t i14;
-  i14 = i11 % 8;
-  nvfuser_index_t i15;
-  i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
-  nvfuser_index_t i16;
-  i16 = 8 * T1.logical_size[2LL];
-  bool b17;
-  b17 = ((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL);
-  nvfuser_index_t i18;
-  i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
-  nvfuser_index_t i19;
-  i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
   if ((b17 && Hopper::electSync(4294967295U))) {
     #pragma unroll
@@ -10903,6 +10881,10 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
     if (!Hopper::electSync(4294967295U)) {
       return;
     }
+    const TensorMap* ptr4;
+    ptr4 = &var0;
+    const TensorMap* ptr7;
+    ptr7 = &var1;
     #pragma unroll 4
     for(nvfuser_index_t i27 = 0; i27 < i2; ++i27) {
       nvfuser_index_t i28;
@@ -10927,6 +10909,24 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
     }
     return;
   } else {
+    nvfuser_index_t i11;
+    i11 = ((nvfuser_index_t)threadIdx.x) / 4;
+    nvfuser_index_t i12;
+    i12 = 2 * (((nvfuser_index_t)threadIdx.x) % 4);
+    nvfuser_index_t i13;
+    i13 = i11 / 8;
+    nvfuser_index_t i14;
+    i14 = i11 % 8;
+    nvfuser_index_t i15;
+    i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
+    nvfuser_index_t i16;
+    i16 = 8 * T1.logical_size[2LL];
+    bool b17;
+    b17 = ((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL);
+    nvfuser_index_t i18;
+    i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
+    nvfuser_index_t i19;
+    i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
     mbarrier::arrive(toSmem((&T7[4])));
     mbarrier::arrive(toSmem((&T7[5])));
     mbarrier::arrive(toSmem((&T7[6])));
