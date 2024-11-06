@@ -8928,6 +8928,51 @@ TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
           "not allowed as it would result in a recursive definition")));
 }
 
+// Repro of issue #3347
+TEST_F(NVFuserTest, ReplaceSymbolicSizesRepro3347) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto i0 = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(i0);
+
+  auto tv2 = reshape(tv0, {i0});
+  auto tv3 = reshape(tv1, {i0});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  ExpressionEvaluator expr_eval;
+
+  expr_eval.bind(tv0->axis(0)->extent(), 2L);
+  expr_eval.bind(tv0->axis(1)->extent(), 4L);
+  expr_eval.bind(tv0->axis(2)->extent(), 8L);
+  expr_eval.bind(tv1->axis(0)->extent(), 8L);
+  expr_eval.bind(tv1->axis(1)->extent(), 8L);
+  expr_eval.bind(i0, 64L);
+
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+  DynamicTransform::concretizeFusion(&fusion, &info);
+
+  replaceSymbolicSizes(&fusion);
+
+  // All expr output tensors should use the same extent.
+  auto ref_ext = fusion.outputs().at(0)->as<TensorView>()->axis(0)->extent();
+  for (auto expr : fusion.exprs()) {
+    auto tv_output = ir_utils::getTvOutput(expr);
+    ASSERT_EQ(tv_output->nDims(), 1);
+    auto ext = tv_output->axis(0)->extent();
+    EXPECT_EQ(ref_ext, ext) << "Reference: " << ref_ext->toString()
+                            << ", actual: " << ext->toString();
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
