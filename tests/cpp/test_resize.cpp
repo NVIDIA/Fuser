@@ -4274,8 +4274,8 @@ TEST_F(ResizeTest, PadAndCacheUses) {
   found_vectorize = false;
   auto uops = ir_utils::filterByType<UnaryOp>(exprs).vector();
   EXPECT_EQ(uops.size(), 1);
-  EXPECT_TRUE(uops.at(0)->out()->isA<TensorView>());
-  for (auto id : uops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+  EXPECT_TRUE(uops.at(0)->in()->isA<TensorView>());
+  for (auto id : uops.at(0)->in()->as<TensorView>()->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       EXPECT_EQ(id->extent()->evaluate(), 4);
       found_vectorize = true;
