@@ -10890,7 +10890,7 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
         return;
       }
       nvfuser_index_t i28;
-      i28 = 16 * i27;
+      i28 = 16 * (i27 + i29);
       unsigned i30;
       i30 = i6 + (8192 * i29);
       unsigned i31;
