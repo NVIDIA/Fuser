@@ -59,11 +59,14 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     // 1. Constant ints. These might be non-immediate constants
     // 2. Extents of input TVs.
     // 3. Extents of non-input TVs.
-    // Within these three classes, we find the IterDomain with the smallest
-    // name().
+    // Within these three classes, we find the IterDomain with the
+    // smallest name(). For case 3, we also prefer the IterDomain with
+    // the simplest extent, which has the smallest number of defining
+    // expessions.
     bool group_is_const = false;
     IterDomain* rep = nullptr;
     bool rep_is_input_id = false;
+    int64_t rep_num_defs = 0;
     std::unordered_set<Val*> dynamic_scalars;
     for (Val* v : *group) {
       auto* id = dynamic_cast<IterDomain*>(v);
@@ -81,6 +84,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         rep = id;
         rep_is_input_id = is_input_id;
         group_is_const = ext_is_const;
+        // If neigher const nor input, record the number of exprs
+        if (!ext_is_const && !is_input_id) {
+          rep_num_defs = ir_utils::getOperationCount(id->extent());
+        }
         continue;
       }
 
@@ -106,9 +113,11 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         if (group_is_const || rep_is_input_id) {
           continue;
         }
-        if (id->name() < rep->name()) {
+        auto num_defs = ir_utils::getOperationCount(id->extent());
+        if (num_defs < rep_num_defs || id->name() < rep->name()) {
           rep = id;
           rep_is_input_id = is_input_id;
+          rep_num_defs = num_defs;
           continue;
         }
       }
