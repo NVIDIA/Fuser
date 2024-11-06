@@ -10907,7 +10907,6 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i26)), i28}), toSmem((&T7[i29])) }), (i31 + (2048 * i26)));
       }
     }
-    return;
   } else {
     nvfuser_index_t i11;
     i11 = ((nvfuser_index_t)threadIdx.x) / 4;
