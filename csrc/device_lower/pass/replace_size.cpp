@@ -70,15 +70,18 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       NVF_ERROR(
           id != nullptr, "Expected only IterDomains in exact graph ValGroups");
       bool is_input_id = fusion_input_ids.count(id) > 0;
-      if (rep == nullptr) {
-        rep = id;
-        rep_is_input_id = is_input_id;
-        continue;
-      }
       Val* ext = id->extent();
       bool ext_is_const = ext->isConstInt();
       if (!ext_is_const) {
         dynamic_scalars.insert(ext);
+      }
+
+      // Initializing rep with the first ID
+      if (rep == nullptr) {
+        rep = id;
+        rep_is_input_id = is_input_id;
+        group_is_const = ext_is_const;
+        continue;
       }
 
       if (ext_is_const) {

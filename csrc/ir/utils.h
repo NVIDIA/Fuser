@@ -733,7 +733,4 @@ bool isFunctional(const Val* v);
 // such as the Kernel IR
 bool isRecursivelyDefined(Val* val);
 
-// Check none of the vals are defined recursively
-void validateNoRecursiveDefinition(Fusion* fusion);
-
 } // namespace nvfuser::ir_utils

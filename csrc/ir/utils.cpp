@@ -1239,22 +1239,6 @@ bool isRecursivelyDefined(Val* val) {
   return false;
 }
 
-// This is not guaranteed to work in the presence of recursive
-// definitions, but should be better than nothing
-void validateNoRecursiveDefinition(Fusion* fusion) {
-  auto stmts = StmtSort::getStmts(
-      fusion,
-      /*traverse_members=*/true,
-      /*traverse_attributes=*/true,
-      /*traverse_siblings=*/true);
-  for (auto val : ir_utils::filterByType<Val>(stmts)) {
-    NVF_ERROR(
-        !isRecursivelyDefined(val),
-        "Detected a recursively defined val: ",
-        val->toString());
-  }
-}
-
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {
