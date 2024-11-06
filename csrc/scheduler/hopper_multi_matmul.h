@@ -120,16 +120,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
       const std::vector<TensorView*>& operands,
       std::vector<TensorView*>& smem_operands);
 
-  // We add two LoadStore operators to the inputs of our fusions. The first
-  // one is for a read from global memory and the second one (below) is for a
-  // cache read. As an optimizaton, we avoid adding an operator if there's an
-  // existing LoadStoreOp present. Please note that for the second LoadStore
-  // we don't propagate the allocation domain, since the scheduler sets the
-  // allocation domain in the registers.
-  void addSetsForCacheReads(
-      const std::vector<TensorView*>& tv_smems,
-      std::vector<TensorView*>& tv_rs);
-
   //! Swizzle the M and N outer dimensions after makeTile has been called.
   //! This updates outer_dim_roles if we introduce a new dimension, which can
   //! happen if tv is missing a merged axis, in which case we skip merging after
@@ -194,8 +184,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void setUpInlining();
 
-  // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
-  // transforms have been applied and inlining
   void setUpCircularBuffering();
 
   // Map TensorView's iterDomain to its ValGroup.

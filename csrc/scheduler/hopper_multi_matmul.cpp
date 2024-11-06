@@ -610,32 +610,6 @@ void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
   }
 }
 
-void HopperMultipleMatmulScheduler::addSetsForCacheReads(
-    const std::vector<TensorView*>& tv_smems,
-    std::vector<TensorView*>& tv_rs) {
-  tv_rs.resize(tv_smems.size(), nullptr);
-  for (size_t i : c10::irange(tv_smems.size())) {
-    TensorView* tv_smem = tv_smems[i];
-    TensorView*& tv_r = tv_rs[i];
-
-    // There can be multiple uses for example if we have A @ B1 + A @ B2
-    // then A will be cached to smem then it might be loaded into two
-    // separate register buffers, one for each mma. Instead, we will load
-    // it once into registers then re-use the register buffer for both
-    // mmas.
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
-        ldst && tv_smem->uses().size() == 1) {
-      tv_r = ldst->out()->as<TensorView>();
-    } else {
-      tv_r = cacheAfter(
-          tv_smem,
-          LoadStoreOpType::Set,
-          CacheOp::Unspecified,
-          /*propagate_allocation_domain=*/false);
-    }
-  }
-}
-
 void HopperMultipleMatmulScheduler::swizzleBlockTiles(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
