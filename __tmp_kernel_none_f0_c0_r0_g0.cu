@@ -10908,22 +10908,6 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
       }
     }
   } else {
-    nvfuser_index_t i11;
-    i11 = ((nvfuser_index_t)threadIdx.x) / 4;
-    nvfuser_index_t i12;
-    i12 = 2 * (((nvfuser_index_t)threadIdx.x) % 4);
-    nvfuser_index_t i13;
-    i13 = i11 / 8;
-    nvfuser_index_t i14;
-    i14 = i11 % 8;
-    nvfuser_index_t i15;
-    i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
-    nvfuser_index_t i16;
-    i16 = 8 * T1.logical_size[2LL];
-    nvfuser_index_t i18;
-    i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
-    nvfuser_index_t i19;
-    i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
     mbarrier::arrive(toSmem((&T7[4])));
     mbarrier::arrive(toSmem((&T7[5])));
     mbarrier::arrive(toSmem((&T7[6])));
@@ -11095,6 +11079,22 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
         mbarrier::inval(toSmem((&T7[i39])));
       }
     }
+    nvfuser_index_t i11;
+    i11 = ((nvfuser_index_t)threadIdx.x) / 4;
+    nvfuser_index_t i12;
+    i12 = 2 * (((nvfuser_index_t)threadIdx.x) % 4);
+    nvfuser_index_t i13;
+    i13 = i11 / 8;
+    nvfuser_index_t i14;
+    i14 = i11 % 8;
+    nvfuser_index_t i15;
+    i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
+    nvfuser_index_t i16;
+    i16 = 8 * T1.logical_size[2LL];
+    nvfuser_index_t i18;
+    i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
+    nvfuser_index_t i19;
+    i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
     #pragma unroll
     for(nvfuser_index_t i40 = 0; i40 < 32; ++i40) {
       nvfuser_index_t i41;
