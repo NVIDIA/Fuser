@@ -543,6 +543,10 @@ void HopperMultipleMatmulScheduler::run() {
   // This also collects mma_results_
   defineOperandCaches();
 
+  newScheduling();
+
+  /*
+
   // Schedules:
   //   - global->smem (cp.async)
   //   - smem->register (ldmatrix)
@@ -558,6 +562,8 @@ void HopperMultipleMatmulScheduler::run() {
 
   // schedule splitk_sum
   scheduleSplitKSum();
+
+  */
 
   setUpInlining();
 
@@ -811,6 +817,109 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     }
   }
   return all_merged_roles;
+}
+
+void HopperMultipleMatmulScheduler::newScheduling() {
+  // gmem [K, M, 1] x gmem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> gmem [M, N]
+
+  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
+  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
+  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
+
+  // Create tiles
+  /*
+  tv2->split(-3, cta_m);
+  tv2->split(-2, cta_n);
+  tv2->split(-1, getK(macro));
+  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+  tv2->reorder({{-5, -3}, {-3, -2}});
+  */
+
+  const auto parallelizeBlocks = [&](const std::vector<TensorView*>& tvs) {
+    for (TensorView* tv : tvs) {
+      switch (params_->cta_order) {
+        case MatmulParams::TileRasterizationOrder::RowMajor:
+          tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
+          tv->axis(num_device_and_batch_dims_ + 1)
+              ->parallelize(ParallelType::BIDy);
+          break;
+        case MatmulParams::TileRasterizationOrder::ColumnMajor:
+          tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+          tv->axis(num_device_and_batch_dims_ + 1)
+              ->parallelize(ParallelType::BIDx);
+          break;
+        default:
+          NVF_THROW(
+              "Invalid TileRasterizationOrder passed to Matmul scheduler");
+      }
+    }
+  };
+
+  // Schedule mma results and propagate forward
+  blockTileTensors(mma_results_);
+  parallelizeBlocks(mma_results_);
+  for (TensorView* tv2 : mma_results_) {
+    tv2->split(-3, getM(params_->mma_macro));
+    tv2->split(-2, getN(params_->mma_macro));
+    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
+    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    tv2->reorder({{-4, -3}});
+    tv2->merge(-5);
+    tv2->axis(-4)->parallelize(ParallelType::TIDy);
+
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+  // Schedule operator TMA loads
+  blockTileTensors(acw_smems_);
+  parallelizeBlocks(acw_smems_);
+  for (TensorView* tv0c : acw_smems_) {
+    // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
+    tv0c->reorder({{-3, -1}});
+    MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv0c);
+    tv0c->applyMmaSwizzleForTMALoad(swizzle_type);
+  }
+  blockTileTensors(bcw_smems_);
+  parallelizeBlocks(bcw_smems_);
+  for (TensorView* tv1c : bcw_smems_) {
+    // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
+    tv1c->reorder({{-1, -2}});
+    MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv1c);
+    tv1c->applyMmaSwizzleForTMALoad(swizzle_type);
+  }
+
+  // TODO: schedule epilogue by propagation backward from dc
+  // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
+  // then TMA
+  for (auto& [dc, d] : cached_outputs_) {
+    std::cout << "dc=" << dc->toString() << std::endl;
+    std::cout << "d=" << d->toString() << std::endl;
+    blockTileTensors({dc});
+    blockTileTensors({d});
+    for (auto tv : {dc, d}) {
+      // [..., Mo, No, Mi, Ni]
+      tv->split(-2, getM(params_->mma_macro));
+      tv->split(-1, getN(params_->mma_macro));
+      // [..., Mo, No, Mio, Mii, Nio, Nii]
+      // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+      tv->reorder({{-3, -2}});
+      tv->merge(-4);
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          tv->getLoopDomain());
+      tv->setLoopDomain(s.as<IterDomain*>());
+      tv->axis(-5)->parallelize(ParallelType::TIDy);
+    }
+    parallelizeBlocks({dc});
+    parallelizeBlocks({d});
+    d->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
 }
 
 void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {

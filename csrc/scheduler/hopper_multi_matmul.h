@@ -165,6 +165,8 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! defineOperandCaches().
   void scheduleOperandSmemStores();
 
+  void newScheduling();
+
   void scheduleMmaOperands(
       std::vector<TensorView*>& tvs,
       const std::optional<MmaOperand> operand_type);
