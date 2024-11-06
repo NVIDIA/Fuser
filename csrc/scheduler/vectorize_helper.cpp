@@ -393,16 +393,10 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   };
 
   auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
-    // on top of the usual thing -> offset of tensor could impact vectorization
+    // TODO: resize could affect the offset/pad_extent impacting vectorization
     // factor on the loading inputs. But we shouldn't use that to block the
-    // propagation. we'll resolve it in getTvToContigMergeOfInnerSizeMap when we
-    // compute the actual vectorization factor.
-
-    // does index of the resize dimension matter?
-    // pad needs to consider the gcd on each padded length. I think slice needed
-    // the same thing, which looks a bit strange when the prototype PR only
-    // takes the offset into consideration.
-
+    // propagation. We'll resolve it in getTvToContigMergeOfInnerSizeMap when we
+    // compute the actual vectorization factor on the TensorView affected.
     IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
     IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
 
@@ -413,14 +407,19 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
     auto pos = std::distance(frontier.begin(), it);
     if (resize_in_pad_.count(resize_op) != 0) {
-      // project to frontier.
+      // resize created by PadOp.
+
+      // project resize op to frontier.
       frontier[pos] = id_to;
-      // clear left of resize
+      // clear left of resize, since those are no long contiguous.
       frontier.erase(frontier.begin(), it);
 
       if (recording_) {
-        // FIXME: real analysis is needed here
-        // TODO: test on a single sided pad.
+        // since this is a pad operation, we don't need to worry about the
+        // offset, but rather the pad_extent, which becomes the real buffer on
+        // output. Hence we do GCD among padded extent as well as extent of the
+        // id_from. Note since we are taking the GCD here, I don't think using
+        // id_from or id_to makes a difference.
         auto consumer_factor = getProjectedExtent(id_from);
         auto comp = [](Val* factor, Val* extent) {
           return SimplifyingIrBuilder::whereExpr(
@@ -434,10 +433,9 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
         addProjectedExtent(id_to, consumer_factor);
       }
     } else {
+      // unsupproted resize.
       frontier.erase(frontier.begin(), it + 1);
     }
-    // Note: this should be handled differently depending on the semantics of
-    // the resize op.
   };
 
   // If `from` is [I1, I2, I3, I4], `to` is [I1, I5, I6, I7], where I2 =

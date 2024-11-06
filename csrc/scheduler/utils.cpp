@@ -1314,7 +1314,6 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // Should this be limited to pad only?
         projected_id = resize->in();
       }
     } else {
@@ -1370,7 +1369,6 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        // Should this be limited to pad only?
         projected_id = resize->out();
       }
     } else {

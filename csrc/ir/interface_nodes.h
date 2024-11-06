@@ -482,6 +482,11 @@ class NVF_API TensorView : public Val {
   //!
   //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
+  //! @param cache_op: cache operator, see enum class CacheOp
+  //! @param propagate_allocation_domain: replay allocation domain on cached
+  //! load
+  //! @param cached_uses: if empty, cache all uses; otherwise, only try to cache
+  //! uses in cached_uses.
   TensorView* cacheAfter(
       LoadStoreOpType op_type = LoadStoreOpType::Set,
       CacheOp cache_op = CacheOp::Unspecified,
