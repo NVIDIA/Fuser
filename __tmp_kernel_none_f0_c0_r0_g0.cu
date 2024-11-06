@@ -10911,7 +10911,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       nvfuser_index_t i28;
       i28 = 48 + (16 * i27);
       nvfuser_index_t i29;
-      i29 = (3 + i27) % 4;
+      i29 = i27 % 4;
       unsigned i30;
       i30 = i6 + (8192 * i29);
       unsigned i31;
@@ -10947,7 +10947,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     nvfuser_index_t i28;
     i28 = 48 + (16 * i27);
     nvfuser_index_t i29;
-    i29 = (3 + i27) % 4;
+    i29 = i27 % 4;
     unsigned i30;
     i30 = i6 + (8192 * i29);
     unsigned i31;
