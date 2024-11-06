@@ -379,10 +379,6 @@ void GpuLower::analysis(Fusion* fusion) {
   FusionGuard fg(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
 
-#ifndef NDEBUG
-  ir_utils::validateNoRecursiveDefinition(fusion_);
-#endif
-
   this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
@@ -410,13 +406,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
-
-  // replaceSymbolicSizes had a bug causing recursive definitions,
-  // which also disrupted the subsequent analyses. Make sure the
-  // fusion is still intact.
-#ifndef NDEBUG
-  ir_utils::validateNoRecursiveDefinition(fusion_);
-#endif
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
@@ -536,10 +525,6 @@ void GpuLower::analysis(Fusion* fusion) {
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
-
-#ifndef NDEBUG
-  ir_utils::validateNoRecursiveDefinition(fusion_);
-#endif
 }
 
 kir::Kernel* GpuLower::kernel() const {

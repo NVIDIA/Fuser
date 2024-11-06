@@ -1201,7 +1201,6 @@ bool isFunctional(const Val* v) {
       return false;
     }
   }
-
   return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
 }
 
