@@ -10915,10 +10915,6 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
       i30 = i6 + (8192 * i29);
       unsigned i31;
       i31 = i9 + (4096 * i29);
-      unsigned i33;
-      i33 = i10 + (4096 * i29);
-      unsigned i34;
-      i34 = i6 + (8192 * i29);
       mbarrier::waitParity(toSmem((&T7[4 + i29])), (uint32_t)((i27 / 4U) % 2U));
       mbarrier::arriveExpectTX(toSmem((&T7[i29])), 8192U);
       #pragma unroll
