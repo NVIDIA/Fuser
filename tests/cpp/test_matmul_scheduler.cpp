@@ -3105,13 +3105,13 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -3131,7 +3131,7 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);
 
-  const int M = 32, N = 32, K = 256;
+  const int M = 512, N = 256, K = 256;
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
@@ -3173,7 +3173,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
   gemm_tile.warp_tile = GemmTile(64, 128, 16);
@@ -3318,13 +3318,13 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -3344,7 +3344,7 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);
 
-  const int M = 32, N = 32, K = 256;
+  const int M = 512, N = 256, K = 256;
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
