@@ -1653,12 +1653,9 @@ void KernelExecutor::deserialize(
     int64_t runtime_id,
     int64_t group_id) {
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
-  fusion_id_ = fusion_id;
-  concrete_id_ = concrete_id;
-  runtime_id_ = runtime_id;
-  group_id_ = group_id;
 
   NVF_ERROR(buffer != nullptr, "serde::KernelExecutor is nullptr.");
+  NVF_ERROR(fusion != nullptr, "Fusion is nullptr.");
 
   NVF_ERROR(
       fusion_id == buffer->fusion_id(),
