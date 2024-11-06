@@ -849,7 +849,7 @@ TEST_F(IndexingTest, Reshape) {
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
           return std::string(
-              "( ( ( ( ( i118 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i119 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i120 ) ) / 25 ) * ( ceilDiv(100, 4) ) ) + ( ( ( i118 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i119 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i120 ) ) % 25 ) )");
+              "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
         }
         default:
           return std::string();
@@ -1027,9 +1027,9 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({1, 4});
+  auto tv0 = makeContigConcreteTensor({1, -1});
   fusion.addInput(tv0);
-  auto tv1 = makeContigConcreteTensor({3, 4});
+  auto tv1 = makeContigConcreteTensor({-1, -1});
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
@@ -1507,11 +1507,8 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       // id8 is mapped with id15, which should also be mapped with
       // id18
       IterDomain* id20 = tv2->axis(2);
-      Val* id19_idx = divExpr(id8_idx, id20->extent());
       Val* id20_idx = modExpr(id8_idx, id20->extent());
-      Val* tv2_producer_idx =
-          addExpr(mulExpr(id19_idx, id20->extent()), id20_idx);
-      return tv2_producer_idx;
+      return id20_idx;
     }
   };
 
@@ -2150,6 +2147,11 @@ TEST_F(IndexingTest, DoubleBuffering6) {
           CircularBufferLoopStage::NotApplicable) {
         return nullptr;
       }
+
+      // This loop is double buffered. Since the loop originally has
+      // just a trip count of 2, the double-buffered main loop has a
+      // trip count of 1. Thus, this loop is always trivial
+      loop_indices.at(1) = tv->fusion()->zeroVal();
 
       switch (tv->name()) {
         case 1: {
