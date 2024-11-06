@@ -33,9 +33,6 @@
 #include <scheduler/registry.h>
 #include <utils.h>
 
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/runtime/graph_executor.h>
-
 namespace nvfuser {
 
 FusionExecutorCache::FusionExecutorCache(
@@ -81,15 +78,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         " failed");
   }
 
-  int seq_id = 0;
-  // Record kernel input and output tensors so profiler can construct
-  // the data flow graph
-  RECORD_FUNCTION(
-      "run_fused_kernel",
-      std::vector<c10::IValue>(inputs.begin(), inputs.end()),
-      seq_id);
   auto outputs = kernel_runtime->runWithInputs(args);
-  RECORD_OUTPUTS(outputs);
 
   // Kernel time measurement is off by default
   kernel_runtime->disableKernelTimeMeasurement();
