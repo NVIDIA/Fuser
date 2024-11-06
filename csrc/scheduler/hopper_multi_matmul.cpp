@@ -31,8 +31,10 @@ namespace nvfuser {
 
 namespace {
 
-// Get gcd between megabanks and row stride AND repeated pattern size.
-// If gcd is 1, then there is no swizzle is necessary to resolve bank conflicts.
+// This function returns a pair of integers. The first integer is the gcd
+// between megabanks and row stride. The second integer is the repeat pattern
+// size. If the gcd is 1, then no swizzle is necessary to resolve bank
+// conflicts. In that case, the second integer is irrelevant and -1 is returned.
 std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
     TensorView* shared_mem_tv) {
   NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
@@ -312,6 +314,211 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   } else {
     NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
   }
+}
+
+//! Automatically generates the shared memory swizzled data layout for matmul
+//! epilogue.
+//! The shared mem data layout is always 2D currently, and this utility
+//!  function assumes that the shared_mem_tv has the following structure:
+//!  [tile_row, tile_col]
+//! Returns the domain with swizzle. For the case of legacy swizzle, this
+//! domain must be set as loop domain. For the case of new swizzle, this domain
+//! must be set as allocation domain.
+template <bool legacy = true>
+AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
+
+  // Create Abstract Tensor from shared memory tensor loop domain.
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+
+  if (g == 1) {
+    return swizzle_domain; // No need to swizzle in this case.
+  }
+
+  /* Now we know that we have a g-way bank conflict. How do we remove this
+   * bank conflict? The answer is to mix the storage of different matrices.
+   * We first split the matrices along the row axis into g pieces, each piece
+   * has n/g rows. With this split, each piece occupies exactly one pattern.
+   * We want to use some non-traditional storage to let different pieces of
+   * the same matrix to occupy different patterns.
+   *
+   * Because Z/nZ has n items, each pattern has n/g different items, so we
+   * have in total g different patterns. We want to find the corresponding
+   * `init` values of these g different patterns.
+   *
+   * Consider two different init values `init1` and `init2`. When do they
+   * represent the same pattern? They represent the same pattern if and only
+   * if `f(0; init2)` falls on the pattern of `init1`, that is, there exist an
+   * i such that
+   *   f(i; init1) == f(0; init2)
+   * which simplifies to
+   *   init1 + i * stride == init2
+   *   ==> init2 - init1 == i * stride
+   * What values can `i * stride` be? It can be an arbitrary multiple of g:
+   * i * stride in Z/nZ is (i * stride) % n in Z. Let m = n/g, according to
+   * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
+   *   (i * stride) % n = (i * s) % m * g
+   * Because s coprime with m, we know that for an arbitrary value `j` in
+   * Z/mZ, we can take `i = minv(s) * j` to make `i * s == j`.
+   *
+   * That said, for init values that are off by a multiple of g they
+   * correspond to the same pattern, otherwise they belongs to different
+   * patterns. So, we can use
+   *   init = 0, 1, ..., g - 1
+   * to canonically represent g patterns. Let's call the above
+   * `init` values "pattern id".
+   *
+   * Now we have the idea about how to remove bank conflict: We can do an
+   * inner split of our row dimension by `repeated_pattern_size` to get
+   * (repeat, pattern), then different indices of the "repeat" dimension will
+   * be using the same megabank, and different indices of the "pattern"
+   * dimension will be using different megabank. We don't need to touch the
+   * "pattern" dimension, but we need to play with the "repeat" dimension to
+   * interleave it with matrice ids so that each matrix is distributed across
+   * different banks.
+   *
+   * For example, if we have repeated_pattern_size = 4, we would want to do
+   * something like below:
+   *    +----------+----------+
+   *   0|          |          |
+   *   1| matrix 0 | matrix 1 |
+   *   2|          |          |
+   *   3|          |          |
+   *    +----------+----------+
+   *   4|          |          |
+   *   5| matrix 1 | matrix 0 |
+   *   6|          |          |
+   *   7|          |          |
+   *    +----------+----------+
+   *
+   * We can consider each repeated_pattern_size rows as a gigarow, and each
+   * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
+   * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
+   * nearby megabanks in a gigabank has a distance of `g` megabanks
+   */
+
+  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+  // Each thread vectorized write 2 items, so 8 items per row.
+  //--0--1--2--3
+  //--4--5--6--7
+  //--8--9--10-11
+  //--12-13-14-15
+  //--16-17-18-19
+  //--20-21-22-23
+  //--24-25-26-27
+  //--28-29-30-31
+  constexpr int64_t n_rows = 8;
+  constexpr int64_t n_cols = 8;
+
+  NVF_ERROR(
+      n_rows % repeated_pattern_size == 0,
+      "Can not partition matrix into megarows");
+  int64_t num_gigarows = n_rows / repeated_pattern_size;
+  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
+
+  //   -2   -1
+  // [row, col]
+  if (repeated_pattern_size > 1) {
+    swizzle_domain.split(-2, repeated_pattern_size);
+  }
+  swizzle_domain.split(-1, n_cols);
+  //      -4         -3       -2        -1
+  // [gigarow id, gigarow, matrix id, matrix]
+  swizzle_domain.split(-2, num_gigabanks);
+  //      -5        -4        -3        -2         -1
+  // [gigarow id, gigarow, y outer, gigabank id, matrix]
+  // Note that megabanks inside a gigabank are not contiguous, so the gigabank
+  // id is -2 instead of -3
+
+  /* We want to evenly distribute gigarows across gigabanks, for example, if
+   * we have 7 gigarows and 3 gigabanks, then we might distribute them as:
+   *  +---+
+   *  |x  |
+   *  | x |
+   *  |  x|
+   *  |x  |
+   *  | x |
+   *  |  x|
+   *  |x  |
+   *  +---+
+   * considering all matrices, this is a swizzle function like:
+   *  +---+
+   *  |012|
+   *  |201|
+   *  |120|
+   *  |012|
+   *  |201|
+   *  |120|
+   *  |012|
+   *  +---+
+   * which is a cyclic shift.
+   *
+   * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
+   * row_stride_znz (which is row_stride % num_megabanks), g should also
+   * divide row_stride, because according to the fundamental
+   * division-with-remainder property (see doc/math/integer-division.md):
+   *   row_stride = q * num_megabanks + row_stride_znz
+   * which means, we can just consider each num_gigabanks matrices as a group,
+   * and we always have complete groups (i.e. no group has less than
+   * num_gigabanks matrices). Interleaving the memory of matrices within each
+   * group should be enough to fully remove bank conflict.
+   */
+
+  /* To further simplify the problem, if we assume: */
+  NVF_ERROR(
+      num_gigarows % num_gigabanks == 0,
+      "Requires non-square swizzle, which is not supported yet");
+  /* Then we can partition gigarows into full waves, each wave has
+   * num_gigabanks gigarows. This partition creates square dimensions, making
+   * the swizzle implementation easier */
+
+  //      -5        -4        -3        -2         -1
+  // [gigarow id, gigarow, y outer, gigabank id, matrix]
+  int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
+  swizzle_domain.split(axis_of_gigarow_id, num_gigabanks);
+  //     -6     -5     -4       -3        -2         -1
+  // [wave id, wave, gigarow, y outer, gigabank id, matrix]
+
+  // swizzle wave with gigabank id to make threads in a wave access different
+  // gigabank. Apply swizzle only when shared_mem_tv is stored in shared
+  // memory.
+  // TODO: This is a temporary workaround for the following issue:
+  // For the mma output, we have the following schedule:
+  // rFactor: [...., X, Y] -> mma-swizzle transformations -> loop
+  // For epilogue smem tensor, the schedule is
+  // rFactor: [...., X, Y] -> split -> [...., X1, X2, X3, Y1, Y2, Y3]
+  //   -> swizzle X2, Y2 -> [...., X1, X2', X3, Y1, Y2', Y3]
+  //   -> merge back -> [...., X', Y']
+  //   -> mma-swizzle transformations -> loop
+  // The mma-swizzle transformations for the mma output and epilogue smem
+  // tensor are the same. In indexing, we do require {X, X'} and {Y, Y'} to be
+  // mapped in CA map, however, we currently can not handle that. So we have
+  // to do the same split and merge to the mma output without actually
+  // applying the swizzle, and this check is to detect and handle this
+  // specific case. We should remove this special handling when we fix our CA
+  // mapping.
+  using SwizzleTypeMaybeLegacy =
+      std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
+  if (isPowOf2(num_gigabanks)) {
+    swizzle_domain.swizzle(SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id, -2);
+  } else {
+    swizzle_domain.swizzle(
+        SwizzleTypeMaybeLegacy::CyclicShift, axis_of_gigarow_id, -2);
+  }
+
+  if (legacy) {
+    if (repeated_pattern_size > 1) {
+      swizzle_domain.merge(-6);
+    }
+    swizzle_domain.merge(-5);
+
+    // merge back tile_size_y
+    swizzle_domain.merge(-3);
+    swizzle_domain.merge(-2);
+  }
+
+  return swizzle_domain;
 }
 
 } // namespace
@@ -594,28 +801,6 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
   }
 }
 
-void HopperMultipleMatmulScheduler::parallelizeBlocks(
-    const std::vector<TensorView*>& tvs) const {
-  for (TensorView* tv : tvs) {
-    switch (params_->cta_order) {
-      // TODO: Should we instead check the roles of these dimensions to take the
-      // outermost two M or N axes?
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDy);
-        break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDx);
-        break;
-      default:
-        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
-    }
-  }
-}
-
 void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
@@ -640,6 +825,69 @@ void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   };
   scheduleBranch(as_, acw_smems_, MmaOperand::A);
   scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
+}
+
+void HopperMultipleMatmulScheduler::scheduleMmaOperands(
+    std::vector<TensorView*>& tvs,
+    const std::optional<MmaOperand> operand_type) {
+  auto all_merged_roles = blockTileTensors(tvs);
+  for (size_t i : c10::irange(tvs.size())) {
+    TensorView*& operand = tvs[i];
+    std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
+
+    // At this point we have the following schedule:
+    //   No split-K
+    //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+    //   Split-K
+    //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+    //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
+    // Schedule warp tile
+    // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+
+    if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
+      // TODO:
+      // This is a workaround for a problem that different dimensions in the
+      // loop domain are mapped in the loop graph of IdModel due to the
+      // mapping of compliment IDs. We should remove forwarding completely,
+      // and remove this workaround.
+      operand->split(-2, 1);
+      operand->merge(-3);
+    }
+
+    // NOTE: this applies to either mma_result _or_ ab/bb since both have the
+    // same number of dimensions.
+    // TODO: use the version that uses merged_roles instead here
+    mma_utils::scheduleWarpTileWithReduction(operand, params_->tile_sizes);
+
+    // parallelize Mwo, Nwo by thread
+    operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
+        ->parallelize(ParallelType::TIDz);
+    operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
+        ->parallelize(ParallelType::TIDy);
+  }
+}
+
+void HopperMultipleMatmulScheduler::parallelizeBlocks(
+    const std::vector<TensorView*>& tvs) const {
+  for (TensorView* tv : tvs) {
+    switch (params_->cta_order) {
+      // TODO: Should we instead check the roles of these dimensions to take the
+      // outermost two M or N axes?
+      case MatmulParams::TileRasterizationOrder::RowMajor:
+        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
+        tv->axis(num_device_and_batch_dims_ + 1)
+            ->parallelize(ParallelType::BIDy);
+        break;
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+        tv->axis(num_device_and_batch_dims_ + 1)
+            ->parallelize(ParallelType::BIDx);
+        break;
+      default:
+        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
+    }
+  }
 }
 
 void HopperMultipleMatmulScheduler::scheduleMmaResults() {
