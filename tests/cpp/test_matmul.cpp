@@ -3616,7 +3616,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
   const int64_t cta_m = 2 * getM(macro);
-  const int64_t cta_n = 2 * getN(macro);
+  const int64_t cta_n = 1 * getN(macro);
 
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
   auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
