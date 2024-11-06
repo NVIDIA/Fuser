@@ -366,20 +366,6 @@ std::vector<at::Tensor> allocateOutputs(
   return out_tensors;
 }
 
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocOutputSpace");
-  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
-
-  auto output_info =
-      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
-
-  return allocateOutputs(fusion, output_info, device, expr_eval);
-}
-
 namespace {
 GlobalBufferInfo getBufferInfo(
     ExpressionEvaluator& expr_eval,

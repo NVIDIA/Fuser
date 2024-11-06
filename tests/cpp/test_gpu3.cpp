@@ -8934,6 +8934,64 @@ TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
           "not allowed as it would result in a recursive definition")));
 }
 
+// Was also a repro of issue #3347
+TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto i0 = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(i0);
+
+  auto tv2 = reshape(tv0, {i0});
+  auto tv3 = reshape(tv1, {i0});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  ExpressionEvaluator expr_eval;
+
+  expr_eval.bind(tv0->axis(0)->extent(), 2L);
+  expr_eval.bind(tv0->axis(1)->extent(), 4L);
+  expr_eval.bind(tv0->axis(2)->extent(), 8L);
+  expr_eval.bind(tv1->axis(0)->extent(), 8L);
+  expr_eval.bind(tv1->axis(1)->extent(), 8L);
+  expr_eval.bind(i0, 64L);
+
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+  DynamicTransform::concretizeFusion(&fusion, &info);
+
+  replaceSymbolicSizes(&fusion);
+
+  // All expr output tensors should use the extent of the tv3 since it
+  // has only one merge, whereas tv2 has two merges
+  // All expr output tensors should use the same extent.
+  auto ref_ext = fusion.outputs().at(0)->as<TensorView>()->axis(0)->extent();
+
+  // ref_ext should look like getMetaData(T1).logical_size[0] *
+  // getMetaData(T1).logical_size[1]
+  auto ext_def = dynamic_cast<BinaryOp*>(ref_ext->definition());
+  ASSERT_NE(ext_def, nullptr);
+  ASSERT_EQ(ext_def->getBinaryOpType(), BinaryOpType::Mul);
+  auto lhs = ext_def->input(0);
+  auto rhs = ext_def->input(1);
+  ASSERT_NE(dynamic_cast<GetItem*>(lhs->definition()), nullptr);
+  ASSERT_NE(dynamic_cast<GetItem*>(rhs->definition()), nullptr);
+
+  for (auto expr : fusion.exprs()) {
+    auto tv_output = ir_utils::getTvOutput(expr);
+    ASSERT_EQ(tv_output->nDims(), 1);
+    auto ext = tv_output->axis(0)->extent();
+    EXPECT_EQ(ref_ext, ext) << "Reference: " << ref_ext->toString()
+                            << ", actual: " << ext->toString();
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
