@@ -821,6 +821,26 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
   return all_merged_roles;
 }
 
+void HopperMultipleMatmulScheduler::parallelizeBlocks(
+    const std::vector<TensorView*>& tvs) {
+  for (TensorView* tv : tvs) {
+    switch (params_->cta_order) {
+      case MatmulParams::TileRasterizationOrder::RowMajor:
+        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
+        tv->axis(num_device_and_batch_dims_ + 1)
+            ->parallelize(ParallelType::BIDy);
+        break;
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+        tv->axis(num_device_and_batch_dims_ + 1)
+            ->parallelize(ParallelType::BIDx);
+        break;
+      default:
+        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
+    }
+  }
+}
+
 void HopperMultipleMatmulScheduler::newScheduling() {
   // gmem [K, M, 1] x gmem [K, 1, N] -mma-> register [M, N, rK]
   // register [M, N, rK] -cast-> gmem [M, N]
@@ -838,26 +858,6 @@ void HopperMultipleMatmulScheduler::newScheduling() {
   // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
   tv2->reorder({{-5, -3}, {-3, -2}});
   */
-
-  const auto parallelizeBlocks = [&](const std::vector<TensorView*>& tvs) {
-    for (TensorView* tv : tvs) {
-      switch (params_->cta_order) {
-        case MatmulParams::TileRasterizationOrder::RowMajor:
-          tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
-          tv->axis(num_device_and_batch_dims_ + 1)
-              ->parallelize(ParallelType::BIDy);
-          break;
-        case MatmulParams::TileRasterizationOrder::ColumnMajor:
-          tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
-          tv->axis(num_device_and_batch_dims_ + 1)
-              ->parallelize(ParallelType::BIDx);
-          break;
-        default:
-          NVF_THROW(
-              "Invalid TileRasterizationOrder passed to Matmul scheduler");
-      }
-    }
-  };
 
   // Schedule mma results and propagate forward
   blockTileTensors(mma_results_);
@@ -883,8 +883,6 @@ void HopperMultipleMatmulScheduler::newScheduling() {
   // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
   // then TMA
   for (auto& [dc, d] : cached_outputs_) {
-    std::cout << "dc=" << dc->toString() << std::endl;
-    std::cout << "d=" << d->toString() << std::endl;
     blockTileTensors({dc});
     blockTileTensors({d});
     for (auto tv : {dc, d}) {
