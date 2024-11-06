@@ -10862,6 +10862,8 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
   unsigned i9;
   i9 = toSmem(T4);
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
+  bool b17;
+  b17 = ((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL));
   if ((b17 && Hopper::electSync(4294967295U))) {
     #pragma unroll
     for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
@@ -10921,8 +10923,6 @@ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, 
     i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
     nvfuser_index_t i16;
     i16 = 8 * T1.logical_size[2LL];
-    bool b17;
-    b17 = ((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL);
     nvfuser_index_t i18;
     i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
     nvfuser_index_t i19;
