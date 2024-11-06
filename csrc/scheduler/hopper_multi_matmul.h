@@ -171,8 +171,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
-  void newScheduling();
-
   void scheduleMmaOperands(
       std::vector<TensorView*>& tvs,
       const std::optional<MmaOperand> operand_type);

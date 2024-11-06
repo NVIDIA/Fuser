@@ -547,19 +547,14 @@ void HopperMultipleMatmulScheduler::run() {
 
   scheduleOperandSmemStores();
 
-  newScheduling();
-
   // schedule mma instruction output (mma_result)
   scheduleMmaResults();
 
-  /*
   // schedule epilogue
   scheduleEpilogue();
 
   // schedule splitk_sum
   scheduleSplitKSum();
-
-  */
 
   setUpInlining();
 
@@ -852,49 +847,6 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
   }
 }
 
-void HopperMultipleMatmulScheduler::newScheduling() {
-  // gmem [K, M, 1] x gmem [K, 1, N] -mma-> register [M, N, rK]
-  // register [M, N, rK] -cast-> gmem [M, N]
-
-  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
-  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
-  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
-  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
-
-  // Create tiles
-  /*
-  tv2->split(-3, cta_m);
-  tv2->split(-2, cta_n);
-  tv2->split(-1, getK(macro));
-  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
-  tv2->reorder({{-5, -3}, {-3, -2}});
-  */
-
-  // TODO: schedule epilogue by propagation backward from dc
-  // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
-  // then TMA
-  for (auto& [dc, d] : cached_outputs_) {
-    blockTileTensors({dc});
-    blockTileTensors({d});
-    for (auto tv : {dc, d}) {
-      // [..., Mo, No, Mi, Ni]
-      tv->split(-2, getM(params_->mma_macro));
-      tv->split(-1, getN(params_->mma_macro));
-      // [..., Mo, No, Mio, Mii, Nio, Nii]
-      // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-      tv->reorder({{-3, -2}});
-      tv->merge(-4);
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          tv->getLoopDomain());
-      tv->setLoopDomain(s.as<IterDomain*>());
-      tv->axis(-5)->parallelize(ParallelType::TIDy);
-    }
-    parallelizeBlocks({dc});
-    parallelizeBlocks({d});
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-}
-
 void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
@@ -1118,6 +1070,30 @@ void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
 }
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
+  // TODO: schedule epilogue by propagation backward from dc
+  // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
+  // then TMA
+  for (auto& [dc, d] : cached_outputs_) {
+    blockTileTensors({dc});
+    blockTileTensors({d});
+    for (auto tv : {dc, d}) {
+      // [..., Mo, No, Mi, Ni]
+      tv->split(-2, getM(params_->mma_macro));
+      tv->split(-1, getN(params_->mma_macro));
+      // [..., Mo, No, Mio, Mii, Nio, Nii]
+      // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+      tv->reorder({{-3, -2}});
+      tv->merge(-4);
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          tv->getLoopDomain());
+      tv->setLoopDomain(s.as<IterDomain*>());
+      tv->axis(-5)->parallelize(ParallelType::TIDy);
+    }
+    parallelizeBlocks({dc});
+    parallelizeBlocks({d});
+    d->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+  return;
   std::vector<TensorView*> output_tvs;
   for (Val* v : fusion_->outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(v)) {
@@ -1216,6 +1192,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
+  NVF_THROW("Split-K scheduling is not yet implemented for Hopper matmul");
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
