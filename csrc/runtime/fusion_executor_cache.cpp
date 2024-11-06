@@ -68,6 +68,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   most_recent_runtime_ = kernel_runtime;
 
   auto fusion = kernel_runtime->fusionSegments()->completeFusion();
+  ExpressionEvaluator evaluator = executor_utils::bindInputs(args, fusion);
 
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
@@ -79,16 +80,22 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   auto outputs = kernel_runtime->runWithInputs(args);
+  NVF_ERROR(fusion->outputs().size() == outputs.size());
 
   // Kernel time measurement is off by default
   kernel_runtime->disableKernelTimeMeasurement();
 
+  for (const auto out_index : c10::irange(outputs.size())) {
+    at::Tensor& output = outputs[out_index];
+    auto* out = fusion->outputs()[out_index]->as<TensorView>();
+    output = transformFromAllocationToLogical(output, out, evaluator);
+  }
+
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  NVF_ERROR(fusion->outputs().size() == outputs.size());
   size_t new_size = 0;
-  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+  for (const auto out_index : c10::irange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
     if (!fusion->getOutputAlias(out).hide_output) {
       outputs[new_size] = outputs[out_index];
@@ -113,8 +120,20 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, selected_device);
+  std::vector<c10::IValue> inputs_matching_allocation;
+  inputs_matching_allocation.reserve(inputs.size());
+  for (const auto i : c10::irange(inputs.size())) {
+    const auto& input = inputs[i];
+    if (!input.isTensor()) {
+      inputs_matching_allocation.push_back(input);
+      continue;
+    }
+    inputs_matching_allocation.push_back(transformFromLogicalToAllocation(
+        input.toTensor(), fusion_->inputs()[i]->as<TensorView>()));
+  }
+
+  KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
+      inputs_matching_allocation, selected_device);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
@@ -125,7 +144,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret = inputs_id_lookup_.lookupId(
-      inputs,
+      inputs_matching_allocation,
       initialInfo().scalarInputsAffectingConcretization(),
       args.getDeviceIndex());
   if (id_lookup_ret.eviction) {

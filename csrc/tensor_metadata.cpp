@@ -14,6 +14,7 @@
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <runtime/allocations.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {
@@ -291,18 +292,14 @@ inferAndValidateAllocationSizesAndStrides(
   }
   const auto& alloc =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& logical = TensorDomain::noReductions(tv->getLogicalDomain());
 
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  NVF_ERROR((int64_t)logical.size() == tensor.dim());
-  for (int64_t i : c10::irange((int64_t)logical.size())) {
-    auto rf_id = logical.at(i);
-    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+  NVF_ERROR((int64_t)alloc.size() == tensor.dim());
+  for (const auto i : c10::irange(alloc.size())) {
+    IterDomain* alloc_id = alloc.at(i);
+    active_ids[alloc_id] = {tensor.size(i), tensor.stride(i)};
   }
-
-  ForwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
-  BackwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
@@ -310,7 +307,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> strides;
   sizes.reserve(alloc.size());
   strides.reserve(alloc.size());
-  for (auto i : c10::irange(alloc.size())) {
+  for (const auto i : c10::irange(alloc.size())) {
     auto id = alloc.at(i);
     sizes.emplace_back(active_ids.at(id).first);
     strides.emplace_back(active_ids.at(id).second);
@@ -369,30 +366,19 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
 
-  if (isSharded(tv)) {
-    auto [unsharded_sizes, unsharded_strides] =
-        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
-    metadata->logical_size_data = std::move(unsharded_sizes);
-    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-    metadata->logical_stride_data = std::move(unsharded_strides);
-    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
-  } else {
-    metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
-  }
+  metadata->alloc_size = input.sizes();
+  metadata->alloc_stride = input.strides();
 
-  if (tv->hasAllocation()) {
-    auto allocation_data =
-        inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-    metadata->alloc_size_data = std::move(allocation_data.first);
-    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-    metadata->alloc_stride_data = std::move(allocation_data.second);
-    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
-  } else {
-    metadata->alloc_size = metadata->logical_size;
-    metadata->alloc_stride = metadata->logical_stride;
-    // TODO: validateAllocationSizesAndStrides
-  }
+  at::Tensor meta_input = at::empty_like(input, at::device(at::kMeta));
+  // FIXME: change size-1 to the device mesh size.
+  meta_input = transformFromAllocationToLogical(meta_input, tv, ee);
+  std::vector<int64_t> logical_sizes = meta_input.sizes().vec();
+  std::vector<int64_t> logical_strides = meta_input.strides().vec();
+  metadata->logical_size_data = std::move(logical_sizes);
+  metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+  metadata->logical_stride_data = std::move(logical_strides);
+  metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+
   return {PolymorphicValue(std::move(struct_))};
 }
 
