@@ -543,6 +543,8 @@ void HopperMultipleMatmulScheduler::run() {
   // This also collects mma_results_
   defineOperandCaches();
 
+  scheduleOperandSmemStores();
+
   newScheduling();
 
   /*
@@ -875,24 +877,6 @@ void HopperMultipleMatmulScheduler::newScheduling() {
     tv2->axis(-1)->parallelize(ParallelType::Mma);
     tv2->axis(-2)->parallelize(ParallelType::Mma);
     tv2->axis(-3)->parallelize(ParallelType::Mma);
-  }
-
-  // Schedule operator TMA loads
-  blockTileTensors(acw_smems_);
-  parallelizeBlocks(acw_smems_);
-  for (TensorView* tv0c : acw_smems_) {
-    // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
-    tv0c->reorder({{-3, -1}});
-    MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv0c);
-    tv0c->applyMmaSwizzleForTMALoad(swizzle_type);
-  }
-  blockTileTensors(bcw_smems_);
-  parallelizeBlocks(bcw_smems_);
-  for (TensorView* tv1c : bcw_smems_) {
-    // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
-    tv1c->reorder({{-1, -2}});
-    MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv1c);
-    tv1c->applyMmaSwizzleForTMALoad(swizzle_type);
   }
 
   // TODO: schedule epilogue by propagation backward from dc
