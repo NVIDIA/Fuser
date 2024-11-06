@@ -39,7 +39,7 @@ class HostIrExecutor : public ExecutorAbstract {
       KernelArgumentHolder& args,
       std::vector<at::Tensor> outputs = {});
 
-  const std::unique_ptr<hir::HostIrContainer>& hostContainer() {
+  const std::unique_ptr<hir::HostIrContainer>& hostContainer() const {
     return host_ir_container_;
   }
 

@@ -61,16 +61,14 @@ void HostIrExecutor::compile(Fusion* fusion) {
     FusionProfiler::segment(group_id_).startCompile();
   }
 
+  host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+  IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
   if (fusion->isA<hir::HostIrContainer>()) {
-    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
-    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
     for (auto expr : fusion->as<hir::HostIrContainer>()->topLevelExprs()) {
       host_ir_container_->pushBackTopLevelExprs(cloner.clone(expr));
     }
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
-    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
-    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
     for (Expr* e : exprs) {
       std::vector<Communication*> communications =
           lowerCommunication(cloner.clone(e));
@@ -86,7 +84,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
 }
 
 bool HostIrExecutor::isCompiled() const {
-  return host_ir_container_ != nullptr;
+  return (bool)host_ir_container_;
 }
 
 namespace {
