@@ -547,18 +547,10 @@ void HopperMultipleMatmulScheduler::run() {
 
   newScheduling();
 
-  /*
-
-  // Schedules:
-  //   - global->smem (cp.async)
-  //   - smem->register (ldmatrix)
-  //   - prologue computation in registers, including broadcast to e.g.
-  //   ab=[iM, bN, iK]
-  schedulePrologues();
-
   // schedule mma instruction output (mma_result)
   scheduleMmaResults();
 
+  /*
   // schedule epilogue
   scheduleEpilogue();
 
@@ -822,9 +814,11 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
 }
 
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
-    const std::vector<TensorView*>& tvs) {
+    const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
     switch (params_->cta_order) {
+      // TODO: Should we instead check the roles of these dimensions to take the
+      // outermost two M or N axes?
       case MatmulParams::TileRasterizationOrder::RowMajor:
         tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
         tv->axis(num_device_and_batch_dims_ + 1)
@@ -858,26 +852,6 @@ void HopperMultipleMatmulScheduler::newScheduling() {
   // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
   tv2->reorder({{-5, -3}, {-3, -2}});
   */
-
-  // Schedule mma results and propagate forward
-  blockTileTensors(mma_results_);
-  parallelizeBlocks(mma_results_);
-  for (TensorView* tv2 : mma_results_) {
-    tv2->split(-3, getM(params_->mma_macro));
-    tv2->split(-2, getN(params_->mma_macro));
-    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
-    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
-    tv2->reorder({{-4, -3}});
-    tv2->merge(-5);
-    tv2->axis(-4)->parallelize(ParallelType::TIDy);
-
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
-    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
-    tv2->axis(-1)->parallelize(ParallelType::Mma);
-    tv2->axis(-2)->parallelize(ParallelType::Mma);
-    tv2->axis(-3)->parallelize(ParallelType::Mma);
-  }
 
   // TODO: schedule epilogue by propagation backward from dc
   // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
@@ -954,50 +928,12 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       " and macro: ",
       toString(params_->mma_macro));
 
+  // Schedule mma results and propagate forward
   auto all_merged_roles = blockTileTensors(mma_results_);
+  parallelizeBlocks(mma_results_);
   for (size_t i : c10::irange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
     const std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
-
-    // do split-K rFactor to define splitk_sum and smem_epilogue
-    if (params_->splitk_factor != 1) {
-      NVF_THROW("Hopper split-K is not yet tested");
-      // Note that the split-K split is already done in blockTileTensors
-      TensorView* splitk_sum = mma_result->rFactor({-4, -1});
-      std::swap(splitk_sum, mma_result);
-      splitk_sums_.push_back(splitk_sum);
-    }
-
-    // At this point we have the following schedule:
-    //   No split-K
-    //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
-    //   Split-K
-    //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-    //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
-
-    TensorView* smem_epilogue;
-    if (params_->use_smem_epilogue) {
-      // Note that for split-K
-      //   splitk_sum = sum(mma_result)
-      // becomes
-      //   smem_epilogue = set(mma_result)
-      //   splitk_sum = sum(smem_epilogue)
-      smem_epilogue = mma_result->cacheAfter();
-      smem_epilogues_.push_back(smem_epilogue);
-      // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
-    }
-    // Schedule warp tile
-    // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
-
-    if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
-      // TODO:
-      // This is a workaround for a problem that different dimensions in the
-      // loop domain are mapped in the loop graph of IdModel due to the
-      // mapping of compliment IDs. We should remove forwarding completely,
-      // and remove this workaround.
-      mma_result->split(-2, 1);
-      mma_result->merge(-3);
-    }
 
     // Test that mma_result logical is MNK
     // TODO: This currently checks leaf domain only which does not necessarily
@@ -1019,74 +955,33 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     checkSingleDimRole(-2, MatmulDimRole::N);
     checkSingleDimRole(-1, MatmulDimRole::K);
 
-    {
-      // Split by tile
-      mma_result->split(-3, params_->tile_sizes.instruction_tile.m);
-      mma_result->split(-2, params_->tile_sizes.instruction_tile.n);
-      mma_result->split(-1, params_->tile_sizes.instruction_tile.k);
-      // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
-      mma_result->reorder({{-5, -3}, {-3, -2}});
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          mma_result->getLoopDomain());
-      mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-      mma_result->axis(-1)->parallelize(ParallelType::Mma);
-      mma_result->axis(-2)->parallelize(ParallelType::Mma);
-      mma_result->axis(-3)->parallelize(ParallelType::Mma);
+    // do split-K rFactor to define splitk_sum and smem_epilogue
+    if (params_->splitk_factor != 1) {
+      // TODO: schedule split-K
+      NVF_THROW("Hopper split-K is not yet tested");
+      // Note that the split-K split is already done in blockTileTensors
+      TensorView* splitk_sum = mma_result->rFactor({-4, -1});
+      std::swap(splitk_sum, mma_result);
+      splitk_sums_.push_back(splitk_sum);
     }
 
-    /*  tv2 below is the consumer of mma_result (cacheAfter)
-    {
-      // Split by tile
-      tv2->split(-2, getM(macro));
-      tv2->split(-1, getN(macro));
-      // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
-      tv2->reorder({{-3, -2}});
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          tv2->getLoopDomain());
-      tv2->setLoopDomain(s.as<IterDomain*>());
-    }
-    */
+    mma_result->split(-3, getM(params_->mma_macro));
+    mma_result->split(-2, getN(params_->mma_macro));
+    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
+    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    mma_result->reorder({{-4, -3}});
+    mma_result->merge(-5);
+    mma_result->axis(-4)->parallelize(ParallelType::TIDy);
 
-    if (params_->use_smem_epilogue) {
-      NVF_THROW("Hopper smem epilogue is not yet tested");
-      smem_epilogue->setMemoryType(MemoryType::Shared);
-      auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
-      smem_epilogue->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
-      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-          mma_result,
-          -1,
-          {smem_epilogue},
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType()
-              .propagateToBoundary());
-      smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
-    }
-
-    // When we have both batch dims and splitk, parallelize splitk only.
-    // If we only have batch dim, parallelize the batch dim.
-    if (params_->splitk_factor > 1) {
-      mma_result->axis(num_device_and_batch_dims_ + 2)
-          ->parallelize(ParallelType::BIDz);
-    } else if (num_local_batch_dims_ > 0) {
-      mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
-    }
-    switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        mma_result->axis(num_device_and_batch_dims_)
-            ->parallelize(ParallelType::BIDx);
-        mma_result->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDy);
-        break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        mma_result->axis(num_device_and_batch_dims_)
-            ->parallelize(ParallelType::BIDy);
-        mma_result->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDx);
-        break;
-      default:
-        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
-    }
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        mma_result->getLoopDomain());
+    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+    mma_result->axis(-1)->parallelize(ParallelType::Mma);
+    mma_result->axis(-2)->parallelize(ParallelType::Mma);
+    mma_result->axis(-3)->parallelize(ParallelType::Mma);
   }
+
+  return;
 }
 
 void HopperMultipleMatmulScheduler::schedulePrologues() {
