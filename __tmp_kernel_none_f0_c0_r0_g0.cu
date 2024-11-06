@@ -10905,6 +10905,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     if (threadIdx.x / 32ULL != 0) {
       return;
     }
+    asm volatile( "setmaxnreg.dec.sync.aligned.u32 %0;\n" : : "n"(40) );
     #pragma unroll 4
     for(nvfuser_index_t i27 = 0; i27 < i2; ++i27) {
       nvfuser_index_t i28;
