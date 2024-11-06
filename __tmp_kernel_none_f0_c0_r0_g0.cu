@@ -11097,7 +11097,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     );
     asm volatile("wgmma.commit_group.sync.aligned;\n");
     asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-    mbarrier::arrive(toSmem((&T7[4 + i27])));
+    mbarrier::arrive(toSmem((&T7[4 + i32])));
   }
   #pragma unroll 3
   for(nvfuser_index_t i35 = (i2 - 3); i35 < i2; ++i35) {
