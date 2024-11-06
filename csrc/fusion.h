@@ -255,6 +255,9 @@ class NVF_API Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
+  std::optional<std::vector<int64_t>> getOutputStrideOrder(const TensorView* tv) const;
+  void setOutputStrideOrder(const TensorView* tv, const std::vector<int64_t>& stride_order);
+
   // NOTE: [Fusion managed data]
   //
   // Fusion-managed data is a mechanism to communicate data that survives fusion
@@ -488,6 +491,9 @@ class NVF_API Fusion : public IrContainer {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
+
+  // Records any user-specified stride order
+  std::unordered_map<const TensorView*, std::vector<int64_t>> output_stride_order_map_;
 };
 
 template <typename T>

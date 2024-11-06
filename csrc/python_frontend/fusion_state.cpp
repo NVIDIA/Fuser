@@ -291,4 +291,11 @@ void FusionState::addExtents() {
   }
 }
 
+void FusionState::setOutputStrideOrder(
+  const TensorView* tv, 
+  const std::vector<int64_t>& stride_order) {
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  fusion_->setOutputStrideOrder(tv, stride_order);
+}
+
 } // namespace nvfuser::python_frontend

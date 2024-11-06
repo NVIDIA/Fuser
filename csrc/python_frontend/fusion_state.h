@@ -102,6 +102,9 @@ class FusionState {
   //! Create clone of FusionState
   std::unique_ptr<FusionState> clone();
 
+  //! Record user-specified output stride order
+  NVF_API void setOutputStrideOrder(const TensorView* tv, const std::vector<int64_t>& stride_order);
+
  private:
   //! Get extents for TensorView inputs in Fusion
   std::vector<Val*> getExtents(Fusion* fusion);

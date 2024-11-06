@@ -870,4 +870,16 @@ DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
   return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
 }
 
+void Fusion::setOutputStrideOrder(const TensorView* tv, const std::vector<int64_t>& stride_order){
+  output_stride_order_map_[tv] = stride_order;
+}
+
+std::optional<std::vector<int64_t>> Fusion::getOutputStrideOrder(const TensorView* tv) const {
+  auto tv_entry = output_stride_order_map_.find(tv);
+  if (tv_entry != output_stride_order_map_.end()) {
+    return tv_entry->second;
+  }
+  return std::nullopt;
+}
+
 } // namespace nvfuser

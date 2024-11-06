@@ -1544,6 +1544,7 @@ struct OutputRecord : RecordFunctor {
             allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
           }
           tv_output->setAllocationDomain(allocation_domain, true);
+          fd.setOutputStrideOrder(tv_output, stride_order_);
         }
         fd.addOutput(tv_output, args_.at(0).index);
       } else {
