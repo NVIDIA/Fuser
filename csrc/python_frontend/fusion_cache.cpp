@@ -186,7 +186,11 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+UserSchedule::UserSchedule(int64_t fusion_id, int64_t device_id)
+    : scheduled_fusion(nullptr),
+      executor(nullptr),
+      fusion_id_(fusion_id),
+      device_id_(device_id) {
   scheduled_fusion = std::make_unique<Fusion>();
   executor = std::make_unique<KernelExecutor>();
 }
@@ -591,22 +595,25 @@ UserSchedule* FusionCache::createUserSchedule(
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
   auto& user_scheds = scheds->user_def_schedules;
   auto input_id = user_def_input_encodings_.lookupId(inputs);
-  auto user_sched = user_scheds.find(input_id.id);
-  if (user_sched == user_scheds.end()) {
-    user_scheds[input_id.id] = std::vector<UserSchedule>(device + 1);
-  } else {
-    if (static_cast<size_t>(device) >= user_scheds[input_id.id].size()) {
-      user_scheds[input_id.id].resize(device + 1);
-    } else {
-      if (!overwrite_existing_schedule) {
-        TORCH_WARN(
-            "You are overwriting the current user schedule for a definition!");
-      }
-      user_scheds[input_id.id].at(device) = UserSchedule();
-    }
+
+  // Create device to UserSchedule map for input arguments id
+  if (user_scheds.count(input_id.id) == 0) {
+    user_scheds[input_id.id] = std::unordered_map<int, UserSchedule>();
   }
-  user_scheds[input_id.id].at(device).fusion_id_ = scheds->fusion_id_;
-  user_scheds[input_id.id].at(device).device_id_ = device;
+
+  // Create UserSchedule for device
+  if (user_scheds[input_id.id].count(device) == 0) {
+    user_scheds[input_id.id].emplace(
+        device, UserSchedule(scheds->fusion_id_, device));
+  } else {
+    if (!overwrite_existing_schedule) {
+      TORCH_WARN(
+          "You are overwriting the current user schedule for a definition!");
+    }
+    user_scheds[input_id.id].at(device) =
+        UserSchedule(scheds->fusion_id_, device);
+  }
+
   return &user_scheds[input_id.id].at(device);
 }
 

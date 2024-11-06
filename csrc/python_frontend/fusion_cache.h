@@ -23,7 +23,7 @@ namespace nvfuser::python_frontend {
 //! \brief A container to hold a scheduled Fusion IR as well as an executor
 //! to contain the corresponding generated kernel.
 struct UserSchedule {
-  UserSchedule();
+  UserSchedule(int64_t fusion_id, int64_t device_id);
 
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
@@ -98,7 +98,8 @@ struct FusionSchedules {
   //! Key:   Input Encoding hash of Fusion inputs as is created by the
   //!        InputsIdLookup struct found inside of the FusionCache.
   //! Value: A vector based on device_id of User Defined Fusion Schedules.
-  std::unordered_map<size_t, std::vector<UserSchedule>> user_def_schedules;
+  std::unordered_map<size_t, std::unordered_map<int, UserSchedule>>
+      user_def_schedules;
   //! Keeps a pointer to the last scheduled Fusion IR for printing
   Fusion* last_user_def_scheduled_ir;
   //! Keeps a pointer to the last executed executor for printing its cuda kernel
