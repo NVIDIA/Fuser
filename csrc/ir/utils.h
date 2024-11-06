@@ -728,4 +728,9 @@ std::string nullOrToInlineString(const Statement* stmt);
 //! always returns the same result when called with the same inputs.
 bool isFunctional(const Val* v);
 
+// Check if the given val is recursively defined, which is invalid in
+// the Fusion IR but may not be necessarily the case in other IRs
+// such as the Kernel IR
+bool isRecursivelyDefined(Val* val);
+
 } // namespace nvfuser::ir_utils

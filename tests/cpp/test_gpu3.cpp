@@ -8902,6 +8902,33 @@ TEST_F(NVFuserTest, RfactorIntermediateIDs) {
   EXPECT_TRUE(merge_out->isReduction());
 }
 
+// Simple test to make sure replacement with a dependent val is
+// detected as an error
+TEST_F(NVFuserTest, AvoidReplacingWithDependentVal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto i0 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(i0);
+
+  auto i1 = mul(i0, IrBuilder::create<Val>(1, DataType::Int));
+
+  auto tv0 = TensorViewBuilder().shape({i1}).build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::unordered_map<Val*, Val*> replacement_map;
+  replacement_map.emplace(i0, i1);
+
+  EXPECT_THAT(
+      [&]() { ir_utils::replaceValue(&fusion, replacement_map); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "not allowed as it would result in a recursive definition")));
+}
+
+// Was also a repro of issue #3347
 TEST_F(NVFuserTest, PreferSimplerExtents) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
@@ -8935,21 +8962,26 @@ TEST_F(NVFuserTest, PreferSimplerExtents) {
 
   replaceSymbolicSizes(&fusion);
 
-  fusion.printMath();
-
   // All expr output tensors should use the extent of the tv3 since it
   // has only one merge, whereas tv2 has two merges
+  // All expr output tensors should use the same extent.
+  auto ref_ext = fusion.outputs().at(0)->as<TensorView>()->axis(0)->extent();
+
+  // ref_ext should look like getMetaData(T1).logical_size[0] * getMetaData(T1).logical_size[1]
+  auto ext_def = dynamic_cast<BinaryOp*>(ref_ext->definition());
+  ASSERT_NE(ext_def, nullptr);
+  ASSERT_EQ(ext_def->getBinaryOpType(), BinaryOpType::Mul);
+  auto lhs = ext_def->input(0);
+  auto rhs = ext_def->input(1);
+  ASSERT_NE(dynamic_cast<GetItem*>(lhs->definition()), nullptr);
+  ASSERT_NE(dynamic_cast<GetItem*>(rhs->definition()), nullptr);
+
   for (auto expr : fusion.exprs()) {
     auto tv_output = ir_utils::getTvOutput(expr);
     ASSERT_EQ(tv_output->nDims(), 1);
     auto ext = tv_output->axis(0)->extent();
-    auto ext_def = dynamic_cast<BinaryOp*>(ext->definition());
-    ASSERT_NE(ext_def, nullptr);
-    ASSERT_EQ(ext_def->getBinaryOpType(), BinaryOpType::Mul);
-    auto lhs = ext_def->input(0);
-    auto rhs = ext_def->input(1);
-    ASSERT_NE(dynamic_cast<GetItem*>(lhs->definition()), nullptr);
-    ASSERT_NE(dynamic_cast<GetItem*>(rhs->definition()), nullptr);
+    EXPECT_EQ(ref_ext, ext) << "Reference: " << ref_ext->toString()
+                            << ", actual: " << ext->toString();
   }
 }
 
