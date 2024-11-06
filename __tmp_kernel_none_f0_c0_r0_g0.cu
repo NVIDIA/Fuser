@@ -10901,6 +10901,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     }
   }
   __syncthreads();
+  mbarrier::arrive(toSmem((&T7[7])));
   #pragma unroll
   for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
     nvfuser_index_t i22;
@@ -10922,7 +10923,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       }
     }
   }
-  mbarrier::arrive(toSmem((&T7[7])));
   #pragma unroll 4
   for(nvfuser_index_t i27 = 0; i27 < i3; ++i27) {
     nvfuser_index_t i28;
