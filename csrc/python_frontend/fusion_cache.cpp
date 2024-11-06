@@ -192,7 +192,8 @@ UserSchedule::UserSchedule(int64_t fusion_id, int64_t device_id)
       fusion_id_(fusion_id),
       device_id_(device_id) {
   scheduled_fusion = std::make_unique<Fusion>();
-  executor = std::make_unique<KernelExecutor>();
+  executor =
+      std::make_unique<KernelExecutor>(fusion_id, /*concrete_id=*/device_id);
 }
 
 bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
