@@ -25,8 +25,8 @@ CGResultsPackage scheduleAndRun(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, scheduler_type, runtime_inputs, validate_scheduler);
   auto ke = std::make_unique<KernelExecutor>();
-  ke->compileFusion(fusion, runtime_inputs, heuristic_params->lparams);
-  auto cg_outputs = ke->runFusion(runtime_inputs, heuristic_params->lparams);
+  ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke->run(runtime_inputs, heuristic_params->lparams);
   CGResultsPackage results = {
       .outputs = cg_outputs,
       .heuristic_params = std::move(heuristic_params),

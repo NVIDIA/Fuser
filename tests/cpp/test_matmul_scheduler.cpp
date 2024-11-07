@@ -2851,9 +2851,9 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2884,9 +2884,9 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2920,9 +2920,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2958,9 +2958,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2995,9 +2995,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3032,9 +3032,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3069,9 +3069,9 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3177,12 +3177,12 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
@@ -3248,12 +3248,12 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
@@ -3323,12 +3323,13 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
@@ -3397,12 +3398,12 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));

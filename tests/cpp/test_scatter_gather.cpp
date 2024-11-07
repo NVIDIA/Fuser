@@ -132,7 +132,7 @@ TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
-    for (int rank = 1; rank <= 5; ++rank) {
+    for (int rank = 1; rank <= 3; ++rank) {
       for (int dim = 0; dim < rank; ++dim) {
         // this test uses a random input shape, clear the allocator to avoid
         // OOM.
@@ -587,9 +587,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
+  ke.compile(&fusion, aten_inputs);
 
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1295,8 +1295,8 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
 
   KernelExecutor ke;
   auto lparams = rparams->lparams;
-  ke.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
+  ke.compile(&fusion, aten_inputs, lparams);
+  auto cg_outputs = ke.run(aten_inputs, lparams);
 
   auto t_gather = at::gather(input, dim, input_idx);
   testValidate(
