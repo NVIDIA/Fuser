@@ -4114,7 +4114,7 @@ TEST_F(ResizeTest, VectorizeFactorFour) {
 
   const std::vector<int64_t> shape({1024L * 1024L});
 
-  // Using a concrete tensor to avoid dynamic reshape
+  // Using a concrete tensor to avoid dynamic resize
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
