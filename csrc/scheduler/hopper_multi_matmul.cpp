@@ -827,47 +827,6 @@ void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
 }
 
-void HopperMultipleMatmulScheduler::scheduleMmaOperands(
-    std::vector<TensorView*>& tvs,
-    const std::optional<MmaOperand> operand_type) {
-  auto all_merged_roles = blockTileTensors(tvs);
-  for (size_t i : c10::irange(tvs.size())) {
-    TensorView*& operand = tvs[i];
-    std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
-
-    // At this point we have the following schedule:
-    //   No split-K
-    //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
-    //   Split-K
-    //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-    //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
-
-    // Schedule warp tile
-    // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
-
-    if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
-      // TODO:
-      // This is a workaround for a problem that different dimensions in the
-      // loop domain are mapped in the loop graph of IdModel due to the
-      // mapping of compliment IDs. We should remove forwarding completely,
-      // and remove this workaround.
-      operand->split(-2, 1);
-      operand->merge(-3);
-    }
-
-    // NOTE: this applies to either mma_result _or_ ab/bb since both have the
-    // same number of dimensions.
-    // TODO: use the version that uses merged_roles instead here
-    mma_utils::scheduleWarpTileWithReduction(operand, params_->tile_sizes);
-
-    // parallelize Mwo, Nwo by thread
-    operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
-        ->parallelize(ParallelType::TIDz);
-    operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
-        ->parallelize(ParallelType::TIDy);
-  }
-}
-
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {

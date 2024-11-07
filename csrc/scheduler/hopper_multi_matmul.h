@@ -161,15 +161,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
-  void scheduleMmaOperands(
-      std::vector<TensorView*>& tvs,
-      const std::optional<MmaOperand> operand_type);
-
-  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
-  // then operand_type should be std::nullopt.
   void scheduleMmaResults();
-
-  void schedulePrologues();
 
   void scheduleOutputTensor(TensorView* c);
 
