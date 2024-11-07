@@ -14,7 +14,7 @@ We publish nightly wheel packages on https://pypi.nvidia.com, while build agains
 **Wheels are published for Python version: _3.10_, _3.12_**.
 
 built-env | cuda 11.8 | cuda 12.1 | cuda 12.4
-:---: | :---:
+:---: | :---: | :---: | :---:
 torch 2.5 (pypi.org)| nvfuser-cu118-torch25 | nvfuser-cu121-torch25 | nvfuser-cu124-torch25
 torch nightly (pypi.nvidia.com) | nvfuser-cu118 | nvfuser-cu121 | nvfuser-cu124
 
