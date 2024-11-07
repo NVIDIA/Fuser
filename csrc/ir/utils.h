@@ -38,8 +38,6 @@ struct MmaOpDetails {
   // Concrete or broadcast axes that are present in all inputs
   //  and output
   AxesData batch_axes;
-  // A placeholder for mma input layout
-  std::optional<MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -725,6 +723,19 @@ std::string nullOrToString(const Statement* stmt);
 //! If the given statement is nullptr, return "nullptr", otherwise return its
 //! toInlineString()
 std::string nullOrToInlineString(const Statement* stmt);
+
+//! Check if the given value is functional. A functional value is one that
+//! always returns the same result when called with the same inputs.
+bool isFunctional(const Val* v);
+
+// Check if the given val is recursively defined, which is invalid in
+// the Fusion IR but may not be necessarily the case in other IRs
+// such as the Kernel IR
+bool isRecursivelyDefined(Val* val);
+
+// Return the number of operations that are used to define val. One
+// instance of Expr is counted as a single operation.
+int64_t getOperationCount(Val* val);
 
 std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
 

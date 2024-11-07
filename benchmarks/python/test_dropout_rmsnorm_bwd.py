@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -135,8 +135,6 @@ def test_dropout_rmsnorm_bwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    clear_cuda_cache()
-
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
@@ -180,7 +178,6 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     dtype: torch.dtype,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     dropout_p = 0.2
@@ -189,12 +186,17 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
-    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
-    output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+    def dropout_rmsnorm_fwd():
+        x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
+        output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+        return output
+
+    fwd_fn = torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd
+    output = fwd_fn()
 
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype),
     )

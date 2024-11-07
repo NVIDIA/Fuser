@@ -1209,6 +1209,80 @@ std::string nullOrToInlineString(const Statement* id) {
   return id ? id->toInlineString() : "nullptr";
 }
 
+bool isFunctional(const Val* v) {
+  auto def = v->definition();
+  if (def == nullptr) {
+    return true;
+  }
+  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+    // ElectSync is not functional, it does not return the same value
+    // every time it is called, so we do not want to reuse it.
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
+  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
+bool isRecursivelyDefined(Val* val) {
+  NVF_ERROR(val != nullptr);
+
+  std::deque<Val*> vals_to_visit;
+  vals_to_visit.push_back(val);
+
+  std::unordered_set<Val*> visited_vals;
+
+  while (!vals_to_visit.empty()) {
+    auto v = vals_to_visit.front();
+    vals_to_visit.pop_front();
+
+    visited_vals.insert(v);
+
+    auto v_def = v->definition();
+    if (v_def == nullptr) {
+      continue;
+    }
+
+    for (const auto inp : v_def->inputs()) {
+      if (inp == val) {
+        // Recursive dependency detected
+        return true;
+      }
+      // Don't visit the same multiple times
+      if (!visited_vals.count(inp)) {
+        vals_to_visit.push_back(inp);
+      }
+    }
+  }
+  return false;
+}
+
+int64_t getOperationCount(Val* val) {
+  int64_t num_ops = 0;
+
+  // Start with the given val and recursively count the number of ops
+  // by traversing inputs
+  std::deque<Val*> vals;
+  vals.push_back(val);
+
+  while (!vals.empty()) {
+    auto v = vals.front();
+    vals.pop_front();
+
+    auto def = v->definition();
+    if (def == nullptr) {
+      continue;
+    }
+    ++num_ops;
+
+    for (auto inp : def->inputs()) {
+      vals.push_back(inp);
+    }
+  }
+
+  return num_ops;
+}
+
 std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
   // ValGroups slice_groups;
   std::vector<IterDomain*> slice_ids;
@@ -1306,55 +1380,6 @@ TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
     }
   }
   return details;
-}
-
-MmaLayout getInputLayout(
-    const TensorViewDetails& in_a,
-    const TensorViewDetails& in_b,
-    const MmaOp::AxesData& m_axes,
-    const MmaOp::AxesData& n_axes,
-    const MmaOp::AxesData& k_axes) {
-  // TT layout (b - broadcast, r - reduction):
-  // A = [M, K, b]
-  // B = [b, K, N]
-  // C = [M, r, N] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_a.bcasts.front()) &&
-      (in_b.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaLayout::TT;
-  }
-  // TN layout (b - broadcast, r - reduction):
-  // A = [M, b, K]
-  // B = [b, N, K]
-  // C = [M, N, r] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (in_a.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front()) &&
-      (in_b.bcasts.front() < k_axes.front())) {
-    return MmaLayout::TN;
-  }
-  // NT layout (b - broadcast, r - reduction):
-  // A = [K, M, b]
-  // B = [K, b, N]
-  // C = [r, M, N] (root domain)
-  if ((k_axes.front() < in_a.bcasts.front()) &&
-      (m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_b.bcasts.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaLayout::NT;
-  }
-  // NN layout (b - broadcast, r - reduction):
-  // A = [b, K, M]
-  // B = [N, K, b]
-  // C = [N, r, M] (root domain)
-  if ((in_a.bcasts.front() < k_axes.front()) &&
-      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
-      (k_axes.front() < in_b.bcasts.front())) {
-    return MmaLayout::NN;
-  }
-
-  NVF_THROW("Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(
@@ -1488,15 +1513,6 @@ MmaOpDetails getMmaOpDetails(
   NVF_ERROR(
       !details.k_axes.empty(),
       "MmaOp inputs must define at least a single K dimension");
-
-  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
-  // rules may be needed
-  details.input_layout = getInputLayout(
-      in_a_details,
-      in_b_details,
-      details.m_axes,
-      details.n_axes,
-      details.k_axes);
 
   return details;
 }

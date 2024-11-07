@@ -23,9 +23,11 @@
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -640,7 +642,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(PointwiseParams, split_grid_y_dim)
       .PARAM(PointwiseParams, flip_grid_binding)
       .PARAM(PointwiseParams, vectorization_factor)
-      .PARAM(PointwiseParams, unroll_factor);
+      .PARAM(PointwiseParams, unroll_factor_inner)
+      .PARAM(PointwiseParams, unroll_factor_outer);
 
   // Matmul scheduler parameters
   INITHEURISTICPARAMS(MatmulParams)
@@ -648,7 +651,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, circular_buffer_options)
       .PARAM(MatmulParams, supported_vec_size)
       .PARAM(MatmulParams, async_gmem_load_operands)
-      .PARAM(MatmulParams, rotate_ldmatrix_out_of_main_loop)
       .PARAM(MatmulParams, grid_swizzle_factor)
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
@@ -778,6 +780,44 @@ void initNvFuserPythonBindings(PyObject* module) {
       });
 
   defineHeuristicParamBindings(nvfuser);
+
+  py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
+      nvfuser, "SchedulerHyperParameters");
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def_property(
+      "vectorize_factor",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.vectorize_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t vectorize_factor_) {
+        self.vectorize_factor = vectorize_factor_;
+      });
+  hyperparameters.def_property(
+      "unroll_factor",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.unroll_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t unroll_factor_) { self.unroll_factor = unroll_factor_; });
+  hyperparameters.def_property(
+      "threads_per_block_min",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.threads_per_block_min;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t threads_per_block_min_) {
+        self.threads_per_block_min = threads_per_block_min_;
+      });
+  hyperparameters.def_property(
+      "threads_per_block_max",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.threads_per_block_max;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t threads_per_block_max_) {
+        self.threads_per_block_max = threads_per_block_max_;
+      });
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
@@ -959,6 +999,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
+      .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
+      .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
           "__repr__",
           [](FusionDefinition& self) {
@@ -1401,7 +1444,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::Operators> nvf_ops(fusion_def, "Operators");
   nvf_ops.def(py::init<FusionDefinition*>());
 
-  // ******************** INSERT OP BINDINGS BELOW HERE ********************
+// ******************** INSERT OP BINDINGS BELOW HERE ********************
 #define OP_PREFIX "Operators."
 #define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                \
@@ -3820,6 +3863,27 @@ void initNvFuserPythonBindings(PyObject* module) {
         HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::Matmul);
         return *parameters->as<MatmulParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "schedule_hyperparameters",
+      [](FusionDefinition::SchedOperators& self)
+          -> scheduler_utils::SchedulerHyperParameters& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto scheduler_hyperparameters_entry = HeuristicDataCacheEntry<
+            HeuristicCompileTime::SchedulerHyperParameters>(
+            sched->data_cache.get(), []() {
+              return std::make_unique<
+                  scheduler_utils::SchedulerHyperParameters>(
+                  /*vectorize_factor=*/1,
+                  /*unroll_factor=*/1,
+                  /*threads_per_block_min=*/1,
+                  /*threads_per_block_max=*/1);
+            });
+        return scheduler_hyperparameters_entry.get();
       },
       py::return_value_policy::reference);
 }

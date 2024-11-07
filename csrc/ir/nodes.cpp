@@ -2563,7 +2563,8 @@ IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
 IterDomain* IterDomain::merge(
     IterDomain* outer,
     IterDomain* inner,
-    bool rfactor_domain) {
+    std::optional<bool> rfactor_domain,
+    std::optional<IterType> iter_type) {
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
@@ -2576,24 +2577,33 @@ IterDomain* IterDomain::merge(
       !outer->isStride() && !inner->isStride(),
       "No support for merging stride domains");
 
+  // By default, if not specified, don't create rfactor
+  // outputs. Reshape transformations should propagate the flag, which
+  // should explicitly specify the flag
+  if (!rfactor_domain.has_value()) {
+    rfactor_domain = false;
+  }
+
   Val* merged_id_size = mul(outer->extent(), inner->extent());
 
-  IterType itype = outer->getIterType();
+  if (!iter_type.has_value()) {
+    iter_type = outer->getIterType();
 
-  if (outer->isBroadcast() && inner->isBroadcast()) {
-    itype = IterType::Broadcast;
-  }
+    if (outer->isBroadcast() && inner->isBroadcast()) {
+      iter_type = IterType::Broadcast;
+    }
 
-  if ((outer->isBroadcast() || inner->isBroadcast()) &&
-      (outer->getIterType() == IterType::Iteration ||
-       inner->getIterType() == IterType::Iteration)) {
-    itype = IterType::Iteration;
-  }
+    if ((outer->isBroadcast() || inner->isBroadcast()) &&
+        (outer->getIterType() == IterType::Iteration ||
+         inner->getIterType() == IterType::Iteration)) {
+      iter_type = IterType::Iteration;
+    }
 
-  if ((outer->isBroadcast() || inner->isBroadcast()) &&
-      (outer->getIterType() == IterType::GatherScatter ||
-       inner->getIterType() == IterType::GatherScatter)) {
-    itype = IterType::GatherScatter;
+    if ((outer->isBroadcast() || inner->isBroadcast()) &&
+        (outer->getIterType() == IterType::GatherScatter ||
+         inner->getIterType() == IterType::GatherScatter)) {
+      iter_type = IterType::GatherScatter;
+    }
   }
 
   Val* expanded_extent = nullptr;
@@ -2606,7 +2616,7 @@ IterDomain* IterDomain::merge(
       } else {
         expanded_extent = mul(outer->expandedExtent(), inner->extent());
       }
-    } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
+    } else if (!outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
       } else {
@@ -2619,8 +2629,8 @@ IterDomain* IterDomain::merge(
       IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
-          .iter_type(itype)
-          .is_rfactor_domain(rfactor_domain)
+          .iter_type(*iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   IrBuilder::createInContainer<Merge>(
@@ -2633,7 +2643,9 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    bool rfactor_domain) {
+    std::optional<bool> rfactor_domain,
+    std::optional<IterType> outer_iter_type,
+    std::optional<IterType> inner_iter_type) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
@@ -2644,6 +2656,22 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     expanded_remainder = ceilDiv(in->expandedExtent(), factor);
   }
 
+  // By default, if not specified, don't create rfactor
+  // outputs. Reshape transformations should propagate the flag, which
+  // should explicitly specify the flag
+  if (!rfactor_domain.has_value()) {
+    rfactor_domain = false;
+  }
+
+  // If not specified, inherit these properties from the input iter domain
+  if (!outer_iter_type.has_value()) {
+    outer_iter_type = in->getIterType();
+  }
+
+  if (!inner_iter_type.has_value()) {
+    inner_iter_type = in->getIterType();
+  }
+
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
@@ -2652,8 +2680,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
           .parallel_type(in->getParallelType())
-          .iter_type(in->getIterType())
-          .is_rfactor_domain(rfactor_domain)
+          .iter_type(*outer_iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   // inner loop IterDomain
@@ -2664,8 +2692,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
           .parallel_type(in->getParallelType())
-          .iter_type(in->getIterType())
-          .is_rfactor_domain(rfactor_domain)
+          .iter_type(*inner_iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   IrBuilder::createInContainer<Split>(
@@ -4445,7 +4473,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
 std::string SdpaFwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << attn_out()->toString() << "\n";
+  indent(ss, indent_size) << attn_out()->toString() << ",\n";
+  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size) << philox_offset()->toString() << "\n";
   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";

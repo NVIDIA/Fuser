@@ -2261,6 +2261,18 @@ class SdpaFwdOp : public Expr {
     return output(0)->as<TensorView>();
   }
 
+  TensorView* logsumexp() const {
+    return output(1)->as<TensorView>();
+  }
+
+  TensorView* philox_seed() const {
+    return output(2)->as<TensorView>();
+  }
+
+  TensorView* philox_offset() const {
+    return output(3)->as<TensorView>();
+  }
+
   TensorView* query() const {
     return input(0)->as<TensorView>();
   }

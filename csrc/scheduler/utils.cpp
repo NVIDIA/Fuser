@@ -2590,7 +2590,7 @@ int64_t getSharedMemoryOverheadPerBlock(
     dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
-  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {

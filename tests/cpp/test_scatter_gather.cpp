@@ -586,10 +586,10 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
 
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -621,11 +621,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
+      executor_cache.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -655,11 +655,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction1) {
   auto t1 = at::randint(0, shape[0], {2}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
+      executor_cache.getMostRecentKernelRuntime(),
       {SchedulerType::Reduction, SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
@@ -695,11 +695,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
+      executor_cache.getMostRecentKernelRuntime(),
       {SchedulerType::PointWise, SchedulerType::Reduction});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
@@ -734,11 +734,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction3) {
       at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
+      executor_cache.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -776,11 +776,11 @@ TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
       at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
+      executor_cache.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -814,11 +814,12 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::InnerPersistent});
+      executor_cache.getMostRecentKernelRuntime(),
+      {SchedulerType::InnerPersistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto ref = at::take_along_dim(
@@ -857,11 +858,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
+      executor_cache.getMostRecentKernelRuntime(),
       {SchedulerType::PointWise, SchedulerType::InnerPersistent});
 
   auto t5 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1)
@@ -902,11 +903,12 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
       at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::InnerPersistent});
+      executor_cache.getMostRecentKernelRuntime(),
+      {SchedulerType::InnerPersistent});
 
   auto t3 = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1);
   auto ref = t3 / t3.sum({1}).unsqueeze(-1);
@@ -943,13 +945,13 @@ TEST_F(
   auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // The reduction patterns of the normalization and the final
   // reduction are different, so they are segmented out
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
+      executor_cache.getMostRecentKernelRuntime(),
       {SchedulerType::InnerPersistent, SchedulerType::Reduction});
 
   auto t0_d = t0.to(at::kDouble);
@@ -995,11 +997,12 @@ TEST_F(
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::InnerPersistent});
+      executor_cache.getMostRecentKernelRuntime(),
+      {SchedulerType::InnerPersistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto t6 = at::take_along_dim(
@@ -1045,11 +1048,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   auto t1 = at::randint(0, shape[0], {shape[1], shape[2]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::Transpose});
+      executor_cache.getMostRecentKernelRuntime(), {SchedulerType::Transpose});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1088,11 +1091,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   auto t1 = at::randint(0, shape[0], {10, shape[2], shape[1]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
+      executor_cache.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1133,13 +1136,13 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto t1 = at::randint(0, shape_before[2], shape_after, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // Transpose scheduler should work for this case but not currently
   // supported
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
+      executor_cache.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1188,11 +1191,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
   auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Long);
   std::vector<c10::IValue> inputs({t0, t1});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  auto kernel_runtime = fec.getMostRecentKernelRuntime();
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
   validateSegmentation(
       kernel_runtime,
@@ -1290,10 +1293,10 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
       " grouped iterations, found ",
       gpulw.kernel()->summary().num_grouped_iterations);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
   auto lparams = rparams->lparams;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  ke.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
 
   auto t_gather = at::gather(input, dim, input_idx);
   testValidate(

@@ -86,9 +86,9 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
   auto t0 = at::randn({10}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, inputs);
+  auto outputs = ke.runFusion(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -147,9 +147,9 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -306,9 +306,9 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     auto t0 = at::randn({12}, options);
     std::vector<c10::IValue> aten_inputs({t0});
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs);
-    auto cg_outputs = fe.runFusion(aten_inputs);
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = ke.runFusion(aten_inputs);
 
     auto ref = t0 * 2;
     EXPECT_TRUE(ref.equal(cg_outputs[0]));

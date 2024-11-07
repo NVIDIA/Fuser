@@ -65,9 +65,9 @@ TEST_P(ResizeTest, Pad1) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -101,9 +101,9 @@ TEST_P(ResizeTest, Pad2) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -156,9 +156,9 @@ TEST_P(ResizeTest, Pad3) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -190,9 +190,9 @@ TEST_P(ResizeTest, Pad4) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -245,9 +245,9 @@ TEST_P(ResizeTest, Pad5) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -296,9 +296,9 @@ TEST_P(ResizeTest, Pad6) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -347,9 +347,9 @@ TEST_P(ResizeTest, Pad7) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -392,9 +392,9 @@ TEST_F(ResizeTest, Pad8) {
   auto t0 = at::randn(999, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {0, 1}) + at::pad(t0, {1, 0});
 
@@ -617,9 +617,9 @@ TEST_F(ResizeTest, Cat1) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -649,9 +649,9 @@ TEST_F(ResizeTest, Cat2) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -690,9 +690,9 @@ TEST_F(ResizeTest, Cat3) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -734,9 +734,9 @@ TEST_F(ResizeTest, Cat4) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -783,9 +783,9 @@ TEST_F(ResizeTest, Cat5) {
   auto t2 = at::randn(shape2, options);
   std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -827,9 +827,9 @@ TEST_F(ResizeTest, Cat6) {
   auto t2 = at::randn(shape2, options);
   std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
@@ -883,9 +883,9 @@ TEST_F(ResizeTest, Cat7) {
     std::vector<c10::IValue> aten_inputs_ivalue(
         {aten_inputs.begin(), aten_inputs.end()});
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs_ivalue);
-    auto cg_outputs = fe.runFusion(aten_inputs_ivalue);
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, aten_inputs_ivalue);
+    auto cg_outputs = ke.runFusion(aten_inputs_ivalue);
 
     auto ref = at::cat(aten_inputs, concat_dim);
 
@@ -1017,9 +1017,9 @@ TEST_F(ResizeTest, Slice1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -1048,9 +1048,9 @@ TEST_F(ResizeTest, Slice2) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1146,9 +1146,9 @@ TEST_F(ResizeTest, Slice4) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = (t0 + 1).to(at::kDouble).sum({1});
 
@@ -1201,9 +1201,9 @@ TEST_F(ResizeTest, Slice5) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto t1 = t0.index(
       {at::indexing::Slice(0, at::indexing::None),
@@ -1253,9 +1253,9 @@ TEST_F(ResizeTest, SliceConstantShmoo) {
     auto t0 = at::randn(shape, options);
     std::vector<c10::IValue> aten_inputs({t0});
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs);
-    auto cg_outputs = fe.runFusion(aten_inputs);
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = ke.runFusion(aten_inputs);
 
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
@@ -1298,13 +1298,13 @@ TEST_F(ResizeTest, SliceInputShmoo) {
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion);
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = fe.runFusion(aten_inputs);
+    auto cg_outputs = ke.runFusion(aten_inputs);
 
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
@@ -1332,14 +1332,15 @@ TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(
+        executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1759,9 +1760,9 @@ TEST_P(ResizeTest, PadWithValue) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
 
@@ -1834,9 +1835,9 @@ TEST_P(ResizeTest, PadHalfWithDoubleValue) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
@@ -2190,7 +2191,7 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplitSchedule) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  FusionExecutor fe;
+  KernelExecutor ke;
 
   auto ref0 = t0.index({at::indexing::Slice(0, 2)});
   auto ref1 = t0.index({at::indexing::Slice(2, 4)});
@@ -2232,15 +2233,15 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplit) {
   tv1->merge(0, 1); // size 0*5 = 0
   tv1->split(0, 4); // sizes (0, 4)
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get());
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
 
@@ -2271,7 +2272,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   // tv1 is of shape {0, 5}
   fusion->addOutput(tv2);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -2279,14 +2280,14 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0, 20});
 
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto ref0 = t0.flatten();
 
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs({t0, 10}); },
+      [&]() { executor_cache.runFusionWithInputs({t0, 10}); },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
@@ -2684,9 +2685,9 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2737,9 +2738,9 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref_t1 =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2788,9 +2789,9 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2827,9 +2828,9 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
   auto t0_unaligned = at::randn(shape, options);
   auto t0_aligned = t0_unaligned.index({at::indexing::Slice(3, -1)});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0_aligned});
-  auto cg_outputs = fe.runFusion({t0_aligned});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0_aligned});
+  auto cg_outputs = ke.runFusion({t0_aligned});
 
   auto ref_aligned = t0_aligned.index({at::indexing::Slice(1, -3)});
 
@@ -2871,9 +2872,9 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = t0.index(
       {at::indexing::Slice(slice_offset, shape[0] - slice_offset),
@@ -2921,11 +2922,11 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
 
   EXPECT_THAT(
-      [&]() { fe.runFusion(aten_inputs); },
+      [&]() { ke.runFusion(aten_inputs); },
       ThrowsMessage<nvfError>(
           HasSubstr("with word size 2 not possible due to invalid stride")));
 }
@@ -2964,11 +2965,11 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
 
   EXPECT_THAT(
-      [&]() { fe.runFusion(aten_inputs); },
+      [&]() { ke.runFusion(aten_inputs); },
       ThrowsMessage<nvfError>(
           HasSubstr("with word size 4 not possible due to invalid stride")));
 }
@@ -3045,9 +3046,9 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   for (const auto i : c10::irange(3)) {
     auto slice_out_ref = t0.index(
@@ -3090,23 +3091,23 @@ TEST_P(ResizeTest, ReshapeToPad) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({4, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at_x, 1, 1, 3, 4};
   auto at_y = at::pad(at_x.reshape({3, 4}), {0, 1, 0, 1});
 
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // Assert that we segmented into two segments
   auto seg_fusion =
-      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   EXPECT_TRUE(seg_fusion->isSegmented());
   EXPECT_EQ(seg_fusion->groups().size(), 2);
 
   testValidate(
-      fusion_executor_cache.fusion(),
+      executor_cache.fusion(),
       outputs,
       aten_inputs,
       {at_y},
@@ -3135,23 +3136,23 @@ TEST_F(ResizeTest, ReshapeToSlice) {
   auto tv2 = slice(tv1, {{fusion.zeroVal(), s0}, {fusion.zeroVal(), s1}});
   fusion.addOutput(tv2);
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({4, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at_x, 3, 2, 3, 4};
   auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
 
-  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   // Assert that we segmented into two segments
   auto seg_fusion =
-      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   EXPECT_TRUE(seg_fusion->isSegmented());
   EXPECT_EQ(seg_fusion->groups().size(), 2);
 
   testValidate(
-      fusion_executor_cache.fusion(),
+      executor_cache.fusion(),
       outputs,
       aten_inputs,
       {at_y},
@@ -3183,9 +3184,9 @@ TEST_F(ResizeTest, CatOfBroadcast) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -3220,9 +3221,9 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
 
@@ -3306,9 +3307,9 @@ TEST_P(ResizeTest, PadOfBroadcast) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3342,9 +3343,9 @@ TEST_P(ResizeTest, PadOfExpandedBroadcast) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3378,7 +3379,7 @@ TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   auto tv4 = expand(tv3, {s0, s1, s3});
   fusion->addOutput(tv4);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3}, options).as_strided({3, 4}, {1, 0});
@@ -3386,7 +3387,7 @@ TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   auto ref = t0.add(t1).as_strided({3, 4, 5}, {4, 1, 0});
 
   std::vector<c10::IValue> aten_inputs({t0, t1});
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
@@ -3428,13 +3429,18 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto ref = at::squeeze(at::slice(t0, 1, 2, 3), 1);
 
   testValidate(
-      fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 // Vectorization through resize is not supported yet. Make sure
@@ -3606,14 +3612,18 @@ TEST_F(ResizeTest, Issue2552) {
   TensorView* z = add(x, y);
   fusion->addOutput(z);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor x_tensor = at::randn({1, 3}, options);
   at::Tensor y_tensor = at::randn({1, 3}, options);
   std::vector<at::Tensor> out_tensors =
-      fec.runFusionWithInputs({x_tensor, y_tensor});
+      executor_cache.runFusionWithInputs({x_tensor, y_tensor});
   testValidate(
-      fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {x_tensor, y_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(ResizeTest, Chunk_NegativeSize) {
@@ -3627,11 +3637,11 @@ TEST_F(ResizeTest, Chunk_NegativeSize) {
     fusion->addOutput(out);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   EXPECT_THAT(
       [&]() {
         auto in_tensor = at::randn({13}).cuda();
-        fec.runFusionWithInputs({in_tensor});
+        executor_cache.runFusionWithInputs({in_tensor});
       },
       ThrowsMessage<nvfError>(HasSubstr("Invalid resized domain extent")));
 }
@@ -3647,10 +3657,11 @@ TEST_F(ResizeTest, Chunk_SizeZero) {
     fusion->addOutput(out);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto in_tensor = at::randn({15}).cuda();
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   EXPECT_EQ(out_tensors.back().numel(), 0);
 }
@@ -3666,10 +3677,11 @@ TEST_F(ResizeTest, Chunk_Uneven) {
     fusion->addOutput(out);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto in_tensor = at::randn({16}).cuda();
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   EXPECT_EQ(out_tensors.back().numel(), 1);
 }
@@ -3719,9 +3731,9 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -3767,9 +3779,9 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(t0 + 1, {1, 1}) + 1;
 
@@ -3819,9 +3831,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(
       t0.index({at::indexing::Slice(0, shape[0] / 2)}), {0, shape[0] / 2});
@@ -3874,9 +3886,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::pad(
       t0.index({at::indexing::Slice(shape[0] / 2, shape[0])}),
@@ -3938,9 +3950,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   EXPECT_TRUE(t0.equal(cg_outputs[0]));
 }
@@ -4032,9 +4044,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::concat(
       {at::slice(t0, 0, 0, rope_size / 2) + 1,
@@ -4089,9 +4101,9 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -4160,9 +4172,9 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -4220,9 +4232,9 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer3) {
   auto t1 = at::randn(shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -4602,9 +4614,9 @@ TEST_F(ResizeTest, PredicatingSqueezedSlice) {
   auto t1 = at::randn({1}, options);
   std::vector<c10::IValue> inputs({t0, t1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, inputs);
+  auto outputs = ke.runFusion(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -5376,6 +5388,76 @@ TEST_F(ResizeTest, ToString) {
   tv1->merge(0, 1);
 
   std::cout << tv1->axis(0)->extent()->toInlineString() << "\n";
+}
+
+// manual scheduling that should have vectorized load on padded inputs.
+TEST_F(ResizeTest, VectorizePadLowering) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {4, 4});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+// manual scheduling that should have vectorized load.
+TEST_F(ResizeTest, VectorizeWhereLowering) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Note: nvfuser currently only supports vectorization with a single
+  // TensorView input.
+  auto s0 = IrBuilder::create<Val>(DataType::Bool);
+  fusion.addInput(s0);
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = where(s0, IrBuilder::create<Val>(2.0), tv0);
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({at::Scalar(false), t0});
+
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
+
+  // Note: we cannot use at::where, because aten only support tensor as
+  // predicate.
+  ASSERT_TRUE(t0.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser

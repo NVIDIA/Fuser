@@ -1368,7 +1368,7 @@ struct TensorRecord : RecordFunctor {
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
-    fd.addInput(tv);
+    fd.addInput(tv, outputs_.at(0).index);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
@@ -1545,12 +1545,12 @@ struct OutputRecord : RecordFunctor {
           }
           tv_output->setAllocationDomain(allocation_domain, true);
         }
-        fd.addOutput(tv_output);
+        fd.addOutput(tv_output, args_.at(0).index);
       } else {
         NVF_CHECK(
             stride_order_.empty(),
             "stride_order can't be dictated for scalar outputs.");
-        fd.addOutput(output);
+        fd.addOutput(output, args_.at(0).index);
       }
     }
   }
@@ -1823,7 +1823,7 @@ struct SelectOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index);
 
     Val* output = select(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2015,7 +2015,7 @@ struct ScalarRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     Val* output = IrBuilder::create<nvfuser::Val>(value_, dtype_);
     if (!value_.hasValue()) {
-      fd.addInput(output);
+      fd.addInput(output, outputs_.at(0).index);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }

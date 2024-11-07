@@ -104,10 +104,10 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out,
@@ -120,7 +120,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       {true, true, true});
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
       aten_inputs,
       {std::get<0>(aten_gradients),
@@ -261,7 +261,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     auto aten_mean = std::get<1>(aten_results);
     auto aten_rstd = std::get<2>(aten_results);
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
     std::vector<c10::IValue> aten_inputs = {
         aten_grad_out,
         aten_input,
@@ -269,7 +269,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out.to(at::kDouble),
@@ -287,7 +287,8 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     if (!link_inner_outer) {
       aten_out_linked = aten_out_linked.mul(0.5);
     }
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    bool is_segmented =
+        executor_cache.getMostRecentKernelRuntime()->isSegmented();
     NVF_CHECK(is_segmented, "Fusion is not segmented");
 
     testValidate(
@@ -443,7 +444,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     auto aten_mean = std::get<1>(aten_results);
     auto aten_rstd = std::get<2>(aten_results);
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
     std::vector<c10::IValue> aten_inputs = {
         aten_grad_out,
         aten_input,
@@ -451,9 +452,9 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     switch (case_id) {
       case 0:
       case 1:
@@ -610,7 +611,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
       false,
       inner_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_inner, true, cached_inputs, cached_outputs, {}));
+          reference_tv_inner, true, cached_inputs, cached_outputs));
   reduction_scheduler_utils::propagateParallelization(
       outer_reduction_tv,
       reference_tv_outer,
@@ -618,7 +619,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
       false,
       outer_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_outer, true, cached_inputs, cached_outputs, {}));
+          reference_tv_outer, true, cached_inputs, cached_outputs));
 
   inlineMost();
   LaunchParams launch_constraints;
@@ -634,9 +635,9 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
 
   at::Tensor qv_cg_output = at::empty({dim1}, options);
   auto qv_aten_output = tv_input.to(at::kFloat).sum({0});
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
-  fe.runFusion(
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
+  ke.runFusion(
       {tv_input},
       {tv_cg_output, qv_cg_output},
       launch_constraints,
@@ -773,7 +774,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       false,
       inner_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_inner, true, cached_inputs, cached_outputs, {}),
+          reference_tv_inner, true, cached_inputs, cached_outputs),
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   const auto& selected_tvs_outer =
@@ -787,7 +788,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       false,
       outer_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_outer, true, cached_inputs, cached_outputs, {}),
+          reference_tv_outer, true, cached_inputs, cached_outputs),
       {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
   std::vector<TensorView*> cached_gmem_temp{partialResult};
@@ -811,9 +812,9 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   at::Tensor qv_cg_output = at::empty({dim1}, options);
   at::Tensor tv_input2 = at::ones({dim0, dim1}, options);
   auto qv_aten_output = tv_input2.to(at::kFloat).sum({0});
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
-  fe.runFusion(
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
+  ke.runFusion(
       {tv_input},
       {tv_cg_output, qv_cg_output},
       launch_constraints,
@@ -850,10 +851,11 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
     at::Tensor t0 = at::randn({x, y, z}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    bool is_segmented =
+        executor_cache.getMostRecentKernelRuntime()->isSegmented();
     if (outer_reduction_axis.size() == 2) {
       NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
     } else {
@@ -926,4 +928,118 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
       "",
       persistent_params->lparams);
 }
+
+// Reproduce error found in:
+// thunder/tests/test_torch_compile_executor.py::test_torch_compile_cat_nvfuser_phi2_tanh
+// Only happens when shared memory persistent is used.
+TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // When the input is float16, the vectorization factor is set to 8.
+  // If the persistent buffer tv1 is stored in shared memory and is not
+  // projected to inputs, the scheduler adds a cacheAfter to load tv1 from
+  // shared memory to registers in a vectorized manner, avoiding bank conflicts.
+  // However, since tv1 is float32, we can't directly use the vectorization
+  // factor set for float16 inputs because the maximum allowed vectorization
+  // width is 16 bytes.
+  const int dim0 = 1024;
+  const int dim1 = 4096;
+  auto dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = sum(tv1, {0});
+  auto tv6 = castOp(DataType::Half, tv4);
+  auto tv7 = castOp(DataType::Half, tv5);
+  fusion.addOutput(tv6);
+  fusion.addOutput(tv7);
+
+  Fusion fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(
+      SchedulerType::InnerOuterPersistent);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+
+  // disable projection to inputs, so shared memory buffer is using float32
+  heuristic_params->as<ReductionParams>()->project_persistent_buffers = false;
+  // Set vectorization factor to 8, so the exent of the innermost dimension
+  // exceed 16 bytes (8 x 4 = 32 bytes).
+  heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction = 8;
+  // when compute heuristics, the buffer is projected to inputs and the shared
+  // memory persistent buffer is the input, tv0. Then, we modified the
+  // heuristics to disable project to inputs, so needs to update the buffer
+  // being stored in shared memory to the original unprojected buffer, tv1.
+  heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
+      std::vector<TensorView*>{tv1};
+  scheduler->schedule(&fusion, heuristic_params.get());
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        EXPECT_TRUE(isVectorized(consumer));
+      }
+    }
+  }
+  auto cg_outputs = ke.runFusion(
+      aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+using InnerOuterReshapeTest = NVFuserFixtureParamTest<bool>;
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    InnerOuterReshapeTest,
+    testing::Bool(),
+    testing::PrintToStringParamName());
+TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
+  auto reshape_outer_dim = GetParam();
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // reshape a 3D input tensor to 2D
+  // [4, 1024, 4096] -> [4096, 4096]
+  // [4096, 4, 1024] -> [4096, 4096]
+  const int dim0 = reshape_outer_dim ? 4 : 4096;
+  const int dim1 = reshape_outer_dim ? 1024 : 4;
+  const int dim2 = reshape_outer_dim ? 4096 : 1024;
+  auto dtype = DataType::Half;
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+
+  auto tv4 = reshape(tv1, {dim0, dim1, dim2}, {4096, 4096});
+
+  auto tv5 = sum(tv4, {1});
+  auto tv6 = broadcast(tv5, {false, true});
+  auto tv7 = add(tv6, tv4);
+  auto tv8 = sum(tv4, {0});
+  auto tv9 = castOp(DataType::Half, tv7);
+  auto tv10 = castOp(DataType::Half, tv8);
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv10);
+
+  Fusion fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1, dim2}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
+  auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
+  ASSERT_FALSE(persistent_params->project_persistent_buffers);
+  testValidate(
+      &fusion_copy, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

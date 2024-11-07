@@ -67,25 +67,6 @@ Expr* initializeMbarrier(
   kir::TensorIndex* stage_mbarrier =
       IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
 
-  // Get all threads in CTA
-  Val* bdimx =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
-  Val* bdimy =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDy);
-  Val* bdimz =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
-  Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
-      bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-  if (all_threads_in_cta != nullptr) {
-    all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
-        DataType::UInt32, all_threads_in_cta);
-  } else {
-    // If all_threads_in_cta is nullptr, then this kernel is not parallelized
-    // on any of the thread dimensions.
-    all_threads_in_cta =
-        GpuLower::current()->kernel()->oneVal(DataType::UInt32);
-  }
-
   auto circular_buffered_tvs =
       GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
           circular_buffer_loop);
@@ -95,8 +76,8 @@ Expr* initializeMbarrier(
       [](const TensorView* tv) {
         return ir_utils::isCpAsyncBulkLoad(tv->definition());
       });
-  Val* n = IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
-  Val* num_of_arrives = SimplifyingIrBuilder::mulExpr(n, all_threads_in_cta);
+  Val* num_of_arrives =
+      IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
