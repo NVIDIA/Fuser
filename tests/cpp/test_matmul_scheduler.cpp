@@ -3229,7 +3229,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
 
   // TODO Create prefetch parameter
   // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
