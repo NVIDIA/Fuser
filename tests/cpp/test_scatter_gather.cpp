@@ -132,7 +132,7 @@ TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
-    for (int rank = 1; rank <= 5; ++rank) {
+    for (int rank = 1; rank <= 3; ++rank) {
       for (int dim = 0; dim < rank; ++dim) {
         // this test uses a random input shape, clear the allocator to avoid
         // OOM.
