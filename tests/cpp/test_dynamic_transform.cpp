@@ -1212,7 +1212,7 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
   KernelExecutor ke;
   ke.compile(fusion);
 
-  auto outputs = ke.runFusion({t0});
+  auto outputs = ke.run({t0});
 
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1249,7 +1249,7 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
   KernelExecutor ke;
   ke.compile(fusion);
 
-  auto outputs = ke.runFusion({3L});
+  auto outputs = ke.run({3L});
 
   testValidate(fusion, outputs, {3L}, __LINE__, __FILE__);
 }

@@ -70,11 +70,11 @@ TEST_P(CircularBufferingTest, SingleDim1) {
   // Given computeAt axis 1, the axis_extent is I0/128.
   constexpr int64_t axis_extent = 8;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -118,11 +118,11 @@ TEST_P(CircularBufferingTest, SingleDim2) {
   // Given computeAt axis 1, the axis_extent is I0/128.
   constexpr int64_t axis_extent = 8;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -173,11 +173,11 @@ TEST_P(CircularBufferingTest, SingleDim3) {
   // Given computeAt axis 2, the axis_extent is 128/32.
   constexpr int64_t axis_extent = 4;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 2;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -226,11 +226,11 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
   // extent is 4.
   constexpr int64_t axis_extent = 4;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 2;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -278,11 +278,11 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
   // extent is 4.
   constexpr int64_t axis_extent = 4;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -332,11 +332,11 @@ TEST_P(CircularBufferingTest, SingleDimUnroll) {
   // extent is 2.
   constexpr int64_t axis_extent = 2;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 2;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -379,11 +379,11 @@ TEST_P(CircularBufferingTest, SingleDimVectorize) {
   // extent is I0/128.
   constexpr int64_t axis_extent = 2;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -430,11 +430,11 @@ TEST_P(CircularBufferingTest, MultipleTensors) {
   // Given computeAt axis 1, the axis extent is I0/32/4.
   constexpr int64_t axis_extent = 1;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto ref = t0 + t1;
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
@@ -483,11 +483,11 @@ TEST_P(CircularBufferingTest, NestedTensors) {
   // the axis extent is 4.
   constexpr int64_t axis_extent = 4;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -574,11 +574,11 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
 
   constexpr int64_t axis_extent = 2;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
   // The smem cache write in this test case is redundant predicated,
@@ -628,11 +628,11 @@ TEST_P(CircularBufferingTest, Vector) {
 
   constexpr int64_t axis_extent = 8;
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto ref = (t0 + 1).sum({0});
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
@@ -685,7 +685,7 @@ TEST_P(CircularBufferingTest, CpAsync1) {
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
   ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   auto ref = t0 + t1;
 
@@ -738,7 +738,7 @@ TEST_P(CircularBufferingTest, CpAsync2) {
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
   ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   auto ref = t0 + t1;
 
@@ -796,7 +796,7 @@ TEST_P(CircularBufferingTest, NoSync) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   auto ref = t0 + t1;
 
@@ -1026,7 +1026,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
@@ -1082,11 +1082,11 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
@@ -1142,11 +1142,11 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
   if (axis_extent < number_of_stages) {
-    ASSERT_ANY_THROW(ke.runFusion({t0}));
+    ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
@@ -1209,7 +1209,7 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
@@ -1271,7 +1271,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
@@ -1338,7 +1338,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
@@ -1396,7 +1396,7 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
@@ -1521,7 +1521,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
   ke.compile(fusion.get(), {at_tv0});
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({at_tv0});
+  std::vector<at::Tensor> cg_outputs = ke.run({at_tv0});
 
   std::tuple<at::Tensor, at::Tensor> at_var_mean =
       at::var_mean(at_tv0, {-1}, correction, keepdim);
@@ -1643,7 +1643,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(
       tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
   testValidate(
@@ -1757,7 +1757,7 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(
       tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
   testValidate(

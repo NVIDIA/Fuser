@@ -136,7 +136,7 @@ TEST_F(GpuViewTest, FusionViewAsRealOutput) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -639,7 +639,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -852,7 +852,7 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -917,12 +917,12 @@ TEST_F(GpuViewTest, FusionExpandRepro) {
   KernelExecutor ke;
   ke.compile(&fusion);
   LaunchParams l_params;
-  auto outputs = ke.runFusion(aten_inputs, {}, l_params, {});
+  auto outputs = ke.run(aten_inputs, {}, l_params, {});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 
   // second run to verify cached output allocation
-  outputs = ke.runFusion(aten_inputs, {}, l_params, {});
+  outputs = ke.run(aten_inputs, {}, l_params, {});
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1351,7 +1351,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t3});
-  auto cg_outputs = ke.runFusion({t0, t3});
+  auto cg_outputs = ke.run({t0, t3});
 
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
@@ -1417,7 +1417,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t3});
-  auto cg_outputs = ke.runFusion({t0, t3});
+  auto cg_outputs = ke.run({t0, t3});
 
   testValidate(&fusion, cg_outputs, {t0, t3}, {t2, t5, t6}, __LINE__, __FILE__);
 }
@@ -1946,7 +1946,7 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t3});
-  auto cg_outputs = ke.runFusion({t0, t3});
+  auto cg_outputs = ke.run({t0, t3});
 
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
@@ -2320,7 +2320,7 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  at::Tensor actual_out_tensor = ke.runFusion({in_tensor})[0];
+  at::Tensor actual_out_tensor = ke.run({in_tensor})[0];
 
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
@@ -2699,7 +2699,7 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   at::Tensor t0 = at::randn({2, 3, 5}).to(options);
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }

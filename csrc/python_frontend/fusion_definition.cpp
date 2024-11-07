@@ -376,7 +376,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
               user_sched.fusion_id_,
               user_sched.device_id_);
         }
-        outputs = user_sched.executor->runFusion(inputs);
+        outputs = user_sched.executor->run(inputs);
       } else {
         // Automatic scheduler was used for UserSchedule.
         // Pass launch and compile params to compileFusion and runFusion.
@@ -391,7 +391,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
               user_sched.fusion_id_,
               user_sched.device_id_);
         }
-        outputs = user_sched.executor->runFusion(
+        outputs = user_sched.executor->run(
             inputs,
             user_sched.heuristic_params->lparams,
             user_sched.heuristic_params->cparams);

@@ -79,7 +79,7 @@ TEST_F(PredicateEliminationTest, 2) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = (t0 + 1).sum({1}) + 1;
 
@@ -129,7 +129,7 @@ TEST_F(PredicateEliminationTest, 3) {
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});
-    auto cg_outputs = ke.runFusion({t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = sum(t0) + 1;
     testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
@@ -182,7 +182,7 @@ TEST_F(PredicateEliminationTest, 4) {
 
       KernelExecutor ke;
       ke.compile(&fusion, {t0});
-      auto cg_outputs = ke.runFusion({t0});
+      auto cg_outputs = ke.run({t0});
 
       auto t1 = t0.sum({1});
       auto t3 = t1.sum({0}) + 1;
@@ -230,7 +230,7 @@ TEST_F(PredicateEliminationTest, 5) {
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});
-    auto cg_outputs = ke.runFusion({t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = t0.mean({0});
 
@@ -279,7 +279,7 @@ TEST_F(PredicateEliminationTest, 6) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -315,7 +315,7 @@ TEST_F(PredicateEliminationTest, 7) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -433,7 +433,7 @@ TEST_F(PredicateEliminationTest, 9) {
 
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -479,7 +479,7 @@ TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
   });
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 

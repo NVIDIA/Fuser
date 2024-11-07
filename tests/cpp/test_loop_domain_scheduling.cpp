@@ -88,7 +88,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -149,7 +149,7 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -308,7 +308,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     KernelExecutor ke;
     ke.compile(&fusion, aten_inputs);
-    auto cg_outputs = ke.runFusion(aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
     auto ref = t0 * 2;
     EXPECT_TRUE(ref.equal(cg_outputs[0]));

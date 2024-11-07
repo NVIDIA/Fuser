@@ -166,7 +166,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -221,7 +221,7 @@ TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   auto aten_output = at::_softmax(t0.to(at::kDouble), -1, false);
 
@@ -263,7 +263,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -309,7 +309,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -348,7 +348,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -451,7 +451,7 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, LaunchParams());
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   auto t1 = t0.to(at::kFloat);
   auto t2 = t1.mean({0, 1, 2});

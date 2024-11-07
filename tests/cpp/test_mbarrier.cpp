@@ -138,7 +138,7 @@ TEST_F(MBarrierTest, Simple) {
 
   auto input = at::randn(
       {32, 32}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-  auto outputs = ke.runFusion({input});
+  auto outputs = ke.run({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }

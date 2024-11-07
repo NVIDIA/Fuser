@@ -184,7 +184,7 @@ static void SingleMatmulBase(
   std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
 
   // Warm up run
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
@@ -363,7 +363,7 @@ static void SingleMatmulPartitionedK(
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
 
@@ -470,7 +470,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.runFusion(aten_inputs, heuristic_params->lparams);
+  auto outputs = ke.run(aten_inputs, heuristic_params->lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 

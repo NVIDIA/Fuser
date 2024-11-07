@@ -2814,7 +2814,7 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2847,7 +2847,7 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2883,7 +2883,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2921,7 +2921,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2958,7 +2958,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2995,7 +2995,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3032,7 +3032,7 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3141,12 +3141,12 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   //! of ampere scheduler.
   /*
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
   */
@@ -3218,7 +3218,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
       LaunchParams(),
       matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
@@ -3293,7 +3293,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
       LaunchParams(),
       matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
@@ -3364,12 +3364,12 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   // of ampere scheduler.
   /*
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
   */

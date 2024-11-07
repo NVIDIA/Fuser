@@ -132,7 +132,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
         ", ",
         params.bidx);
 
-    auto cg_outputs = ke.runFusion(aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
     auto t1 = t0;
     auto t2 = params.dtype == DataType::Half ? t1.to(at::kFloat) : t1;
@@ -648,12 +648,12 @@ void grid_persistent_reduction_outer_norm_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.runFusion({t0});
+      cg_outputs = ke.run({t0});
     }
   }
 
@@ -747,12 +747,12 @@ void grid_persistent_welford_outer_norm_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.runFusion({t0});
+      cg_outputs = ke.run({t0});
     }
   }
 
@@ -908,7 +908,7 @@ void grid_persistent_batchnorm_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
   cg_outputs.at(2) = cg_outputs.at(2).permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
@@ -934,7 +934,7 @@ void grid_persistent_batchnorm_manual(
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.runFusion(aten_inputs);
+      cg_outputs = ke.run(aten_inputs);
     }
   }
 }
@@ -1047,12 +1047,12 @@ void grid_persistent_reduction_outer_norm_bwd_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.runFusion(aten_inputs);
+      cg_outputs = ke.run(aten_inputs);
     }
   }
 
@@ -1234,7 +1234,7 @@ void grid_persistent_batchnorm_bwd_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  cg_outputs = ke.runFusion(aten_inputs);
+  cg_outputs = ke.run(aten_inputs);
   // Permute grad_input output
   cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
 
@@ -1262,7 +1262,7 @@ void grid_persistent_batchnorm_bwd_manual(
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.runFusion(aten_inputs);
+      cg_outputs = ke.run(aten_inputs);
     }
   }
 }
@@ -2183,7 +2183,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   scheduler->schedule(&fusion, rparams);
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs, heuristic_params->lparams);
-  auto cg_outputs = ke.runFusion(aten_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke.run(aten_inputs, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
   NVF_CHECK(
@@ -2292,7 +2292,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
+  auto cg_outputs = ke.run(aten_inputs, lparams);
 
   testValidate(
       &fusion,
@@ -2549,7 +2549,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
+  auto cg_outputs = ke.run(aten_inputs, lparams);
 
   testValidate(
       &fusion,

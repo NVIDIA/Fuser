@@ -1137,7 +1137,7 @@ at::Tensor findBufferForFusionOutput(
 }
 } // namespace
 
-std::vector<at::Tensor> KernelExecutor::runFusion(
+std::vector<at::Tensor> KernelExecutor::run(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,

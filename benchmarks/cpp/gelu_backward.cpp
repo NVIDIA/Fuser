@@ -193,8 +193,8 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = ke.runFusion(
-        c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    outputs =
+        ke.run(c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }
@@ -252,8 +252,8 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   ke.compile(&fusion, inputs, heuristic_params->lparams);
 
   for (auto _ : benchmark_state) {
-    outputs = ke.runFusion(
-        c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    outputs =
+        ke.run(c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }
 

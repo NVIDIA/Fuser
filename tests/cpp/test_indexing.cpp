@@ -1775,7 +1775,7 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {input0});
-  auto outputs = ke.runFusion({input0});
+  auto outputs = ke.run({input0});
 
   testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
 }
@@ -3042,7 +3042,7 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3141,7 +3141,7 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3308,7 +3308,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3389,7 +3389,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3478,7 +3478,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3584,7 +3584,7 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  auto outputs = ke.runFusion(inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3663,7 +3663,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -3756,7 +3756,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3847,7 +3847,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3942,7 +3942,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4053,7 +4053,7 @@ TEST_F(
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4138,7 +4138,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto ref = t0.to(at::kDouble).sum();
 
@@ -4298,7 +4298,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4421,7 +4421,7 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4836,7 +4836,7 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -5065,7 +5065,7 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }

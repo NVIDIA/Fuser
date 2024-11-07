@@ -637,7 +637,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
   auto qv_aten_output = tv_input.to(at::kFloat).sum({0});
   KernelExecutor ke;
   ke.compile(&fusion, {tv_input}, launch_constraints, compile_params);
-  ke.runFusion(
+  ke.run(
       {tv_input},
       {tv_cg_output, qv_cg_output},
       launch_constraints,
@@ -814,7 +814,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   auto qv_aten_output = tv_input2.to(at::kFloat).sum({0});
   KernelExecutor ke;
   ke.compile(&fusion, {tv_input}, launch_constraints, compile_params);
-  ke.runFusion(
+  ke.run(
       {tv_input},
       {tv_cg_output, qv_cg_output},
       launch_constraints,
@@ -992,8 +992,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       }
     }
   }
-  auto cg_outputs = ke.runFusion(
-      aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+  auto cg_outputs =
+      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

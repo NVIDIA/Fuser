@@ -595,7 +595,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (executor.groupId() < 0) {
     executor.setGroupId(group_id);
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  auto outputs = executor.run(args, launch_params, compile_params);
 
   return outputs;
 }

@@ -1123,7 +1123,7 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("I am fake")));
 
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(ke.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 

@@ -551,7 +551,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     pwise_scheduler->schedule(&sharded_fusion, sharded_params.get());
     KernelExecutor ke;
     ke.compile(&sharded_fusion, sharded_inputs, sharded_params->lparams);
-    auto cg_outputs = ke.runFusion(sharded_inputs, sharded_params->lparams);
+    auto cg_outputs = ke.run(sharded_inputs, sharded_params->lparams);
     testValidate(
         &sharded_fusion, cg_outputs, sharded_inputs, __LINE__, __FILE__);
   }
@@ -708,7 +708,7 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   scheduler_instance->schedule(fusion.get(), pparams);
   KernelExecutor ke;
   ke.compile(fusion.get(), runtime_inputs, pparams->lparams);
-  auto cg_outputs = ke.runFusion(runtime_inputs, pparams->lparams);
+  auto cg_outputs = ke.run(runtime_inputs, pparams->lparams);
   const auto& lparams = ke.lastLaunchParams();
   ASSERT_EQ(lparams.gdimy(), dim0 / unroll_outer);
   ASSERT_EQ(

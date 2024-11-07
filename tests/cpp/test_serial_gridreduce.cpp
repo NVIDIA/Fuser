@@ -124,7 +124,7 @@ TEST_F(SerialGridReductionTest, Scheduling) {
 
         auto input = at::randn(
             {H, W}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-        auto outputs = ke.runFusion({input});
+        auto outputs = ke.run({input});
 
         if (serial) {
           // Verify that zeroed semaphore memory was reused instead of

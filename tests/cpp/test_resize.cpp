@@ -65,7 +65,7 @@ TEST_P(ResizeTest, Pad1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -101,7 +101,7 @@ TEST_P(ResizeTest, Pad2) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -154,7 +154,7 @@ TEST_P(ResizeTest, Pad3) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -188,7 +188,7 @@ TEST_P(ResizeTest, Pad4) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -243,7 +243,7 @@ TEST_P(ResizeTest, Pad5) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -294,7 +294,7 @@ TEST_P(ResizeTest, Pad6) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -345,7 +345,7 @@ TEST_P(ResizeTest, Pad7) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -389,8 +389,8 @@ TEST_F(ResizeTest, Pad8) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {0, 1}) + at::pad(t0, {1, 0});
 
@@ -615,7 +615,7 @@ TEST_F(ResizeTest, Cat1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -647,7 +647,7 @@ TEST_F(ResizeTest, Cat2) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -688,7 +688,7 @@ TEST_F(ResizeTest, Cat3) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -732,7 +732,7 @@ TEST_F(ResizeTest, Cat4) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -781,7 +781,7 @@ TEST_F(ResizeTest, Cat5) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -825,7 +825,7 @@ TEST_F(ResizeTest, Cat6) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
@@ -881,7 +881,7 @@ TEST_F(ResizeTest, Cat7) {
 
     KernelExecutor ke;
     ke.compile(&fusion, aten_inputs_ivalue);
-    auto cg_outputs = ke.runFusion(aten_inputs_ivalue);
+    auto cg_outputs = ke.run(aten_inputs_ivalue);
 
     auto ref = at::cat(aten_inputs, concat_dim);
 
@@ -1015,7 +1015,7 @@ TEST_F(ResizeTest, Slice1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -1046,7 +1046,7 @@ TEST_F(ResizeTest, Slice2) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1144,7 +1144,7 @@ TEST_F(ResizeTest, Slice4) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = (t0 + 1).to(at::kDouble).sum({1});
 
@@ -1199,7 +1199,7 @@ TEST_F(ResizeTest, Slice5) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto t1 = t0.index(
       {at::indexing::Slice(0, at::indexing::None),
@@ -1251,7 +1251,7 @@ TEST_F(ResizeTest, SliceConstantShmoo) {
 
     KernelExecutor ke;
     ke.compile(&fusion, aten_inputs);
-    auto cg_outputs = ke.runFusion(aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
@@ -1300,7 +1300,7 @@ TEST_F(ResizeTest, SliceInputShmoo) {
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = ke.runFusion(aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
@@ -1758,7 +1758,7 @@ TEST_P(ResizeTest, PadWithValue) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
 
@@ -1833,7 +1833,7 @@ TEST_P(ResizeTest, PadHalfWithDoubleValue) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
@@ -2237,7 +2237,7 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplit) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
 
@@ -2683,7 +2683,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2736,7 +2736,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref_t1 =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2787,7 +2787,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2826,7 +2826,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0_aligned});
-  auto cg_outputs = ke.runFusion({t0_aligned});
+  auto cg_outputs = ke.run({t0_aligned});
 
   auto ref_aligned = t0_aligned.index({at::indexing::Slice(1, -3)});
 
@@ -2870,7 +2870,7 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = t0.index(
       {at::indexing::Slice(slice_offset, shape[0] - slice_offset),
@@ -2922,7 +2922,7 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
   ke.compile(&fusion, aten_inputs);
 
   EXPECT_THAT(
-      [&]() { ke.runFusion(aten_inputs); },
+      [&]() { ke.run(aten_inputs); },
       ThrowsMessage<nvfError>(
           HasSubstr("with word size 2 not possible due to invalid stride")));
 }
@@ -2965,7 +2965,7 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
   ke.compile(&fusion, aten_inputs);
 
   EXPECT_THAT(
-      [&]() { ke.runFusion(aten_inputs); },
+      [&]() { ke.run(aten_inputs); },
       ThrowsMessage<nvfError>(
           HasSubstr("with word size 4 not possible due to invalid stride")));
 }
@@ -3044,7 +3044,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   for (const auto i : c10::irange(3)) {
     auto slice_out_ref = t0.index(
@@ -3182,7 +3182,7 @@ TEST_F(ResizeTest, CatOfBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -3219,7 +3219,7 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
 
@@ -3305,7 +3305,7 @@ TEST_P(ResizeTest, PadOfBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3341,7 +3341,7 @@ TEST_P(ResizeTest, PadOfExpandedBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3729,7 +3729,7 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -3777,7 +3777,7 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0 + 1, {1, 1}) + 1;
 
@@ -3829,7 +3829,7 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(
       t0.index({at::indexing::Slice(0, shape[0] / 2)}), {0, shape[0] / 2});
@@ -3884,7 +3884,7 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(
       t0.index({at::indexing::Slice(shape[0] / 2, shape[0])}),
@@ -3948,7 +3948,7 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   EXPECT_TRUE(t0.equal(cg_outputs[0]));
 }
@@ -4042,7 +4042,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::concat(
       {at::slice(t0, 0, 0, rope_size / 2) + 1,
@@ -4080,7 +4080,7 @@ TEST_F(ResizeTest, VectorizePadLowering) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {4, 4});
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
@@ -4116,7 +4116,7 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.runFusion(aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.

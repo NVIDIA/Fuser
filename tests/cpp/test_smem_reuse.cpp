@@ -558,7 +558,7 @@ TEST_F(SmemReuseTest, SmemReuseWithDifferentVectorizationFactor) {
   auto t0 = at::randn({n_element}, options);
   KernelExecutor ke;
   ke.compile(fusion.get());
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -618,7 +618,7 @@ TEST_F(SmemReuseTest, RegisterReuseWithDifferentVectorizationFactor) {
     auto t0 = at::randn({n_element}, options);
     KernelExecutor ke;
     ke.compile(fusion.get());
-    auto cg_outputs = ke.runFusion({t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
   };
 
@@ -679,7 +679,7 @@ TEST_F(SmemReuseTest, ExpandInterferes) {
     at::Tensor t0 = at::randn({y}, options);
     KernelExecutor ke;
     ke.compile(fusion.get());
-    auto cg_outputs = ke.runFusion({t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
   };
 

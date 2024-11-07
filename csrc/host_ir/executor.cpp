@@ -159,7 +159,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
       DynamicTransform::concretizeFusion(fusion, input_IValues);
       ke.compile(fusion, input_IValues);
     }
-    outputs = ke.runFusion(input_IValues);
+    outputs = ke.run(input_IValues);
     if (!params_.cache_fusion_executor) {
       fe_.erase(hu);
     }

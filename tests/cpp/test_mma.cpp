@@ -175,7 +175,7 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   KernelExecutor ke;
   ke.compile(
       fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  return ke.runFusion({inputs.first, inputs.second});
+  return ke.run({inputs.first, inputs.second});
 }
 
 TEST_P(MmaTest, SingleTile) {
@@ -392,7 +392,7 @@ TEST_P(HopperRS, SingleTile) {
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -488,7 +488,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -653,7 +653,7 @@ TEST_P(HopperSS, SingleTile) {
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -782,7 +782,7 @@ TEST_P(HopperSS, SingleTileTransposed) {
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -961,7 +961,7 @@ TEST_P(HopperSS, MultipleTile) {
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),

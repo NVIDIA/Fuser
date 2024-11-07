@@ -549,7 +549,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {input0, input1, input2});
-  auto outputs = ke.runFusion({input0, input1, input2});
+  auto outputs = ke.run({input0, input1, input2});
 
   testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
@@ -989,7 +989,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict9) {
 
   KernelExecutor ke;
   ke.compile(&fusion);
-  auto outputs = ke.runFusion({input});
+  auto outputs = ke.run({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
