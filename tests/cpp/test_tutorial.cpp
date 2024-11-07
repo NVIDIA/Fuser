@@ -84,10 +84,10 @@ TEST_F(Tutorial, Memcpy) {
   // Next, lower the fusion to Kernel, generate CUDA kernel source and then
   // compile it with nvrtc. All of them are done by KernelExecutor
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
+  ke.compile(&fusion, aten_inputs);
 
   // KernelExecutor now has a compiled kernel, which can be executed as:
-  std::vector<at::Tensor> outputs = ke.runFusion(aten_inputs);
+  std::vector<at::Tensor> outputs = ke.run(aten_inputs);
   // Note that this run is done using just one thread, which will be
   // corrected below.
 
@@ -159,14 +159,14 @@ TEST_F(Tutorial, Memcpy) {
 
   // Since the fusion is modified, we need to recompile it.
   KernelExecutor ke2;
-  ke2.compileFusion(&fusion, aten_inputs);
+  ke2.compile(&fusion, aten_inputs);
 
   // This time, the kernel is launched with multiple threads and
   // thread blocks. Note that the launch configurations, i.e., the
   // thread block and grid shapes, are autoatically inferred from the
   // given inputs. To see how many threads are used, run this test
   // with NVFUSER_DUMP=launch_param
-  outputs = ke2.runFusion(aten_inputs);
+  outputs = ke2.run(aten_inputs);
 
   ASSERT_TRUE(outputs[0].equal(t0));
 }
@@ -206,8 +206,8 @@ TEST_F(Tutorial, Reduction) {
 
   {
     KernelExecutor ke;
-    ke.compileFusion(&fusion);
-    std::vector<at::Tensor> outputs = ke.runFusion(aten_inputs);
+    ke.compile(&fusion);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 
@@ -222,8 +222,8 @@ TEST_F(Tutorial, Reduction) {
 
   {
     KernelExecutor ke;
-    ke.compileFusion(&fusion);
-    std::vector<at::Tensor> outputs = ke.runFusion(aten_inputs);
+    ke.compile(&fusion);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 
@@ -240,18 +240,18 @@ TEST_F(Tutorial, Reduction) {
 
   {
     KernelExecutor ke;
-    ke.compileFusion(&fusion);
+    ke.compile(&fusion);
     // Running this fusion, however, should fail as it would require
     // thread blocks of shape 1024x10, i.e., the same shape as the
     // input tensor, which is too large in CUDA.
     //
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-    ASSERT_ANY_THROW(ke.runFusion(aten_inputs));
+    ASSERT_ANY_THROW(ke.run(aten_inputs));
 
     // Try again with a smaller input. This should launch a kernel
     // with thread blocks of shape 32x10
     at::Tensor t1 = at::randn({10, 32}, options);
-    std::vector<at::Tensor> outputs = ke.runFusion({t1});
+    std::vector<at::Tensor> outputs = ke.run({t1});
     testValidate(
         &fusion, outputs, aten_inputs, {t1.sum({1})}, __LINE__, __FILE__);
   }
@@ -267,12 +267,12 @@ TEST_F(Tutorial, Reduction) {
 
   {
     KernelExecutor ke;
-    ke.compileFusion(&fusion);
+    ke.compile(&fusion);
     // The original input should not fail in this case. The kernel
     // will be launched with 10 thread blocks, each of which has 1024
     // threads. Try running this test with NVFUSER_DUMP=launch_param
     // to see the launch configuration of each kernel lauch
-    std::vector<at::Tensor> outputs = ke.runFusion(aten_inputs);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 }
@@ -381,12 +381,12 @@ TEST_F(Tutorial, ReductionRFactor) {
     at::Tensor ref = t0.sum({0});
 
     KernelExecutor ke;
-    ke.compileFusion(&fusion_copy);
+    ke.compile(&fusion_copy);
 
     // Since the size of the input is 10000, which is split by a
     // factor of 1024, the first per-thread reduction is done for
     // ceilDiv(10000, 1024) = 10 elements.
-    std::vector<at::Tensor> outputs = ke.runFusion(aten_inputs);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion_copy, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 
@@ -440,9 +440,9 @@ TEST_F(Tutorial, ReductionRFactor) {
     at::Tensor ref = t0.sum({0});
 
     KernelExecutor ke;
-    ke.compileFusion(&fusion_copy);
+    ke.compile(&fusion_copy);
 
-    std::vector<at::Tensor> outputs = ke.runFusion(aten_inputs);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion_copy, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 }
@@ -787,8 +787,8 @@ TEST_F(Tutorial, BasicTMA) {
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = ke.runFusion({t});
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -871,8 +871,8 @@ TEST_F(Tutorial, BasicTMA) {
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = ke.runFusion({t});
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -954,8 +954,8 @@ TEST_F(Tutorial, BasicTMA) {
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = ke.runFusion({t});
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -1034,8 +1034,8 @@ TEST_F(Tutorial, BasicTMA) {
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = ke.runFusion({t});
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -1139,8 +1139,8 @@ TEST_F(Tutorial, BasicTMA) {
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = ke.runFusion({t});
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -1245,8 +1245,8 @@ TEST_F(Tutorial, BasicTMA) {
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = ke.runFusion({t});
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 }
@@ -1345,8 +1345,8 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
 
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
-  auto outputs = ke.runFusion({at_tv0, at_tv1});
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
 
   auto at_output = at_tv0 + at_tv1;
   testValidate(
@@ -1449,8 +1449,8 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
-  auto outputs = ke.runFusion({at_tv0, at_tv1});
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
 
   auto at_output = at_tv0 + at_tv1;
   testValidate(
@@ -1553,8 +1553,8 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   auto t = at::randn({10000, 10000}, options);
   KernelExecutor ke;
   CompileParams index32bit{DataType::Int32, 255, false};
-  ke.compileFusion(&fusion, {t}, {}, index32bit);
-  std::vector<at::Tensor> outputs = ke.runFusion({t});
+  ke.compile(&fusion, {t}, {}, index32bit);
+  std::vector<at::Tensor> outputs = ke.run({t});
   ASSERT_TRUE(at::equal(t.t(), outputs[0]));
 }
 

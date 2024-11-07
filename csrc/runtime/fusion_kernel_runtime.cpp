@@ -595,7 +595,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (executor.groupId() < 0) {
     executor.setGroupId(group_id);
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  auto outputs = executor.run(args, launch_params, compile_params);
 
   return outputs;
 }
@@ -625,7 +625,7 @@ void FusionKernelRuntime::compileKernel(
   NVF_ERROR(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
-  executors_.at(group_id).compileFusion(
+  executors_.at(group_id).compile(
       fusion_to_run.get(),
       args,
       heuristic_params->lparams,

@@ -587,9 +587,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
+  ke.compile(&fusion, aten_inputs);
 
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1295,8 +1295,8 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
 
   KernelExecutor ke;
   auto lparams = rparams->lparams;
-  ke.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
+  ke.compile(&fusion, aten_inputs, lparams);
+  auto cg_outputs = ke.run(aten_inputs, lparams);
 
   auto t_gather = at::gather(input, dim, input_idx);
   testValidate(

@@ -1026,8 +1026,8 @@ TEST_F(AliasTest, ReuseBuffer_KernelExecutor) {
   auto expected_tensor = tensor + 1.0;
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {tensor});
-  ke.runFusion({tensor}, {tensor});
+  ke.compile(&fusion, {tensor});
+  ke.run({tensor}, {tensor});
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 
@@ -1231,8 +1231,8 @@ TEST_F(AliasTest, KernelExecutor) {
   KernelExecutor ke;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10, 10}, options);
-  ke.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = ke.runFusion({in_tensor})[0];
+  ke.compile(&fusion, {in_tensor});
+  at::Tensor out_tensor = ke.run({in_tensor})[0];
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
