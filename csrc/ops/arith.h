@@ -685,7 +685,29 @@ TensorView* viewAsScalar(TensorView* inp);
 //! \param tv_a first multiply operand
 //! \param tv_b second multiply operand
 //! \param axes axes to sum over
+//! \param implicit_a_broadcasts positions in the output missing in tv_a
 //! \param init sum initial value
+//!
+//! The operands tv_a and tv_b have different sets of axes. We call dimensions
+//! that are not Iteration in B but are in A "M" dimensions and dimensions that
+//! are Iteration in A but not in B are "N" dimensions. These non-Iteration
+//! dimensions may be Broadcast, or they might be missing entirely from that
+//! input. In case they are missing, their positions (noted as a position in
+//! the output) should be given via the implicit_a_broadcasts and
+//! implicit_b_broadcasts parameters.
+//!
+//!  tv_a [ B, M, 1, K ]
+//!  tv_b [ B, N, K ]
+//!  c = fusedMultiplySum(
+//!     tv_a,
+//!     tv_b,
+//!     /*axes=*/{-1},
+//!     /*implicit_a_broadcasts=*/{},
+//!     /*implicit_b_broadcasts=*/{-3})
+//!
+//! Since c has shape [iB, iM, iN, rK], position -3 is the M dimension and
+//! passing -3 indicates that this should be treated like a missing broadcast in
+//! tv_b.
 //!
 //! Note & TODO:
 //!   currently only support lowering to a mma op
@@ -696,6 +718,8 @@ NVF_API TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
     const std::vector<int64_t>& axes,
+    const std::vector<int64_t>& implicit_a_broadcasts={},
+    const std::vector<int64_t>& implicit_b_broadcasts={},
     Val* init = nullptr);
 
 // Create a tensor view from the given value. The given value can be a single
