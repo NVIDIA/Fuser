@@ -109,7 +109,7 @@ for i, arg in enumerate(sys.argv):
         BUILD_WITH_UCC = True
         continue
     if arg == "--explicit-check":
-        EXPLICIT_CHECK = False
+        EXPLICIT_CHECK = True
         continue
     if arg == "--build-with-asan":
         BUILD_WITH_ASAN = True
