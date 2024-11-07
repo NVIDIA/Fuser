@@ -141,7 +141,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-  // Compile the fusion and execute it with FusionExecutor(Cache)
+  // Compile the fusion and execute it with KernelExecutor(Cache)
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
     if (!fec_.count(hu)) {
@@ -153,13 +153,13 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
-    FusionExecutor& fe = fe_[hu];
-    if (!fe.isCompiled()) {
+    KernelExecutor& ke = fe_[hu];
+    if (!ke.isCompiled()) {
       Fusion* fusion = hu->fusion_to_execute();
       DynamicTransform::concretizeFusion(fusion, input_IValues);
-      fe.compileFusion(fusion, input_IValues);
+      ke.compileFusion(fusion, input_IValues);
     }
-    outputs = fe.runFusion(input_IValues);
+    outputs = ke.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
       fe_.erase(hu);
     }

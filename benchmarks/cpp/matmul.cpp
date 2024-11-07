@@ -175,19 +175,19 @@ static void SingleMatmulBase(
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+      getBankConflictInfo(ke.kernel(), launch_constraints).empty(),
       "Shared memory bank conflict not removed.");
 
   std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.runFusion(aten_inputs);
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
 
   // TODO: FLOPS calculation
 }
@@ -355,19 +355,19 @@ static void SingleMatmulPartitionedK(
   cparams.index_type = computeIndexType(M, N, K);
 
   // Compile kernel
-  FusionExecutor fe;
+  KernelExecutor ke;
   auto lparams = LaunchParams();
-  fe.compileFusion(fusion, args, lparams, cparams);
+  ke.compileFusion(fusion, args, lparams, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      getBankConflictInfo(ke.kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.runFusion(aten_inputs);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
 
   // TODO: FLOPS calculation
 }
@@ -461,21 +461,21 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), heuristic_params->lparams).empty(),
+      getBankConflictInfo(ke.kernel(), heuristic_params->lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
+  auto outputs = ke.runFusion(aten_inputs, heuristic_params->lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 
   runBenchmarkIterations(
-      benchmark_state, &fe, aten_inputs, heuristic_params->lparams);
+      benchmark_state, &ke, aten_inputs, heuristic_params->lparams);
 
   // TODO: FLOPS calculation
 }

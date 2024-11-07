@@ -170,27 +170,27 @@ int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
-  fusion_executor_cache->profile(true);
+  executor_cache->profile(true);
 
   int64_t io_bytes = getSizeOfInputs(aten_inputs);
 
   // Segment and compile the fusion
   {
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
     io_bytes += getSizeOfOutputs(cg_outputs);
   }
 
   bool segmented =
-      fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
-      fusion_executor_cache->getMostRecentKernelRuntime()
+      executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
+      executor_cache->getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
               .size() > 1;
 
-  const auto& compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  const auto& compile_log = executor_cache->getMostRecentExecutorInfo();
   auto params = toString(compile_log.params);
   auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
   // Only set if not segmented. In the case of segmented fusions,
@@ -200,7 +200,7 @@ int64_t runBenchmarkIterations(
     benchmark_state.SetLabel(params + lparams);
   }
 
-  fusion_executor_cache->profile(false);
+  executor_cache->profile(false);
 
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
@@ -208,7 +208,7 @@ int64_t runBenchmarkIterations(
 
   for (auto _ : benchmark_state) {
     clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);
   }
@@ -223,7 +223,7 @@ int64_t runBenchmarkIterations(
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
+    KernelExecutor* fusion_executor,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {

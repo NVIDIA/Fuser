@@ -2850,10 +2850,10 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2883,10 +2883,10 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2919,10 +2919,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2957,10 +2957,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2994,10 +2994,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3031,10 +3031,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3068,10 +3068,10 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3108,8 +3108,8 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   auto y_ref = at::randn({N, K}, options);
   std::vector<c10::IValue> inputs{x_ref, y_ref};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3176,13 +3176,13 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
@@ -3247,14 +3247,13 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
@@ -3323,14 +3322,13 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
@@ -3398,13 +3396,13 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       fusion.get(),
       {inputs.first, inputs.second},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   // TODO Disabled until hopper wgmma is used
   EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));

@@ -114,7 +114,7 @@ static void setupSBRNorm(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_SBR(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   // N, H, W, C format
   std::vector<int64_t> input_shape{
@@ -136,7 +136,7 @@ static void NvFuserScheduler_SBR(
   // inputs
   std::vector<c10::IValue> aten_inputs = {at_x, at_scale, at_bias};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];
@@ -191,7 +191,7 @@ static void Baseline_SBR(benchmark::State& benchmark_state, DataType dtype) {
 
 static void NvFuserScheduler_SBR_Norm(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   // N, H, W, C format
   std::vector<int64_t> input_shape{
@@ -215,7 +215,7 @@ static void NvFuserScheduler_SBR_Norm(
   std::vector<c10::IValue> aten_inputs = {
       at_x, at_weight, at_bias, at_mean, at_var};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];

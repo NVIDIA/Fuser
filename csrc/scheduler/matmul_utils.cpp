@@ -411,7 +411,7 @@ class VectorizationCalculator {
 
   //! To analyze vectorization, we need to know pointer alignment, sizes, and
   //! strides. SchedulerRuntimeInfo contains all this info about fusion
-  //! inputs, but fusion outputs are allocated by FusionExecutor so they are
+  //! inputs, but fusion outputs are allocated by KernelExecutor so they are
   //! absent from SchedulerRuntimeInfo.
   //!
   //! This function just extracts sizes and strides from runtime_info_ when

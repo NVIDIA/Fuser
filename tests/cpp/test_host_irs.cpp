@@ -346,7 +346,7 @@ TEST_P(HostIrTest, ThreeFusions) {
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
-  // we test two different modes of the HostIrExecutor: using FusionExecutor or
+  // we test two different modes of the HostIrExecutor: using KernelExecutor or
   // FusionExecutorCache
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
