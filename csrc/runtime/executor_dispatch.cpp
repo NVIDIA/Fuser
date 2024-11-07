@@ -50,7 +50,7 @@ void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
     eee->compile(fusion);
     return;
   }
-  if (executor->isA<KernelExecutor>()) {
+  if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     NVF_THROW(
         "KernelExecutor needs more information to be provided for compilation.");
   }
