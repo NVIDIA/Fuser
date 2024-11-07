@@ -77,7 +77,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
@@ -170,7 +170,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
@@ -279,7 +279,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
@@ -390,7 +390,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
@@ -527,7 +527,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
@@ -663,7 +663,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }

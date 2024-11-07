@@ -548,7 +548,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
   at::Tensor input2 = at::randn({512, 256, 1024}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {input0, input1, input2});
+  ke.compile(&fusion, {input0, input1, input2});
   auto outputs = ke.runFusion({input0, input1, input2});
 
   testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
@@ -988,7 +988,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict9) {
   at::Tensor input = at::randn({32, 32, 2}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
   auto outputs = ke.runFusion({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);

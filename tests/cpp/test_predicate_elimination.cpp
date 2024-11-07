@@ -78,7 +78,7 @@ TEST_F(PredicateEliminationTest, 2) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
   auto cg_outputs = ke.runFusion({t0});
 
   auto ref = (t0 + 1).sum({1}) + 1;
@@ -128,7 +128,7 @@ TEST_F(PredicateEliminationTest, 3) {
     auto t0 = at::randn({size}, options);
 
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
 
     auto ref = sum(t0) + 1;
@@ -181,7 +181,7 @@ TEST_F(PredicateEliminationTest, 4) {
       auto t0 = at::randn({s0, s1}, options);
 
       KernelExecutor ke;
-      ke.compileFusion(&fusion, {t0});
+      ke.compile(&fusion, {t0});
       auto cg_outputs = ke.runFusion({t0});
 
       auto t1 = t0.sum({1});
@@ -229,7 +229,7 @@ TEST_F(PredicateEliminationTest, 5) {
     auto t0 = at::randn({s0}, options);
 
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
     auto cg_outputs = ke.runFusion({t0});
 
     auto ref = t0.mean({0});
@@ -278,7 +278,7 @@ TEST_F(PredicateEliminationTest, 6) {
   auto t0 = at::randn({2, 3}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
   auto cg_outputs = ke.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
@@ -314,7 +314,7 @@ TEST_F(PredicateEliminationTest, 7) {
   auto t0 = at::randn({123}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
   auto cg_outputs = ke.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
@@ -432,7 +432,7 @@ TEST_F(PredicateEliminationTest, 9) {
   EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
+  ke.compile(fusion.get(), {t0});
   auto cg_outputs = ke.runFusion({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -477,7 +477,7 @@ TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
         {"validate_smem_predicate_elimination",
          validate_smem_predicate_elimination});
   });
-  ke.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
   auto cg_outputs = ke.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);

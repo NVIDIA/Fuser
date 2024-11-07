@@ -120,7 +120,7 @@ TEST_F(SerialGridReductionTest, Scheduling) {
         if (serial) {
           tv3->definition()->as<ReductionOp>()->requestSerialGridReduction();
         }
-        ke.compileFusion(fusion);
+        ke.compile(fusion);
 
         auto input = at::randn(
             {H, W}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));

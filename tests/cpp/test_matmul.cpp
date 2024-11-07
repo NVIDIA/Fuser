@@ -128,7 +128,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -189,7 +189,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -247,7 +247,7 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -308,7 +308,7 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -369,7 +369,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -432,7 +432,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
-        ke.compileFusion(
+        ke.compile(
             &fusion,
             {inputs.first, inputs.second},
             LaunchParams(),
@@ -516,7 +516,7 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
-        ke.compileFusion(
+        ke.compile(
             &fusion,
             {inputs.first, inputs.second},
             LaunchParams(),
@@ -644,7 +644,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
-        ke.compileFusion(
+        ke.compile(
             &fusion,
             {inputs.first, inputs.second},
             LaunchParams(),
@@ -935,9 +935,7 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
   KernelExecutor ke;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      ke.compileFusion(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.runFusion({t0, t1, t2});
   ASSERT_FALSE(
@@ -1315,9 +1313,7 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   KernelExecutor ke;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      ke.compileFusion(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.runFusion({t0, t1, t2});
   ASSERT_FALSE(
@@ -1369,7 +1365,7 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      7, 5, ke.compileFusion(&fusion, {inputs.first, inputs.second}));
+      7, 5, ke.compile(&fusion, {inputs.first, inputs.second}));
   ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -1513,9 +1509,7 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      ke.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.runFusion({t0, t1});
   ASSERT_FALSE(
@@ -1682,9 +1676,7 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
   KernelExecutor ke;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      ke.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.runFusion({t0, t1});
   ASSERT_FALSE(
@@ -1855,9 +1847,7 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
   KernelExecutor ke;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      ke.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.runFusion({t0, t1});
   ASSERT_FALSE(
@@ -2041,7 +2031,7 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   auto t1 = at::randn({N, K}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.runFusion({t0, t1});
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -2095,7 +2085,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -2151,7 +2141,7 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       7,
       5,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -2223,7 +2213,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           8,
           0,
-          ke.compileFusion(
+          ke.compile(
               &fusion,
               {inputs.first, inputs.second},
               LaunchParams(),
@@ -2304,7 +2294,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
             8,
             0,
-            ke.compileFusion(
+            ke.compile(
                 &fusion,
                 {inputs.first, inputs.second},
                 LaunchParams(),
@@ -2375,7 +2365,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
-        ke.compileFusion(
+        ke.compile(
             &fusion,
             {inputs.first, inputs.second},
             LaunchParams(),
@@ -2435,7 +2425,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -2491,9 +2481,7 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      ke.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -2582,7 +2570,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
-        ke.compileFusion(
+        ke.compile(
             &fusion,
             {inputs.first, inputs.second},
             LaunchParams(),
@@ -2722,7 +2710,7 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -2822,7 +2810,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -2918,7 +2906,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -3005,7 +2993,7 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
 
       KernelExecutor ke;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-          7, 5, ke.compileFusion(&fusion, {inputs.first, inputs.second}));
+          7, 5, ke.compile(&fusion, {inputs.first, inputs.second}));
       EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
       auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
       ASSERT_FALSE(
@@ -3069,8 +3057,7 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
       KernelExecutor ke;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-          7, 5, ke.compileFusion(&fusion, inputs));
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
       EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
       auto cg_outputs = ke.runFusion(inputs);
       ASSERT_FALSE(
@@ -3132,8 +3119,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
       std::vector<c10::IValue> inputs = {aten_a, aten_b};
 
       KernelExecutor ke;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-          7, 5, ke.compileFusion(&fusion, inputs));
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
       ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
       ASSERT_FALSE(
           PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3199,8 +3185,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
       std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
       KernelExecutor ke;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-          7, 5, ke.compileFusion(&fusion, inputs));
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
       ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
       ASSERT_FALSE(
           PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3261,7 +3246,7 @@ TEST_F(MatmulTest, ReproIssue1808) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
-      ke.compileFusion(
+      ke.compile(
           &fusion,
           {inputs.first, inputs.second},
           LaunchParams(),
@@ -3417,8 +3402,7 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
             8,
             0,
-            ke.compileFusion(
-                fusion.get(), inputs, LaunchParams(), matmul_cparams));
+            ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams));
         ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
         ASSERT_FALSE(
             PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3475,7 +3459,7 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3541,7 +3525,7 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3607,7 +3591,7 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3665,7 +3649,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
   ASSERT_FALSE(
       PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
@@ -3799,7 +3783,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);

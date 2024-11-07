@@ -65,7 +65,7 @@ TEST_P(CircularBufferingTest, SingleDim1) {
   auto t0 = at::randn({1000}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis 1, the axis_extent is I0/128.
   constexpr int64_t axis_extent = 8;
@@ -113,7 +113,7 @@ TEST_P(CircularBufferingTest, SingleDim2) {
   auto t0 = at::randn({1000}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis 1, the axis_extent is I0/128.
   constexpr int64_t axis_extent = 8;
@@ -168,7 +168,7 @@ TEST_P(CircularBufferingTest, SingleDim3) {
   auto t0 = at::randn({1000}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis 2, the axis_extent is 128/32.
   constexpr int64_t axis_extent = 4;
@@ -220,7 +220,7 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
   auto t0 = at::randn({1000}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis -1 and axis 3 is parallelized with TIDx, the axis
   // extent is 4.
@@ -272,7 +272,7 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
   auto t0 = at::randn({1000}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis -1 and axis 3 is parallelized with TIDx, the axis
   // extent is 4.
@@ -326,7 +326,7 @@ TEST_P(CircularBufferingTest, SingleDimUnroll) {
   auto t0 = at::randn({199}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis -1 and axis 4 is parallelized with TIDx, the axis
   // extent is 2.
@@ -373,7 +373,7 @@ TEST_P(CircularBufferingTest, SingleDimVectorize) {
   auto t0 = at::randn({200}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis 2 and axis 1 is parallelized with TIDx, the axis
   // extent is I0/128.
@@ -425,7 +425,7 @@ TEST_P(CircularBufferingTest, MultipleTensors) {
   auto t1 = at::randn({500}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0, t1});
+  ke.compile(&fusion, {t0, t1});
 
   // Given computeAt axis 1, the axis extent is I0/32/4.
   constexpr int64_t axis_extent = 1;
@@ -476,7 +476,7 @@ TEST_P(CircularBufferingTest, NestedTensors) {
   auto t0 = at::randn({1001}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   // Given computeAt axis 1 for tv2, the axis extent is I0/32/4 = 8.
   // Given computeAt axis 3 for tv3 and axis 3 is parallelized with TIDx,
@@ -570,7 +570,7 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
+  ke.compile(&fusion, aten_inputs);
 
   constexpr int64_t axis_extent = 2;
   if (axis_extent < number_of_stages) {
@@ -624,7 +624,7 @@ TEST_P(CircularBufferingTest, Vector) {
 
   auto t0 = at::randn({200}, options);
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   constexpr int64_t axis_extent = 8;
   if (axis_extent < number_of_stages) {
@@ -681,10 +681,10 @@ TEST_P(CircularBufferingTest, CpAsync1) {
   KernelExecutor ke;
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
-    ASSERT_ANY_THROW(ke.compileFusion(&fusion, {t0, t1}));
+    ASSERT_ANY_THROW(ke.compile(&fusion, {t0, t1}));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
-  ke.compileFusion(&fusion, {t0, t1});
+  ke.compile(&fusion, {t0, t1});
   auto cg_outputs = ke.runFusion({t0, t1});
 
   auto ref = t0 + t1;
@@ -734,10 +734,10 @@ TEST_P(CircularBufferingTest, CpAsync2) {
   KernelExecutor ke;
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
-    ASSERT_ANY_THROW(ke.compileFusion(&fusion, {t0, t1}));
+    ASSERT_ANY_THROW(ke.compile(&fusion, {t0, t1}));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
-  ke.compileFusion(&fusion, {t0, t1});
+  ke.compile(&fusion, {t0, t1});
   auto cg_outputs = ke.runFusion({t0, t1});
 
   auto ref = t0 + t1;
@@ -795,7 +795,7 @@ TEST_P(CircularBufferingTest, NoSync) {
   NVF_ERROR(!sync_inserted, "Un-expected block sync inserted");
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0, t1});
+  ke.compile(&fusion, {t0, t1});
   auto cg_outputs = ke.runFusion({t0, t1});
 
   auto ref = t0 + t1;
@@ -973,7 +973,7 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
   // a single thread.
   KernelExecutor ke;
   try {
-    ke.compileFusion(fusion.get(), {t0});
+    ke.compile(fusion.get(), {t0});
   } catch (const std::exception& e) {
     const char* reference =
         R"(This thread-parallelized TensorView T2_s_float[ iblockIdx.x15{( ceilDiv(( ceilDiv(( ceilDiv(( ( ( (( (( getMetaData(T0) )).logical_size ))[0] ) * ( (( (( getMetaData(T0) )).logical_size ))[1] ) ) * ( (( (( getMetaData(T0) )).logical_size ))[2] ) ), 256) ), 4) ), 2) )}, iS16{2}, ithreadIdx.x14{4}, iB12{256} ] ca_pos( 2 ) is incorrectly contained within a If-Then-Else with the ElectSync predicate.)";
@@ -1024,7 +1024,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
+  ke.compile(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
   compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
@@ -1077,7 +1077,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
+  ke.compile(fusion.get(), {t0});
 
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
@@ -1137,7 +1137,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
+  ke.compile(fusion.get(), {t0});
 
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
@@ -1207,7 +1207,7 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
+  ke.compile(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
@@ -1269,7 +1269,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
@@ -1336,7 +1336,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
@@ -1394,7 +1394,7 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   at::Tensor t1 = sum(t0, {-1});
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
+  ke.compile(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0});
   compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
@@ -1520,7 +1520,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
 
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {at_tv0});
+  ke.compile(fusion.get(), {at_tv0});
   std::vector<at::Tensor> cg_outputs = ke.runFusion({at_tv0});
 
   std::tuple<at::Tensor, at::Tensor> at_var_mean =
@@ -1641,7 +1641,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
       (t0.unsqueeze(/*dim=*/-1) * t1.unsqueeze(/*dim=*/0)).sum(/*dim=*/1);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
   compare<float>(
@@ -1755,7 +1755,7 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   at::Tensor aten_output = (t0 * t1).sum(/*dim=*/1);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = ke.runFusion({t0, t1});
   compare<float>(

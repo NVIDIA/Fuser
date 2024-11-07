@@ -176,7 +176,7 @@ static void SingleMatmulBase(
   // Compile kernel
   auto launch_constraints = LaunchParams();
   KernelExecutor ke;
-  ke.compileFusion(fusion, args, launch_constraints, cparams);
+  ke.compile(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
       getBankConflictInfo(ke.kernel(), launch_constraints).empty(),
       "Shared memory bank conflict not removed.");
@@ -357,7 +357,7 @@ static void SingleMatmulPartitionedK(
   // Compile kernel
   KernelExecutor ke;
   auto lparams = LaunchParams();
-  ke.compileFusion(fusion, args, lparams, cparams);
+  ke.compile(fusion, args, lparams, cparams);
   NVF_CHECK(
       getBankConflictInfo(ke.kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
@@ -462,7 +462,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 
   // Compile kernel
   KernelExecutor ke;
-  ke.compileFusion(
+  ke.compile(
       fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(

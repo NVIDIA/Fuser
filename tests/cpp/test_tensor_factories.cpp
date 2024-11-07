@@ -353,7 +353,7 @@ TEST_F(TensorFactoryTest, TensorConstruct) {
   fusion->addOutput(output);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get());
+  ke.compile(fusion.get());
   auto cg_outputs = ke.runFusion({00, 01, 10, 11});
 
   testValidate(fusion.get(), cg_outputs, {00, 01, 10, 11}, __LINE__, __FILE__);
@@ -404,7 +404,7 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto input1 = at::randn({6, 7, 8, 9}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get());
+  ke.compile(fusion.get());
   auto cg_outputs = ke.runFusion({input0, input1});
 
   testValidate(fusion.get(), cg_outputs, {input0, input1}, __LINE__, __FILE__);

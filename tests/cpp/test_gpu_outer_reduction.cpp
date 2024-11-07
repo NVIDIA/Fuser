@@ -116,7 +116,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     std::vector<c10::IValue> aten_inputs = {t0};
 
     KernelExecutor ke;
-    ke.compileFusion(&fusion, aten_inputs);
+    ke.compile(&fusion, aten_inputs);
 
     NVF_CHECK(
         ke.kernel()->summary().has_outer_grouped_grid_welford ==
@@ -639,7 +639,7 @@ void grid_persistent_reduction_outer_norm_like(
   auto t0 = at::randn(input_shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -738,7 +738,7 @@ void grid_persistent_welford_outer_norm_like(
   auto t0 = at::randn(input_shape, options_half);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
+  ke.compile(&fusion, {t0});
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -899,7 +899,7 @@ void grid_persistent_batchnorm_manual(
       {at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var});
 
   KernelExecutor ke;
-  ke.compileFusion(fusion_ptr.get(), aten_inputs);
+  ke.compile(fusion_ptr.get(), aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -1038,7 +1038,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
+  ke.compile(&fusion, aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -1225,7 +1225,7 @@ void grid_persistent_batchnorm_bwd_manual(
   std::vector<at::Tensor> cg_outputs;
 
   KernelExecutor ke;
-  ke.compileFusion(fusion_ptr.get(), aten_inputs);
+  ke.compile(fusion_ptr.get(), aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -2182,7 +2182,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   scheduler->schedule(&fusion, rparams);
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs, heuristic_params->lparams);
+  ke.compile(&fusion, aten_inputs, heuristic_params->lparams);
   auto cg_outputs = ke.runFusion(aten_inputs, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
@@ -2291,7 +2291,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
   std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs, lparams);
+  ke.compile(&fusion, aten_inputs, lparams);
   auto cg_outputs = ke.runFusion(aten_inputs, lparams);
 
   testValidate(
@@ -2548,7 +2548,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
   auto t1 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  ke.compileFusion(&fusion, aten_inputs, lparams);
+  ke.compile(&fusion, aten_inputs, lparams);
   auto cg_outputs = ke.runFusion(aten_inputs, lparams);
 
   testValidate(

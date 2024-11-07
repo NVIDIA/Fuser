@@ -157,7 +157,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     if (!ke.isCompiled()) {
       Fusion* fusion = hu->fusion_to_execute();
       DynamicTransform::concretizeFusion(fusion, input_IValues);
-      ke.compileFusion(fusion, input_IValues);
+      ke.compile(fusion, input_IValues);
     }
     outputs = ke.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {

@@ -185,7 +185,7 @@ std::string KernelExecutor::getStructuredCode() const {
   return getStructuredCode(kernelString(), kernel()->indexType());
 }
 
-void KernelExecutor::compileFusion(
+void KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,

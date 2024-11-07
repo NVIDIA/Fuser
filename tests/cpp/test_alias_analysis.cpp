@@ -185,7 +185,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   KernelExecutor ke;
   at::Tensor in_tensor =
       at::randn({4, 5}).cuda().as_strided({4, 5, 6}, {5, 1, 0});
-  ke.compileFusion(&fusion, {in_tensor});
+  ke.compile(&fusion, {in_tensor});
   at::Tensor out_tensor = ke.runFusion({in_tensor})[0];
 
   EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 0));

@@ -156,7 +156,7 @@ TEST_P(ShardingTest, ComputeIndex) {
   auto a_tensor = at::randn({4, 2, 1, 5}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {a_tensor});
+  ke.compile(fusion.get(), {a_tensor});
   auto outputs = ke.runFusion({a_tensor});
   testValidate(fusion.get(), outputs, {a_tensor}, __LINE__, __FILE__);
 }

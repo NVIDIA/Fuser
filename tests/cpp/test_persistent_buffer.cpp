@@ -1299,7 +1299,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
 
   // Run the fusion and validate the results
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), aten_inputs);
+  ke.compile(fusion.get(), aten_inputs);
   // Shared memory access should be vectorized.
   // getBankConflictInfo(ke.kernel()) triggers error "std::get: wrong index for
   // variant" when trying to evaluate index with:

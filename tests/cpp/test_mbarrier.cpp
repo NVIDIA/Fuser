@@ -122,7 +122,7 @@ TEST_F(MBarrierTest, Simple) {
     top_level_exprs.push_back(invalidate);
   });
 
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   // Make sure that the post-lowering hook successfully inserted all mbarrier
   // operations
