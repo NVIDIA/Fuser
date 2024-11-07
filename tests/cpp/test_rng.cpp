@@ -122,10 +122,10 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand) {
   at::Tensor t0 = at::zeros({size}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion, {t0});
+  ke.compile(fusion, {t0});
 
   at::manual_seed(0);
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   auto out = cg_outputs[0];
 
   at::manual_seed(0);
@@ -160,10 +160,10 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
   fusion->addOutput(tv0);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion, {10, 10, 10, 10});
+  ke.compile(fusion, {10, 10, 10, 10});
 
   at::manual_seed(0);
-  auto cg_outputs = ke.runFusion({10, 10, 10, 10});
+  auto cg_outputs = ke.run({10, 10, 10, 10});
   auto out = cg_outputs[0];
 
   at::manual_seed(0);
@@ -294,8 +294,8 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
       ->schedule(fusion, &tparams);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion, {t0, t1});
-  auto cg_outputs = ke.runFusion({t0, t1});
+  ke.compile(fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto out = cg_outputs[0];
 
   NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());

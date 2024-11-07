@@ -165,8 +165,8 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
   at::Tensor t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -220,8 +220,8 @@ TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
   at::Tensor t0 = at::randn({dimx}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto aten_output = at::_softmax(t0.to(at::kDouble), -1, false);
 
@@ -262,8 +262,8 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
   at::Tensor t0 = at::randn({123}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -308,8 +308,8 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
   at::Tensor t0 = at::randn({345, 10}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -347,8 +347,8 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
   at::Tensor t0 = at::randn({345, 10}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -450,8 +450,8 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   auto t0 = at::randn(input_shape, options_half);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0}, LaunchParams());
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0}, LaunchParams());
+  auto cg_outputs = ke.run({t0});
 
   auto t1 = t0.to(at::kFloat);
   auto t2 = t1.mean({0, 1, 2});
