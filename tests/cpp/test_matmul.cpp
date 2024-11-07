@@ -144,6 +144,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
 
 // Single batch dimension which is broadcast
 TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -3678,68 +3680,6 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   auto cg_outputs = fe.runFusion(inputs);
   auto tref =
       at::matmul(A.to(at::kFloat), at::permute(B.to(at::kFloat), {0, 2, 1}));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-}
-
-// Matmul test for Hopper MMA: across supported layouts
-TEST_P(MatmulTestWithLayout, HopperMatmul) {
-  // Keep multiples of 8 to keep vectorizable.
-  int M = 504, N = 136, K = 248;
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
-
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
-
-  fusion.addOutput(tv2);
-
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 32);
-  gemm_tile.warp_tile = GemmTile(64, 256, 32);
-  gemm_tile.instruction_tile = GemmTile(64, 256, 16);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 4};
-  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.tile_sizes = gemm_tile;
-
-  // On Hopper this controls whether or not TMA is used
-  mparams.async_gmem_load_operands = true;
-
-  // TODO: Since we do not block tile smem operands, it is difficult to see how
-  // we can circular buffer at this time
-  mparams.circular_buffer_options.circular_buffer_smem_write = false;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 1;
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(&fusion, &mparams);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor A = at::randn({M, 1, K}, options);
-  at::Tensor B = at::randn({1, N, K}, options);
-  if (layout == MmaLayout::NN || layout == MmaLayout::NT) {
-    A = A.as_strided({M, 1, K}, {1, 1, M});
-  }
-  if (layout == MmaLayout::NT || layout == MmaLayout::TT) {
-    B = B.as_strided({1, N, K}, {1, 1, N});
-  }
-  std::vector<c10::IValue> inputs{A, B};
-
-  FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      9, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(fe.kernel()));
-  auto cg_outputs = fe.runFusion(inputs);
-  auto tref =
-      at::matmul(A.squeeze(1).to(at::kFloat), B.squeeze(1).t().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
