@@ -1823,7 +1823,7 @@ struct SelectOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index);
 
     Val* output = select(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
