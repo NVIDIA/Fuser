@@ -79,7 +79,7 @@ BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
 BUILD_WITHOUT_DISTRIBUTED = False
 OVERWRITE_VERSION = False
-EXPLICIT_CHECK = False
+EXPLICIT_ERROR_CHECK = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
@@ -108,8 +108,8 @@ for i, arg in enumerate(sys.argv):
     if arg == "--build-with-ucc":
         BUILD_WITH_UCC = True
         continue
-    if arg == "--explicit-check":
-        EXPLICIT_CHECK = True
+    if arg == "--explicit-error-check":
+        EXPLICIT_ERROR_CHECK = True
         continue
     if arg == "--build-with-asan":
         BUILD_WITH_ASAN = True
@@ -334,8 +334,8 @@ def cmake():
     ]
     if BUILD_WITH_UCC:
         cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
-    if EXPLICIT_CHECK:
-        cmd_str.append("-DNVFUSER_EXPLICIT_CHECK=ON")
+    if EXPLICIT_ERROR_CHECK:
+        cmd_str.append("-DNVFUSER_EXPLICIT_ERROR_CHECK=ON")
     if not NO_NINJA:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
