@@ -129,6 +129,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   // we will require a temporary buffer for the duration of the kernel's
   // execution. We should move the runtime order calculation until just after
   // compilation so that we can more accurately compute our memory usage.
+  segmented_fusion_->print();
   prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());

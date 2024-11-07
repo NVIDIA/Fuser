@@ -258,7 +258,7 @@ std::vector<SegmentedGroup*> naiveRuntimeOrder(
 // and does not count them against the used memory at any time. Fusion outputs
 // are allocated when their producer group is computed and are kept
 // indefinitely.
-int64_t computePeakMemory(
+int64_t computePeakMemoryFromScratch(
     const std::vector<SegmentedGroup*>& runtime_order,
     const std::unordered_map<TensorView*, int64_t>& tensor_size) {
   int64_t peak_mem = 0ll;
@@ -281,9 +281,11 @@ int64_t computePeakMemory(
   }
 
   int64_t cur_mem = 0ll;
+  std::vector<int64_t> peak_mems, allocs;
   for (size_t j : c10::irange(runtime_order.size())) {
     SegmentedGroup* group = runtime_order[j];
-    // TODO: find intermediate memory used local to each group
+    // TODO: find intermediate memory used local to each group and count that
+    // toward peak
 
     // add all the memory required for outputs of this group
     int64_t allocated_bytes = 0ll;
@@ -302,7 +304,14 @@ int64_t computePeakMemory(
 
     // Now simulate freeing memory
     cur_mem -= freed_bytes[j];
+
+    peak_mems.push_back(peak_mem);
+    allocs.push_back(cur_mem);
   }
+
+  std::cout << "From scratch computation:" << std::endl;
+  std::cout << "  peak_mem: " << peak_mems << std::endl;
+  std::cout << "  alloc: " << allocs << std::endl;
 
   return peak_mem;
 }
@@ -346,21 +355,13 @@ int64_t computePeakMemory(
 // forward traversal of that edge. This lets us move forward and backward
 // easily. Importantly, it lets us track our position and backtrack,
 // facilitating an efficient traversal of this tree.
-//
-// By default, we preserve chains, meaning that neighboring nodes with in-degree
-// at most one and out-degree at most one are kept adjacent in the returned
-// order. In some fusions this can dramatically reduce the number of orderings
-// we need to search, and it is typically a useful constraint since it
-// encourages L2 locality by immediately consuming the outputs of the previous
-// group for those chain segments.
 class BruteForceRuntimeOrderOptimizer {
  public:
   static std::tuple<std::vector<SegmentedGroup*>, int64_t, bool> run(
       const SegmentedFusion* segmented_fusion,
-      bool preserve_chains = true,
       const int64_t max_runtime_ms = 60000) {
     BruteForceRuntimeOrderOptimizer opt(
-        segmented_fusion->groups(), preserve_chains, max_runtime_ms);
+        segmented_fusion->groups(), max_runtime_ms);
     opt.measureAllOrderings();
 
     std::cout << "Checked " << opt.num_checked_ << " topological orderings in "
@@ -377,19 +378,78 @@ class BruteForceRuntimeOrderOptimizer {
  private:
   BruteForceRuntimeOrderOptimizer(
       const std::vector<SegmentedGroup*>& groups,
-      bool preserve_chains,
       const int64_t max_runtime_ms)
-      : groups_(groups),
-        preserve_chains_(preserve_chains),
-        max_runtime_ms_(max_runtime_ms) {
-    best_run_order_.reserve(groups.size());
-    run_order_.reserve(groups.size());
+      : groups_(groups), max_runtime_ms_(max_runtime_ms) {
+    best_run_order_.reserve(groups_.size());
+    run_order_.reserve(groups_.size());
+    allocated_bytes_.resize(groups_.size(), 0);
+    peak_memory_.resize(groups_.size(), 0);
+    freed_bytes_.resize(groups_.size(), 0);
 
     computeGroupIdMapping();
 
     computeInDegrees();
 
     computeTensorSizes();
+  }
+
+  void computePeakMemory() {
+    NVF_ERROR(freed_bytes_.size() == groups_.size());
+    NVF_ERROR(allocated_bytes_.size() == groups_.size());
+    NVF_ERROR(peak_memory_.size() == groups_.size());
+    NVF_ERROR(run_order_.size() == groups_.size());
+
+    // Compute how many bytes are freed after each segment is computed
+    std::unordered_set<TensorView*> seen_tvs;
+    for (int64_t i = (int64_t)run_order_.size() - 1;
+         i >= (int64_t)backtrack_position_ - 1 &&
+         i >= 0;
+         i--) {
+      SegmentedGroup* group = run_order_[(size_t)i];
+      freed_bytes_[(size_t)i] = 0;
+      for (Val* val : group->inputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(val);
+            tv && !tv->isFusionInput() && !tv->isFusionOutput()) {
+          if (seen_tvs.count(tv) == 0) {
+            // This is the last consumer of this TV, so it will be freed after
+            // execution
+            freed_bytes_[(size_t)i] += tensor_size_.at(tv);
+          }
+        }
+      }
+    }
+
+    int64_t peak_mem =
+        backtrack_position_ == 0 ? 0 : peak_memory_[backtrack_position_ - 1];
+    int64_t cur_mem = backtrack_position_ == 0
+        ? 0
+        : allocated_bytes_[backtrack_position_ - 1];
+    for (size_t j : c10::irange(backtrack_position_, run_order_.size())) {
+      SegmentedGroup* group = run_order_[j];
+      // TODO: find intermediate memory used local to each group
+
+      // add all the memory required for outputs of this group
+      int64_t allocated_here = 0ll;
+      for (Val* val : group->outputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(val);
+            tv && !tv->isFusionInput()) {
+          allocated_here += tensor_size_.at(tv);
+        }
+      }
+      cur_mem += allocated_here;
+
+      // Bump peak memory
+      if (cur_mem > peak_mem) {
+        peak_mem = cur_mem;
+      }
+
+      // Now simulate freeing memory
+      cur_mem -= freed_bytes_[j];
+
+      // Record memory use
+      allocated_bytes_[j] = cur_mem;
+      peak_memory_[j] = peak_mem;
+    }
   }
 
   void measureOrdering() {
@@ -401,7 +461,18 @@ class BruteForceRuntimeOrderOptimizer {
         run_order_.size(),
         ". run_order: ",
         run_order_);
-    int64_t peak_memory = computePeakMemory(run_order_, tensor_size_);
+    int64_t peak_memory =
+        computePeakMemoryFromScratch(run_order_, tensor_size_);
+    computePeakMemory();
+    NVF_ERROR(!peak_memory_.empty());
+    int64_t peak_memory_new = peak_memory_.back();
+    NVF_ERROR(
+        peak_memory_new == peak_memory,
+        "New computation of peak memory ",
+        peak_memory_new,
+        " does not match reference ",
+        peak_memory);
+    std::cout << "New computation matches old: backtrack_position_=" << backtrack_position_ << std::endl;
     if (best_peak_memory_ == -1 || peak_memory < best_peak_memory_) {
       best_peak_memory_ = peak_memory;
       best_run_order_ = run_order_;
@@ -437,7 +508,9 @@ class BruteForceRuntimeOrderOptimizer {
     }
 
     run_order_.push_back(next_group);
-    current_coords_.push_back(0);
+    if (run_order_.size() < groups_.size()) {
+      current_coords_.push_back(0);
+    }
 
     return next_group;
   }
@@ -482,6 +555,9 @@ class BruteForceRuntimeOrderOptimizer {
       int64_t& most_recent_index = current_coords_.back();
       NVF_ERROR(most_recent_index < available_groups_.size());
       if (++most_recent_index < available_groups_.size()) {
+        // Record the depth that we backtracked to. This helps us cache the
+        // memory usage up to this point so we can quickly measure new orderings
+        backtrack_position_ = current_coords_.size();
         break;
       }
       // If most_recent_index exhausts available_groups_, pop this coord and
@@ -491,9 +567,6 @@ class BruteForceRuntimeOrderOptimizer {
   }
 
   void measureAllOrderings() {
-    NVF_ERROR(
-        !preserve_chains_, "Chain-preserving traversal is not yet implemented");
-
     complete_ = false;
     start_time_ = std::chrono::high_resolution_clock::now();
 
@@ -510,6 +583,8 @@ class BruteForceRuntimeOrderOptimizer {
 
     while (!available_groups_.empty()) {
       selectNextGroup();
+
+      NVF_ERROR(current_coords_.size() <= groups_.size());
 
       if (available_groups_.empty()) {
         // We've reached a leaf node in the DFS tree, meaning we have completed
@@ -590,7 +665,6 @@ class BruteForceRuntimeOrderOptimizer {
 
  private:
   const std::vector<SegmentedGroup*>& groups_;
-  bool preserve_chains_;
   const int64_t max_runtime_ms_;
 
   std::unordered_map<TensorView*, int64_t> tensor_size_;
@@ -609,6 +683,10 @@ class BruteForceRuntimeOrderOptimizer {
 
   std::vector<SegmentedGroup*> run_order_;
   std::vector<int64_t> current_coords_;
+  std::vector<int64_t> allocated_bytes_;
+  std::vector<int64_t> peak_memory_;
+  std::vector<int64_t> freed_bytes_;
+  size_t backtrack_position_ = 0;
 
   std::vector<SegmentedGroup*> best_run_order_;
   int64_t best_peak_memory_ = -1;
@@ -646,8 +724,7 @@ void prepareRuntimeOrder(
       runtime_workspace.group_run_order,
       search_peak_memory_bytes,
       search_completed) =
-      BruteForceRuntimeOrderOptimizer::run(
-          segmented_fusion, /*preserve_chains=*/false);
+      BruteForceRuntimeOrderOptimizer::run(segmented_fusion);
   if (!search_completed) {
     // TODO: use some heuristic methods to try and find a better ordering and
     // compare it to the one found in the incomplete brute force search
