@@ -188,7 +188,7 @@ FusionCache* FusionCache::singleton_ = nullptr;
 
 UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
   scheduled_fusion = std::make_unique<Fusion>();
-  executor = std::make_unique<FusionExecutor>();
+  executor = std::make_unique<KernelExecutor>();
 }
 
 bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
@@ -688,7 +688,7 @@ void FusionCache::serialize(std::string filename) const {
       &fb_nodes,
       &terminal_node_idx,
       &fb_auto_gen_schedules,
-      FusionExecutor::getGlobalFusionCount(),
+      KernelExecutor::getGlobalFusionCount(),
       device_prop->major,
       device_prop->minor,
       cuda_major,
@@ -722,7 +722,7 @@ void FusionCache::deserialize(std::string filename) {
   NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");
 
   // 0. Set static fusion count in Fusion Executor
-  FusionExecutor::setGlobalFusionCount(
+  KernelExecutor::setGlobalFusionCount(
       fusion_cache_buffer->global_fusion_count());
 
   // 1. Deserialize max_fusions field

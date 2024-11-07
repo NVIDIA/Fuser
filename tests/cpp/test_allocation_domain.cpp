@@ -29,7 +29,8 @@ using ::testing::ElementsAre;
 // A global->shared->global copy kernel, shared memory allocated transposed to
 // avoid bank conflict.
 TEST_F(AllocationDomainTest, TransposedIntermediate) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigConcreteTensor({32, 32});
@@ -57,16 +58,17 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
 
   at::Tensor t0 = at::randn({32, 32}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
+  auto cg_outputs = ke.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
 // 4d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -94,10 +96,10 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
 
   at::Tensor t0 = at::randn({n, c, h, w}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -107,7 +109,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
 // 1d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -132,10 +135,10 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
 
   at::Tensor t0 = at::randn({n, c, h, w}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -145,7 +148,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
 // 2d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -171,10 +175,10 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
 
   at::Tensor t0 = at::randn({n, c, h, w}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -184,7 +188,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
 // Reshape and transpose a 3d tensor into an NHWC tensor with a 3d allocation
 // domain in fusion output.
 TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n1 = 31, n2 = 29, h = 64, w = 104, c = 21;
@@ -217,10 +222,10 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 
   at::Tensor t0 = at::randn({n1, n2, h * w * c}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -237,7 +242,8 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 // output. The allocation domain is on both the producer and the consumer side
 // of the rFactor domain.
 TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n1 = 31, n2 = 29, h = 64, w = 104, c = 21;
@@ -276,10 +282,10 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
 
   at::Tensor t0 = at::randn({n1, n2, c * h * w}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -295,7 +301,8 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
 // A global->global copy kernel where both inputs and outputs are NHWC memory
 // format
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -331,15 +338,15 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -349,7 +356,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain view the input as a 1d tensor.
 TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -389,15 +397,15 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -407,7 +415,8 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain of the output view the output as a 1d tensor.
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -444,15 +453,15 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -462,7 +471,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain view both the input and the output as a 1d tensors.
 TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -504,15 +514,15 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -523,7 +533,8 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
 // allocation domain view the input as a 2d tensor of shape [N*H/8, 8*W*C], and
 // view the output as a 2d tensor of shape [N*H*W*C/4, 4]
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -571,15 +582,15 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -588,7 +599,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
 
 // Similar to NHWC4d_To_NHWC4d, but does a cacheBefore
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -635,15 +647,15 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -652,7 +664,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
 
 // Similar to NHWC2d_To_NHWC2d, but does a cacheBefore
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -711,15 +724,15 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -728,7 +741,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
 
 // Similar to NHWC4d_To_NHWC4d, but does a cacheAfter
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -775,15 +789,15 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -794,7 +808,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 // allocation tensor to be between rFactor domain and loop domain, which is not
 // the case for NHWC2d_To_NHWC2d
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -845,15 +860,15 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "merging of discontiguous dimensions is not allowed in allocation domain")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -862,7 +877,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
 
 // Similar to NHWC4d_To_NHWC4d, but does a cacheFork
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(4);
@@ -916,15 +932,15 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -933,7 +949,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
 
 // Similar to NHWC2d_To_NHWC2d, but does a cacheFork
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -1005,15 +1022,15 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0_wrong_format}); },
+      [&]() { ke.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
@@ -1021,29 +1038,30 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
 }
 
 TEST_F(AllocationDomainTest, VectorizationIssue902) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
 
   const std::vector<int64_t> shape({16, 16, 512, 64});
 
   auto tv0 = makeContigTensor(4);
-  fusion->addInput(tv0);
+  fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  fusion->addOutput(tv1);
+  fusion.addOutput(tv1);
 
-  std::vector<nvfuser::IterDomain*> alloc_domain;
-  alloc_domain.push_back(tv1->axis(0));
-  alloc_domain.push_back(tv1->axis(2));
-  alloc_domain.push_back(tv1->axis(3));
-  alloc_domain.push_back(tv1->axis(1));
-  tv1->setAllocationDomain(alloc_domain, true);
+  std::vector<nvfuser::IterDomain*> aloc_domain;
+  aloc_domain.push_back(tv1->axis(0));
+  aloc_domain.push_back(tv1->axis(2));
+  aloc_domain.push_back(tv1->axis(3));
+  aloc_domain.push_back(tv1->axis(1));
+  tv1->setAllocationDomain(aloc_domain, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutorCache executor_cache(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
@@ -1083,8 +1101,9 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
 }
 
 TEST_F(AllocationDomainTest, ContiguityIssue1021) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
 
   auto tv0 = TensorViewBuilder()
                  .ndims(2)
@@ -1100,16 +1119,17 @@ TEST_F(AllocationDomainTest, ContiguityIssue1021) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 8}, {1, 8});
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
-  testValidate(fec.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ContiguityForBroadcast) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
 
   auto tv0 = TensorViewBuilder()
                  .ndims(2)
@@ -1125,16 +1145,17 @@ TEST_F(AllocationDomainTest, ContiguityForBroadcast) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1, 1}, options).as_strided({1, 1}, {0, 3});
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
-  testValidate(fec.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ContiguityForExplicitBroadcast) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
 
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
@@ -1151,11 +1172,11 @@ TEST_F(AllocationDomainTest, ContiguityForExplicitBroadcast) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 8}, options).as_strided({3, 8, 4}, {0, 1, 8});
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
-  testValidate(fec.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test that allocation domain can be used to vectorize overlapping tensors,
@@ -1168,7 +1189,8 @@ TEST_F(AllocationDomainTest, ContiguityForExplicitBroadcast) {
 // automatically supports all kinds of use cases, even those that we don't have
 // an active plan to support on).
 TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
-  Fusion fusion;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(3);
@@ -1203,9 +1225,9 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   at::Tensor t0 =
       at::randn({4 * 5 * 7}).cuda().as_strided({4, 5, 7}, {7, 4, 1});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), {t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1228,14 +1250,14 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
 
   at::Tensor in_tensor = at::randn({2 * 4}).cuda().as_strided({2, 3}, {4, 1});
 
-  FusionExecutorCache fec(std::move(fusion));
-  fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({in_tensor});
 
   // The initial issue was detected in the pointwise scheduler, so I added these
   // checks to make sure it's a valid regression test. The transpose scheduler
   // could accept this but decided not to because of a small problem size.
   const std::vector<SegmentedGroup*>& groups =
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
   EXPECT_EQ(group->schedulerType(), SchedulerType::PointWise);
@@ -1253,9 +1275,9 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   out->cacheBefore();
 
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = ke.runFusion({in_tensor})[0];
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 
@@ -1289,8 +1311,8 @@ TEST_F(AllocationDomainTest, Issue1524) {
       {permute_out->axis(1), permute_out->axis(0)}, true);
 
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  FusionExecutorCache fec(std::move(fusion));
-  fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({in_tensor});
 }
 
 TEST_F(AllocationDomainTest, EmptyAllocationDomainApi) {
