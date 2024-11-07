@@ -103,30 +103,25 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 }
 
 bool isSharded(const TensorView* tv) {
-  bool is_sharded = false;
-  const auto& logical_ids = TensorDomain::noReductions(tv->getLogicalDomain());
-  const auto& loop_ids = TensorDomain::noReductions(tv->getLoopDomain());
+  const std::vector<IterDomain*>& loop_ids =
+      TensorDomain::noReductions(tv->getLoopDomain());
+
+  std::unordered_set<ParallelType> used_parallel_types;
   for (auto i : c10::irange(loop_ids.size())) {
-    if (!loop_ids[i]->isDeviceDim()) {
+    const IterDomain* id = loop_ids[i];
+    if (!id->isDeviceDim()) {
       continue;
     }
 
-    // Only one axis can be sharded on DIDx.
     NVF_ERROR(
-        !is_sharded,
-        "Multiple IterDomains parallelized on DIDx in TensorView ",
+        used_parallel_types.count(id->getParallelType()) == 0,
+        "Multiple IterDomains parallelized on ",
+        id->getParallelType(),
+        " in TensorView ",
         tv);
-
-    // Currently do not support split/merge on a device dimension.
-    NVF_ERROR(
-        std::find(logical_ids.begin(), logical_ids.end(), loop_ids[i]) !=
-            logical_ids.end(),
-        "Cannot parallelize DIDx on a split/merge axis ",
-        loop_ids[i]);
-
-    is_sharded = true;
+    used_parallel_types.insert(id->getParallelType());
   }
-  return is_sharded;
+  return !used_parallel_types.empty();
 }
 
 int64_t numDeviceDims(const TensorView* tv) {
