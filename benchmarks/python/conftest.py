@@ -104,14 +104,20 @@ def pytest_collection_modifyitems(session, config, items):
 
     from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
+    executors = ["eager", "torchcompile", "thunder"]
+
     def get_test_executor(item) -> str | None:
         if hasattr(item, "callspec") and "executor" in item.callspec.params:
-            return item.callspec.params["executor"]
+            test_executor = item.callspec.params["executor"]
+            assert (
+                test_executor in executors
+            ), f"Expected executor to be one of 'eager', 'torchcompile', 'thunder', found {test_executor}."
+            return test_executor
         return None
 
     executors_to_skip = []
 
-    for executor in ["eager", "torchcompile", "thunder"]:
+    for executor in executors:
         if not config.getoption(f"--benchmark-{executor}"):
             executors_to_skip.append(executor)
 
