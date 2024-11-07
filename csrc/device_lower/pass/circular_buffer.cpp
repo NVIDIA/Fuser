@@ -97,7 +97,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       }
       case CircularBufferLoopStage::Main: {
         if (requireEpilogue(circular_buffer_load_exprs_)) {
-          stop = IrBuilder::subExpr(
+          stop = SimplifyingIrBuilder::subExpr(
               circular_buffer_loop_->stop(),
               SimplifyingIrBuilder::create<Val>(
                   prefetch_distance, DataType::Index));
@@ -106,7 +106,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       }
       case CircularBufferLoopStage::Epilog: {
         NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
-        start = IrBuilder::subExpr(
+        start = SimplifyingIrBuilder::subExpr(
             circular_buffer_loop_->stop(),
             SimplifyingIrBuilder::create<Val>(
                 prefetch_distance, DataType::Index));
@@ -424,7 +424,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
-    Val* result = IrBuilder::modExpr(
+    Val* result = SimplifyingIrBuilder::modExpr(
         cloned_top_level_loop_->indexOrStartIfTrivial(),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
@@ -441,8 +441,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
             circular_buffer_loop_->iter_domain());
 
-    auto current_load_stage = IrBuilder::modExpr(
-        IrBuilder::addExpr(
+    auto current_load_stage = SimplifyingIrBuilder::modExpr(
+        SimplifyingIrBuilder::addExpr(
             cloned_top_level_loop_->indexOrStartIfTrivial(),
             IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));

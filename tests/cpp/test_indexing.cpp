@@ -2151,6 +2151,11 @@ TEST_F(IndexingTest, DoubleBuffering6) {
         return nullptr;
       }
 
+      // This loop is double buffered. Since the loop originally has
+      // just a trip count of 2, the double-buffered main loop has a
+      // trip count of 1. Thus, this loop is always trivial
+      loop_indices.at(1) = tv->fusion()->zeroVal();
+
       switch (tv->name()) {
         case 1: {
           if (!as_consumer) {
