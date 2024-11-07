@@ -597,11 +597,6 @@ UserSchedule* FusionCache::createUserSchedule(
   auto& user_scheds = scheds->user_def_schedules;
   auto input_id = user_def_input_encodings_.lookupId(inputs);
 
-  // Create device to UserSchedule map for input arguments id
-  if (user_scheds.count(input_id.id) == 0) {
-    user_scheds[input_id.id] = std::unordered_map<int, UserSchedule>();
-  }
-
   // Create UserSchedule for device
   if (user_scheds[input_id.id].count(device) == 0) {
     user_scheds[input_id.id].emplace(
