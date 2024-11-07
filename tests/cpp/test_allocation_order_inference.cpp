@@ -315,9 +315,9 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   at::Tensor in_tensor = at::randn({2, 4, 8, 8}, options);
   at::Tensor in_nhwc =
       in_tensor.as_strided({2, 4, 8, 8}, {4 * 8 * 8, 1, 4 * 8, 4});
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs = fec.runFusionWithInputs({in_nhwc});
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_nhwc});
   auto ref_out = in_nhwc.relu();
 
   EXPECT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));

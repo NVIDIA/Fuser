@@ -156,7 +156,7 @@ table Scalar {
 }
 
 // =====================================================================================
-// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
+// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in KernelExecutor.
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
@@ -188,7 +188,7 @@ table KernelArgumentHolder {
 
 //
 // =====================================================================================
-// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in FusionExecutor
+// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in KernelExecutor
 
 // Data representing a tensor shape used in LaunchParam
 table TensorShape {
@@ -355,7 +355,7 @@ table CudaKernel {
 }
 
 // Each Fusion Executor maps to a lowered and compiled kernel.
-table FusionExecutor {
+table KernelExecutor {
   device_smem_limit: long;
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
@@ -415,14 +415,14 @@ table SegmentedFusion {
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.
 // We store the metadata for the original arguments to segment, schedule, and compile the Fusion at deserialization.
-// Each fusion segment is given a FusionExecutor.
+// Each fusion segment is given a KernelExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
   fusion_id: long;
   concrete_id: long;
   runtime_id: long;
   args: KernelArgumentHolder;
-  executors: [FusionExecutor];
+  executors: [KernelExecutor];
   segmented_fusion: SegmentedFusion;
 }
 

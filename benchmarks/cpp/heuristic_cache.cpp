@@ -26,7 +26,7 @@ using namespace nvfuser;
 
 static auto getLayerBackwardNormRuntime(
     std::unique_ptr<Fusion> fusion_ptr,
-    std::unique_ptr<FusionExecutorCache>& fec,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
     std::vector<c10::IValue>& aten_inputs,
     std::vector<int64_t>& shape,
     std::vector<int64_t>& norm_shape) {
@@ -84,12 +84,12 @@ static auto getLayerBackwardNormRuntime(
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
 
-  fec = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
+  executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = fec->runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
 
-  return fec->getMostRecentKernelRuntime();
+  return executor_cache->getMostRecentKernelRuntime();
 }
 
 static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
@@ -98,14 +98,14 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
   FusionGuard fg(fusion_ptr.get());
 
   // PreAllocate
-  std::unique_ptr<FusionExecutorCache> fec;
+  std::unique_ptr<FusionExecutorCache> executor_cache;
   std::vector<c10::IValue> aten_inputs;
 
   std::vector<int64_t> shape{20, 100, 35, 67};
   std::vector<int64_t> norm_shape{67};
 
   auto runtime = getLayerBackwardNormRuntime(
-      std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
+      std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
@@ -120,7 +120,7 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
 
 static auto getLayerForwardNormRuntime(
     std::unique_ptr<Fusion> fusion_ptr,
-    std::unique_ptr<FusionExecutorCache>& fec,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
     std::vector<c10::IValue>& aten_inputs,
     std::vector<int64_t>& shape,
     std::vector<int64_t>& norm_shape) {
@@ -141,11 +141,11 @@ static auto getLayerForwardNormRuntime(
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(shape, options);
 
-  fec = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
+  executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   aten_inputs = {aten_input};
-  auto cg_outputs = fec->runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
 
-  return fec->getMostRecentKernelRuntime();
+  return executor_cache->getMostRecentKernelRuntime();
 }
 
 static void NvFuserScheduler_LayerNormForward_HeuristicCache(
@@ -154,14 +154,14 @@ static void NvFuserScheduler_LayerNormForward_HeuristicCache(
   FusionGuard fg(fusion_ptr.get());
 
   // PreAllocate
-  std::unique_ptr<FusionExecutorCache> fec;
+  std::unique_ptr<FusionExecutorCache> executor_cache;
   std::vector<c10::IValue> aten_inputs;
 
   std::vector<int64_t> shape{20, 100, 35, 67};
   std::vector<int64_t> norm_shape{67};
 
   auto runtime = getLayerForwardNormRuntime(
-      std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
+      std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
