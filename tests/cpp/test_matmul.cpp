@@ -144,6 +144,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
 
 // Single batch dimension which is broadcast
 TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
