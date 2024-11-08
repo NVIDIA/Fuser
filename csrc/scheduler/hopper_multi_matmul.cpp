@@ -927,51 +927,6 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
   }
 }
 
-void HopperMultipleMatmulScheduler::schedulePrologues() {
-  // schedule all transfers from gmem to smem (acw_smems_ and bcw_smems_)
-  scheduleOperandSmemStores();
-
-  auto inspectPrologueBranch = [&](const std::vector<TensorView*>& smem_stores,
-                                   std::vector<TensorView*>& mma_inputs,
-                                   MmaOperand operand_type) {
-    // TODO: we should not assume that each operand is used in only a single
-    // mma op
-    NVF_ERROR(mma_results_.size() >= smem_stores.size());
-    // We will save abs_ and bbs_ here for later use
-    // TODO: save all register prologue tensors instead to a new vector called
-    // prologue_register_tensors_
-    NVF_ERROR(mma_inputs.empty());
-    for (TensorView* mma_result : mma_results_) {
-      MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
-      NVF_ERROR(mma != nullptr);
-      TensorView* mma_input = nullptr;
-      if (operand_type == MmaOperand::A) {
-        mma_input = mma->inA()->as<TensorView>();
-      } else if (operand_type == MmaOperand::B) {
-        mma_input = mma->inB()->as<TensorView>();
-      }
-      NVF_ERROR(mma_input != nullptr);
-      mma_inputs.push_back(mma_input);
-    }
-
-    // Find smem loads that are mma inputs and save them
-    std::unordered_set<TensorView*> smem_store_mma_inputs;
-    for (TensorView* smem_store : smem_stores) {
-      // Insert only if smem_store is also in mma_inputs
-      bool is_mma_input =
-          std::find(mma_inputs.begin(), mma_inputs.end(), smem_store) !=
-          mma_inputs.end();
-      if (is_mma_input) {
-        smem_store_mma_inputs.insert(smem_store);
-      }
-      // TODO: enable prologue by scheduling ldmatrix and stmatrix, propagating
-      NVF_ERROR(is_mma_input, "Smem store must be an MmaOp input for Hopper");
-    }
-  };
-  inspectPrologueBranch(acw_smems_, abs_, MmaOperand::A);
-  inspectPrologueBranch(bcw_smems_, bbs_, MmaOperand::B);
-}
-
 void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
   const MatMulTileOptions& gemm_tile = params_->tile_sizes;
   const int64_t vectorization_factor = params_->supported_vec_size.epilogue;
