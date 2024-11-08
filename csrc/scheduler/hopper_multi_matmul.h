@@ -118,8 +118,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void cacheOperandsToSmem(
       const std::vector<TensorView*>& operands,
-      std::vector<TensorView*>& smem_operands,
-      int64_t vec_size);
+      std::vector<TensorView*>& smem_operands);
 
   // We add two LoadStore operators to the inputs of our fusions. The first
   // one is for a read from global memory and the second one (below) is for a
@@ -192,6 +191,11 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
   // transforms have been applied and inlining
   void setUpCircularBuffering();
+
+  // Map TensorView's iterDomain to its ValGroup.
+  // Then, find the MatmulDimRole for the ValGroup.
+  // Return MatmulDimRole for IterDomain
+  MatmulDimRole findMatmulDimRole(IterDomain* id);
 
  private:
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;

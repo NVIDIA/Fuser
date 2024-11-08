@@ -31,18 +31,12 @@ namespace nvfuser {
 
 namespace {
 
-//! Automatically generates the shared memory swizzled data layout
-//!  for matmul mainloop and epilogue.
-//! The shared mem data layout is always 2D currently, and this utility
-//!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col]
-//! Returns the domain with swizzle. For the case of legacy swizzle, this
-//! domain must be set as loop domain. For the case of new swizzle, this domain
-//! must be set as allocation domain.
-//!
-//! TODO: Refactor this for TMA loads
-template <bool legacy = true>
-AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
+// This function returns a pair of integers. The first integer is the gcd
+// between megabanks and row stride. The second integer is the repeat pattern
+// size. If the gcd is 1, then no swizzle is necessary to resolve bank
+// conflicts. In that case, the second integer is irrelevant and -1 is returned.
+std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
+    TensorView* shared_mem_tv) {
   NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
   AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
 
@@ -234,7 +228,7 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
   int64_t g = std::gcd(num_megabanks, row_stride_znz);
   if (g == 1) {
-    return swizzle_domain; // No need to swizzle in this case.
+    return {g, -1}; // No need to swizzle in this case.
   }
 
   /* For the case where stride does not coprime with n, we note that
@@ -269,6 +263,75 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   int64_t repeated_pattern_size = num_megabanks / g;
 
   if (repeated_pattern_size >= n_rows) {
+    return {g, -1}; // No need to swizzle in this case.
+  }
+
+  return {g, repeated_pattern_size};
+}
+
+//! Automatically generates the shared memory swizzled data layout for tma loads
+//! in matmul mainloop. The shared memory data layout is always 2D currently.
+//! This utility function assumes that the shared_mem_tv has the following
+//! structure: [tile_row, tile_col]
+//! Returns which swizzle format to use for mma inputs with tma loads.
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
+
+  if (g == 1) {
+    return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
+  }
+
+  // 128B swizzle results in 8 x 8 matrix given half precision inputs.
+  constexpr int64_t n_rows = 8;
+
+  NVF_ERROR(
+      n_rows % repeated_pattern_size == 0,
+      "Can not partition matrix into megarows");
+  int64_t num_gigarows = n_rows / repeated_pattern_size;
+  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
+
+  /* To further simplify the problem, if we assume: */
+  NVF_ERROR(
+      num_gigarows % num_gigabanks == 0,
+      "Requires non-square swizzle, which is not supported yet");
+
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+  // Extract the constant sizes of the swizzled tile
+  const int64_t inner_dim_size =
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+
+  auto dtype = shared_mem_tv->getDataType().value();
+  const int64_t B128_elements = 128 / dataTypeSize(dtype);
+  const int64_t B64_elements = 64 / dataTypeSize(dtype);
+  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+
+  if (inner_dim_size >= B128_elements) {
+    return MmaInputSmemSwizzle::B128;
+  } else if (inner_dim_size >= B64_elements) {
+    return MmaInputSmemSwizzle::B64;
+  } else if (inner_dim_size >= B32_elements) {
+    return MmaInputSmemSwizzle::B32;
+  } else {
+    NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
+  }
+}
+
+//! Automatically generates the shared memory swizzled data layout for matmul
+//! epilogue.
+//! The shared mem data layout is always 2D currently, and this utility
+//!  function assumes that the shared_mem_tv has the following structure:
+//!  [tile_row, tile_col]
+//! Returns the domain with swizzle. For the case of legacy swizzle, this
+//! domain must be set as loop domain. For the case of new swizzle, this domain
+//! must be set as allocation domain.
+template <bool legacy = true>
+AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
+
+  // Create Abstract Tensor from shared memory tensor loop domain.
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+
+  if (g == 1) {
     return swizzle_domain; // No need to swizzle in this case.
   }
 
@@ -333,6 +396,20 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
    * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
    * nearby megabanks in a gigabank has a distance of `g` megabanks
    */
+
+  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+  // Each thread vectorized write 2 items, so 8 items per row.
+  //--0--1--2--3
+  //--4--5--6--7
+  //--8--9--10-11
+  //--12-13-14-15
+  //--16-17-18-19
+  //--20-21-22-23
+  //--24-25-26-27
+  //--28-29-30-31
+  constexpr int64_t n_rows = 8;
+  constexpr int64_t n_cols = 8;
 
   NVF_ERROR(
       n_rows % repeated_pattern_size == 0,
@@ -446,6 +523,13 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 } // namespace
 
+MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
+  ValGroup vg = graph_->toGroup(id);
+  auto it = id_roles_.find(vg);
+  NVF_ERROR(it != id_roles_.end());
+  return it->second;
+}
+
 void HopperMultipleMatmulScheduler::run() {
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs
@@ -499,10 +583,10 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
 }
 
 void HopperMultipleMatmulScheduler::defineOperandCaches() {
-  cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
+  cacheOperandsToSmem(as_, acw_smems_);
   addSetsForCacheReads(acw_smems_, acrs_);
 
-  cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
+  cacheOperandsToSmem(bs_, bcw_smems_);
   addSetsForCacheReads(bcw_smems_, bcrs_);
 
   // Now that we are finished possibly redefining the inputs to the MmaOps,
@@ -516,39 +600,20 @@ void HopperMultipleMatmulScheduler::defineOperandCaches() {
 
 void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
     const std::vector<TensorView*>& operands,
-    std::vector<TensorView*>& smem_operands,
-    int64_t vec_size) {
-  // Use cp.async as requested in scheduler params.
+    std::vector<TensorView*>& smem_operands) {
+  // Use cp.async.bulk (tma) as requested in scheduler params.
   smem_operands.resize(operands.size(), nullptr);
   for (size_t i : c10::irange(operands.size())) {
     TensorView* operand = operands[i];
-    CacheOp cache_op = CacheOp::Unspecified;
-    if (params_->async_gmem_load_operands) {
-      int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-      NVF_CHECK(
-          vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-          "Unsupported async vectorization size ",
-          vec_size,
-          " = ",
-          vec_bytes,
-          " bytes for operand ",
-          operand->toString(),
-          " which has data type ",
-          operand->dtype(),
-          ". Size must be 4, 8, or 16 bytes. ",
-          "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-      cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-    };
 
     NVF_ERROR(operand->uses().size() == 1);
     smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
 
     LoadStoreOpType load_op = params_->async_gmem_load_operands
-        ? LoadStoreOpType::CpAsync
+        ? LoadStoreOpType::CpAsyncBulkTensorTile
         : LoadStoreOpType::Set;
 
     smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
     smem_operands[i]->setMemoryType(MemoryType::Shared);
   }
 }
@@ -569,11 +634,10 @@ void HopperMultipleMatmulScheduler::addSetsForCacheReads(
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
         ldst && tv_smem->uses().size() == 1) {
       tv_r = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
     } else {
       tv_r = cacheAfter(
           tv_smem,
-          LoadStoreOpType::LdMatrix,
+          LoadStoreOpType::Set,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
     }
@@ -757,25 +821,27 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
 void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
-                            const int64_t vec_size) {
+                            MmaOperand operand_type) {
     blockTileTensors(smem_operands);
     for (TensorView* tv : smem_operands) {
       if (params_->promote_prologue_smem_reuse) {
         tv->promoteReuse();
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
-      auto swizzled_dom = swizzleSharedMemory(tv);
-      tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
-      tv->setHasSwizzleOp();
-      tv->merge(-2);
-      // NOTE: this splits and parallelizes the inner dimension as
-      //   TIDz, TIDy, TIDx, V
-      mma_utils::scheduleContiguousVectorLoad(
-          tv, params_->tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+      MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv);
+      MatmulDimRole inner_dim_role =
+          findMatmulDimRole(tv->getLogicalDomain().back());
+
+      // Reorder last two iterDomains to have (K, M/N) ordering before
+      // running applyMmaSwizzleForTMALoad
+      if (inner_dim_role == MatmulDimRole::K) {
+        tv->reorder({{-1, -2}, {-2, -1}});
+      }
+      tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
-  scheduleBranch(as_, acw_smems_, params_->supported_vec_size.a);
-  scheduleBranch(bs_, bcw_smems_, params_->supported_vec_size.b);
+  scheduleBranch(as_, acw_smems_, MmaOperand::A);
+  scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
 }
 
 void HopperMultipleMatmulScheduler::scheduleMmaOperands(
@@ -1332,6 +1398,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
     }
   }
 
+  /*
+  // TODO Investigate. Disable loop rotation with tma circular buffering
   if (params_->circular_buffer_options.circular_buffer_smem_read &&
       params_->circular_buffer_options.circular_buffer_smem_write) {
     // rotate Kg loop
@@ -1345,6 +1413,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         num_device_and_batch_dims_ + 2 + num_splitk_dims_,
         all_smem_loads);
   }
+  */
 }
 
 } // namespace nvfuser
