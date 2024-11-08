@@ -339,17 +339,72 @@ namespace {
 IdModelOptions getIdModelOptions(Fusion* fusion) {
   IdModelOptions options;
 
-  // TMA requires TensorIndexer.
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
         options.setBuildTensorIndexer(true);
         continue;
       }
-    }
-    if (expr->isA<MmaOp>()) {
+    } else if (expr->isA<MmaOp>()) {
       options.setBuildTensorIndexer(true);
       continue;
+    } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
+      // The legacy indexer has an issue when an expand broadcast is
+      // involved in reshape transformations.
+
+      auto producer_tv = reshape->in();
+      auto consumer_tv = reshape->out();
+
+      std::unordered_set<IterDomain*> expanded_ids;
+      std::copy_if(
+          producer_tv->getLogicalDomain().begin(),
+          producer_tv->getLogicalDomain().end(),
+          std::inserter(expanded_ids, expanded_ids.end()),
+          [](IterDomain* logical_id) {
+            return logical_id->isBroadcast() && logical_id->hasExpandedExtent();
+          });
+
+      if (expanded_ids.empty()) {
+        continue;
+      }
+
+      // Find corresponding consumer root IDs
+      // TODO: Does the consumer root remain the expanded broadcast?
+      // If so, we can just directly look at the root id
+      auto c2p = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                     .mapConsumerToProducer();
+      std::unordered_set<Val*> consumer_expanded_root_ids;
+      for (auto consumer_root_id : consumer_tv->getRootDomain()) {
+        auto producer_logical_id = c2p.at(consumer_root_id);
+        if (expanded_ids.count(producer_logical_id)) {
+          consumer_expanded_root_ids.insert(consumer_root_id);
+        }
+      }
+
+      auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+          {consumer_tv->getRootDomain().begin(),
+           consumer_tv->getRootDomain().end()},
+          {consumer_tv->getLogicalDomain().begin(),
+           consumer_tv->getLogicalDomain().end()});
+
+      if (std::any_of(
+              reshape_exprs.begin(),
+              reshape_exprs.end(),
+              [&consumer_expanded_root_ids](Expr* expr) {
+                return std::any_of(
+                    expr->inputs().begin(),
+                    expr->inputs().end(),
+                    [&](Val* input) {
+                      return consumer_expanded_root_ids.count(input);
+                    });
+              })) {
+        std::cerr << "Reshape with expanded broadcast detected: "
+                  << reshape->toString();
+        options.setProducerIndex(true);
+        options.setConsumerIndex(true);
+        options.setInlinePredicate(true);
+        options.setUnswitchPredicate(true);
+      }
     }
   }
 
