@@ -656,7 +656,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   }
 
   // TODO: This is a work around for the fallback execution path where a
-  // kernel is not compiled. Perhaps the gorup/segment Id needs to be
+  // kernel is not compiled. Perhaps the group/segment Id needs to be
   // specified to the executor at its constructor.  Currently, initialization
   // is ad hoc.
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
