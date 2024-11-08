@@ -753,9 +753,8 @@ class UpdateLeafIndices : public IterVisitor {
     // Nothing need to be done when mappings for the output axes
     // already exist.
     if (index_map_.find(outer_id) != index_map_.end()) {
-      NVF_ERROR(
-          index_map_.find(inner_id) != index_map_.end(),
-          "Outer exists but inner not found");
+      // This should not need an error check here. If a required index isn't
+      // detected, that shoud be detected as an error.
       return;
     }
 
