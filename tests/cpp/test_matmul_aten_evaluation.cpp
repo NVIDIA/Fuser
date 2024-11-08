@@ -238,6 +238,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
 
   const auto& executors =
       executor_cache.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
@@ -286,6 +287,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
 
   const auto& executors =
       executor_cache.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));

@@ -2181,20 +2181,20 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   rparams->unroll_factor_iter_dom = vect_factor;
 
   scheduler->schedule(&fusion, rparams);
-  KernelExecutor fusion_executor;
-  fusion_executor.compile(&fusion, aten_inputs, heuristic_params->lparams);
-  auto cg_outputs = fusion_executor.run(aten_inputs, heuristic_params->lparams);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke.run(aten_inputs, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
   NVF_CHECK(
-      fusion_executor.kernel()->summary().has_iter_grouped_reductions,
+      ke.kernel()->summary().has_iter_grouped_reductions,
       "There must be iter domain grouped reductions.");
   NVF_CHECK(
-      fusion_executor.kernel()->summary().num_grouped_iterations == vect_factor,
+      ke.kernel()->summary().num_grouped_iterations == vect_factor,
       "Expected ",
       vect_factor,
       " grouped iterations, found ",
-      fusion_executor.kernel()->summary().num_grouped_iterations);
+      ke.kernel()->summary().num_grouped_iterations);
 
   testValidate(
       &fusion,
