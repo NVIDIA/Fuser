@@ -480,7 +480,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     debug() << rparams->toString() << std::endl;
   }
 
-  // If 3d, check if it's supported by the scheduler, otherwise force 1D
+  // If 3d, check if it's supported by the scheduler, otherwise force 2D
   // schedule
   if (rparams->schedule_3D) {
     if (rparams->multiple_reds_per_blk &&
