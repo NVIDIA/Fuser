@@ -556,9 +556,9 @@ TEST_F(SmemReuseTest, SmemReuseWithDifferentVectorizationFactor) {
   }
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({n_element}, options);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get());
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(fusion.get());
+  auto cg_outputs = ke.run({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -616,9 +616,9 @@ TEST_F(SmemReuseTest, RegisterReuseWithDifferentVectorizationFactor) {
     // run the fusion
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n_element}, options);
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get());
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(fusion.get());
+    auto cg_outputs = ke.run({t0});
     testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
   };
 
@@ -677,9 +677,9 @@ TEST_F(SmemReuseTest, ExpandInterferes) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({y}, options);
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get());
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(fusion.get());
+    auto cg_outputs = ke.run({t0});
     testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
   };
 

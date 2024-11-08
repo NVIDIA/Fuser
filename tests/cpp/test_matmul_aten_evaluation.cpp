@@ -164,8 +164,8 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -190,8 +190,8 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -227,17 +227,17 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = fec.runFusionWithInputs({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
-      fec.getMostRecentKernelRuntime()->executors();
+  const std::vector<KernelExecutor>& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
   EXPECT_FALSE(executors.front().hasCompiledKernel());
@@ -277,17 +277,17 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = fec.runFusionWithInputs({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
-      fec.getMostRecentKernelRuntime()->executors();
+  const std::vector<KernelExecutor>& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
   EXPECT_FALSE(executors.front().hasCompiledKernel());

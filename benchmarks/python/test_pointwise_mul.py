@@ -50,21 +50,26 @@ def test_pointwise_mul_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_pointwise_mul_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype)
+
+    benchmark_fn = {
+        "eager": pointwise_mul_fwd_fn,
+        "torchcompile": torch.compile(pointwise_mul_fwd_fn),
+    }
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        torch.compile(pointwise_mul_fwd_fn) if compile else pointwise_mul_fwd_fn,
+        benchmark_fn[executor],
         [input],
     )
