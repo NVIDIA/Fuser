@@ -581,7 +581,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   DEFINECLASS(MatMulTileOptions)
       .PARAM(MatMulTileOptions, cta_tile)
       .PARAM(MatMulTileOptions, warp_tile)
-      .PARAM(MatMulTileOptions, instruction_tile)
       .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
   DEFINECLASS(MatmulParams::CircularBufferOptions)

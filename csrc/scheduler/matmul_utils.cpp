@@ -145,7 +145,7 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  mparams->tile_sizes = {cta_tile, warp_tile, instruction_tile};
+  mparams->tile_sizes = {cta_tile, warp_tile};
 
   // stages and async mem copy
   {
