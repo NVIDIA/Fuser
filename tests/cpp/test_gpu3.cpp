@@ -9008,7 +9008,7 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
   fusion.addOutput(tv2);
 
   IterDomain* merged_id = IterDomain::merge(tv1->axis(0), tv1->axis(1));
-  tv1->setAllocationDomain({merged_id}, {true});
+  tv1->setAllocationDomain({merged_id}, true);
   merged_id->parallelize(ParallelType::TIDx);
 
   GpuLower gpulw(&fusion);
