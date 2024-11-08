@@ -393,10 +393,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   };
 
   auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
-    // TODO: resize could affect the offset/pad_extent impacting vectorization
-    // factor on the loading inputs. But we shouldn't use that to block the
-    // propagation. We'll resolve it in getTvToContigMergeOfInnerSizeMap when we
-    // compute the actual vectorization factor on the TensorView affected.
     IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
     IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
 
@@ -415,8 +411,10 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       frontier.erase(frontier.begin(), it);
 
       if (recording_) {
-        // since this is a pad operation, we don't need to worry about the
-        // offset, but rather the pad_extent, which becomes the real buffer on
+        // TODO: support negative resize extent.
+        //
+        // Limit current support to only positive resize extent for now. So we
+        // only consider the pad_extent, which becomes the real buffer on
         // output. Hence we do GCD among padded extent as well as extent of the
         // id_from. Note since we are taking the GCD here, I don't think using
         // id_from or id_to makes a difference.
@@ -426,7 +424,12 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
               SimplifyingIrBuilder::eqExpr(
                   extent, extent->container()->zeroVal()),
               factor,
-              SimplifyingIrBuilder::gcdExpr(factor, extent));
+              // for extent < 0, we'll take max(1, extent). Because of the gcd,
+              // This is effectively excluding the resize id from vectorization.
+              SimplifyingIrBuilder::gcdExpr(
+                  factor,
+                  SimplifyingIrBuilder::maxExpr(
+                      extent->container()->oneVal(), extent)));
         };
         consumer_factor = comp(consumer_factor, resize_op->leftExpand());
         consumer_factor = comp(consumer_factor, resize_op->rightExpand());

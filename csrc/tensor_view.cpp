@@ -1175,14 +1175,24 @@ TensorView* TensorView::cacheAfter(
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
-  auto target_uses = fusion()->unordered_uses(this);
+  std::vector<Expr*> target_uses;
   if (!cached_uses.empty()) {
+    std::unordered_set<Expr*> unique_uses = fusion()->unordered_uses(this);
     for (auto use : cached_uses) {
       NVF_ERROR(
-          target_uses.count(use),
+          unique_uses.count(use),
           "cached_uses is not among the use of the TensorView");
     }
     target_uses = cached_uses;
+  } else {
+    // avoid non-determinism and ensure unique
+    std::unordered_set<Expr*> unique_uses;
+    for (Expr use : uses()) {
+      if (unique_uses.count(use) == 0) {
+        target_uses.push_back(use);
+        unique_uses.insert(use);
+      }
+    }
   }
 
   // Get all the uses for this Tensorview
