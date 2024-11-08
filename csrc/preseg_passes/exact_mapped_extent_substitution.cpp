@@ -69,7 +69,10 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
     // if no const extents, replace with the one with the lowest name.
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
-      if (id == nullptr || isNonSubstitutableID(id)) {
+      // No need to reaplce constant extent, they are same if mapped to
+      // the same set.
+      if (id == nullptr || isNonSubstitutableID(id) ||
+          id->extent()->isConstScalar()) {
         continue;
       }
       replacement_map.emplace(
