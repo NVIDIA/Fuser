@@ -77,7 +77,6 @@ struct KernelConfig {
   uint8_t grid_swizzle_factor = 0;
   uint8_t cta_order = 0;
   bool circular_buffer_smem_read = true;
-  bool rotate_ldmatrix_out_of_main_loop = true;
   bool async_gmem_load_operands = true;
 
  public:

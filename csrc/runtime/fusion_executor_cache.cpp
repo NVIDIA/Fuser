@@ -33,9 +33,6 @@
 #include <scheduler/registry.h>
 #include <utils.h>
 
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/runtime/graph_executor.h>
-
 namespace nvfuser {
 
 FusionExecutorCache::FusionExecutorCache(
@@ -81,15 +78,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         " failed");
   }
 
-  int seq_id = 0;
-  // Record kernel input and output tensors so profiler can construct
-  // the data flow graph
-  RECORD_FUNCTION(
-      "run_fused_kernel",
-      std::vector<c10::IValue>(inputs.begin(), inputs.end()),
-      seq_id);
   auto outputs = kernel_runtime->runWithInputs(args);
-  RECORD_OUTPUTS(outputs);
 
   // Kernel time measurement is off by default
   kernel_runtime->disableKernelTimeMeasurement();
@@ -194,8 +183,8 @@ std::string FusionExecutorCache::getCode(
 
   if (intrinsic_code) {
     const auto& execs = kernel_runtime->executors();
-    const FusionExecutor& fe = execs[0];
-    auto index_type = fe.kernel()->indexType();
+    const KernelExecutor& ke = execs[0];
+    auto index_type = ke.kernel()->indexType();
     // Make sure all the segment index types match. All segments currently
     // use the same index type but this code change in the future.
     for (const auto& exec : execs) {
@@ -206,7 +195,7 @@ std::string FusionExecutorCache::getCode(
           " ",
           exec.kernel()->indexType());
     }
-    std::string full_code = fe.getStructuredCode(kernel_code, index_type);
+    std::string full_code = ke.getStructuredCode(kernel_code, index_type);
     return full_code;
   } else {
     return kernel_code;
@@ -492,7 +481,7 @@ void FusionExecutorCache::deserialize(
           device_runtimes.size()));
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
-      // to create the FusionExecutor objects.
+      // to create the KernelExecutor objects.
       device_runtimes.back()->deserialize(
           fb_fusion_kernel_runtime, args.getDeviceIndex());
 

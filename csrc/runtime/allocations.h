@@ -56,14 +56,6 @@ NVF_API void setFillAllocationWithNan(bool value);
 
 void fillTensorWithNan(at::Tensor& t);
 
-//! Used in distributed setting where we only want to
-//!  allocate output space and receive output data from
-//!  a different rank instead of computing them.
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device);
-
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,

@@ -67,22 +67,26 @@ def test_gelu_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_gelu_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
         torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
     ]
+
+    benchmark_fn = {
+        "eager": gelu_fwd_fn,
+        "torchcompile": torch.compile(gelu_fwd_fn),
+    }
+
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
-    run_benchmark(
-        benchmark, torch.compile(gelu_fwd_fn) if compile else gelu_fwd_fn, inputs
-    )
+    run_benchmark(benchmark, benchmark_fn[executor], inputs)

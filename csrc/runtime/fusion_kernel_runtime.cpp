@@ -13,6 +13,8 @@
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <python_frontend/fusion_definition.h>
+#include <python_frontend/translation.h>
 #include <runtime/executor.h>
 #include <runtime/fusion_cache_utils.h>
 #include <scheduler/heuristic.h>
@@ -125,7 +127,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  would go directly to kernel launch.
   prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 
-  executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
+  executors_ = std::vector<KernelExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();
   }
@@ -142,8 +144,8 @@ FusionKernelRuntime::FusionKernelRuntime(
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
-  for (auto& fe : executors_) {
-    fe.evictCache(input_id);
+  for (auto& ke : executors_) {
+    ke.evictCache(input_id);
   }
 }
 
@@ -159,8 +161,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
-  // 1. Serialize FusionExecutor objects
-  std::vector<flatbuffers::Offset<serde::FusionExecutor>> executors_fb;
+  // 1. Serialize KernelExecutor objects
+  std::vector<flatbuffers::Offset<serde::KernelExecutor>> executors_fb;
   executors_fb.reserve(executors_.size());
   for (auto& executor : executors_) {
     executors_fb.push_back(executor.serialize(builder));
@@ -198,7 +200,7 @@ void FusionKernelRuntime::deserialize(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
-  // 1. Deserialize FusionExecutor objects
+  // 1. Deserialize KernelExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
@@ -297,6 +299,14 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::mutex thread_pool_error_message_mutex;
   for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+
+    if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
+      debug() << "Python definition for segmented group "
+              << group_to_run->groupId() << ":" << std::endl;
+      python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
+      python_frontend::translate(group_to_run->getFusion(), &fd);
+      fd.print(debug());
+    }
 
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
@@ -497,7 +507,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   }
 }
 
-const std::vector<FusionExecutor>& FusionKernelRuntime::executors() const {
+const std::vector<KernelExecutor>& FusionKernelRuntime::executors() const {
   return executors_;
 }
 
@@ -595,7 +605,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (executor.groupId() < 0) {
     executor.setGroupId(group_id);
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  auto outputs = executor.run(args, launch_params, compile_params);
 
   return outputs;
 }
@@ -625,7 +635,7 @@ void FusionKernelRuntime::compileKernel(
   NVF_ERROR(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
-  executors_.at(group_id).compileFusion(
+  executors_.at(group_id).compile(
       fusion_to_run.get(),
       args,
       heuristic_params->lparams,

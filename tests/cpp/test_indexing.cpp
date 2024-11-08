@@ -1773,9 +1773,9 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({256, 256}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0});
-  auto outputs = fe.runFusion({input0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input0});
+  auto outputs = ke.run({input0});
 
   testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
 }
@@ -2150,6 +2150,11 @@ TEST_F(IndexingTest, DoubleBuffering6) {
           CircularBufferLoopStage::NotApplicable) {
         return nullptr;
       }
+
+      // This loop is double buffered. Since the loop originally has
+      // just a trip count of 2, the double-buffered main loop has a
+      // trip count of 1. Thus, this loop is always trivial
+      loop_indices.at(1) = tv->fusion()->zeroVal();
 
       switch (tv->name()) {
         case 1: {
@@ -3040,9 +3045,9 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3139,9 +3144,9 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3306,9 +3311,9 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3387,9 +3392,9 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3476,9 +3481,9 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3582,9 +3587,9 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -3661,9 +3666,9 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -3754,9 +3759,9 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
   at::Tensor t0 = at::randn({999}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3845,9 +3850,9 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
   at::Tensor t0 = at::randn({999}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3940,9 +3945,9 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
   at::Tensor t0 = at::randn({999}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4051,9 +4056,9 @@ TEST_F(
   at::Tensor t0 = at::randn({999}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4136,9 +4141,9 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto ref = t0.to(at::kDouble).sum();
 
@@ -4296,9 +4301,9 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4419,9 +4424,9 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -4834,9 +4839,9 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
   auto t1 = at::randn({5, 6, 7}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -5063,9 +5068,9 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
   at::Tensor t0 = at::randn({10, 20}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }

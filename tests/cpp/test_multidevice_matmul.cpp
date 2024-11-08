@@ -102,12 +102,18 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(
-      fec.fusion(), outputs, inputs, {expected_output}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__);
 
-  const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
+  const FusionKernelRuntime* kernel_runtime =
+      executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::Matmul)).Times(1));
@@ -156,13 +162,19 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(
-      fec.fusion(), outputs, inputs, {expected_output}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__);
 
-  const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
+  const FusionKernelRuntime* kernel_runtime =
+      executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
@@ -208,13 +220,19 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
 
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(
-      fec.fusion(), outputs, inputs, {expected_output}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__);
 
-  const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
+  const FusionKernelRuntime* kernel_runtime =
+      executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
@@ -258,12 +276,14 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   in1 = in1.view({Ko, Ki, N});
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(fec.fusion(), outputs, inputs, {out}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outputs, inputs, {out}, __LINE__, __FILE__);
 
-  const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
+  const FusionKernelRuntime* kernel_runtime =
+      executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
@@ -315,12 +335,18 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
   auto expected_output = shardTensor(out, c).view({1, Mi, N});
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(
-      fec.fusion(), outputs, inputs, {expected_output}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__);
 
-  const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
+  const FusionKernelRuntime* kernel_runtime =
+      executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
@@ -354,16 +380,16 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
   auto w_tensor = at::randn({mesh.size(), 36, 48}, tensor_options);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = fec.runFusionWithInputs(inputs);
+  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
 
   at::Tensor expected_mm_t_tensor =
       atMatmul(x_tensor, w_tensor.view({mesh.size() * 36, 48}), MmaLayout::TN)
           .transpose(0, 1)
           .view({mesh.size(), 36, 12});
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       outputs,
       inputs,
       {shardTensor(expected_mm_t_tensor, mm_t)},
@@ -394,13 +420,13 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   auto w_tensor = at::randn({mesh.size(), 3, 5}, tensor_options);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = fec.runFusionWithInputs(inputs);
+  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
 
   at::Tensor expected_y_tensor = at::matmul(x_tensor, w_tensor);
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       outputs,
       inputs,
       {shardTensor(expected_y_tensor, 0, mesh)},

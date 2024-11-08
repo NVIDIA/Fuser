@@ -98,16 +98,16 @@ sass::Container getSASSFor(
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
-  return sass::parse(fe.disassembledKernelSASS());
+  return sass::parse(ke.disassembledKernelSASS());
 }
 
 // A fusion with epilogue made of binary op (scalar multiplication)
@@ -161,13 +161,13 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
   const double alpha = 2.5;
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion,
       {inputs.first, inputs.second, alpha},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second, alpha});
+  auto cg_outputs = ke.run({inputs.first, inputs.second, alpha});
   auto tref = at::mul(
                   atMatmul(
                       inputs.first.to(at::kFloat),
@@ -178,7 +178,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
-  return sass::parse(fe.disassembledKernelSASS());
+  return sass::parse(ke.disassembledKernelSASS());
 }
 
 } // namespace
