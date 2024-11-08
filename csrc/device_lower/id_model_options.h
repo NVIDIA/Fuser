@@ -14,8 +14,7 @@ namespace nvfuser {
 class IdModelOptions {
  public:
   IdModelOptions()
-      : build_id_model_(
-          isOptionEnabled(EnableOption::IdModel)),
+      : build_id_model_(isOptionEnabled(EnableOption::IdModel)),
         consumer_index_(
             isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex)),
         producer_index_(
@@ -67,7 +66,7 @@ class IdModelOptions {
   bool inlinePredicate() const {
     return inline_predicate_;
   }
-  
+
   void setInlinePredicate(bool b) {
     inline_predicate_ = b;
     ensureConsistency();
@@ -90,12 +89,12 @@ class IdModelOptions {
     loop_ = b;
     ensureConsistency();
   }
-  
+
  private:
   void ensureConsistency() {
     // TensorIndexer is required if these options are enabled
-    build_tensor_indexer_ = build_id_model_ ||
-        consumer_index_ || producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
+    build_tensor_indexer_ = build_id_model_ || consumer_index_ ||
+        producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
     // Similarly, IdModel needs to be built if TensorIndexer is used
     build_id_model_ = build_id_model_ || build_tensor_indexer_;
   }
@@ -105,9 +104,9 @@ class IdModelOptions {
   bool build_id_model_ = false;
   // Build TensorIndexer
   bool build_tensor_indexer_ = false;
-  // Globally enables consumer indexing. 
+  // Globally enables consumer indexing.
   bool consumer_index_ = false;
-  // Globally enables producer indexing. 
+  // Globally enables producer indexing.
   bool producer_index_ = false;
   // Globally enables inline predicate
   bool inline_predicate_ = false;
