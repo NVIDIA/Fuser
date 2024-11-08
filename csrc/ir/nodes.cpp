@@ -2273,7 +2273,15 @@ std::string LoadStoreOp::toString(int indent_size) const {
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(
+      !(out()->isA<TensorView>() || in()->isA<TensorView>()),
+      "Tensor op can not be printed inline");
+  std::stringstream ss;
+  std::string optype = load_store_type2string(opType());
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1)
+      << " = " << optype << "( " << in()->toString();
+  return ss.str();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
