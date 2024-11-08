@@ -698,9 +698,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
@@ -785,9 +785,9 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
       shardTensor(reference_outs[2], 0, mesh),
       shardTensor(reference_outs[3], 0, mesh)};
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
@@ -846,9 +846,9 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
       reference_outs[2],
       reference_outs[3]};
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
@@ -920,8 +920,8 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       shardTensor(outs[5], 0, mesh), // linear0 bias grad
       outs[6]}; // linear0 grad x
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   validate(expected_outputs, outputs, {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.02});
 }
@@ -1021,9 +1021,9 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
           .view({1, 3 * E / D}), // linear0 bias grad
       reference_outs[12]};
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = fec.runFusionWithInputs(inputs);
+  auto out = executor_cache.runFusionWithInputs(inputs);
   validate(
       expected_outputs, out, {1e-5, 0.02, 1e-5, .01, .02, 0.2, 0.2, 0.2, 0.02});
 }
@@ -1146,9 +1146,9 @@ TEST_P(DistributedTransformerTest, Forward) {
   std::vector<at::Tensor> expected_outputs = {
       ln0_out_, mha_out_, ln1_out_, mlp_out_, at_out};
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
@@ -1430,9 +1430,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       shardTensor(mlp_out_[0], 1, mesh) // mlp linear1
   };
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   validate(
       expected_outputs,
       outputs,

@@ -128,35 +128,16 @@ def test_groupnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [x, weight, bias])
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_groupnorm_fwd_thunder_benchmark(
-    benchmark,
-    size: tuple,
-    dtype: torch.dtype,
-):
-    N, C, H, W = size
-    x = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
-    bias = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
-    num_groups = get_n_groups(C)
-    # thunder compiled model
-    groupnorm_fwd_jit = thunder.jit(
-        groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex]
-    )
-    run_benchmark(benchmark, groupnorm_fwd_jit, [x, weight, bias, num_groups])
-
-
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_groupnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     N, C, H, W = size
     x = torch.randn(size, device="cuda", dtype=dtype)
@@ -164,8 +145,15 @@ def test_groupnorm_fwd_baseline_benchmark(
     bias = torch.randn(C, device="cuda", dtype=dtype)
     num_groups = get_n_groups(C)
 
+    benchmark_fn = {
+        "eager": groupnorm_fwd,
+        "torchcompile": torch.compile(groupnorm_fwd),
+        "thunder": thunder.jit(
+            groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex]
+        ),
+    }
     run_benchmark(
         benchmark,
-        torch.compile(groupnorm_fwd) if compile else groupnorm_fwd,
+        benchmark_fn[executor],
         [x, weight, bias, num_groups],
     )

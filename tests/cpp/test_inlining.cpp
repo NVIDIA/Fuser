@@ -48,9 +48,9 @@ TEST_F(InliningTest, InliningMismatchedDims1) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -80,9 +80,9 @@ TEST_F(InliningTest, InliningMismatchedDims2) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -113,9 +113,9 @@ TEST_F(InliningTest, InliningMismatchedDims4) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -150,9 +150,9 @@ TEST_F(InliningTest, InliningBroadcast) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }

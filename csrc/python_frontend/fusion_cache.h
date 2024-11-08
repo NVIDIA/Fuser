@@ -41,7 +41,7 @@ struct UserSchedule {
   std::unique_ptr<Fusion> scheduled_fusion;
 
   //! Generated kernel container
-  std::unique_ptr<FusionExecutor> executor;
+  std::unique_ptr<KernelExecutor> executor;
 
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
@@ -102,7 +102,7 @@ struct FusionSchedules {
   //! Keeps a pointer to the last scheduled Fusion IR for printing
   Fusion* last_user_def_scheduled_ir;
   //! Keeps a pointer to the last executed executor for printing its cuda kernel
-  FusionExecutor* last_user_def_executor;
+  KernelExecutor* last_user_def_executor;
   //! For thread-Safe locking of Fusion Schedules
   std::mutex scheds_lock;
   //! ID of fusion in python frontend fusion cache

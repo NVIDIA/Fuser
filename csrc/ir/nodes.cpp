@@ -4881,6 +4881,13 @@ bool ForLoop::isTrivial() const {
     return true;
   }
 
+  if (start()->isConstScalar() && simplifiedStop()->isConstScalar() &&
+      start()->evaluate().as<int64_t>() + 1 ==
+          simplifiedStop()->evaluate().as<int64_t>() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
   return false;
 }
 
