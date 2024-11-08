@@ -6381,9 +6381,9 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
 
   // tv11 and tv17 should not be predicated. See issue #496
   ASSERT_FALSE(PredicatedChecker::isPredicated(
-      11, cg_results.fusion_executor->kernel()));
+      11, cg_results.kernel_executor->kernel()));
   ASSERT_FALSE(PredicatedChecker::isPredicated(
-      17, cg_results.fusion_executor->kernel()));
+      17, cg_results.kernel_executor->kernel()));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {

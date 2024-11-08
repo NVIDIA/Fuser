@@ -1467,7 +1467,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
   // vector word size should be 4. Broadcasting of tv1 should not
   // matter.
   for (const auto& vec_info :
-       cg_results.fusion_executor->kernel()->summary().vectorized_set_info) {
+       cg_results.kernel_executor->kernel()->summary().vectorized_set_info) {
     NVF_CHECK(
         vec_info.word_size == 4,
         "Invalid vector word size: ",

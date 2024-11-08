@@ -1005,7 +1005,7 @@ TEST_F(AliasTest, ReuseBuffer) {
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 
-TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
+TEST_F(AliasTest, ReuseBuffer_KernelExecutor) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeContigTensor(1);
@@ -1527,10 +1527,15 @@ TEST_F(AliasTest, Issue2664) {
   auto t2 = at::randn({}, options);
   auto aten_out = (t2 + 1.0) * t1;
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs({t1, t2});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t1, t2});
   testValidate(
-      fec.fusion(), out_tensors, {t1, t2}, {aten_out}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {t1, t2},
+      {aten_out},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
