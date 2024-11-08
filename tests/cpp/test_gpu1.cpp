@@ -6622,7 +6622,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   fusion_forward->addOutput(result_forward.mean);
   fusion_forward->addOutput(result_forward.invstd);
 
-  FusionExecutorCache fec_forward(std::move(fusion_forward));
+  FusionExecutorCache executor_cache_forward(std::move(fusion_forward));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto at_input = at::randn(input_shape, options)
@@ -6636,7 +6636,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   std::vector<torch::jit::IValue> aten_inputs_forward = {
       at_input_nvfuser, at_weight_nvfuser, at_bias_nvfuser};
   // out, mean, invstd
-  auto outputs_forward = fec_forward.runFusionWithInputs(aten_inputs_forward);
+  auto outputs_forward =
+      executor_cache_forward.runFusionWithInputs(aten_inputs_forward);
   auto at_out = at::instance_norm(
       at_input,
       c10::optional<at::Tensor>(at_weight),
@@ -6687,7 +6688,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   fusion_backward->addOutput(result_backward.grad_weight);
   fusion_backward->addOutput(result_backward.grad_bias);
 
-  FusionExecutorCache fec_backward(std::move(fusion_backward));
+  FusionExecutorCache executor_cache_backward(std::move(fusion_backward));
   std::vector<torch::jit::IValue> aten_inputs_backward = {
       at_input_nvfuser,
       at_grad_nvfuser,
@@ -6697,10 +6698,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       outputs_forward[1],
       outputs_forward[2]};
   auto outputs_backward =
-      fec_backward.runFusionWithInputs(aten_inputs_backward);
+      executor_cache_backward.runFusionWithInputs(aten_inputs_backward);
   outputs_backward[0] = outputs_backward[0].permute({0, 4, 1, 2, 3});
   testValidate(
-      fec_backward.fusion(),
+      executor_cache_backward.fusion(),
       outputs_backward,
       aten_inputs_backward,
       {at_input.grad(), at_weight.grad(), at_bias.grad()},

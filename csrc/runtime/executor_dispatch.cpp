@@ -29,9 +29,8 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
         fusion_id, concrete_id, runtime_id, group_id);
   }
   if (ExprEvalExecutor::supported(fusion)) {
-    auto up = std::make_unique<ExprEvalExecutor>(
+    return std::make_unique<ExprEvalExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
-    return std::move(up);
   }
   if (KernelExecutor::supported(fusion)) {
     return std::make_unique<KernelExecutor>(

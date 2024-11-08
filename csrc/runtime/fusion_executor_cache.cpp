@@ -605,7 +605,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   FusionKernelRuntime* kernel_runtime = nullptr;
 
   // Check if we missed the KernelRuntime cache (Path 2) and need to generate
-  // a new kernel runtime (Path 3/4) By default, we try to avoid recompiling
+  // a new kernel runtime (Path 3/4). By default, we try to avoid recompiling
   // whenever possible. However, this can lead to suboptimal code if we only
   // check that a compiled kernel is able to run with some inputs, instead of
   // whether it is optimal to do so. The NVFUSER_DISABLE=kernel_reuse option
