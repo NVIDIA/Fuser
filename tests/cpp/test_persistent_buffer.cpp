@@ -1301,7 +1301,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   KernelExecutor ke;
   ke.compile(fusion.get(), aten_inputs);
   // Shared memory access should be vectorized.
-  // getBankConflictInfo(fe.kernel()) triggers error "std::get: wrong index for
+  // getBankConflictInfo(ke.kernel()) triggers error "std::get: wrong index for
   // variant" when trying to evaluate index with:
   // `expr_eval.evaluate(ti->index()).as<int64_t>();`
   for (auto tv : fusion->allTvs()) {
