@@ -34,15 +34,15 @@ struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class FusionExecutor : public NonCopyable {
+class KernelExecutor : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  NVF_API FusionExecutor();
+  NVF_API KernelExecutor();
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compileFusion(
+  NVF_API void compile(
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
@@ -56,25 +56,25 @@ class FusionExecutor : public NonCopyable {
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
   //! tests.
-  void compileFusion(
+  void compile(
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams()) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(fusion, args, launch_constraints, compile_params);
+    compile(fusion, args, launch_constraints, compile_params);
   }
 
   //! Used by user defined schedules in python frontend
-  void compileFusion(
+  void compile(
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs,
       int64_t fusion_id,
       int64_t concrete_id) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(
+    compile(
         fusion,
         args,
         LaunchParams(),
@@ -92,15 +92,15 @@ class FusionExecutor : public NonCopyable {
   // TODO: args shouldn't come in a reference here because we will append the
   // outputs to be able to send it to the kernel. For now none of the users are
   // reconsuming the args, so it is okay. It isn't done now because changing it
-  // from a reference makes a call as runFusion({}) ambiguous, and that is used
+  // from a reference makes a call as run({}) ambiguous, and that is used
   // in some places in the codebase.
-  NVF_API std::vector<at::Tensor> runFusion(
+  NVF_API std::vector<at::Tensor> run(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       std::vector<at::Tensor> outputs = {});
 
-  std::vector<at::Tensor> runFusion(
+  std::vector<at::Tensor> run(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
@@ -111,15 +111,15 @@ class FusionExecutor : public NonCopyable {
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
-    return runFusion(args, launch_constraints, compile_params, outputs);
+    return run(args, launch_constraints, compile_params, outputs);
   }
 
-  std::vector<at::Tensor> runFusion(
+  std::vector<at::Tensor> run(
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
-    return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
+    return run(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
   // Register a lowering hooks that are called to modify the GpuLower object
@@ -135,7 +135,7 @@ class FusionExecutor : public NonCopyable {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
-  // Function to query whether compilation was attempted for a `FusionExecutor`
+  // Function to query whether compilation was attempted for a `KernelExecutor`
   bool isCompiled() const {
     int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
         (host_ir_container_ != nullptr);
@@ -143,7 +143,7 @@ class FusionExecutor : public NonCopyable {
     return num_compiled_artifacts == 1;
   };
 
-  // function to query whether a `FusionExecutor` has a compiled kernel to
+  // function to query whether a `KernelExecutor` has a compiled kernel to
   // execute
   bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
@@ -355,12 +355,12 @@ class FusionExecutor : public NonCopyable {
   }
 
   //! Serialize Fusion Executor using flatbuffers
-  flatbuffers::Offset<serde::FusionExecutor> serialize(
+  flatbuffers::Offset<serde::KernelExecutor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor using flatbuffers
   void deserialize(
-      const serde::FusionExecutor* buffer,
+      const serde::KernelExecutor* buffer,
       Fusion* fusion,
       int8_t device_index,
       CompileParams compile_params,
@@ -428,9 +428,9 @@ class FusionExecutor : public NonCopyable {
       flatbuffers::FlatBufferBuilder& builder,
       const executor_utils::CompiledKernel* kernel) const;
 
-  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // ExecutorEntry is an internal POD struct for the KernelExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
-  // FusionExecutor.
+  // KernelExecutor.
   flatbuffers::Offset<serde::ExecutorEntry> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const ExecutorEntry& data) const;
@@ -438,9 +438,9 @@ class FusionExecutor : public NonCopyable {
   //! Deserialize ExecutorEntry using flatbuffers
   ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
 
-  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // GlobalBufferInfo is an internal POD struct for the KernelExecutor class.
   // We define GlobalBufferInfo's serialize and deserialize as private methods
-  // in FusionExecutor.
+  // in KernelExecutor.
   flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const GlobalBufferInfo& data,

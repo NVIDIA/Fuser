@@ -28,7 +28,7 @@ class SegmentedFusion;
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
   std::unique_ptr<HeuristicParams> params = nullptr;
-  FusionExecutor* fusion_executor = nullptr;
+  KernelExecutor* fusion_executor = nullptr;
 };
 
 struct RuntimeWorkSpace {
@@ -153,7 +153,7 @@ class InputsIdLookup : public NonCopyable {
   //! Encode each input sets to with an unique id;
   //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
-  //! cached in nested `FusionExecutorCache` and `FusionExecutor`.
+  //! cached in nested `FusionExecutorCache` and `KernelExecutor`.
   //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
   //! cache implementation ].
   //!

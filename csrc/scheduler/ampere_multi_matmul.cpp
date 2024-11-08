@@ -498,10 +498,10 @@ void AmpereMultipleMatmulScheduler::cacheInputsAndOutputs() {
 
 void AmpereMultipleMatmulScheduler::defineOperandCaches() {
   cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
-  addSetsForCacheReads(acw_smems_, acrs_);
+  cacheOperandsToRegisters(acw_smems_, acrs_);
 
   cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
-  addSetsForCacheReads(bcw_smems_, bcrs_);
+  cacheOperandsToRegisters(bcw_smems_, bcrs_);
 
   // Now that we are finished possibly redefining the inputs to the MmaOps,
   // we can set the macro for those ops
@@ -551,7 +551,7 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToSmem(
   }
 }
 
-void AmpereMultipleMatmulScheduler::addSetsForCacheReads(
+void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
     const std::vector<TensorView*>& tv_smems,
     std::vector<TensorView*>& tv_rs) {
   tv_rs.resize(tv_smems.size(), nullptr);

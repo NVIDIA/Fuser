@@ -153,25 +153,25 @@ class VectorOfUniqueEntries {
 
   // Returns first element in vector
   T front() const {
-#ifndef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
     NVF_ERROR(!empty());
-#endif // NDEBUG
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
     return vector_.front();
   }
 
   // Returns last element in vector
   T back() const {
-#ifndef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
     NVF_ERROR(!empty());
-#endif // NDEBUG
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
     return vector_.back();
   }
 
   // Remove and returns the last element in vector
   T popBack() {
-#ifndef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
     NVF_ERROR(!empty());
-#endif // NDEBUG
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();

@@ -36,7 +36,7 @@ duplication will be resolved in the future.
 // Set of parameters that control the behavior of HostIrExecutor
 struct HostIrExecutorParams {
   // Experimental: whether to use FusionExecutorCache rather than
-  // FusionExecutor.
+  // KernelExecutor.
   bool use_fusion_executor_cache = false;
   // Experimental: whether to apply auto-scheduling in FusionExecutorCache if
   // use_fusion_executor_cache=true. WAR: temporary hack mainly use for
@@ -95,7 +95,7 @@ class HostIrExecutor final : public OptOutDispatch {
   // Stores concrete computed values
   ExpressionEvaluator expr_evaluator_;
   // Cache Fusions, FusionExecutors
-  std::unordered_map<HostUnit*, FusionExecutor> fe_;
+  std::unordered_map<HostUnit*, KernelExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;

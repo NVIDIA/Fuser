@@ -127,6 +127,7 @@ void checkUnsegmentedVectorization(
 //   D = (A x B) + bias
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBias) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -227,6 +228,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 //   D = relu(A x B)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -312,6 +314,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 //  Target architectures: Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   // NOTE: test skips Turing arch, the relative error was too big
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -416,6 +419,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 //   Aux = relu(D)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -507,6 +511,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
 //  Target architectures: Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   // NOTE: test skips Turing arch, the relative error was too big
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -616,6 +621,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 //   D = gelu(A x B)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -701,6 +707,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  // TODO: Make these tests work with Hopper as well as Ampere
   const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
@@ -789,6 +796,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
 //   D = gelu((A x B) + bias)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -892,6 +900,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 //   Aux = gelu(D)
 //  Target architectures: Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
@@ -1012,6 +1021,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -1049,7 +1059,9 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 // Matmul test that uses segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
 TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1095,8 +1107,10 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
 TEST_P(MatmulSchedulerTestWithLayout, BasicMatmulRelaxedCheck) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const int M = 504, N = 136, K = 2048;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1142,6 +1156,7 @@ TEST_P(MatmulSchedulerTestWithLayout, BasicMatmulRelaxedCheck) {
 //  MMA first input is passed as second fusion parameter.
 //  MMA second input is passed as first fusion parameter.
 TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -1189,7 +1204,9 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 // Matmul test that uses segmenter for 'C = float2half(A x B)' fusion, for
 //  Ampere
 TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1240,7 +1257,9 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 // Matmul test that uses segmenter for 'C = alpha * (A x B)' fusion, for
 //  Ampere
 TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1294,7 +1313,9 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 // Matmul test that uses segmenter for 'C = float2half(alpha * (A x B))'
 //  fusion, for Ampere
 TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1350,7 +1371,9 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = (A x B) + beta * C
 TEST_F(MatmulSchedulerTest, EpilogueBeta) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1419,7 +1442,9 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = alpha * (A x B) + beta * C
 TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1493,7 +1518,9 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = gelu(alpha * (A x B) + beta * C)
 TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1574,8 +1601,10 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = alpha * ((A x B) + bias) + beta * C
 TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1659,7 +1688,9 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
 // Strided batch gemm test taht uses matmul scheduler, for Ampere:
 //   D = (A x B)
 TEST_P(MatmulSchedulerTestWithLayout, StridedBatch) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const int M = 504, N = 136, K = 248, B = 2;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1711,7 +1742,9 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatch) {
 //  for Ampere architecture:
 //   D = alpha * (A x B) + beta * C
 TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaBeta) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const int M = 504, N = 136, K = 248, B = 2;
 
   auto fusion = std::make_unique<Fusion>();
@@ -1785,7 +1818,9 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaBeta) {
 //  there is only single C tensor for whole batch; test for Ampere architecture:
 //   D = alpha * (A x B) + beta * C
 TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaSingleBeta) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const int M = 504, N = 136, K = 248, B = 2;
 
   auto fusion = std::make_unique<Fusion>();
@@ -1863,7 +1898,9 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaSingleBeta) {
 // Strided batch gemm test with bias that uses matmul scheduler, for Ampere:
 //   D = (A x B) + bias
 TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueBias) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const int M = 504, N = 136, K = 248, B = 2;
 
   auto fusion = std::make_unique<Fusion>();
@@ -1923,7 +1960,9 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueBias) {
 // scheduler, for Ampere:
 //   D = (A x B) + bias
 TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueSingleBias) {
+  // TODO: Make these tests work with Hopper as well as Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   const int M = 504, N = 136, K = 248, B = 2;
 
   auto fusion = std::make_unique<Fusion>();
@@ -2811,10 +2850,10 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2844,10 +2883,10 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2880,10 +2919,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2918,10 +2957,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2955,10 +2994,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2992,10 +3031,10 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3029,10 +3068,10 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
       ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3069,10 +3108,305 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   auto y_ref = at::randn({N, K}, options);
   std::vector<c10::IValue> inputs{x_ref, y_ref};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_F(MatmulSchedulerTest, HSH_TT) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::Half;
+  constexpr auto layout = MmaLayout::TT;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // A [M, K, b]
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // B [b, K, N]
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+
+  // Reorder the accumulator as [M, N, K]
+  // [M, rK, N] -> [M, N, K]
+  tv2->reorder({{-2, -1}, {-1, -2}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion->addOutput(tv3);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  // Create custom Matmul Params
+  MatMulTileOptions gemm_tile;
+  // TODO cta tile is a multiple of mma macro for hopper.
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+
+  // TODO warp tile is (macroM, macroN, macroK) for hopper.
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+
+  // TODO instruction tile is not used for hopper.
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+
+  // TODO use hopper macro
+  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+
+  // TODO Create prefetch parameter
+  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+
+  // Schedule matmul fusion using custom parameters
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  const int M = 32, N = 32, K = 256;
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  KernelExecutor ke;
+  ke.compile(
+      fusion.get(),
+      {inputs.first, inputs.second},
+      LaunchParams(),
+      matmul_cparams);
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  // TODO Disabled until hopper wgmma is used
+  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(MatmulSchedulerTest, HSH_TN) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::Half;
+  constexpr auto layout = MmaLayout::TN;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // [M, b, K] x [b, N, K] -> [M, N, rK]
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  // [M, N]
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion->addOutput(tv3);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  // Create custom Matmul Params
+  MatMulTileOptions gemm_tile;
+  // TODO cta tile is a multiple of mma macro for hopper.
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+
+  // TODO warp tile is (macroM, macroN, macroK) for hopper.
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+
+  // TODO instruction tile is not used for hopper.
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+
+  // TODO use hopper macro
+  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+
+  // TODO Create prefetch parameter
+  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+
+  // Schedule matmul fusion using custom parameters
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  const int M = 32, N = 32, K = 256;
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  KernelExecutor ke;
+  ke.compile(
+      fusion.get(),
+      {inputs.first, inputs.second},
+      LaunchParams(),
+      matmul_cparams);
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  // TODO Disabled until hopper wgmma is used
+  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(MatmulSchedulerTest, HSH_NT) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::Half;
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+
+  fusion->addOutput(tv3);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  // Create custom Matmul Params
+  MatMulTileOptions gemm_tile;
+  // TODO cta tile is a multiple of mma macro for hopper.
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+
+  // TODO warp tile is (macroM, macroN, macroK) for hopper.
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+
+  // TODO instruction tile is not used for hopper.
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+
+  // TODO use hopper macro
+  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+
+  // TODO Create prefetch parameter
+  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+
+  // Schedule matmul fusion using custom parameters
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  const int M = 32, N = 32, K = 256;
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  KernelExecutor ke;
+  ke.compile(
+      fusion.get(),
+      {inputs.first, inputs.second},
+      LaunchParams(),
+      matmul_cparams);
+
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  // TODO Disabled until hopper wgmma is used
+  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(MatmulSchedulerTest, HSH_NN) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::Half;
+  constexpr auto layout = MmaLayout::NN;
+
+  auto tv0 = makeContigConcreteTensor({1, -1, -1}, dtype); // A [b, K, M]
+  auto tv1 = makeContigConcreteTensor({-1, -1, 1}, dtype); // B [N, K, 1]
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+
+  // Reorder the accumulator as [M, N, K]
+  // [N, rK, M] -> [M, N, K]
+  tv2->reorder({{-1, -3}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion->addOutput(tv3);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  // Create custom Matmul Params
+  MatMulTileOptions gemm_tile;
+  // TODO cta tile is a multiple of mma macro for hopper.
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+
+  // TODO warp tile is (macroM, macroN, macroK) for hopper.
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+
+  // TODO instruction tile is not used for hopper.
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+
+  // TODO use hopper macro
+  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+
+  // TODO Create prefetch parameter
+  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+
+  // Schedule matmul fusion using custom parameters
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  const int M = 32, N = 32, K = 256;
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  KernelExecutor ke;
+  ke.compile(
+      fusion.get(),
+      {inputs.first, inputs.second},
+      LaunchParams(),
+      matmul_cparams);
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  // TODO Disabled until hopper wgmma is used
+  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 } // namespace nvfuser

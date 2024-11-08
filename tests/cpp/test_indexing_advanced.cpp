@@ -72,10 +72,10 @@ TEST_P(AdvancedIndexingTest, InlineBroadcast) {
   at::Tensor t0 = at::randn({123}, options);
   at::Tensor t1 = at::randn({3, 123}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
 
-  auto outputs = fe.runFusion({t0, t1});
+  auto outputs = ke.run({t0, t1});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -117,15 +117,15 @@ TEST_P(AdvancedIndexingTest, 1) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
 
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -168,15 +168,15 @@ TEST_P(AdvancedIndexingTest, 2) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
 
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -229,9 +229,9 @@ TEST_P(AdvancedIndexingTest, 4) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -263,9 +263,9 @@ TEST_P(AdvancedIndexingTest, 5) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -345,9 +345,9 @@ TEST_P(AdvancedIndexingTest, 7) {
   auto at_t0 = at::randn({numel_x}, options);
   auto at_t1 = at::randn({numel_x, numel_y}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {at_t0, at_t1});
-  auto cg_outputs = fe.runFusion({at_t0, at_t1});
+  KernelExecutor ke;
+  ke.compile(&fusion, {at_t0, at_t1});
+  auto cg_outputs = ke.run({at_t0, at_t1});
 
   auto aten_output = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1)
                          .to(at::kDouble)
@@ -391,9 +391,9 @@ TEST_P(AdvancedIndexingTest, 8) {
   auto at_t0 = at::randn({numel_x}, options);
   auto at_t1 = at::randn({numel_x, numel_y}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {at_t0, at_t1});
-  auto cg_outputs = fe.runFusion({at_t0, at_t1});
+  KernelExecutor ke;
+  ke.compile(&fusion, {at_t0, at_t1});
+  auto cg_outputs = ke.run({at_t0, at_t1});
 
   auto aten_output = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1)
                          .to(at::kDouble)
@@ -484,9 +484,9 @@ TEST_P(AdvancedIndexingTest, 10) {
   at::Tensor input2 = at::rand_like(input1);
   at::Tensor output = at::empty_like(input1);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input1, input2});
-  fe.runFusion({input1, input2}, {output});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input1, input2});
+  ke.run({input1, input2}, {output});
 
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
@@ -531,15 +531,15 @@ TEST_P(AdvancedIndexingTest, 11) {
 
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
 
   at::Tensor t0 = at::randn({w, x, y, z}, options);
   at::Tensor t1 = at::randn({x}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -574,9 +574,9 @@ TEST_P(AdvancedIndexingTest, 12) {
 
   std::vector<at::Tensor> aten_outputs = {t2, t4};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input});
-  auto cg_outputs = fe.runFusion({aten_input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {aten_input});
+  auto cg_outputs = ke.run({aten_input});
 
   testValidate(
       &fusion, cg_outputs, {aten_input}, aten_outputs, __LINE__, __FILE__);
@@ -623,9 +623,9 @@ TEST_P(AdvancedIndexingTest, 13) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -665,9 +665,9 @@ TEST_P(AdvancedIndexingTest, 14) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -700,9 +700,9 @@ TEST_P(AdvancedIndexingTest, 15) {
   at::Tensor t3 = at::randn({bx, by, bz}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t3};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -732,9 +732,9 @@ TEST_P(AdvancedIndexingTest, 16) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -767,9 +767,9 @@ TEST_P(AdvancedIndexingTest, 17) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -804,13 +804,13 @@ TEST_P(AdvancedIndexingTest, 18) {
   at::Tensor t1 = at::randn({5, 3}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto cg_outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto cg_outputs = ke.run(inputs);
 
   auto ref = (t0.unsqueeze(-1) + t1).sum();
 
-  testValidate(fe.kernel(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(ke.kernel(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 TEST_P(AdvancedIndexingTest, 19) {
@@ -848,9 +848,9 @@ TEST_P(AdvancedIndexingTest, 19) {
   at::Tensor t1 = at::randn({5, 11}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
@@ -913,9 +913,9 @@ TEST_F(AdvancedIndexingIdModelTest, 20) {
   at::Tensor t2 = at::randn({7, 13}, options);
   std::vector<c10::IValue> inputs = {t0, t1, t2};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 #endif
@@ -978,9 +978,9 @@ TEST_F(AdvancedIndexingIdModelTest, 21) {
   auto t6 = at::randn({3, 5, 7}, options);
   std::vector<c10::IValue> inputs = {t0, t3, t6};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto outputs = fe.runFusion(inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 #endif
@@ -1022,9 +1022,9 @@ TEST_F(AdvancedIndexingIdModelTest, MultiPromotion1) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1119,9 +1119,9 @@ TEST_F(AdvancedIndexingIdModelTest, IndexSplitMerge) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
