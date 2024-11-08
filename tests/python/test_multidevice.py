@@ -253,6 +253,15 @@ def test_sdpa(mpi_test):
             head_parallelize(out_grad),
         ]
     )
+    fd = Model()
+    outs = fd.execute(
+        [
+            head_parallelize(q),
+            head_parallelize(k),
+            head_parallelize(v),
+            head_parallelize(out_grad),
+        ]
+    )
     out, q_grad, k_grad, v_grad = outs
 
     def assert_close(x, y):
