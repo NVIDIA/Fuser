@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include "parallel_dimension_map.h"
 
 namespace nvfuser {
 
@@ -8989,6 +8990,32 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
     EXPECT_EQ(ref_ext, ext) << "Reference: " << ref_ext->toString()
                             << ", actual: " << ext->toString();
   }
+}
+
+// Test that we are able to infer parallel dimensions even if they are not
+// provided in loop domains. This is important for Hopper MMA since we
+// parallelize TIDx on an allocation domain for the MmaOp output that is not in
+// its loop domain.
+TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = exp(tv1);
+  fusion.addOutput(tv2);
+
+  IterDomain* merged_id = IterDomain::merge(tv1->axis(0), tv1->axis(1));
+  tv1->setAllocationDomain({merged_id}, {true});
+  merged_id->parallelize(ParallelType::TIDx);
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+
+  Val* tidx_dim = gpulw.parallelDimensionMap().get(ParallelType::TIDx);
+  ASSERT_TRUE(tidx_dim != nullptr);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
