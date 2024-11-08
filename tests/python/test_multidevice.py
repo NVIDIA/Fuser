@@ -167,20 +167,28 @@ def test_matmul_allreduce(mpi_test):
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
+@pytest.mark.parametrize("memory_format", ["bhse", "bshe"])
 @pytest.mark.mpi
-def test_sdpa(mpi_test):
+def test_sdpa(mpi_test, memory_format: str):
     d, b, s, h, e = mpi_test.size, 2, 1024, 12, 768
 
     if h % d != 0:
         pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     class Model(FusionDefinition):
+        def __init__(self, memory_format: str):
+            super().__init__()
+            self._memory_format = memory_format
+
         def definition(self) -> None:
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
                     shape=[d, b, h // d, s, e // h],
                     contiguity=True,
                     dtype=DataType.BFloat16,
+                    stride_order=[4, 3, 2, 1, 0]
+                    if self._memory_format == "bhse"
+                    else [4, 3, 1, 2, 0],
                 )
                 for _ in range(4)
             ]
@@ -218,13 +226,12 @@ def test_sdpa(mpi_test):
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(mpi_test.local_rank)
-    q, k, v = [
-        torch.randn(
-            b, h, s, e // h, dtype=torch.bfloat16, device="cuda", requires_grad=True
-        )
-        for _ in range(3)
-    ]
-    out_grad = torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
+
+    def make_unsharded_tensor() -> torch.Tensor:
+        return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
+
+    q, k, v = [make_unsharded_tensor().requires_grad_() for _ in range(3)]
+    out_grad = make_unsharded_tensor()
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
         expected_out = torch.nn.functional.scaled_dot_product_attention(
@@ -238,26 +245,32 @@ def test_sdpa(mpi_test):
     # Head-parallelize Q, K, V or the attention output of an SDPA.
     def head_parallelize(t: torch.Tensor) -> torch.Tensor:
         assert t.shape == torch.Size([b, h, s, e // h])
-        return (
-            t.view([b, d, h // d, s, e // h])
-            .transpose(0, 1)
-            .contiguous()[rank : rank + 1]
-        )
+        # The input `t` may require gradient. We .detach() so the new `t`
+        # doesn't require gradient.
+        t = t.detach().view([b, d, h // d, s, e // h]).narrow(1, rank, 1)
+        if memory_format == "bhse":
+            return t.transpose(0, 1).contiguous()
+        else:
+            return t.permute(1, 0, 3, 2, 4).contiguous().transpose(2, 3)
 
-    fd = Model()
+    fd = Model(memory_format)
     outs = fd.execute(
         [
-            head_parallelize(q),
-            head_parallelize(k),
-            head_parallelize(v),
+            head_parallelize(q).requires_grad_(),
+            head_parallelize(k).requires_grad_(),
+            head_parallelize(v).requires_grad_(),
             head_parallelize(out_grad),
         ]
     )
     out, q_grad, k_grad, v_grad = outs
 
-    def assert_close(x, y):
+    def assert_close(actual, expected):
+        if memory_format == "bhse":
+            assert actual.is_contiguous()
+        else:
+            assert actual.transpose(2, 3).is_contiguous()
         # Use the default rtol for bfloat16 and a relaxed atol.
-        torch.testing.assert_close(x, y, rtol=1.6e-2, atol=1e-2)
+        torch.testing.assert_close(actual, expected, rtol=1.6e-2, atol=1e-2)
 
     assert_close(out, head_parallelize(expected_out))
     assert_close(q_grad, head_parallelize(expected_q_grad))
