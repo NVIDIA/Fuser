@@ -340,6 +340,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
+
   // mark output TensorViews as propagation destinations
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   std::vector<TensorView*> dsts;
@@ -358,6 +359,18 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     }
     dsts.push_back(output);
   }
+
+  for (TensorView* tv : fusion->allTvs()) {
+    if (Expr* def = tv->definition()) {
+      if (auto* sdpa_fwd = dynamic_cast<SdpaFwdOp*>(def)) {
+        srcs.push_back(sdpa_fwd->query());
+        srcs.push_back(sdpa_fwd->key());
+        srcs.push_back(sdpa_fwd->value());
+        dsts.push_back(tv);
+      }
+    }
+  }
+
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
 }
