@@ -1372,6 +1372,10 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
 // multiple such IDs exist, select one whose input IDs are mapped with
 // the consumer IDs. This is to ensure the path from the loop
 // IterDomains to the root matches with the consumer tensor.
+// Additionally, when none of the candidate iter domain has all of its
+// inputs mapped with the consumer tensor, prefer one that has at
+// least one mapped. This matters when the consumer tensor only has
+// one of the merge inputs, for example.
 IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
@@ -1382,6 +1386,7 @@ IterDomain* getLogicalIDToTraverse(
     return nullptr;
   }
 
+  // Keep track of an iter domain that has at least one input mapped.
   IterDomain* fallback_candidate = nullptr;
 
   for (auto logical_id : logical_ids) {

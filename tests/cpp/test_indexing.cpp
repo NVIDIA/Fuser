@@ -5167,4 +5167,71 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
   lower.run();
 }
 
+// Repro of issue #3374
+// (https://github.com/NVIDIA/Fuser/issues/3374). Previously failed
+// with an error message of:
+// Couldn't find allocation mapping for T14_l_float[ iblockIdx.x269{(
+// ceilDiv(2, blockDim.x) )}, ithreadIdx.x270{blockDim.x}, iS278{(
+// ceilDiv(( ceilDiv(( ceilDiv(( ceilDiv(32768, blockDim.y) ), 8) ),
+// 1) ), gridDim.y) )}, iblockIdx.y277{gridDim.y},
+// ithreadIdx.y272{blockDim.y}, iUS276{1}, iUR274{8} ] ca_pos( 6 )
+// dim: 1 id: iS57{2}
+TEST_F(IndexingTest, Issue3374) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{28, 32768, 2};
+  std::vector<int64_t> shape2{32768, 2};
+  std::vector<int64_t> shape3{28, 32768, 1};
+  std::vector<int64_t> shape4{32768, 56};
+
+  auto tv0 =
+      TensorViewBuilder().shape(shape1).contiguity({true, false, true}).build();
+  fusion.addInput(tv0);
+  auto tv1 = TensorViewBuilder().shape(shape2).contiguity({true, true}).build();
+  fusion.addInput(tv1);
+  auto tv2 = TensorViewBuilder()
+                 .shape(shape3)
+                 .contiguity({true, false, std::nullopt})
+                 .build();
+  fusion.addInput(tv2);
+  auto tv3 = TensorViewBuilder()
+                 .shape(shape3)
+                 .contiguity({true, false, std::nullopt})
+                 .build();
+  fusion.addInput(tv3);
+
+  auto tv4 = pad(tv2, {fusion.oneVal(), fusion.zeroVal()});
+  auto tv5 = pad(tv3, {fusion.zeroVal(), fusion.oneVal()});
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = broadcast(tv1, {true, false, false});
+  auto tv8 = mul(tv7, tv0);
+  auto tv9 = add(tv6, tv8);
+  auto tv10 = permute(tv9, {1, 0, 2});
+  std::vector<Val*> reshape_shape;
+  std::transform(
+      shape4.begin(),
+      shape4.end(),
+      std::back_inserter(reshape_shape),
+      [](int64_t s) { return IrBuilder::create<Val>(s, DataType::Index); });
+  auto tv11 = reshape(tv10, reshape_shape);
+  auto tv12 = sum(tv11, {0});
+  fusion.addOutput(tv12);
+  fusion.addOutput(tv11);
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  auto t2 = at::randn(shape3, options);
+  auto t3 = at::randn(shape3, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2, t3};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
