@@ -1178,16 +1178,19 @@ TensorView* TensorView::cacheAfter(
   std::vector<Expr*> target_uses;
   if (!cached_uses.empty()) {
     std::unordered_set<Expr*> unique_uses = fusion()->unordered_uses(this);
+    target_uses.reserve(cached_uses.size());
     for (auto use : cached_uses) {
       NVF_ERROR(
           unique_uses.count(use),
           "cached_uses is not among the use of the TensorView");
+      target_uses.push_back(use);
     }
-    std::copy(cached_uses.begin(), cached_uses.end(), target_uses.end());
   } else {
     // avoid non-determinism and ensure unique
     std::unordered_set<Expr*> unique_uses;
-    for (Expr* use : uses()) {
+    auto this_uses = uses();
+    target_uses.reserve(this_uses.size());
+    for (Expr* use : this_uses) {
       if (unique_uses.count(use) == 0) {
         target_uses.push_back(use);
         unique_uses.insert(use);
