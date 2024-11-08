@@ -1183,11 +1183,11 @@ TensorView* TensorView::cacheAfter(
           unique_uses.count(use),
           "cached_uses is not among the use of the TensorView");
     }
-    target_uses = cached_uses;
+    std::copy(cached_uses.begin(), cached_uses.end(), target_uses.end());
   } else {
     // avoid non-determinism and ensure unique
     std::unordered_set<Expr*> unique_uses;
-    for (Expr use : uses()) {
+    for (Expr* use : uses()) {
       if (unique_uses.count(use) == 0) {
         target_uses.push_back(use);
         unique_uses.insert(use);
