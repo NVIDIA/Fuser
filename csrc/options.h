@@ -64,6 +64,7 @@ enum class DebugDumpOption {
                     //! associated with what's running
   PreSegmenterLogging,
   PythonDefinition, //! Python Frontend Fusion Definition.
+  PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result

@@ -112,23 +112,23 @@ class PolymorphicBase {
   // (checked in DEBUG builds)
   template <class T>
   T* as() {
-#ifdef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
   template <class T>
   const T* as() const {
-#ifdef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<const T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<const T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
