@@ -1359,16 +1359,17 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using AxisMapping = std::vector<InputAxes>;
   // AxisMapping denotes the pairing of two input dimensions to produce an
   // output dimension. It holds two vectors of integers indicating the
   // corresponding position of each output axis in either the A or B input.
   // Positions are absolute and refer to the noReductions logical domain. NOTE:
   // -1 indicates that the axis does not exist, so Broadcast and Reduction
   // dimensions should not have position -1.
-  struct AxisMappings {
+  struct AxisMapping {
     AxesData a_axes;
     AxesData b_axes;
+
+    static AxisMapping trivialMapping(size_t dimension);
   };
   using Expr::Expr;
 
@@ -1377,16 +1378,16 @@ class NVF_API MmaOp : public Expr {
       Val* out,
       Val* in_a,
       Val* in_b,
-      const AxisMapping& axis_mapping,
-      Val* init);
+      Val* init,
+      const AxisMapping& axis_mapping);
 
   MmaOp(
       IrBuilderPasskey,
       Val* out,
       Val* in_a,
       Val* in_b,
-      const AxisMapping& axis_mapping,
       Val* init,
+      const AxisMapping& axis_mapping,
       const MmaMacro& options);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
