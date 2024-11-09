@@ -186,9 +186,19 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   };
 
   if (auto* mma = dynamic_cast<MmaOp*>(consumer_tv_->definition())) {
-    NVF_ERROR(
-        "PairwiseLogicalDomainMap not yet implemented for MmaOp ",
-        mma->toString());
+    // producer_tv_ is either A or B
+    const MmaOp::AxesData& operand_axes = producer_tv_ == mma->inA()
+        ? mma->axisMapping().a_axes
+        : mma->axisMapping().b_axes;
+    for (size_t idx : c10::irange(operand_axes.size())) {
+      IterDomain* out_id = consumer_root.at(idx);
+      int64_t operand_pos = operand_axes[idx];
+      if (operand_pos == -1) {
+        continue;
+      }
+      IterDomain* operand_id = producer_logical.at((size_t)operand_pos);
+      updatePairwiseLogicalDomainMap(operand_id, out_id);
+    }
   }
 
   // For MatmulOp, use the corresponding mapped input iterdomains.
