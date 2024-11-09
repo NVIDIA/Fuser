@@ -9,6 +9,8 @@
 
 #include <id_model/utils.h>
 
+#include <sstream>
+
 namespace nvfuser {
 
 class IdModelOptions {
@@ -90,10 +92,24 @@ class IdModelOptions {
     ensureConsistency();
   }
 
+  std::string toString() const {
+    auto bool2str = [](bool b) { return b ? "true" : "false"; };
+
+    std::stringstream ss;
+    ss << "build_id_model=" << bool2str(build_id_model_)
+       << ", build_tensor_indexer=" << bool2str(build_tensor_indexer_)
+       << ", consumer_index=" << bool2str(consumer_index_)
+       << ", producer_index=" << bool2str(producer_index_)
+       << ", inline_predicate=" << bool2str(inline_predicate_)
+       << ", unswitch_predicate=" << bool2str(unswitch_predicate_)
+       << ", loop=" << bool2str(loop_);
+    return ss.str();
+  }
+
  private:
   void ensureConsistency() {
     // TensorIndexer is required if these options are enabled
-    build_tensor_indexer_ = build_id_model_ || consumer_index_ ||
+    build_tensor_indexer_ = build_tensor_indexer_ || consumer_index_ ||
         producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
     // Similarly, IdModel needs to be built if TensorIndexer is used
     build_id_model_ = build_id_model_ || build_tensor_indexer_;
