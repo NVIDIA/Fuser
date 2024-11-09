@@ -2277,8 +2277,8 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
       !(out()->isA<TensorView>() || in()->isA<TensorView>()),
       "Tensor op can not be printed inline");
   // Set is allowed to have a scalar, e.g. setting the iteration domain
-  // of a tensor in pad. Only print the output for clarity.
-  return out()->toString();
+  // of a tensor in pad.
+  return in()->toInlineString();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
