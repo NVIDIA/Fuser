@@ -25,7 +25,7 @@ using testing::ElementsAre;
 
 using AllocationOrderInferenceTest = NVFuserTest;
 
-std::vector<int64_t> getAllocationDomainPermutation(TensorView* tv) {
+std::vector<int64_t> getAllocationOrder(TensorView* tv) {
   std::optional<std::vector<int64_t>> permutation =
       ir_utils::computePermutation(
           tv->getLogicalDomain(), tv->getMaybeAllocationDomain());
@@ -52,9 +52,8 @@ TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
-  EXPECT_THAT(
-      getAllocationDomainPermutation(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
@@ -72,7 +71,7 @@ TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv1});
-  EXPECT_THAT(getAllocationDomainPermutation(tv1), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv1), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, BinaryOpPropagationOneTV) {
@@ -102,10 +101,10 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagationOneTV) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv2, tv3, tv6, tv7});
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 2, 3, 1));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
-  EXPECT_THAT(getAllocationDomainPermutation(tv6), ElementsAre(0, 2, 3, 1));
-  EXPECT_THAT(getAllocationDomainPermutation(tv7), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv6), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv7), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, BinaryOpPropagationTwoTV) {
@@ -132,8 +131,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagationTwoTV) {
   tv1->setAllocationDomain(tv1_format, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 0, 2, 3));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0, 2, 3));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(1, 0, 2, 3));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(1, 0, 2, 3));
 }
 
 TEST_F(AllocationOrderInferenceTest, BinaryOpPropagationWithBroadcast) {
@@ -158,7 +157,7 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagationWithBroadcast) {
   tv0->setAllocationDomain(tv0_alloc, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2});
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 3, 2, 1));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(0, 3, 2, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, TensorFactoryBinaryOpPropagation) {
@@ -187,8 +186,8 @@ TEST_F(AllocationOrderInferenceTest, TensorFactoryBinaryOpPropagation) {
   tv1->setAllocationDomain(tv1_c_last, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv2, tv3});
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 0));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(1, 0));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(1, 0));
 }
 
 TEST_F(AllocationOrderInferenceTest, TensorEmptyAllocationOrderPropagation) {
@@ -215,7 +214,7 @@ TEST_F(AllocationOrderInferenceTest, TensorEmptyAllocationOrderPropagation) {
   tv0->setAllocationDomain(tv0_c_last, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv4});
-  EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(1, 0));
+  EXPECT_THAT(getAllocationOrder(tv4), ElementsAre(1, 0));
 }
 
 TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
@@ -245,8 +244,8 @@ TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
   tv2->setAllocationDomain(tv2_nhwc, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1, tv2}, {tv3, tv4});
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
-  EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationOrder(tv4), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
@@ -287,14 +286,14 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   // permutation here is strange because in propagation we are preserving
   // reduction iter domain in its position in logical domain See issue:
   // https://github.com/NVIDIA/Fuser/issues/2202
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(2, 1, 3, 0));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(2, 1, 0));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(2, 1, 3, 0));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(2, 1, 0));
 #else
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 2, 3, 0));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 2, 0));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(1, 2, 3, 0));
+  EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(1, 2, 0));
 #endif
-  EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(1, 0));
-  EXPECT_THAT(getAllocationDomainPermutation(tv5), ElementsAre(0, 3, 2, 1));
+  EXPECT_THAT(getAllocationOrder(tv4), ElementsAre(1, 0));
+  EXPECT_THAT(getAllocationOrder(tv5), ElementsAre(0, 3, 2, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
@@ -322,6 +321,33 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
 
   EXPECT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
   EXPECT_TRUE(ref_out.allclose(cg_outputs[0]));
+}
+
+TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t b = 2, s = 1024, h = 12, e = 768;
+
+  auto* in = makeContigConcreteTensor({b, s, h * e * 3}, DataType::Half);
+  fusion.addInput(in);
+  std::vector<TensorView*> chunks = chunk(in, 3, -1);
+  for (auto*& chunk : chunks) {
+    chunk = reshape(chunk, {b, s, h * e}, {b, s, h, e});
+    chunk = transpose(chunk, 1, 2);
+  }
+  SdpfaFwdResult outs = sdpfa_fwd(
+      chunks[0],
+      chunks[1],
+      chunks[2],
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/nullptr);
+  TensorView* out = outs.output;
+  fusion.addOutput(out);
+
+  preseg_passes::inferenceAllocationOrder(&fusion, {in}, {out});
+  EXPECT_THAT(getAllocationOrder(out), ElementsAre(0, 2, 1, 3));
 }
 
 } // namespace nvfuser
