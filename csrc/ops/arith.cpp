@@ -14,6 +14,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <scheduler/mma_utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -2198,6 +2199,121 @@ TensorView* fusedMultiplySum(
       "Init value dtype for fusedMultiplySum must match output.");
 
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
+
+  return out;
+}
+
+TensorView* fusedMultiplySum(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    const std::vector<int64_t>& axes,
+    Val* init,
+    const std::optional<MmaOp::AxisMapping>& axis_mapping_opt) {
+  const std::vector<IterDomain*>& a_logical =
+      TensorDomain::noReductions(tv_a->getLogicalDomain());
+  const std::vector<IterDomain*>& b_logical =
+      TensorDomain::noReductions(tv_b->getLogicalDomain());
+
+  NVF_CHECK(
+      !a_logical.empty() && !b_logical.empty(),
+      "Tried to reduce a 0-dim tensor");
+
+  std::unique_ptr<MmaOp::AxisMapping> axis_mapping_ptr;
+  if (!axis_mapping_opt.has_value()) {
+    NVF_CHECK(
+        a_logical.size() == b_logical.size(),
+        "If tv_a and tv_b have different dimensions, axis_mapping_opt must be provided");
+    axis_mapping_ptr = std::make_unique(MmaOp::AxisMapping);
+    axis_mapping_ptr->a_axes.reserve(a_logical.size());
+    axis_mapping_ptr->b_axes.reserve(b_logical.size());
+    for (size_t i : c10::irange(a_logical.size())) {
+      axis_mapping_ptr->a_axes.push_back((int64_t)i);
+      axis_mapping_ptr->b_axes.push_back((int64_t)i);
+    }
+  }
+  const MmaOp::AxisMapping& axis_mapping =
+      axis_mapping_opt.has_value() ? *axis_mapping_opt : *axis_mapping_ptr;
+
+  NVF_CHECK(
+      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
+      "Axis mapping should contain same number of output axes for each operand");
+  const size_t out_dims = axis_mapping.a_axes.size();
+
+  // TODO:
+  //  Add tf32 and other mma data types
+  //  Add fallback path for non-mma data types.
+  NVF_CHECK(
+      tv_a->dtype() == DataType::Half || tv_a->dtype() == DataType::BFloat16);
+  NVF_CHECK(tv_a->dtype() == tv_b->dtype());
+  DataType data_type = tv_a->dtype();
+
+  // Prepare output domain based on domain mapping and IterTypes of inputs
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(axis_mapping.a_axes.size());
+  for (size_t i : c10::irange(out_dims)) {
+    int64_t a_pos = axis_mapping.a_axes[i];
+    int64_t b_pos = axis_mapping.b_axes[i];
+    NVF_CHECK(
+        a_pos != -1 || b_pos != -1,
+        "Output axis ",
+        i,
+        " cannot be missing in both operands");
+    NVF_CHECK(
+        a_pos == -1 || (a_pos >= 0 && a_pos < (int64_t)a_logical.size()),
+        "Position ",
+        i,
+        " in output of axis mapping for operand A is ",
+        a_pos,
+        " which is out of bounds for A which has dimension ",
+        a_logical.size());
+    NVF_CHECK(
+        b_pos == -1 || (b_pos >= 0 && b_pos < (int64_t)b_logical.size()),
+        "Position ",
+        i,
+        " in output of axis mapping for operand B is ",
+        b_pos,
+        " which is out of bounds for B which has dimension ",
+        b_logical.size());
+    IterDomain* a_id = a_pos == -1 ? nullptr : a_logical[(size_t)a_pos];
+    IterDomain* b_id = b_pos == -1 ? nullptr : b_logical[(size_t)b_pos];
+
+    bool a_concrete = a_id == nullptr ? false : !a_id->isBroadcast();
+    bool b_concrete = b_id == nullptr ? false : !b_id->isBroadcast();
+    // NOTE: we can have !a_concrete && !b_concrete if there are broadcast batch
+    // dims
+
+    // Check for K dimensions
+    bool is_reduction = a_concrete && b_concrete &&
+        std::find(axes.begin(), axes.end(), (int64_t)i) != axes.end();
+
+    IterDomain* orig_id = a_concrete ? a_id : b_id;
+    out_domain.push_back(
+        IterDomainBuilder(orig_id->start(), orig_id->extent())
+            .stop_offset(orig_id->stopOffset())
+            .iter_type(is_reduction ? IterType::Reduction : id->getIterType())
+            .build());
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  TensorView* out = IrBuilder::create<TensorView>(td, data_type);
+
+  if (init == nullptr) {
+    init = IrBuilder::create<Val>(0.0, out->dtype());
+  }
+
+  // TODO:
+  //  We will want to support initialize and rfactor with
+  //  mma as well, for maybe fusing bias in prolog.
+  NVF_CHECK(
+      init->isConstScalar(),
+      "Cannot create a reduction operation where the initial value is not a const scalar.");
+  NVF_CHECK(
+      init->dtype() == out->dtype(),
+      "Init value dtype for fusedMultiplySum must match output.");
+
+  IrBuilder::create<MmaOp>(out, tv_a, tv_b, axis_mapping, init);
 
   return out;
 }

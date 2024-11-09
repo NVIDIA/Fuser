@@ -185,6 +185,10 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
   };
 
+  if (auto* mma = dynamic_cast<MmaOp*>(consumer_tv->definition())) {
+    NVF_ERROR("PairwiseLogicalDomainMap not yet implemented for MmaOp");
+  }
+
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input

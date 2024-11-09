@@ -1359,15 +1359,33 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
+  using AxisMapping = std::vector<InputAxes>;
+  // AxisMapping denotes the pairing of two input dimensions to produce an
+  // output dimension. It holds two vectors of integers indicating the
+  // corresponding position of each output axis in either the A or B input.
+  // Positions are absolute and refer to the noReductions logical domain. NOTE:
+  // -1 indicates that the axis does not exist, so Broadcast and Reduction
+  // dimensions should not have position -1.
+  struct AxisMappings {
+    AxesData a_axes;
+    AxesData b_axes;
+  };
   using Expr::Expr;
-
-  MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
 
   MmaOp(
       IrBuilderPasskey,
       Val* out,
       Val* in_a,
       Val* in_b,
+      const AxisMapping& axis_mapping,
+      Val* init);
+
+  MmaOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* in_a,
+      Val* in_b,
+      const AxisMapping& axis_mapping,
       Val* init,
       const MmaMacro& options);
 
@@ -1426,32 +1444,17 @@ class NVF_API MmaOp : public Expr {
 
   void setMacro(MmaMacro options);
 
-  const auto& mAxes() const {
-    return attribute<AxesData>(ATTR_POS_M_AXES);
-  }
-
-  const auto& nAxes() const {
-    return attribute<AxesData>(ATTR_POS_N_AXES);
-  }
-
-  const auto& kAxes() const {
-    return attribute<AxesData>(ATTR_POS_K_AXES);
-  }
-
-  const auto& batchAxes() const {
-    return attribute<AxesData>(ATTR_POS_BATCH_AXES);
+  const AxisMapping& axisMapping() const {
+    return attribute<AxisMapping>(ATTR_POS_AXIS_MAPPING);
   }
 
  private:
-  // Predefined idexes of attributes stored for this IR node, to avoid
+  // Predefined indices of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
   static constexpr size_t ATTR_POS_MACRO = 1;
-  static constexpr size_t ATTR_POS_M_AXES = 2;
-  static constexpr size_t ATTR_POS_N_AXES = 3;
-  static constexpr size_t ATTR_POS_K_AXES = 4;
-  static constexpr size_t ATTR_POS_BATCH_AXES = 5;
+  static constexpr size_t ATTR_POS_AXIS_MAPPING = 2;
 };
 
 //! The semantics are identical to torch.broadcast_to.
