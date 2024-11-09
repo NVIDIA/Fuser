@@ -6,6 +6,8 @@
 import thunder
 import torch
 import itertools
+import math
+import collections
 import random
 from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType
 from dataclasses import dataclass
@@ -54,19 +56,50 @@ empirical_hidden_sizes = list(range(256, 28672, 256))
 # For pointwise scheduler, we test the cartesian product of vectorization and
 # unroll factors.
 def generate_parameter_configurations(num_dimensions):
-    breakpoints = range(num_dimensions)
-    vectorize_range = [1, 2, 4, 8]
-    unroll_ranges_1d = [[1], list(range(1, 10))]
-    unroll_ranges_2d = [list(range(1, 4)), list(range(1, 4))]
+    def _named_product(**items):
+        config = collections.namedtuple("Configuration", items.keys())
+        return itertools.starmap(config, itertools.product(*items.values()))
+
+    warp_size = 32
+    warp_group = warp_size * 4
+    # limited to a maximum of 128 threads because of pointwise scheduler
+    max_threads_per_cta = 128
+    threads_per_cta = list(range(warp_group, max_threads_per_cta + 1, warp_group))
 
     configs = []
-    for bp in breakpoints:
-        unroll_range = unroll_ranges_1d if bp == 0 else unroll_ranges_2d
-        outer_unroll_range, inner_unroll_range = unroll_range
-        config = itertools.product(
-            [bp], vectorize_range, outer_unroll_range, inner_unroll_range
-        )
-        configs.append(config)
+    for bp in range(num_dimensions):
+        for num_threads in threads_per_cta:
+            if bp == 0:
+                # 1D scheduler configurations
+                bdim_shapes = [(num_threads, 1)]
+                outer_unroll_range = [1]
+                # unroll_factor is between [1, 9]
+                inner_unroll_range = range(1, 10)
+            else:
+                # 2D scheduler configurations
+                max_bdimy = num_threads // warp_size
+                log2_max_bdimy = int(math.log2(max_bdimy))
+                bdimy_configs = [
+                    2**log_bdimy for log_bdimy in range(1, log2_max_bdimy + 1)
+                ]
+
+                bdim_shapes = [
+                    (max(warp_size, num_threads // bdimy), bdimy)
+                    for bdimy in bdimy_configs
+                ]
+                # total_unroll_factor is between [1, 9] given that outer and
+                # inner unroll factors are between [1, 3].
+                outer_unroll_range = range(1, 4)
+                inner_unroll_range = range(1, 4)
+
+            config = _named_product(
+                break_point=[bp],
+                bdim=bdim_shapes,
+                vectorize_factor=[1, 2, 4, 8],
+                outer_unroll=outer_unroll_range,
+                inner_unroll=inner_unroll_range,
+            )
+            configs.append(config)
     return itertools.chain(*configs)
 
 
@@ -130,12 +163,12 @@ def custom_pointwise_scheduler(fd, config):
 
         # Modify original parameters
         if config is not None:
-            break_point, vectorize_factor, outer_unroll, inner_unroll = config
-            schedule_params.break_point = break_point
-            schedule_params.vectorization_factor = vectorize_factor
-            schedule_params.unroll_factor_outer = outer_unroll
-            schedule_params.unroll_factor_inner = inner_unroll
-            schedule_params.lparams.bdimx = 128
+            schedule_params.break_point = config.break_point
+            schedule_params.vectorization_factor = config.vectorize_factor
+            schedule_params.unroll_factor_outer = config.outer_unroll
+            schedule_params.unroll_factor_inner = config.inner_unroll
+            schedule_params.lparams.bdimx = config.bdim[0]
+            schedule_params.lparams.bdimy = config.bdim[1]
 
         # Schedule fusion
         fd.sched.schedule()
@@ -172,10 +205,22 @@ def argmax(map_config_to_perf):
 # find the best parameters
 def find_best_parameters(predictor, input_shape, parameter_configurations):
     map_config_to_performance = {
-        config: predictor.predict([[*input_shape, *config]])
+        config: predictor.predict([[*input_shape, *flatten_config(config)]])
         for config in parameter_configurations
     }
     return argmax(map_config_to_performance)
+
+
+# Converted NamedTuple to a Tuple. It flattens nested tuples. The function is
+# used for compatibility with machine learning model.
+def flatten_config(config):
+    new_config = []
+    for item in config:
+        if type(item) is tuple:
+            new_config.extend(item)
+        else:
+            new_config.append(item)
+    return tuple(new_config)
 
 
 # ============================ Run Experiments  ================================
@@ -197,7 +242,7 @@ for shape in itertools.product(outer_shapes, inner_shapes):
     # unroll and vectorization configurations
     for config in generate_parameter_configurations(num_dimensions):
         perf_metric, _ = run_profile(presched_fd, inputs, config)
-        parameters.append((*shape, *config))
+        parameters.append((*shape, *flatten_config(config)))
         performance.append(perf_metric)
 
 # ============================ Separate Data  ==================================
@@ -264,8 +309,9 @@ for shape in test_shapes:
     estimate_config = find_best_parameters(
         clf, shape, generate_parameter_configurations(num_dimensions)
     )
+    flattened_estimate_config = flatten_config(estimate_config)
 
-    match_config = estimate_config == best_test_config[shape]
+    match_config = flattened_estimate_config == best_test_config[shape]
     if not match_config:
         mismatch_configs.append((shape, estimate_config))
 
