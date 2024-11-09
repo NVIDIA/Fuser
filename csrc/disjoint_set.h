@@ -287,23 +287,39 @@ class VectorOfUniqueEntries {
 //! DisjointSet::mapEntries(a,b) makes the full set of a and b equivalent
 //! DisjointSet::*AreMapped(a,b) checks if a and b belong to the same disjoint
 //! set
-template <typename T, typename Hash = std::hash<T>>
+
+template<typename T>
+struct CustomEqual {
+    bool operator()(const T& lhs, const T& rhs) const {
+        if constexpr (std::is_pointer<T>::value){
+          std::cout << lhs->toString() << " sameAs " << rhs->toString() << ", sameas? " << lhs->sameAs(rhs) << std::endl;
+          return lhs->sameAs(rhs);
+        }else{
+          std::cout <<  " == "  << std::endl;
+          return lhs == rhs;
+        }
+    }
+};
+
+// Example for using DisjointSetMap with custom hash and equality
+template<typename T, typename Hash = std::hash<T>, typename Equal = CustomEqual<T>>
+// template <typename T, typename Hash = std::hash<T>>
 class DisjointSets {
  public:
   using DisjointSet = std::shared_ptr<VectorOfUniqueEntries<T, Hash>>;
-  using DisjointSetMap = std::unordered_map<T, DisjointSet, Hash>;
+  using DisjointSetMap = std::unordered_map<T, DisjointSet, Hash, Equal>;
 
   DisjointSets() = default;
 
-  DisjointSets(const DisjointSets<T, Hash>& other);
+  DisjointSets(const DisjointSets<T, Hash, Equal>& other);
 
-  DisjointSets(DisjointSets<T, Hash>&& other) = default;
+  DisjointSets(DisjointSets<T, Hash, Equal>&& other) = default;
 
-  DisjointSets<T, Hash>& operator=(const DisjointSets<T, Hash>& other);
+  DisjointSets<T, Hash, Equal>& operator=(const DisjointSets<T, Hash, Equal>& other);
 
-  DisjointSets<T, Hash>& operator=(DisjointSets<T, Hash>&& other) = default;
+  DisjointSets<T, Hash, Equal>& operator=(DisjointSets<T, Hash, Equal>&& other) = default;
 
-  friend void swap(DisjointSets<T, Hash>& sets1, DisjointSets<T, Hash>& sets2) {
+  friend void swap(DisjointSets<T, Hash, Equal>& sets1, DisjointSets<T, Hash, Equal>& sets2) {
     using std::swap;
     swap(sets1.disjoint_sets_, sets2.disjoint_sets_);
     swap(sets1.disjoint_set_maps_, sets2.disjoint_set_maps_);
@@ -502,8 +518,8 @@ class DisjointSets {
   std::vector<DisjointSet> disjoint_sets_;
 };
 
-template <typename T, typename Hash>
-DisjointSets<T, Hash>::DisjointSets(const DisjointSets<T, Hash>& other) {
+template <typename T, typename Hash, typename Equal>
+DisjointSets<T, Hash, Equal>::DisjointSets(const DisjointSets<T, Hash, Equal>& other) {
   std::unordered_map<DisjointSet, int> ptr_map;
 
   // Deep copy the vector of the disjoint sets, keeping the same
@@ -526,13 +542,13 @@ DisjointSets<T, Hash>::DisjointSets(const DisjointSets<T, Hash>& other) {
   }
 }
 
-template <typename T, typename Hash>
-DisjointSets<T, Hash>& DisjointSets<T, Hash>::operator=(
-    const DisjointSets<T, Hash>& other) {
+template <typename T, typename Hash, typename Equal>
+DisjointSets<T, Hash, Equal>& DisjointSets<T, Hash, Equal>::operator=(
+    const DisjointSets<T, Hash, Equal>& other) {
   disjoint_set_maps_.clear();
   disjoint_sets_.clear();
 
-  DisjointSets<T, Hash> copy(other);
+  DisjointSets<T, Hash, Equal> copy(other);
   swap(*this, copy);
   return *this;
 }
