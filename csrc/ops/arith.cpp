@@ -2109,7 +2109,7 @@ TensorView* fusedMultiplySum(
         a_logical.size() == b_logical.size(),
         "If tv_a and tv_b have different dimensions, axis_mapping_opt must be provided");
     axis_mapping_ptr = std::make_unique<MmaOp::AxisMapping>(
-        std::move(MmaOp::AxisMapping::trivialMapping(a_logical.size())));
+        MmaOp::AxisMapping::trivialMapping(a_logical.size()));
   }
   const MmaOp::AxisMapping& axis_mapping =
       axis_mapping_opt.has_value() ? *axis_mapping_opt : *axis_mapping_ptr;
