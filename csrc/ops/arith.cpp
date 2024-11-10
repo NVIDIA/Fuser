@@ -2119,12 +2119,13 @@ TensorView* fusedMultiplySum(
       "Axis mapping should contain same number of output axes for each operand");
   const size_t out_dims = axis_mapping.a_axes.size();
 
-  std::unordered_set<int64_t> axes_set;
+  std::unordered_set<size_t> axes_set;
   for (int64_t axis : axes) {
     if (axis < 0) {
-      axis += out_dims;
+      axis += (int64_t)out_dims;
     }
-    axes_set.insert(axis);
+    NVF_ERROR(axis >= 0 && axis < (int64_t)out_dims);
+    axes_set.insert((size_t)axis);
   }
 
   // TODO:
@@ -2171,7 +2172,7 @@ TensorView* fusedMultiplySum(
     // dims
 
     // Check for K dimensions
-    bool is_reduction = a_concrete && b_concrete && axes_set.count((int64_t)i);
+    bool is_reduction = a_concrete && b_concrete && axes_set.count(i);
 
     IterDomain* orig_id = a_concrete ? a_id : b_id;
     out_domain.push_back(
