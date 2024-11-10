@@ -548,6 +548,14 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
   translate(from.preschedFusion(), &to);
 }
 
+// Get peak memory bandwidth in gigabytes per second for the given device.
+double get_peak_memory_bandwidth_gbs(const int device_id) {
+  NVF_CHECK(device_id >= 0, "Invalid device index: ", device_id);
+  DeviceDescriptor desc;
+  DeviceDescriptor::generate(desc, device_id);
+  return desc.peak_bandwidth_gbs;
+}
+
 namespace {
 void verifyShape(const std::vector<int64_t>& shape) {
   for (size_t i = 0; i < shape.size(); ++i) {
@@ -709,6 +717,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
   nvfuser.def("clone", clone);
+  nvfuser.def("get_peak_memory_bandwidth_gbs", get_peak_memory_bandwidth_gbs);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
