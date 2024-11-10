@@ -288,6 +288,86 @@ def eager_reference(which_fusion, inputs):
         assert False
 
 
+# Given fusion, configuration, and input shapes, create features for decision
+# tree describing the fusion.
+#  1. Is the pointwise schedule using a 1D or 2D schedule?
+#     is_2d_schedule = (bp > 0)
+#  2. Calculate broadcast multiples and number of elements for the lhs and rhs
+#     of break_point.
+#  3. Calculate bytes per lhs or rhs using broadcast multiples and number of
+#     elements for lhs and rhs of break_point.
+#  4. Get arithmetic intensity of fusion.
+#     arithmetic_intensity = (number of operations) divided by
+#                            (number of elements in input and output tensors)
+# Feature Summary:
+#  1. is_2d_schedule : [0, 1] bool
+#  2. lhs_bytes_gbs : float
+#  2. rhs_bytes_gbs : float
+#  4. arithmetic_intensity : float
+def construct_features(which_fusion, configuration, inputs):
+    # Create meta tensor for output tensor.
+    def _create_output_meta_tensors(inputs):
+        reference_tensor = list(inputs[0].shape)
+        reference_dtype_size = 0
+        reference_dtype = None
+
+        # Create full tensor shape from inputs
+        for t in inputs:
+            if type(t) is not torch.Tensor:
+                continue
+
+            for idx, dim_size in enumerate(t.shape):
+                if t.dtype.itemsize > reference_dtype_size:
+                    reference_dtype_size = t.dtype.itemsize
+                    reference_dtype = t.dtype
+                reference_tensor[idx] = max(reference_tensor[idx], dim_size)
+
+        return [torch.empty(reference_tensor, dtype=reference_dtype, device="meta")]
+
+    # Calculate broadcast multiple and number of elements for lhs and rhs of
+    # broadcast.
+    def _calculate_break_point_features(break_point, inputs):
+        lhs_bcast_multiples = 0
+        rhs_bcast_multiples = 0
+        lhs_num_elem = 0
+        rhs_num_elem = 0
+
+        outputs = _create_output_meta_tensors(inputs)
+        for t in itertools.chain(inputs, outputs):
+            for idx, dim_size in enumerate(t.shape):
+                value = t.dtype.itemsize if dim_size > 1 else 0
+
+                if idx < break_point:
+                    lhs_num_elem += dim_size
+                    lhs_bcast_multiples += value
+                else:
+                    rhs_num_elem += dim_size
+                    rhs_bcast_multiples += value
+        return (lhs_bcast_multiples, rhs_bcast_multiples), (lhs_num_elem, rhs_num_elem)
+
+    # Get arithmetic intensity given fusion.
+    def _arithmetic_intensity(which_fusion):
+        # The memory contribution of broadcasted tensor is small.
+        epsilon = 5e-5
+        if which_fusion == FUSION.GELU_BIAS:
+            return 5.0 + epsilon
+        elif which_fusion == FUSION.SILU_MUL:
+            return 2.0
+        elif which_fusion == FUSION.BCAST_ADD:
+            return 0.5 + epsilon
+        elif which_fusion == FUSION.MUL:
+            return 1.0 / 3.0
+        else:
+            assert False
+
+    is_2d_schedule = float(configuration.break_point > 0)
+    bcast_multiples, num_elems = _calculate_break_point_features(
+        configuration.break_point, inputs
+    )
+    arithmetic_intensity = _arithmetic_intensity(which_fusion)
+    return [is_2d_schedule, *bcast_multiples, *num_elems, arithmetic_intensity]
+
+
 # ============================ Function Definitions ============================
 
 
@@ -344,11 +424,13 @@ def argmax(map_config_to_perf):
 
 # Given a prediction model, input_shape, and set of parameter configurations,
 # find the best parameters
-def find_best_parameters(predictor, input_shape, parameter_configurations):
-    map_config_to_performance = {
-        config: predictor.predict([[*input_shape, *flatten_config(config)]])
-        for config in parameter_configurations
-    }
+def find_best_parameters(predictor, which_fusion, parameter_configurations, inputs):
+    map_config_to_performance = {}
+    for config in parameter_configurations:
+        features = construct_features(which_fusion, config, inputs)
+        map_config_to_performance[config] = predictor.predict(
+            [[*features, *flatten_config(config)]]
+        )
     return argmax(map_config_to_performance)
 
 
@@ -384,9 +466,7 @@ def test_model(clf, which_fusion):
         inputs = create_inputs(which_fusion, (empirical_batch_size, hidden_shape))
 
         estimate_config = find_best_parameters(
-            clf,
-            (empirical_batch_size, hidden_shape),
-            generate_parameter_configurations(num_dimensions),
+            clf, which_fusion, generate_parameter_configurations(num_dimensions), inputs
         )
 
         with FusionDefinition() as presched_fd:
@@ -429,6 +509,7 @@ def test_model(clf, which_fusion):
     plt.savefig(
         f"pointwise_{which_fusion.name}_empirical_batchsize{empirical_batch_size}.png"
     )
+    plt.close('all')
 
 
 # Collect data for decision tree
@@ -449,7 +530,8 @@ def collect_data():
                 perf_metric, _ = run_profile(
                     selected_fusion, presched_fd, inputs, config
                 )
-                parameters.append((*shape, *flatten_config(config)))
+                features = construct_features(selected_fusion, config, inputs)
+                parameters.append((*features, *flatten_config(config)))
                 performance.append(perf_metric)
     return parameters, performance
 
