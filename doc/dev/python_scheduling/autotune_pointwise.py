@@ -11,6 +11,7 @@ import collections
 import random
 from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType
 from dataclasses import dataclass
+from enum import Enum
 
 
 # ============================ Description ============================
@@ -36,6 +37,17 @@ from dataclasses import dataclass
 # effective_bandwidth_gbs.
 
 # ============================ Configurations ============================
+
+
+class FUSION(Enum):
+    GELU_BIAS = 1
+    SILU_MUL = 2
+    BCAST_ADD = 3
+    MUL = 4
+
+
+# Which Fusion to profile?
+selected_fusion = FUSION.GELU_BIAS
 
 # Settings for input tensor generation
 num_dimensions = 2
@@ -103,9 +115,38 @@ def generate_parameter_configurations(num_dimensions):
     return itertools.chain(*configs)
 
 
+def create_inputs(which_fusion, shape):
+    def outer_bcast():
+        return [
+            torch.randn(1, shape[-1], dtype=torch.bfloat16, device="cuda"),
+            torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
+        ]
+
+    def inner_bcast():
+        return [
+            torch.randn(shape[0], 1, dtype=torch.bfloat16, device="cuda"),
+            torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
+        ]
+
+    def full():
+        return [
+            torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
+            torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
+        ]
+
+    if which_fusion == FUSION.GELU_BIAS:
+        return outer_bcast()
+    elif which_fusion == FUSION.SILU_MUL or which_fusion == FUSION.MUL:
+        return full()
+    elif which_fusion == FUSION.BCAST_ADD:
+        return inner_bcast()
+    else:
+        assert False
+
+
 # A decorator to create a pointwise fusion given some input arguments.
-def create_fusion_func(inputs):
-    def fusion_func(fd: FusionDefinition):
+def create_fusion_func(which_fusion, inputs):
+    def gelu_bias(fd: FusionDefinition):
         T0 = fd.define_tensor(
             shape=[1, -1],
             contiguity=[None, True],
@@ -139,14 +180,113 @@ def create_fusion_func(inputs):
         T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
         fd.add_output(T22)
 
-    return fusion_func
+    def silu_mul(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.cast(T0, dtype=DataType.Float)
+        T3 = fd.ops.neg(T2)
+        T4 = fd.ops.exp(T3)
+        S5 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T6 = fd.ops.add(S5, T4)
+        T7 = fd.ops.reciprocal(T6)
+        T8 = fd.ops.mul(T2, T7)
+        T9 = fd.ops.cast(T1, dtype=DataType.Float)
+        T10 = fd.ops.mul(T8, T9)
+        T11 = fd.ops.cast(T10, dtype=DataType.BFloat16)
+        fd.add_output(T11)
+
+    def bcast_add(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, 1],
+            contiguity=[True, None],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.cast(T0, dtype=DataType.Float)
+        T3 = fd.ops.cast(T1, dtype=DataType.Float)
+        T4 = fd.ops.add(T2, T3)
+        T5 = fd.ops.cast(T4, dtype=DataType.BFloat16)
+        fd.add_output(T5)
+
+    def mul(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.cast(T0, dtype=DataType.Float)
+        T3 = fd.ops.cast(T1, dtype=DataType.Float)
+        T4 = fd.ops.mul(T2, T3)
+        T5 = fd.ops.cast(T4, dtype=DataType.BFloat16)
+        fd.add_output(T5)
+
+    if which_fusion == FUSION.GELU_BIAS:
+        return gelu_bias
+    elif which_fusion == FUSION.SILU_MUL:
+        return silu_mul
+    elif which_fusion == FUSION.BCAST_ADD:
+        return bcast_add
+    elif which_fusion == FUSION.MUL:
+        return mul
+    else:
+        assert False
 
 
 # The pytorch eager mode reference used to validating nvfuser kernel.
-def eager_reference(inputs):
-    return torch.nn.functional.gelu(
-        inputs[0] + inputs[1].unsqueeze(0), approximate="tanh"
-    )
+def eager_reference(which_fusion, inputs):
+    def gelu_bias(inputs):
+        return torch.nn.functional.gelu(
+            inputs[0] + inputs[1].unsqueeze(0), approximate="tanh"
+        )
+
+    def silu_mul(inputs):
+        return torch.nn.functional.silu(inputs[0]) * inputs[1]
+
+    def bcast_add(inputs):
+        return inputs[0] + inputs[1]
+
+    def mul(inputs):
+        return inputs[0] * inputs[1]
+
+    if which_fusion == FUSION.GELU_BIAS:
+        return gelu_bias(inputs)
+    elif which_fusion == FUSION.SILU_MUL:
+        return silu_mul(inputs)
+    elif which_fusion == FUSION.BCAST_ADD:
+        return bcast_add(inputs)
+    elif which_fusion == FUSION.MUL:
+        return mul(inputs)
+    else:
+        assert False
 
 
 # ============================ Function Definitions ============================
@@ -183,7 +323,9 @@ def run_profile(presched_fd, inputs, config=None):
     nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
     # validate correctness
-    assert torch.allclose(nvf_outputs[0], eager_reference(inputs), atol=1e-2, rtol=1e-2)
+    assert torch.allclose(
+        nvf_outputs[0], eager_reference(selected_fusion, inputs), atol=1e-2, rtol=1e-2
+    )
 
     prof = scheduled_fd.profile()
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
@@ -231,13 +373,10 @@ performance = []
 
 for shape in itertools.product(outer_shapes, inner_shapes):
     print(shape)
-    inputs = [
-        torch.randn(1, shape[-1], dtype=torch.bfloat16, device="cuda"),
-        torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
-    ]
+    inputs = create_inputs(selected_fusion, shape)
 
     with FusionDefinition() as presched_fd:
-        create_fusion_func(inputs)(presched_fd)
+        create_fusion_func(selected_fusion, inputs)(presched_fd)
 
     # unroll and vectorization configurations
     for config in generate_parameter_configurations(num_dimensions):
@@ -323,13 +462,10 @@ print(correctness_count, "out of", len(test_shapes))
 print("======================= compare performance =========================")
 
 for shape, estimate_config in mismatch_configs:
-    inputs = [
-        torch.randn(1, shape[-1], dtype=torch.bfloat16, device="cuda"),
-        torch.randn(*shape, dtype=torch.bfloat16, device="cuda"),
-    ]
+    inputs = create_inputs(selected_fusion, shape)
 
     with FusionDefinition() as presched_fd:
-        create_fusion_func(inputs)(presched_fd)
+        create_fusion_func(selected_fusion, inputs)(presched_fd)
 
     _, est_perf = run_profile(presched_fd, inputs, estimate_config)
     _, nvf_perf = run_profile(presched_fd, inputs)
@@ -354,12 +490,8 @@ import numpy as np
 FusionCache.reset()
 est_perfs = []
 for hidden_shape in empirical_hidden_sizes:
-    inputs = [
-        torch.randn(1, hidden_shape, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(
-            empirical_batch_size, hidden_shape, dtype=torch.bfloat16, device="cuda"
-        ),
-    ]
+    inputs = create_inputs(selected_fusion, (empirical_batch_size, hidden_shape))
+
     estimate_config = find_best_parameters(
         clf,
         (empirical_batch_size, hidden_shape),
@@ -367,7 +499,7 @@ for hidden_shape in empirical_hidden_sizes:
     )
 
     with FusionDefinition() as presched_fd:
-        create_fusion_func(inputs)(presched_fd)
+        create_fusion_func(selected_fusion, inputs)(presched_fd)
 
     _, est_time_ms = run_profile(presched_fd, inputs, estimate_config)
     est_perfs.append(est_time_ms)
@@ -378,15 +510,10 @@ for hidden_shape in empirical_hidden_sizes:
 FusionCache.reset()
 nvf_perfs = []
 for hidden_shape in empirical_hidden_sizes:
-    inputs = [
-        torch.randn(1, hidden_shape, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(
-            empirical_batch_size, hidden_shape, dtype=torch.bfloat16, device="cuda"
-        ),
-    ]
+    inputs = create_inputs(selected_fusion, (empirical_batch_size, hidden_shape))
 
     with FusionDefinition() as presched_fd:
-        create_fusion_func(inputs)(presched_fd)
+        create_fusion_func(selected_fusion, inputs)(presched_fd)
 
     _, nvf_time_ms = run_profile(presched_fd, inputs)
     nvf_perfs.append(nvf_time_ms)
@@ -406,6 +533,8 @@ plt.title(
     f"Batch Size = {empirical_batch_size}, Compare Decision Tree Heuristic vs NvFuser"
 )
 plt.legend(["decision_tree", "nvfuser"], loc="lower right")
-plt.savefig(f"pointwise_empirical_batchsize{empirical_batch_size}.png")
+plt.savefig(
+    f"pointwise_{selected_fusion.name}_empirical_batchsize{empirical_batch_size}.png"
+)
 
 # =============================================================================
