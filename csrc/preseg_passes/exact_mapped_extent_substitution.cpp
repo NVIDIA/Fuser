@@ -22,18 +22,15 @@ namespace {
 // otherwise, validateDomainEquivalence fails. If we really want to substitute,
 // we may need to skip or modify validateDomainEquivalence.
 inline bool isNonSubstitutableID(const IterDomain* id) {
-  return id == nullptr || (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
-      id->extent()->definition();
+  return id == nullptr || (id->isBroadcast() && !id->hasExpandedExtent()) ||
+      id->definition() || id->extent()->definition();
 }
 
 // Build disjoint set of extents from  disjoint set of ids
-// non substitutable ids are skipped, custom hash and equal functions are used
-// to ensure const extents are treated as equal if they have the same value.
+
 auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
-  std::cout << "============id_sets==================" << std::endl;
-  std::cout << id_sets.toString() << std::endl;
-  std::cout << "==============================" << std::endl;
-  // Use 
+  // custom hash and equal functions are used to ensure const extents are
+  // treated as equal if they have the same value.
   struct ValPtrHash {
     std::size_t operator()(Val* val) const {
       if (val->isConstScalar()) {
@@ -52,25 +49,26 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
   DisjointSets<Val*, ValPtrHash, ValPtrEqual> extent_sets;
   // Loop over each id set
   for (const auto& set_ptr : id_sets.disjointSets()) {
-    
-    // which set does the extent belong to?
-    // Use the existing set if exists, otherwise create a new set
+    // If one of the extent in this set is already in the extent_sets, then
+    // map all other extents to the same set, otherwise create a new set.
     DisjointSets<Val*, ValPtrHash, ValPtrEqual>::DisjointSet current_set =
         nullptr;
+
+    // First loop over the set, to check if one of the extent is already mapped
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
       if (isNonSubstitutableID(id)) {
         continue;
       }
-      if(extent_sets.mappingExists(id->extent())){
+      if (extent_sets.mappingExists(id->extent())) {
         current_set = extent_sets.disjointSetMap().at(id->extent());
       }
     }
 
-    // Loop over each id in the set
+    // Second loop over the set, to map all extents to the same set.
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
-      if (id == nullptr || isNonSubstitutableID(id)) {
+      if (isNonSubstitutableID(id)) {
         continue;
       }
       // Here extent is used instead of expanded exent since a bcast dim may
@@ -87,9 +85,6 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
       }
     }
   }
-  std::cout << "============extent_sets==================" << std::endl;
-  std::cout << extent_sets.toString() << std::endl;
-  std::cout << "==============================" << std::endl;
   return extent_sets;
 }
 
@@ -152,7 +147,7 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
     const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
     debug() << id_sets.toString() << std::endl;
   }
-  fusion->printMath();
+
   exactMappedExtentSubstitution(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
