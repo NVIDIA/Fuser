@@ -22,62 +22,75 @@ namespace {
 // otherwise, validateDomainEquivalence fails. If we really want to substitute,
 // we may need to skip or modify validateDomainEquivalence.
 inline bool isNonSubstitutableID(const IterDomain* id) {
-  return (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
+  return id == nullptr || (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
       id->extent()->definition();
 }
 
-DisjointSets<Val*> buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
-  std::cout << "===============id set===============" << std::endl;
+// Build disjoint set of extents from  disjoint set of ids
+// non substitutable ids are skipped, custom hash and equal functions are used
+// to ensure const extents are treated as equal if they have the same value.
+auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
+  std::cout << "============id_sets==================" << std::endl;
   std::cout << id_sets.toString() << std::endl;
   std::cout << "==============================" << std::endl;
-
-  DisjointSets<Val*> extent_set;
-  Val* extent_0 = nullptr;
+  // Use 
+  struct ValPtrHash {
+    std::size_t operator()(Val* val) const {
+      if (val->isConstScalar()) {
+        int64_t extent_val = val->evaluate().as<int64_t>();
+        return std::hash<int64_t>()(extent_val);
+      } else {
+        return std::hash<Val*>()(val);
+      }
+    }
+  };
+  struct ValPtrEqual {
+    bool operator()(const Val* lhs, const Val* rhs) const {
+      return lhs->sameAs(rhs);
+    }
+  };
+  DisjointSets<Val*, ValPtrHash, ValPtrEqual> extent_sets;
+  // Loop over each id set
   for (const auto& set_ptr : id_sets.disjointSets()) {
-    std::cout << "\n============set_ptr==================" << std::endl;
-    bool first = true;
-    DisjointSets<Val*>::DisjointSet new_set;
+    
+    // which set does the extent belong to?
+    // Use the existing set if exists, otherwise create a new set
+    DisjointSets<Val*, ValPtrHash, ValPtrEqual>::DisjointSet current_set =
+        nullptr;
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
-      auto extent = id->extent();
-
-      std::cout << "\nid: " << id->toString() << " extent: " << extent->toString()
-                << std::endl;
-
-      if (!extent_0) {
-        extent_0 = extent;
-      }
-
-      std::cout << "extent_0: " << extent_0->toString()
-                << " extent: " << extent->toString() << ", isSame "
-                << extent->sameAs(extent_0) << std::endl;
-
-      if (extent_set.mappingExists(extent)) {
-        std::cout << " extent already exists " << std::endl;
+      if (isNonSubstitutableID(id)) {
         continue;
       }
-      std::cout << " extent not exists " << std::endl;
-
-      if (first) {
-        auto it = extent_set.initializeSet(extent).first;
-        new_set = it->second;
-        first = false;
-        std::cout << " initializeSet " << extent->toString() << std::endl;
-      } else {
-        std::cout << " appendToSet " << extent->toString() << std::endl;
-        extent_set.appendToSet(extent, new_set);
+      if(extent_sets.mappingExists(id->extent())){
+        current_set = extent_sets.disjointSetMap().at(id->extent());
       }
-      
-      std::cout << "-------------extent_set-------------" << std::endl;
-      std::cout << extent_set.toString() << std::endl;
-      std::cout << "-------------extent_set-------------" << std::endl;
+    }
 
+    // Loop over each id in the set
+    for (auto v : *set_ptr) {
+      auto id = dynamic_cast<IterDomain*>(v);
+      if (id == nullptr || isNonSubstitutableID(id)) {
+        continue;
+      }
+      // Here extent is used instead of expanded exent since a bcast dim may
+      // be expanded to different extents, e.g. issue-3227.
+      auto extent = id->extent();
+      if (extent_sets.mappingExists(extent)) {
+        continue;
+      }
+      if (current_set) {
+        extent_sets.appendToSet(extent, current_set);
+      } else {
+        auto it = extent_sets.initializeSet(extent).first;
+        current_set = it->second;
+      }
     }
   }
-  std::cout << "============extent_set==================" << std::endl;
-  std::cout << extent_set.toString() << std::endl;
+  std::cout << "============extent_sets==================" << std::endl;
+  std::cout << extent_sets.toString() << std::endl;
   std::cout << "==============================" << std::endl;
-  return extent_set;
+  return extent_sets;
 }
 
 void exactMappedExtentSubstitution(Fusion* fusion) {
@@ -89,49 +102,39 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   id_model.buildExactGraph();
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
-
   const auto& extent_set = buildExtentSetFromIdSets(id_sets);
 
-  // Loop over each set of values
-  for (const auto& set_ptr : id_sets.disjointSets()) {
+  // Loop over each set of extents
+  for (const auto& set_ptr : extent_set.disjointSets()) {
     // (1) pick a const extent
     // (2) if no const extent, pick the var with the lowest name()
     Val* const_extent = nullptr;
     Val* lowest_val = nullptr;
-    for (auto v : *set_ptr) {
-      auto id = dynamic_cast<IterDomain*>(v);
-      if (id == nullptr || isNonSubstitutableID(id)) {
-        continue;
-      }
+    for (auto extent : *set_ptr) {
       // find the const extent, if already seen, check if they are the same.
-      // Here extent is used instead of expanded exent since a bcast dim may
-      // be expanded to different extents, e.g. issue-3227.
-      if (id->extent()->isConstScalar()) {
+      if (extent->isConstScalar()) {
         if (const_extent) {
           NVF_CHECK(
-              const_extent->sameAs(id->extent()),
+              const_extent->sameAs(extent),
               "Found two different const extents in the same set: ",
               set_ptr->toString());
         } else {
-          const_extent = id->extent();
+          const_extent = extent;
         }
       }
       // find the lowest name
-      if (!lowest_val || id->extent()->name() < lowest_val->name()) {
-        lowest_val = id->extent();
+      if (!lowest_val || extent->name() < lowest_val->name()) {
+        lowest_val = extent;
       }
     }
     // replace with const extents.
     // if no const extents, replace with the one with the lowest name.
-    for (auto v : *set_ptr) {
-      auto id = dynamic_cast<IterDomain*>(v);
-      // No need to reaplce constant extent, they are same if mapped to
-      // the same set.
-      if (id == nullptr || isNonSubstitutableID(id)) {
-        continue;
+    // avoid self-replacement
+    auto replaced_to = const_extent ? const_extent : lowest_val;
+    for (auto extent : *set_ptr) {
+      if (extent != replaced_to) {
+        replacement_map.emplace(extent, replaced_to);
       }
-      replacement_map.emplace(
-          id->extent(), const_extent ? const_extent : lowest_val);
     }
   }
 
