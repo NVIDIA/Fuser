@@ -15,27 +15,29 @@ from enum import Enum
 
 
 # ============================ Description ============================
-
+#
 # 1. Define a nvfuser fusion and its pytorch eager mode reference.
 #
-# 2. Profile the CUDA kernel performance by iterating over a set of input
+# 2. Define the scheduler's configuration space.
+#
+# 3. Define features for the scheduler.
+#
+# 4. Profile the CUDA kernel performance by iterating over a set of input
 # arguments and scheduler configurations.
 #
-# 3. Train a regression model to predict the desired performance metric given
-# some input arguments and a scheduler configuration.
+# 5. Train a regression model to predict the desired performance metric given
+# some input arguments, fusion features, and a scheduler configuration.
 #
-# 4. Measure the performance of the regression model.
-#  - Calculate RMSE of predicted and actual performance on test set.
-#  - Find the configuration with the best performance using regression model.
-#    Then, compare against the heuristic configuration selected by nvfuser.
-#  - For a specific batch size, gather performance across a range of hidden
-#    sizes. Calculate performance for best predicted and nvfuser
-#    configurations. Plot a chart comparing performance using matplotlib.
-
+# 6. Given a new fusion and input arguments.
+#  - Create features for the scheduler given fusion and input arguments.
+#  - Predict performance using trained regression model for all scheduler
+#    configurations.
+#  - Select the configuration with highest predicted performance to run fusion.
+#
 # The selected performance metric is effective_bandwidth_gbs. The empirical
 # scheduler selects the configuration that has the highest predicted
 # effective_bandwidth_gbs.
-
+#
 # ============================ Configurations ============================
 
 
