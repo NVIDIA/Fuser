@@ -2131,10 +2131,15 @@ kir::TensorIndex* Index::getProducerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
+  bool is_producer_tma_op = producer->definition() != nullptr &&
+      producer->definition()->isA<LoadStoreOp>() &&
+      producer->definition()->as<LoadStoreOp>()->opType() ==
+          LoadStoreOpType::CpAsyncBulkTensorTile;
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
+      is_producer_tma_op ||
       (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
