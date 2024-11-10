@@ -2273,7 +2273,12 @@ std::string LoadStoreOp::toString(int indent_size) const {
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(
+      !(out()->isA<TensorView>() || in()->isA<TensorView>()),
+      "Tensor op can not be printed inline");
+  // Set is allowed to have a scalar, e.g. setting the iteration domain
+  // of a tensor in pad.
+  return in()->toInlineString();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
