@@ -2025,8 +2025,8 @@ MmaOp::MmaOp(
     out_tv = out_ti->view();
   }
   NVF_ERROR(
-      axis_mapping.a_axes.size() == out_tv->getLogicalDomain().size(),
-      "Must have the same number of axis positions in axis mapping as output dimensions");
+      axis_mapping.a_axes.size() == out_tv->getMaybeRootDomain().size(),
+      "Must have the same number of axis positions in axis mapping as output root dimensions");
 
   addOutput(out);
   addInput(in_a);
