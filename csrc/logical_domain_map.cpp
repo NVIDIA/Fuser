@@ -190,15 +190,17 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     const MmaOp::AxesData& operand_axes = producer_tv_ == mma->inA()
         ? mma->axisMapping().a_axes
         : mma->axisMapping().b_axes;
+    NVF_ERROR(operand_axes.size() == consumer_root.size());
     for (size_t idx : c10::irange(operand_axes.size())) {
-      IterDomain* out_id = consumer_root.at(idx);
       int64_t operand_pos = operand_axes[idx];
       if (operand_pos == -1) {
         continue;
       }
       IterDomain* operand_id = producer_logical.at((size_t)operand_pos);
+      IterDomain* out_id = consumer_root.at(idx);
       updatePairwiseLogicalDomainMap(operand_id, out_id);
     }
+    return dom_map;
   }
 
   // For MatmulOp, use the corresponding mapped input iterdomains.

@@ -2119,13 +2119,21 @@ TensorView* fusedMultiplySum(
       "Axis mapping should contain same number of output axes for each operand");
   const size_t out_dims = axis_mapping.a_axes.size();
 
+  std::unordered_set<int64_t> axes_set;
+  for (int64_t axis : axes) {
+    if (axis < 0) {
+      axis += out_dims;
+    }
+    axes_set.insert(axis);
+  }
+
   // TODO:
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
   NVF_CHECK(
       tv_a->dtype() == DataType::Half || tv_a->dtype() == DataType::BFloat16);
   NVF_CHECK(tv_a->dtype() == tv_b->dtype());
-  DataType data_type = tv_a->dtype();
+  DataType out_dtype = DataType::Float;
 
   // Prepare output domain based on domain mapping and IterTypes of inputs
   std::vector<IterDomain*> out_domain;
@@ -2163,8 +2171,7 @@ TensorView* fusedMultiplySum(
     // dims
 
     // Check for K dimensions
-    bool is_reduction = a_concrete && b_concrete &&
-        std::find(axes.begin(), axes.end(), (int64_t)i) != axes.end();
+    bool is_reduction = a_concrete && b_concrete && axes_set.count((int64_t)i);
 
     IterDomain* orig_id = a_concrete ? a_id : b_id;
     out_domain.push_back(
@@ -2178,7 +2185,7 @@ TensorView* fusedMultiplySum(
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  TensorView* out = IrBuilder::create<TensorView>(td, data_type);
+  TensorView* out = IrBuilder::create<TensorView>(td, out_dtype);
 
   if (init == nullptr) {
     init = IrBuilder::create<Val>(0.0, out->dtype());
@@ -2190,9 +2197,6 @@ TensorView* fusedMultiplySum(
   NVF_CHECK(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a const scalar.");
-  NVF_CHECK(
-      init->dtype() == out->dtype(),
-      "Init value dtype for fusedMultiplySum must match output.");
 
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init, axis_mapping);
 
