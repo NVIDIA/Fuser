@@ -51,11 +51,11 @@ class FUSION(Enum):
 # Settings for input tensor generation
 num_dimensions = 2
 outer_shapes = [256]
-inner_shapes = [2**i for i in range(5, 15)]
+inner_shapes = [2**i for i in range(8, 15)]
 
 # We profile a range of input shapes with various configurations.
 # This argument determines how much of the profiled data to keep as a test set.
-test_data_percentage = 0.1
+test_data_percentage = 0.0
 
 # The selected batch size for empirical and nvfuser comparison.
 empirical_batch_size = 16384
@@ -343,7 +343,16 @@ def construct_features(which_fusion, configuration, inputs):
                 else:
                     rhs_num_elem += dim_size
                     rhs_bcast_multiples += value
-        return (lhs_bcast_multiples, rhs_bcast_multiples), (lhs_num_elem, rhs_num_elem)
+        if lhs_num_elem > 0:
+            lhs_bytes = math.log2(lhs_bcast_multiples * lhs_num_elem)
+        else:
+            lhs_bytes = 0
+
+        if rhs_num_elem > 0:
+            rhs_bytes = math.log2(rhs_bcast_multiples * rhs_num_elem)
+        else:
+            rhs_bytes = 0
+        return lhs_bytes, rhs_bytes
 
     # Get arithmetic intensity given fusion.
     def _arithmetic_intensity(which_fusion):
@@ -361,11 +370,11 @@ def construct_features(which_fusion, configuration, inputs):
             assert False
 
     is_2d_schedule = float(configuration.break_point > 0)
-    bcast_multiples, num_elems = _calculate_break_point_features(
+    log2_lhs_bytes, log2_rhs_bytes = _calculate_break_point_features(
         configuration.break_point, inputs
     )
     arithmetic_intensity = _arithmetic_intensity(which_fusion)
-    return [is_2d_schedule, *bcast_multiples, *num_elems, arithmetic_intensity]
+    return [is_2d_schedule, log2_lhs_bytes, log2_rhs_bytes, arithmetic_intensity]
 
 
 # ============================ Function Definitions ============================
@@ -509,7 +518,7 @@ def test_model(clf, which_fusion):
     plt.savefig(
         f"pointwise_{which_fusion.name}_empirical_batchsize{empirical_batch_size}.png"
     )
-    plt.close('all')
+    plt.close("all")
 
 
 # Collect data for decision tree
@@ -547,7 +556,7 @@ def separate_data(parameters, performance):
         shape = data[:num_dimensions]
         config = data[num_dimensions:]
 
-        if random.random() < test_data_percentage:
+        if test_data_percentage > 0 and random.random() < test_data_percentage:
             test_inputs.append(data)
             test_perf.append(perf)
         else:
@@ -570,10 +579,10 @@ def main():
 
     # Apply decision tree regressor
     # Given input shapes and scheduler parameters, predict performance metric.
-    from sklearn import tree
+    from sklearn import ensemble
 
     train_inputs, train_perf = train_data
-    clf = tree.DecisionTreeRegressor()
+    clf = ensemble.RandomForestRegressor()
     clf = clf.fit(train_inputs, train_perf)
 
     # ========================= Test Regression Models  ===========================
