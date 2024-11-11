@@ -27,32 +27,13 @@ inline bool isNonSubstitutableID(const IterDomain* id) {
 }
 
 // Build disjoint set of extents from  disjoint set of ids
-
 auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
-  // custom hash and equal functions are used to ensure const extents are
-  // treated as equal if they have the same value.
-  struct ValPtrHash {
-    std::size_t operator()(Val* val) const {
-      if (val->isConstScalar()) {
-        int64_t extent_val = val->evaluate().as<int64_t>();
-        return std::hash<int64_t>()(extent_val);
-      } else {
-        return std::hash<Val*>()(val);
-      }
-    }
-  };
-  struct ValPtrEqual {
-    bool operator()(const Val* lhs, const Val* rhs) const {
-      return lhs->sameAs(rhs);
-    }
-  };
-  DisjointSets<Val*, ValPtrHash, ValPtrEqual> extent_sets;
+  DisjointSets<Val*> extent_sets;
   // Loop over each id set
   for (const auto& set_ptr : id_sets.disjointSets()) {
     // If one of the extent in this set is already in the extent_sets, then
     // map all other extents to the same set, otherwise create a new set.
-    DisjointSets<Val*, ValPtrHash, ValPtrEqual>::DisjointSet current_set =
-        nullptr;
+    DisjointSets<Val*>::DisjointSet current_set = nullptr;
 
     // First loop over the set, to check if one of the extent is already mapped
     for (auto v : *set_ptr) {

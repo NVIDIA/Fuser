@@ -749,8 +749,9 @@ TEST_F(PresegTest, DisjointSetsOfExtentsConcreteSymbolic) {
 
   // ExactMappedExtentSubstitutionPass generates disjoint sets of extents:
 
-  // extent_sets: disjoint sets{
-  //   { 32; i0; i2 }
+  // Extent sets: disjoint sets{
+  //   { 32; i0 }
+  //   { 32; i2 }
   // }
 
   OptimizationPass<PreSegmenter>::runPass(fusion.get());
