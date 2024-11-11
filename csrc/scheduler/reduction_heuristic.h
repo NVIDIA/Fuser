@@ -103,6 +103,9 @@ class ReductionParams : public HeuristicParams {
   // Unrolling/Vectorization factor for outer reduction factor
   int64_t unroll_factor_outer_reduction = 1;
 
+  // Extra unroll on top of vectorization
+  int64_t unroll_factor_top_of_vectorization = 1;
+
   // Which block parallel dimension should be used for the outer reduction.
   // !!WARNING!! Convenience method, this be unique based on non-parallel type
   // parameters, not used for equivalence/hashing.
@@ -195,6 +198,8 @@ class ReductionParams : public HeuristicParams {
         other->pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other->vectorization_factor_outer == vectorization_factor_outer &&
         other->combined_split_grid_inner_dim == combined_split_grid_inner_dim &&
+        other->unroll_factor_top_of_vectorization ==
+            unroll_factor_top_of_vectorization &&
         other->vectorization_factor_tmp_gmem_write ==
             vectorization_factor_tmp_gmem_write;
 
@@ -320,7 +325,8 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(batches_per_block_outer_reduction) << (bits - 21) ^
         static_cast<size_t>(unroll_factor_outer_reduction) << (bits - 22) ^
         static_cast<size_t>(compute_persistent_buffer_with_first_consumer)
-            << (bits - 23);
+            << (bits - 23) ^
+        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24);
     return attr_hash;
   }
 
