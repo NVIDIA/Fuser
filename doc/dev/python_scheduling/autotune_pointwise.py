@@ -99,10 +99,10 @@ def generate_parameter_configurations(num_dimensions):
                     (max(warp_size, num_threads // bdimy), bdimy)
                     for bdimy in bdimy_configs
                 ]
-                # total_unroll_factor is between [1, 9] given that outer and
-                # inner unroll factors are between [1, 3].
-                outer_unroll_range = range(1, 4)
-                inner_unroll_range = range(1, 4)
+                # total_unroll_factor is between [1, 25] given that outer and
+                # inner unroll factors are between [1, 5].
+                outer_unroll_range = range(1, 6)
+                inner_unroll_range = range(1, 6)
 
             config = _named_product(
                 break_point=[bp],
