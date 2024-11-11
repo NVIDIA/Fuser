@@ -717,7 +717,7 @@ TEST_F(PresegTest, DisjointSetsOfExtents) {
   auto ref_extent = tv0->getLogicalDomain().at(0)->extent();
   for (auto tv : {tv0, tv1, tv2}) {
     for (auto id : tv->getLogicalDomain()) {
-      EXPECT_TRUE(id->extent()->sameAs(ref_extent));
+      EXPECT_EQ(id->extent(), ref_extent);
     }
   }
 
@@ -754,10 +754,10 @@ TEST_F(PresegTest, DisjointSetsOfExtentsConcreteSymbolic) {
   // }
 
   OptimizationPass<PreSegmenter>::runPass(fusion.get());
-  auto ref_extent = tv0->getLogicalDomain().at(0)->extent();
+  // all extents are consolidated to 32
   for (auto tv : {tv0, tv1}) {
     for (auto id : tv->getLogicalDomain()) {
-      EXPECT_TRUE(id->extent()->sameAs(ref_extent));
+      EXPECT_EQ(id->extent()->evaluate().as<int64_t>(), 32);
     }
   }
 
