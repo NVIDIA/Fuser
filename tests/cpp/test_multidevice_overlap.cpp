@@ -1035,7 +1035,6 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
   auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
   auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
-  bool rank_0_first = my_device_index_ == 0; // true iff im rank 0 and i havent posted any communications yet
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1043,8 +1042,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
     initializeIO();
 
     for (auto i : c10::irange(number_of_rings_)) {
-      c10::intrusive_ptr<c10d::Work> recv_req = nullptr;
-      c10::intrusive_ptr<c10d::Work> next_recv_req = nullptr;
+      c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
@@ -1057,26 +1055,18 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
         auto tb_j_next_slice = tb_.select(0, next_slice_index).select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
-        // recv next index
-        std::vector<at::Tensor> dst = {tb_j_next_slice};
-        if (!rank_0_first) {
-          next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
-        }
-
-        if (recv_req) {
-          recv_req->wait();
+        if (comms_req) {
+          comms_req->wait();
         }
 
         // send & matmul current index
         std::vector<at::Tensor> src = {tb_j_curr_slice};
-        world_communicator_->send(src, send_rank, 0);
+        std::vector<at::Tensor> dst = {tb_j_next_slice};
         torch::matmul_out(tc_j, ta_unsharded_, tb_j_curr_slice);
-        if (rank_0_first) {
-          // let rank 0 post a send before his recv on the first iteration of the loop to avoid deadlock
-          next_recv_req = world_communicator_->recv(dst, recv_rank, 0);
-          rank_0_first = false;
-        }
-        recv_req = next_recv_req;
+        world_communicator_->startCoalescing();
+        world_communicator_->send(src, send_rank, 0);
+        world_communicator_->recv(dst, recv_rank, 0);
+        comms_req = world_communicator_->endCoalescing();
       }
     }
     synchronizeStreams(streams);
