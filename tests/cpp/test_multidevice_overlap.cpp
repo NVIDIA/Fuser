@@ -1033,8 +1033,8 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
 
-  auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
-  auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  const auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
+  const auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
