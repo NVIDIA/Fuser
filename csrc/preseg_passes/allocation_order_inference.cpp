@@ -334,15 +334,49 @@ void inferenceAllocationOrder(
   }
 }
 
-void propagateAllocation(TensorView* in, TensorView* out) {
-  auto in_order = ir_utils::computePermutation(
-      in->getLogicalDomain(), in->getMaybeAllocationDomain());
-  if (!in_order.has_value()) {
-    return;
+// Propagate allocation orders from an SDPA's inputs to outputs. This is
+// necessary to make an SPDA's allocation domain consistent with the output
+// at::Tensor from expression evaluation. Currently, we call ATen to evaluate
+// SDPAs so matching their behavior, despite being fragile, is the best
+// solution.
+class SdpaPropagator : public OptOutConstDispatch {
+ public:
+  void handle(const SdpaFwdOp* e) override {
+    // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L439.
+    propagateAllocation(e->query(), e->attn_out());
+    // Don't propagate allocation to LSE because it's allocated as [B,H,S]:
+    // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L454.
   }
-  out->setAllocationDomain(
-      ir_utils::applyPermutation(out->getLogicalDomain(), *in_order), true);
-}
+  void handle(const SdpaBwdOp* e) override {
+    // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L904
+    propagateAllocation(e->query(), e->grad_query());
+    // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L913
+    propagateAllocation(e->key(), e->grad_key());
+    // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L922
+    propagateAllocation(e->value(), e->grad_value());
+  }
+
+ private:
+  // Returns true if propagation succeeded. Nit: the return value is not
+  // currently used anywhere. I just tend to use this semantic for functions
+  // that may or may not change the IR.  Compared with returning `void`, it is
+  // little extra code to maintain and becomes handy when actually needed.
+  static bool propagateAllocation(TensorView* in, TensorView* out) {
+    auto in_order = ir_utils::computePermutation(
+        in->getLogicalDomain(), in->getMaybeAllocationDomain());
+    if (!in_order.has_value()) {
+      return false;
+    }
+
+    // It's fragile to unconditionally set contiguity to `true`. In code paths
+    // that we care about, ATen allocates outputs using `at::empty_like` which
+    // by default produces a *contiguous* tensor of the same stride *order*.
+    out->setAllocationDomain(
+        ir_utils::applyPermutation(out->getLogicalDomain(), *in_order), true);
+    return true;
+  }
+};
+
 } // namespace
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
@@ -370,37 +404,9 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
 
+  SdpaPropagator sdpa_propagator;
   for (Expr* e : fusion->exprs()) {
-    if (auto* sdpa_fwd = dynamic_cast<SdpaFwdOp*>(e)) {
-      std::optional<std::vector<int64_t>> out_order = std::vector<int64_t>();
-      for (TensorView* in :
-           {sdpa_fwd->query(), sdpa_fwd->key(), sdpa_fwd->value()}) {
-        auto in_order = ir_utils::computePermutation(
-            in->getLogicalDomain(), in->getMaybeAllocationDomain());
-        if (!in_order.has_value()) {
-          out_order = std::nullopt;
-          break;
-        }
-        if ((*out_order).empty()) {
-          out_order = *in_order;
-          continue;
-        }
-        if (*out_order != *in_order) {
-          out_order = std::nullopt;
-          break;
-        }
-      }
-      if (out_order.has_value()) {
-        TensorView* out = sdpa_fwd->attn_out();
-        out->setAllocationDomain(
-            ir_utils::applyPermutation(out->getLogicalDomain(), *out_order),
-            true);
-      }
-    } else if (auto* sdpa_bwd = dynamic_cast<SdpaBwdOp*>(e)) {
-      propagateAllocation(sdpa_bwd->query(), sdpa_bwd->grad_query());
-      propagateAllocation(sdpa_bwd->key(), sdpa_bwd->grad_key());
-      propagateAllocation(sdpa_bwd->value(), sdpa_bwd->grad_value());
-    }
+    sdpa_propagator.dispatch(e);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
