@@ -28,7 +28,6 @@
 #include <complex>
 #include <iterator>
 #include <numeric>
-#include <regex>
 #include <sstream>
 #include <string>
 
@@ -2578,7 +2577,8 @@ IterDomain* IterDomain::merge(
     rfactor_domain = false;
   }
 
-  Val* merged_id_size = mul(outer->extent(), inner->extent());
+  Val* merged_id_size =
+      SimplifyingIrBuilder::mulExpr(outer->extent(), inner->extent());
 
   if (!iter_type.has_value()) {
     iter_type = outer->getIterType();
@@ -2644,10 +2644,11 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder = ceilDiv(in->extent(), factor);
+  Val* remainder = SimplifyingIrBuilder::ceilDivExpr(in->extent(), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
-    expanded_remainder = ceilDiv(in->expandedExtent(), factor);
+    expanded_remainder =
+        SimplifyingIrBuilder::ceilDivExpr(in->expandedExtent(), factor);
   }
 
   // By default, if not specified, don't create rfactor

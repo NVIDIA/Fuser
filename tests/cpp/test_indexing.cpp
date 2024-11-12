@@ -849,7 +849,7 @@ TEST_F(IndexingTest, Reshape) {
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
           return std::string(
-              "( ( ( ( ( i118 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i119 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i120 ) ) / 25 ) * ( ceilDiv(100, 4) ) ) + ( ( ( i118 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i119 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i120 ) ) % 25 ) )");
+              "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
         }
         default:
           return std::string();
@@ -1027,9 +1027,9 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({1, 4});
+  auto tv0 = makeContigConcreteTensor({1, -1});
   fusion.addInput(tv0);
-  auto tv1 = makeContigConcreteTensor({3, 4});
+  auto tv1 = makeContigConcreteTensor({-1, -1});
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
@@ -1507,11 +1507,8 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       // id8 is mapped with id15, which should also be mapped with
       // id18
       IterDomain* id20 = tv2->axis(2);
-      Val* id19_idx = divExpr(id8_idx, id20->extent());
       Val* id20_idx = modExpr(id8_idx, id20->extent());
-      Val* tv2_producer_idx =
-          addExpr(mulExpr(id19_idx, id20->extent()), id20_idx);
-      return tv2_producer_idx;
+      return id20_idx;
     }
   };
 
@@ -3257,7 +3254,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
                     addExpr(
                         mulExpr(circular_buffer_index, createInt(4)),
                         addExpr(
-                            mulExpr(
+                            IrBuilder::mulExpr(
                                 subExpr(tv->axis(2)->extent(), one),
                                 tv->axis(3)->extent()),
                             one)),
@@ -3282,13 +3279,14 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
         stop_idx = addExpr(
             mulExpr(loop_indices.at(0), createInt(256)),
             addExpr(
+
                 mulExpr(
                     addExpr(
                         mulExpr(
                             addExpr(circular_buffer_index, createInt(3)),
                             createInt(4)),
                         addExpr(
-                            mulExpr(
+                            IrBuilder::mulExpr(
                                 subExpr(tv->axis(2)->extent(), one),
                                 tv->axis(3)->extent()),
                             one)),
@@ -3818,7 +3816,8 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
           IrBuilder::mulExpr(zero, tv->axis(2)->extent()), loop_indices.at(2));
 
       Val* second_split_stop_idx = addExpr(
-          mulExpr(subExpr(tv->axis(1)->extent(), one), tv->axis(2)->extent()),
+          IrBuilder::mulExpr(
+              subExpr(tv->axis(1)->extent(), one), tv->axis(2)->extent()),
           loop_indices.at(2));
 
       Val* logical_start_idx = addExpr(
@@ -4025,7 +4024,7 @@ TEST_F(
 
       // ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x
       Val* second_split_stop_idx = addExpr(
-          mulExpr(
+          IrBuilder::mulExpr(
               addExpr(
                   subExpr(tv->axis(2)->extent(), one), createInt(increment)),
               tv->axis(3)->extent()),
@@ -5035,7 +5034,7 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
             geExpr(i, zero),
             ltExpr(
                 i,
-                IrBuilder::mulExpr(
+                mulExpr(
                     tv->getLogicalDomain().at(0)->extent(),
                     IrBuilder::mulExpr(
                         tv->getLogicalDomain().at(1)->extent(),
@@ -5045,7 +5044,7 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
 
         auto i0_ext = tv->getLogicalDomain().at(0)->extent();
         auto i1_ext = tv->getLogicalDomain().at(1)->extent();
-        auto five_i1 = IrBuilder::mulExpr(createInt(5), i1_ext);
+        auto five_i1 = mulExpr(createInt(5), i1_ext);
         auto i0 = addExpr(
             mulExpr(divExpr(i, five_i1), createInt(5)),
             divExpr(modExpr(i, five_i1), i1_ext));
