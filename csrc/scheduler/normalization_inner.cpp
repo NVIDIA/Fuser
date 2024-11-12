@@ -156,6 +156,8 @@ struct NormInnerParams {
   int64_t register_per_thread = -1;
   int64_t non_buffer_registers = -1;
   int64_t occupancy = -1;
+  int64_t n_wave = -1;
+  int64_t n_wave_tails = -1;
   int64_t n_persistent_tails = -1;
   bool is_pad_bdimx = false;
   void print() const {
@@ -164,7 +166,8 @@ struct NormInnerParams {
               << ", persistent_batch_size: " << persistent_batch_size
               << ", register_per_thread: " << register_per_thread
               << ", non_buffer_registers: " << non_buffer_registers
-              << ", occupancy: " << occupancy
+              << ", occupancy: " << occupancy << ", n_wave: " << n_wave
+              << ", n_wave_tails: " << n_wave_tails
               << ", n_persistent_tails: " << n_persistent_tails
               << ", is_pad_bdimx: " << is_pad_bdimx << std::endl;
   }
@@ -182,6 +185,7 @@ NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto device_warp_size = dev_prop->warpSize;
   auto max_threads_per_block = dev_prop->maxThreadsPerBlock;
+  auto sm_count = dev_prop->multiProcessorCount;
   NormInnerParams params;
   params.persistent_batch_size = persistent_batch_size;
 
@@ -216,6 +220,11 @@ NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
       register_overhead);
   params.register_per_thread = reg_occ.first;
   params.occupancy = reg_occ.second;
+  int64_t blocks_per_sm = scheduler_utils::safeDiv(
+      params.occupancy * device_warp_size, threads_per_block);
+  params.n_wave = ceilDiv(total_iteration_numel, sm_count * blocks_per_sm);
+  params.n_wave_tails =
+      params.n_wave * sm_count * blocks_per_sm - total_iteration_numel;
   params.non_buffer_registers = params.register_per_thread -
       persistent_buffer_size / scheduler_utils::bytes_per_register;
   // (4) Calculate other quantities reflecting the quality of the heuristic.
@@ -237,10 +246,11 @@ NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
 // TODO: It leads to 10% regression for softmax around 2K to 6K and 16K.
 // See https://github.com/NVIDIA/Fuser/issues/1876
 bool compareTwoHeuristics(
-    const NormInnerParams& params_a,
-    const NormInnerParams& params_b,
+    const NormInnerParams& pa,
+    const NormInnerParams& pb,
     const int64_t min_non_buffer_registers,
-    const int64_t target_warps_per_sm) {
+    const int64_t target_warps_per_sm,
+    const bool is_prefer_large_batch) {
   auto compare = [](int64_t a, int64_t b) -> int {
     return a > b ? 1 : (a < b ? -1 : 0);
   };
@@ -248,16 +258,14 @@ bool compareTwoHeuristics(
 
   // prefer occupancy larger than target
   score = compare(
-      params_a.occupancy >= target_warps_per_sm,
-      params_b.occupancy >= target_warps_per_sm);
+      pa.occupancy >= target_warps_per_sm, pb.occupancy >= target_warps_per_sm);
   if (score != 0) {
     return score > 0;
   }
 
   // prefer reduction count after vectorization is divisible by persistent
   // batch size
-  score = compare(
-      params_a.n_persistent_tails == 0, params_b.n_persistent_tails == 0);
+  score = compare(pa.n_persistent_tails == 0, pb.n_persistent_tails == 0);
   if (score != 0) {
     return score > 0;
   }
@@ -268,23 +276,44 @@ bool compareTwoHeuristics(
   // which usually leads to 10% lower in performance.
   constexpr int64_t opt_max_threads_per_block = 512;
   score = compare(
-      params_a.non_buffer_registers > min_non_buffer_registers &&
-          params_a.padded_bdimx <= opt_max_threads_per_block,
-      params_b.non_buffer_registers > min_non_buffer_registers &&
-          params_b.padded_bdimx <= opt_max_threads_per_block);
+      pa.non_buffer_registers > min_non_buffer_registers &&
+          pa.padded_bdimx <= opt_max_threads_per_block,
+      pb.non_buffer_registers > min_non_buffer_registers &&
+          pb.padded_bdimx <= opt_max_threads_per_block);
   if (score != 0) {
     return score > 0;
   }
+// ln
+// bdimx: 128, bdimy: 1, padded_bdimx: 128, persistent_batch_size: 8, register_per_thread: 72, non_buffer_registers: 40, occupancy: 28, n_wave: 1, n_wave_tails: 524, n_persistent_tails: 0, is_pad_bdimx: 1
+// bdimx: 256, bdimy: 1, padded_bdimx: 256, persistent_batch_size: 4, register_per_thread: 64, non_buffer_registers: 48, occupancy: 32, n_wave: 1, n_wave_tails: 80, n_persistent_tails: 0, is_pad_bdimx: 1
+// bdimx: 512, bdimy: 1, padded_bdimx: 512, persistent_batch_size: 2, register_per_thread: 64, non_buffer_registers: 56, occupancy: 32, n_wave: 2, n_wave_tails: 80, n_persistent_tails: 0, is_pad_bdimx: 1
 
-  // Prefer large occupancy
-  score = compare(params_a.occupancy, params_b.occupancy);
-  if (score != 0) {
-    return score > 0;
+// rms
+// bdimx: 192, bdimy: 1, padded_bdimx: 192, persistent_batch_size: 8, register_per_thread: 64, non_buffer_registers: 32, occupancy: 30, n_wave: 1, n_wave_tails: 228, n_persistent_tails: 0, is_pad_bdimx: 1
+// bdimx: 256, bdimy: 1, padded_bdimx: 256, persistent_batch_size: 6, register_per_thread: 64, non_buffer_registers: 40, occupancy: 32, n_wave: 1, n_wave_tails: 80, n_persistent_tails: 0, is_pad_bdimx: 1
+// bdimx: 384, bdimy: 1, padded_bdimx: 384, persistent_batch_size: 4, register_per_thread: 56, non_buffer_registers: 40, occupancy: 36, n_wave: 2, n_wave_tails: 376, n_persistent_tails: 0, is_pad_bdimx: 1
+// bdimx: 512, bdimy: 1, padded_bdimx: 512, persistent_batch_size: 3, register_per_thread: 64, non_buffer_registers: 52, occupancy: 32, n_wave: 2, n_wave_tails: 80, n_persistent_tails: 0, is_pad_bdimx: 1
+  if (is_prefer_large_batch && (pa.n_wave > 2 || pb.n_wave > 2)) {
+    // score = compare(
+    //     pa.n_wave * pa.persistent_batch_size,
+    //     pb.n_wave * pb.persistent_batch_size);
+    // if (score != 0) {
+    //   return score < 0;
+    // }
+    // score = compare(pa.n_wave_tails, pb.n_wave_tails);
+    // if (score != 0) {
+    //   return score < 0;
+    // }
+  } else {
+    // Prefer large occupancy
+    score = compare(pa.occupancy, pb.occupancy);
+    if (score != 0) {
+      return score > 0;
+    }
   }
-
   // Tiebreaker, use large persistent batch size so more registers are used
   // for the persistent buffer.
-  return params_a.persistent_batch_size > params_b.persistent_batch_size;
+  return pa.persistent_batch_size > pb.persistent_batch_size;
 }
 
 // Generate a heuristic for each possible persistent batch size.
@@ -305,7 +334,8 @@ bool compareTwoHeuristics(
 // distribution, enhances register optimization, and prefers higher occupancy.
 void innerPersistentHeuristic2D(
     const PersistentKernelProperties& properties,
-    ReductionParams* rparams) {
+    ReductionParams* rparams,
+    const int64_t persistent_batch_size) {
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
@@ -340,7 +370,7 @@ void innerPersistentHeuristic2D(
 
   // set the min persistent buffer size to avoid requesting
   // a block size larger than device limit
-  const int64_t batches_per_block_inner_reduction_min =
+  int64_t batches_per_block_inner_reduction_min =
       ceilDiv(parallel_after_vectorize, max_threads_in_block);
 
   // set the max persistent batch size to avoid low occupancy
@@ -354,7 +384,7 @@ void innerPersistentHeuristic2D(
       std::min(target_warps_per_sm * threads_per_warp, max_threads_per_sm);
   const int64_t pbs_max_2 = getMaxPersistentBatch(
       buffer_bytes_per_batch, target_threads_per_sm, register_overhead);
-  const int64_t batches_per_block_inner_reduction_max = std::max(
+  int64_t batches_per_block_inner_reduction_max = std::max(
       batches_per_block_inner_reduction_min, std::min(pbs_max_1, pbs_max_2));
 
   // Compute maximum number of reductions we could do in the same kernel based
@@ -374,6 +404,16 @@ void innerPersistentHeuristic2D(
   all_heuristics.reserve(
       batches_per_block_inner_reduction_max -
       batches_per_block_inner_reduction_min + 1);
+
+  if (std::getenv("PBS") != nullptr) {
+    batches_per_block_inner_reduction_min = std::stoi(std::getenv("PBS"));
+    batches_per_block_inner_reduction_max = std::stoi(std::getenv("PBS"));
+  }
+  if(persistent_batch_size >= 1){
+    batches_per_block_inner_reduction_min = persistent_batch_size;
+    batches_per_block_inner_reduction_max = persistent_batch_size;
+  }
+
   for (int64_t pbs = batches_per_block_inner_reduction_min;
        pbs <= batches_per_block_inner_reduction_max;
        pbs++) {
@@ -393,20 +433,36 @@ void innerPersistentHeuristic2D(
   }
 
   // Sort the heuristics and select the best one.
-  // If no persistent batch size can achieve the target occupancy, and
+  // If no persistent batch size can achieve the target occupancy,
+  // use the one with the highest occupancy.
   NormInnerParams best_heuristic;
   if (current_max_occupancy < target_warps_per_sm) {
     best_heuristic = all_heuristics.at(idx_max_occupancy);
   } else {
+    // If hardware require high bytes in flight, prioritize large batch size
+    // in the sorting. Large batch size indicates more unrolled loads.
+    bool is_prefer_large_batch = true;
+    if (std::getenv("USE_MAIN") != nullptr) {
+      is_prefer_large_batch = false;
+    }
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
-        [&register_overhead](
+        [&register_overhead, &is_prefer_large_batch](
             const NormInnerParams& a, const NormInnerParams& b) {
           return compareTwoHeuristics(
-              a, b, register_overhead, target_warps_per_sm);
+              a,
+              b,
+              register_overhead,
+              target_warps_per_sm,
+              is_prefer_large_batch);
         });
     best_heuristic = all_heuristics.at(0);
+  }
+
+  std::cout << "\nAll heuristics: " << std::endl;
+  for (auto h : all_heuristics) {
+    h.print();
   }
 
   // Fill in the reduction params
@@ -989,6 +1045,18 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
           data_cache,
           InnerPersistentKernelScheduler::schedulerType());
 
+  auto scheduler_hyperparameters_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
+          data_cache, [&]() {
+            return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
+                /*vectorize_factor=*/-1,
+                /*unroll_factor=*/-1,
+                /*threads_per_block_min=*/ -1,
+                /*threads_per_block_max=*/ -1);
+          });
+  scheduler_utils::SchedulerHyperParameters& hp =
+      scheduler_hyperparameters_entry.get();
+
   std::unique_ptr<ReductionParams> rparams = std::make_unique<ReductionParams>(
       InnerPersistentKernelScheduler::schedulerType());
 
@@ -1007,7 +1075,7 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
-    innerPersistentHeuristic2D(prop, rparams.get());
+    innerPersistentHeuristic2D(prop, rparams.get(), hp.unroll_factor);
   } else {
     rparams->tag = "3D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic3D(prop, rparams.get());

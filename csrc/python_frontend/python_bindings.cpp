@@ -645,6 +645,10 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(PointwiseParams, unroll_factor_inner)
       .PARAM(PointwiseParams, unroll_factor_outer);
 
+  // Reduction scheduler parameters
+  INITHEURISTICPARAMS(ReductionParams)
+      .PARAM(ReductionParams, batches_per_block_inner_reduction);
+
   // Matmul scheduler parameters
   INITHEURISTICPARAMS(MatmulParams)
       .PARAM(MatmulParams, tile_sizes)
@@ -3853,6 +3857,18 @@ void initNvFuserPythonBindings(PyObject* module) {
         return *parameters->as<PointwiseParams>();
       },
       py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_inner_persistent_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> ReductionParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::InnerPersistent);
+        return *parameters->as<ReductionParams>();
+      },
+      py::return_value_policy::reference);      
   nvf_sched.def(
       "compute_matmul_heuristics",
       [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
