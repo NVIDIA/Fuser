@@ -1362,9 +1362,11 @@ class NVF_API MmaOp : public Expr {
   // AxisMapping denotes the pairing of two input dimensions to produce an
   // output dimension. It holds two vectors of integers indicating the
   // corresponding position of each output axis in either the A or B input.
-  // Positions are absolute and refer to the noReductions logical domain. NOTE:
-  // -1 indicates that the axis does not exist, so Broadcast and Reduction
-  // dimensions should not have position -1.
+  // Positions refer to the noReductions logical domain of each input.
+  // NOTE: Axis positions are absolute, meaning you cannot specify them
+  // relative to the last dimension since -1 has special meaning.
+  // NOTE: -1 indicates that the axis does not exist, so Broadcast input
+  // domains should be listed with their actual position and not -1.
   //
   // Example 1:
   //    a [ K, 1, M ]
