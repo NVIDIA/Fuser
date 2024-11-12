@@ -47,6 +47,14 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
       }
     }
 
+    // Create a new set if no extent is mapped
+    if (current_extent_set == nullptr) {
+      auto id = dynamic_cast<IterDomain*>(*id_set_ptr->begin());
+      auto extent = id->extent();
+      auto it = extent_sets.initializeSet(extent).first;
+      current_extent_set = it->second;
+    }
+
     // Second loop over the ID set, to map all extents to the same extent set.
     for (auto id_set_val : *id_set_ptr) {
       auto id = dynamic_cast<IterDomain*>(id_set_val);
@@ -56,17 +64,12 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
       // Here extent is used instead of expanded exent since a bcast dim may
       // be expanded to different extents, e.g. issue-3227.
       auto extent = id->extent();
-      if (extent_sets.mappingExists(extent)) {
-        continue;
-      }
-      if (current_extent_set) {
+      if (!extent_sets.mappingExists(extent)) {
         extent_sets.appendToSet(extent, current_extent_set);
-      } else {
-        auto it = extent_sets.initializeSet(extent).first;
-        current_extent_set = it->second;
       }
     }
   }
+
   return extent_sets;
 }
 
