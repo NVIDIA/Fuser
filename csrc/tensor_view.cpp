@@ -1169,7 +1169,7 @@ TensorView* TensorView::cacheAfter(
     LoadStoreOpType op_type,
     CacheOp cache_op,
     bool propagate_allocation_domain,
-    const std::vector<Expr*>& cached_uses) {
+    std::vector<Expr*> cached_uses) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
