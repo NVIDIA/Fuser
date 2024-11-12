@@ -30,7 +30,7 @@ inline bool isNonSubstitutableID(const IterDomain* id) {
 auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
   DisjointSets<Val*> extent_sets;
   // Loop over each id set
-  for (const auto& set_ptr : id_sets.disjointSets()) {
+  for (const auto& id_set_ptr : id_sets.disjointSets()) {
     // If one of the extent in this set is already in the extent_sets, then
     // map all other extents to the same set, otherwise create a new set.
     DisjointSets<Val*>::DisjointSet current_extent_set = nullptr;
