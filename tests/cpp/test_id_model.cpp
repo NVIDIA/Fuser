@@ -2595,12 +2595,6 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraph) {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
 
-    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-    auto dot_string =
-        id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
-
     // The exact graph is cyclic
     EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
 

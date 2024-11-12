@@ -27,12 +27,14 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
 
-auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output) {
+namespace {
+void addSdpaFwdOutputs(Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
   fusion->addOutput(output.log_sumexp);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
-};
+}
+} // namespace
 
 using AtenSdpaOut = std::tuple<
     at::Tensor,

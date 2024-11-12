@@ -29,7 +29,6 @@
 #include <complex>
 #include <iterator>
 #include <numeric>
-#include <regex>
 #include <sstream>
 #include <string>
 
@@ -1993,12 +1992,24 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
+MmaOp::AxisMapping MmaOp::AxisMapping::trivialMapping(size_t dimension) {
+  AxesData a_axes, b_axes;
+  a_axes.reserve(dimension);
+  b_axes.reserve(dimension);
+  for (size_t i : c10::irange(dimension)) {
+    a_axes.push_back((int64_t)i);
+    b_axes.push_back((int64_t)i);
+  }
+  return {a_axes, b_axes};
+}
+
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in_a,
     Val* in_b,
-    Val* init)
+    Val* init,
+    const AxisMapping& axis_mapping)
     : Expr(passkey) {
   NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
@@ -2015,6 +2026,15 @@ MmaOp::MmaOp(
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
 
+  NVF_ERROR(
+      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
+      "Must have the same number of axis positions in axis mapping for each operand");
+
+  auto* out_tv = ir_utils::getTv(out);
+  NVF_ERROR(
+      axis_mapping.a_axes.size() == out_tv->getMaybeRootDomain().size(),
+      "Must have the same number of axis positions in axis mapping as output root dimensions");
+
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
@@ -2022,28 +2042,8 @@ MmaOp::MmaOp(
   addAttribute(init);
   // ATTR_POS_MACRO
   addDataAttribute(MmaMacro::NoMMA);
-  // ATTR_POS_M_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_N_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_K_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_BATCH_AXES
-  addDataAttribute(AxesData{});
-
-  MmaOpUtils::MmaOpDetails mma_details;
-  // Detailed consistency checks for use case with TensorViews as
-  // inputs/output
-  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
-      out->isA<TensorView>()) {
-    mma_details = MmaOpUtils::getMmaOpDetails(
-        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
-  }
-
-  attribute<AxesData>(ATTR_POS_M_AXES) = std::move(mma_details.m_axes);
-  attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
-  attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
-  attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
+  // ATTR_POS_AXIS_MAPPING
+  addDataAttribute(axis_mapping);
 }
 
 MmaOp::MmaOp(
@@ -2052,8 +2052,9 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
+    const AxisMapping& axis_mapping,
     const MmaMacro& macro)
-    : MmaOp(passkey, out, in_a, in_b, init) {
+    : MmaOp(passkey, out, in_a, in_b, init, axis_mapping) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
@@ -2286,7 +2287,12 @@ std::string LoadStoreOp::toString(int indent_size) const {
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(
+      !(out()->isA<TensorView>() || in()->isA<TensorView>()),
+      "Tensor op can not be printed inline");
+  // Set is allowed to have a scalar, e.g. setting the iteration domain
+  // of a tensor in pad.
+  return in()->toInlineString();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
@@ -2584,7 +2590,8 @@ IterDomain* IterDomain::merge(
     rfactor_domain = false;
   }
 
-  Val* merged_id_size = mul(outer->extent(), inner->extent());
+  Val* merged_id_size =
+      SimplifyingIrBuilder::mulExpr(outer->extent(), inner->extent());
 
   if (!iter_type.has_value()) {
     iter_type = outer->getIterType();
@@ -2650,10 +2657,11 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder = ceilDiv(in->extent(), factor);
+  Val* remainder = SimplifyingIrBuilder::ceilDivExpr(in->extent(), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
-    expanded_remainder = ceilDiv(in->expandedExtent(), factor);
+    expanded_remainder =
+        SimplifyingIrBuilder::ceilDivExpr(in->expandedExtent(), factor);
   }
 
   // By default, if not specified, don't create rfactor
@@ -4897,6 +4905,13 @@ bool ForLoop::isTrivial() const {
           BinaryOpType::Sub &&
       start()->definition()->as<BinaryOp>()->lhs() == stop() &&
       start()->definition()->as<BinaryOp>()->rhs()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->isConstScalar() && simplifiedStop()->isConstScalar() &&
+      start()->evaluate().as<int64_t>() + 1 ==
+          simplifiedStop()->evaluate().as<int64_t>() &&
+      step()->isOneInt()) {
     return true;
   }
 

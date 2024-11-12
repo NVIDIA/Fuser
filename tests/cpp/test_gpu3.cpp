@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include "parallel_dimension_map.h"
 
 namespace nvfuser {
 
@@ -8943,11 +8944,14 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
-  auto i0 = IrBuilder::create<Val>(DataType::Index);
-  fusion.addInput(i0);
 
-  auto tv2 = reshape(tv0, {i0});
-  auto tv3 = reshape(tv1, {i0});
+  auto tv2 = reshape(
+      tv0,
+      {mul(
+          mul(tv0->axis(0)->extent(), tv0->axis(1)->extent()),
+          tv0->axis(2)->extent())});
+  auto tv3 =
+      reshape(tv1, {mul(tv1->axis(0)->extent(), tv1->axis(1)->extent())});
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
@@ -8958,7 +8962,6 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   expr_eval.bind(tv0->axis(2)->extent(), 8L);
   expr_eval.bind(tv1->axis(0)->extent(), 8L);
   expr_eval.bind(tv1->axis(1)->extent(), 8L);
-  expr_eval.bind(i0, 64L);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -8989,6 +8992,32 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
     EXPECT_EQ(ref_ext, ext) << "Reference: " << ref_ext->toString()
                             << ", actual: " << ext->toString();
   }
+}
+
+// Test that we are able to infer parallel dimensions even if they are not
+// provided in loop domains. This is important for Hopper MMA since we
+// parallelize TIDx on an allocation domain for the MmaOp output that is not in
+// its loop domain.
+TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = exp(tv1);
+  fusion.addOutput(tv2);
+
+  IterDomain* merged_id = IterDomain::merge(tv1->axis(0), tv1->axis(1));
+  tv1->setAllocationDomain({merged_id}, true);
+  merged_id->parallelize(ParallelType::TIDx);
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+
+  Val* tidx_dim = gpulw.parallelDimensionMap().get(ParallelType::TIDx);
+  ASSERT_TRUE(tidx_dim != nullptr);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

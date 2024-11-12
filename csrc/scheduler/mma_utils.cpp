@@ -1722,7 +1722,12 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   } else if (output->definition()->isA<ReductionOp>()) {
     Val* init = IrBuilder::create<Val>(0.0, output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
-    return IrBuilder::create<MmaOp>(output, A, B, init);
+    return IrBuilder::create<MmaOp>(
+        output,
+        A,
+        B,
+        init,
+        MmaOp::AxisMapping::trivialMapping(output->nDims()));
   }
 
   // This will hold the translated output from MatmulOp or LinearOp
