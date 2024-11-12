@@ -350,7 +350,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       continue;
     } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
-      // involved in reshape transformations.
+      // involved in reshape transformations. Enable both tensor and
+      // predicate indexing if found
 
       auto producer_tv = reshape->in();
       auto consumer_tv = reshape->out();
@@ -369,8 +370,6 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       }
 
       // Find corresponding consumer root IDs
-      // TODO: Does the consumer root remain the expanded broadcast?
-      // If so, we can just directly look at the root id
       auto c2p = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                      .mapConsumerToProducer();
       std::unordered_set<Val*> consumer_expanded_root_ids;
