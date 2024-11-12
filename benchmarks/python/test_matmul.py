@@ -25,14 +25,14 @@ def load_matmul_problems():
 
 
 @pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
-@pytest.mark.parametrize("compile", [False], ids=["eager"])
+@pytest.mark.parametrize("executor", ["eager"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
 @pytest.mark.parametrize(
     "config", load_matmul_problems(), ids=lambda val: "-".join(str(v) for v in val)
 )
 def test_matmul_baseline_benchmark(
     benchmark,
-    compile: bool,
+    executor: str,
     config: tuple,
     dtype: torch.dtype,
     half_reduction: bool,
