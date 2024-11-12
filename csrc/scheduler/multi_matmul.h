@@ -51,7 +51,7 @@ class MultipleMatmulScheduler {
   const MatmulParams* params_;
   IdModel id_model_;
 
-  // Permissive graph of id_model_, which we modify at times using e.g.
+  // Broadcast graph of id_model_, which we modify at times using e.g.
   // AbstractTensor.split or by mapping vals in cacheAfter and rFactor
   ValGraph* graph_ = nullptr;
   std::vector<mma_utils::MatmulPattern> patterns_;

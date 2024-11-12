@@ -138,7 +138,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
-  //! This calls orig->cacheAfter() and also updates the permissive graph to
+  //! This calls orig->cacheAfter() and also updates the broadcast graph to
   //! reflect the new IterDomain mappings
   TensorView* cacheAfter(
       TensorView* orig,
