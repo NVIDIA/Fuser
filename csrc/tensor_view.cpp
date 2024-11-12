@@ -1188,10 +1188,11 @@ TensorView* TensorView::cacheAfter(
     auto this_uses = uses();
     cached_uses.reserve(this_uses.size());
     for (Expr* use : this_uses) {
-      if (unique_uses.count(use) == 0) {
-        cached_uses.push_back(use);
-        unique_uses.insert(use);
-      }
+      NVF_ERROR(
+          unique_uses.count(use) == 0,
+          "detect duplicated entries in TensorView::uses()");
+      cached_uses.push_back(use);
+      unique_uses.insert(use);
     }
   }
 
