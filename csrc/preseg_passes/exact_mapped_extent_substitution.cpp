@@ -55,11 +55,11 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
     }
 
     // Create a new set if no extent is mapped
-    // if no substitutable id in this set, no need to create a new set, break
-    // from the loop
+    // if no substitutable id in this set, no need to create a new set, continue
+    // to the next id set
     if (current_extent_set == nullptr) {
       if (first_substitutable_id == nullptr) {
-        break;
+        continue;
       }
       auto extent = first_substitutable_id->extent();
       auto it = extent_sets.initializeSet(extent).first;
