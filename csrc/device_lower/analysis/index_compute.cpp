@@ -1372,6 +1372,10 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
 // multiple such IDs exist, select one whose input IDs are mapped with
 // the consumer IDs. This is to ensure the path from the loop
 // IterDomains to the root matches with the consumer tensor.
+// Additionally, when none of the candidate iter domain has all of its
+// inputs mapped with the consumer tensor, prefer one that has at
+// least one mapped. This matters when the consumer tensor only has
+// one of the merge inputs, for example.
 IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
@@ -1381,6 +1385,9 @@ IterDomain* getLogicalIDToTraverse(
   if (logical_ids.empty()) {
     return nullptr;
   }
+
+  // Keep track of an iter domain that has at least one input mapped.
+  IterDomain* fallback_candidate = nullptr;
 
   for (auto logical_id : logical_ids) {
     auto def = logical_id->definition();
@@ -1398,6 +1405,22 @@ IterDomain* getLogicalIDToTraverse(
             })) {
       return logical_id;
     }
+
+    if (std::any_of(
+            logical_id_inputs.begin(),
+            logical_id_inputs.end(),
+            [&](IterDomain* logical_id_input) {
+              return isPermissivelyMappedWithAny(
+                  logical_id_input, consumer_all_ids);
+            })) {
+      if (fallback_candidate == nullptr) {
+        fallback_candidate = logical_id;
+      }
+    }
+  }
+
+  if (fallback_candidate != nullptr) {
+    return fallback_candidate;
   }
 
   // No mapped ID found, which means the consumer is a post-view

@@ -382,11 +382,11 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   }
 
   if (tv->hasAllocation()) {
-    auto allocation_data =
+    auto [sizes, strides] =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-    metadata->alloc_size_data = std::move(allocation_data.first);
+    metadata->alloc_size_data = std::move(sizes);
     metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-    metadata->alloc_stride_data = std::move(allocation_data.second);
+    metadata->alloc_stride_data = std::move(strides);
     metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   } else {
     metadata->alloc_size = metadata->logical_size;
