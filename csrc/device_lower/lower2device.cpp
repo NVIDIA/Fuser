@@ -35,7 +35,6 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
-#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -333,27 +332,39 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
-bool requiresIdModel(Fusion* fusion) {
-  // TMA requires IdModel
+namespace {
+
+// Get IdModelOptions set through NVFUSER_ENABLE and overwritten for the
+// given Fusion
+IdModelOptions getIdModelOptions(Fusion* fusion) {
+  IdModelOptions options;
+
+  // TMA requires TensorIndexer.
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-        return true;
+        options.setBuildTensorIndexer(true);
+        continue;
       }
     }
     if (expr->isA<MmaOp>()) {
-      return true;
+      options.setBuildTensorIndexer(true);
+      continue;
     }
   }
+
   // If a tensor does not have a nice root->logical/allocation->loop
-  // linear transformation history, use IdModel.
+  // linear transformation history, use TensorIndexer
   for (auto tv : fusion->allTvs()) {
     if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
-      return true;
+      options.setBuildTensorIndexer(true);
     }
   }
-  return false;
+
+  return options;
 }
+
+} // namespace
 
 void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
@@ -379,7 +390,7 @@ void GpuLower::analysis(Fusion* fusion) {
   FusionGuard fg(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
 
-  this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
+  id_model_options_ = getIdModelOptions(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -417,7 +428,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+  if (idModelOptions().buildIdModel()) {
     // Enable validation in the DEBUG build mode
     id_model_ = std::make_unique<IdModel>(
         fusion_,
@@ -515,11 +526,11 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+  if (idModelOptions().loop()) {
     id_model_->allocateLoopIndexVariables();
   }
 
-  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+  if (idModelOptions().buildTensorIndexer()) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
 
@@ -581,7 +592,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
 Val* GpuLower::getLoopIndexVariable(
     IterDomain* id,
     CircularBufferLoopStage stage) const {
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+  if (idModelOptions().loop()) {
     return idModel().getLoopIndexVariable(id, stage);
   } else {
     return caMap()->getIndexVariable(id, stage);

@@ -1093,7 +1093,7 @@ void IdModel::allocateLoopIndexVariables() {
     // If enabled, allocate own indices. Otherwise, use the one
     // generated for ComputeAtMap for compatibility with the legacy
     // indexing
-    if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    if (GpuLower::current()->idModelOptions().loop()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
       const auto& ca_map = GpuLower::current()->caMap();
