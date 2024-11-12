@@ -22,6 +22,8 @@ namespace nvfuser {
 
 namespace {
 
+enum class CircularBufferWaitType { Filled, Empty };
+
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
 ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
@@ -59,25 +61,41 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 // }
 Expr* initializeMbarrier(
     ForLoop* circular_buffer_loop,
-    TensorView* all_mbarriers) {
+    TensorView* all_mbarriers,
+    CircularBufferWaitType wait_type) {
   NVF_ERROR(circular_buffer_loop != nullptr);
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
+  int64_t stage_depth =
+      GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
+
+  Val* mbarrier_index = wait_type == CircularBufferWaitType::Filled
+      ? loop->index()
+      : SimplifyingIrBuilder::addExpr(loop->index(), stage_depth);
+
   // Get mbarrier for this circular buffer stage.
   kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, mbarrier_index);
 
   auto circular_buffered_tvs =
       GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
           circular_buffer_loop);
-  int64_t num_of_tvs_loaded_by_tma = std::count_if(
-      circular_buffered_tvs.begin(),
-      circular_buffered_tvs.end(),
-      [](const TensorView* tv) {
-        return ir_utils::isCpAsyncBulkLoad(tv->definition());
-      });
-  Val* num_of_arrives =
-      IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
+
+  Val* num_of_arrives = nullptr;
+  if (wait_type == CircularBufferWaitType::Filled) {
+    int64_t num_of_tvs_loaded_by_tma = std::count_if(
+        circular_buffered_tvs.begin(),
+        circular_buffered_tvs.end(),
+        [](const TensorView* tv) {
+          return ir_utils::isCpAsyncBulkLoad(tv->definition());
+        });
+    num_of_arrives =
+        IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
+  } else {
+    // TODO: calculate this
+    num_of_arrives = IrBuilder::create<Val>(128 * 2, DataType::UInt32);
+  }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
@@ -103,13 +121,22 @@ Expr* initializeMbarrier(
 // }
 Expr* invalidateMbarrier(
     ForLoop* circular_buffer_loop,
-    TensorView* all_mbarriers) {
+    TensorView* all_mbarriers,
+    CircularBufferWaitType wait_type) {
   NVF_ERROR(circular_buffer_loop != nullptr);
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
+  int64_t stage_depth =
+      GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
+
+  Val* mbarrier_index = wait_type == CircularBufferWaitType::Filled
+      ? loop->index()
+      : SimplifyingIrBuilder::addExpr(loop->index(), stage_depth);
+
   // Get mbarrier for this circular buffer stage.
   kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, mbarrier_index);
 
   // Invalidate the mbarrier for each circular buffer stage.
   kir::MBarrierInvalidate* mbarrier_inval =
@@ -659,19 +686,35 @@ class AllocationInserter : public kir::ExprMutator {
           GpuLower::current()->circularBufferInfo().getStageDepthFor(
               fl->iter_domain());
 
-      TensorView* mbarrier =
-          TensorViewBuilder()
-              .shape(std::vector<int64_t>{circular_buffer_depth})
-              .dtype(DataType::UInt)
-              .contiguity(true)
-              .build();
+      const auto& circular_buffer_type =
+          GpuLower::current()->circularBufferInfo().getCircularBufferingTypeFor(
+              fl->iter_domain());
+
+      // For pipelined circular buffering, we have use one mbarrier per stage
+      // for tracking the completion of TMA loading. For warp specialized
+      // circular buffering, we use two mbarriers per stage for tracking the
+      // completion of TMA load (to avoid RAW harzard) and the finish of using
+      // of the buffer so that it is ready to be loaded again (to avoid WAR
+      // harzard).
+      int64_t num_mbarriers =
+          std::holds_alternative<WarpSpecialized>(circular_buffer_type)
+          ? circular_buffer_depth * 2
+          : circular_buffer_depth;
+
+      TensorView* mbarrier = TensorViewBuilder()
+                                 .shape(std::vector<int64_t>{num_mbarriers})
+                                 .dtype(DataType::UInt)
+                                 .contiguity(true)
+                                 .build();
       mbarrier->setMemoryType(MemoryType::Shared);
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
 
-      auto mbarrier_init = initializeMbarrier(fl, mbarrier);
-      auto mbarrier_inval = invalidateMbarrier(fl, mbarrier);
+      auto mbarrier_init_filled =
+          initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
+      auto mbarrier_inval_filled =
+          invalidateMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -695,9 +738,18 @@ class AllocationInserter : public kir::ExprMutator {
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init, current_scope);
+      registerInsertBefore(fl, mbarrier_init_filled, current_scope);
+      registerInsertAfter(fl, mbarrier_inval_filled, current_scope);
+
+      if (std::holds_alternative<WarpSpecialized>()) {
+        auto mbarrier_init_empty =
+            initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Empty);
+        auto mbarrier_inval_empty =
+            invalidateMbarrier(fl, mbarrier, CircularBufferWaitType::Empty);
+        registerInsertBefore(fl, mbarrier_init_empty, current_scope);
+        registerInsertAfter(fl, mbarrier_inval_empty, current_scope);
+      }
       registerInsertBefore(fl, sync, current_scope);
-      registerInsertAfter(fl, mbarrier_inval, current_scope);
 
       for (auto tv : circular_buffer_tvs) {
         // short-circuit: circular buffered tv is not defined with TMA load.

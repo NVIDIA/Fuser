@@ -69,8 +69,12 @@ class CircularBufferInfo {
   //! Get the number of circular buffer stages and the prefetch distance for the
   //! given axis. The number of stages will be 2 in the case of double buffer
   //! loop.
+  const CircularBufferOptions& getCircularBufferOptionsFor(
+      IterDomain* circular_buffered_id) const;
   int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
   int64_t getPrefetchDistanceFor(IterDomain* circular_buffered_id) const;
+  const CircularBufferingType& getCircularBufferingTypeFor(
+      IterDomain* circular_buffered_id) const;
 
   std::string toString() const;
 
@@ -84,10 +88,9 @@ class CircularBufferInfo {
   //! stage depth and prefetch distance per loop disjoint set, so this function
   //! will throw an error if trying to set different stage numbers to
   //! iterdomains that are loop mapped.
-  void setStageDepthAndPrefetchDistance(
+  void setCircularBufferOptions(
       IterDomain* circular_buffered_id,
-      int64_t stage_depth,
-      int64_t prefetch_distance);
+      const CircularBufferOptions& opt);
 
  private:
   //! Keeps track of information for lowering circular buffered tensors

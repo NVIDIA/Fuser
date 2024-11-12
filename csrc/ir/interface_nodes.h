@@ -74,7 +74,80 @@ class TVDomainGuard;
 }
 
 // [Circular buffering]
-//
+
+struct Pipelined {};
+
+// For example, if `on` is TIDy, then will assign additional TIDy for cirular
+// buffer loading.
+struct WarpSpecialized {
+  ParallelType on
+};
+
+using CircularBufferingType = std::variant<Pipelined, WarpSpecialized>;
+
+if (std::holds_alternative<Pipelined>(tv->getCircularBufferType())) {
+  // The behavior today. Clone loop like this:
+  //   allocate mbarriers[stage_depth];
+  //   if elect-sync:
+  //     for i in range(stage_depth):
+  //       initialize(mbarriers[i])
+  //   __syncthreads();
+  //   // prologue
+  //   for i in range(prefetch):
+  //     if elect-sync:
+  //       arrive mbarriers[i]
+  //       load data[i] with mbarriers[i]
+  //   // main
+  //   for i in range(N - (prefetch - 1)):
+  //     if elect-sync:
+  //       arrive mbarriers[(i + prefetch) % stage]
+  //       load data[i + prefetch] with mbarriers[(i + prefetch) % stage]
+  //     wait mbarriers[i % stage]
+  //     compute;
+  //     wait compute <stage - prefetch - 1>, and sync threads // WAR harzard
+  //  // epilogue
+  //  for i in range(N - (prefetch - 1)):
+  //    wait mbarriers[i % stage]
+  //    compute;
+} else {
+  // clone loop like this (assuming WarpSpecialized on TIDy):
+  //
+  //   allocate filled_mbarriers[stage_depth];
+  //   allocate empty_mbarriers[stage_depth];
+  //   if elect-sync:
+  //     for i in range(stage_depth):
+  //       initialize(filled_mbarriers[i])
+  //     for i in range(stage_depth):
+  //       initialize(empty_mbarriers[i])
+  //   __syncthreads();
+  //
+  //   if (threadIdx.y == N - 1) {
+  //     for i in range(N):
+  //       wait empty_mbarriers[i % stage]
+  //       arrive filled_mbarriers[i % stage]
+  //       load data[i] with filled_mbarriers[i % stage]
+  //   } else {
+  //     for k in range(prefetch):
+  //       arrive empty_mbarriers[k]
+  //     for i in range(N):
+  //       wait filled_mbarriers[i % stage]
+  //       compute
+  //       wait compute <stage - prefetch - 1>
+  //       arrive empty_mbarriers[(i + prefetch) % stage]
+  //   }
+}
+
+if (std::holds_alternative<Pipelined>(tv->getCircularBufferType())) {
+  // The behavior today:
+  //   for expr in main loop:
+  //     if load:
+  //       use i + prefetch as loop variable
+  //     else: // compute
+  //       use i as loop variable
+} else {
+  // Always use the original loop variable, no special handle here
+}
+
 // A non-circle-buffered loop looks like below (assuming both the load and the
 // compute are async ops):
 //   for i in range(data.size):
@@ -168,6 +241,7 @@ class TVDomainGuard;
 // we decide to keep them for simplicity.
 
 struct CircularBufferOptions {
+  CircularBufferingType type = Pipelined{};
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
@@ -501,11 +575,18 @@ class NVF_API TensorView : public Val {
 
   // Apply circular buffering transformation. Negative prefetch_distance
   // means "all but", for example, -1 means number_of_stages - 1.
-  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance = -1);
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferingType type = Pipelined{});
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
     return circular_buffer_options_.isEnable();
+  }
+
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   // Returns the depth of circular buffering if applicable.
@@ -516,6 +597,10 @@ class NVF_API TensorView : public Val {
   // Returns the prefetch of circular buffering if applicable.
   int64_t circularBufferPrefetchDistance() const {
     return circular_buffer_options_.prefetch;
+  }
+
+  CircularBufferingType circularBufferingType() const {
+    return circular_buffer_options_.type;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
