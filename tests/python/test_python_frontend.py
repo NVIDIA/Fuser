@@ -1263,8 +1263,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with FusionDefinition() as fd:
             fusion_func(fd)
-        fd.segment(inputs)
-        assert fd.num_segments == 2
+        assert fd.segment(inputs) == 2
 
     def test_arithmetic_ops(self):
         inputs = [

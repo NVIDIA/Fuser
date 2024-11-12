@@ -16,7 +16,7 @@ int64_t SegmentationState::setupSegmentation(
     const at::ArrayRef<c10::IValue>& inputs) {
   // Check state
   NVF_ERROR(fusion != nullptr);
-  NVF_ERROR(segment_fusion_ == nullptr);
+  NVF_ERROR(cloned_fusion_ == nullptr);
   NVF_ERROR(segmented_fusion_ == nullptr);
   NVF_ERROR(group_run_order_.empty());
   NVF_ERROR(map_cloned_value_to_fid_.empty());
@@ -27,18 +27,18 @@ int64_t SegmentationState::setupSegmentation(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
 
   // Step 1) Clone preschedFusion CPP Fusion.
-  segment_fusion_ = std::make_unique<Fusion>();
+  cloned_fusion_ = std::make_unique<Fusion>();
 
   // The IRCloner returned by Fusion::copy acts as map from the original fusion
   // to the cloned fusion.
-  IrCloner original_to_cloned_map = Fusion::copy(fusion, segment_fusion_.get());
+  IrCloner original_to_cloned_map = Fusion::copy(fusion, cloned_fusion_.get());
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
   // Step 2) Concretize fusion with input arguments.
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
-      DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
+      DynamicTransform::concretizeFusion(cloned_fusion_.get(), args);
 
   // Step 3) Given the map_value_to_original_fid, the IRCloner returned by
   // Fusion::copy, AND the symbolic_to_concrete map returned by
@@ -59,18 +59,18 @@ int64_t SegmentationState::setupSegmentation(
       });
 
   // Track the extents for input TensorViews in cloned CPP Fusion.
-  cloned_extents_ = getExtents(segment_fusion_.get());
+  cloned_extents_ = getExtents(cloned_fusion_.get());
 
   // Create runtime infomation
   SchedulerRuntimeInfo runtime_info(
-      segment_fusion_.get(),
+      cloned_fusion_.get(),
       args,
       /*precomputed_values=*/nullptr,
-      segment_fusion_->allTvs());
+      cloned_fusion_->allTvs());
 
   // Run segmentation algorithm
   segmented_fusion_ = SegmentCandidateFinder::segment(
-      std::move(segment_fusion_), &args, runtime_info);
+      std::move(cloned_fusion_), &args, runtime_info);
 
   // Get the order for fusion segments
   prepareGroupOrder();
@@ -83,11 +83,8 @@ void SegmentationState::prepareGroupOrder() {
   NVF_ERROR(segmented_fusion_ != nullptr);
 
   // Gather initial inputs for SegmentedFusion.
-  std::unordered_set<Val*> available_input;
-  std::copy(
-      segmented_fusion_->inputs().begin(),
-      segmented_fusion_->inputs().end(),
-      std::inserter(available_input, available_input.end()));
+  std::unordered_set<Val*> available_input(
+      segmented_fusion_->inputs().begin(), segmented_fusion_->inputs().end());
 
   // The size of the tensor dimensions can be used as an input of the segments.
   // NvFuser does not support returning scalar values. Segmentation must pass
@@ -139,7 +136,7 @@ void SegmentationState::prepareGroupOrder() {
     }
     NVF_ERROR(
         ran_any_group,
-        "Failed to run all groups; An error must have occured in segmentation.");
+        "Failed to run any group; An error must have occured in segmentation.");
   }
 }
 

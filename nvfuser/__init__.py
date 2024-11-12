@@ -55,8 +55,9 @@ class FusionDefinition(_C._FusionDefinition):
         self.profiled = False
 
     def segment(self, inputs):
-        self.num_segments = self._setup_segmentation(inputs)
+        num_segments = self._setup_segmentation(inputs)
         self._finalize_segmentation()
+        return num_segments
 
     def __enter__(self):
         return self._setup_definition()

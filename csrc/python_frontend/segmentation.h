@@ -22,6 +22,11 @@ class FusionDefinition;
 //! fusion's input arguments, the segments are run in the correct order to
 //! produce the output results.
 //!
+//! Each FusionDefinition contains a set of states representing tensors, vectors
+//! and scalars. Every state has a unique index, which matches the insertion
+//! order of the state in the FusionDefinition. These indices form a linear
+//! index space for each FusionDefinition.
+//!
 //! The original FusionDefinition stores the sequence of sub-fusions and acts as
 //! an argument manager. It gathers the input arguments before running the
 //! sub-fusion and stores its results. To perform this function, it requires a
@@ -57,7 +62,7 @@ class FusionDefinition;
 //!
 //! After Segmentation:
 //! The original fusion is divided into two segments. There is no dependencies
-//! between either segment so they can run in an order.
+//! between either segment so they can run in any order.
 //!
 //! First Segment:
 //! def nvfuser_fusion_id2(fd : FusionDefinition) -> None :
@@ -172,7 +177,7 @@ class SegmentationState {
   //  4) Get extents for cloned fusion
   //  5) Create SchedulerRuntimeInfo
   //  6) Run segmentation algorithm using cloned fusion, input arguments, and
-  //  scheduler runtime infomation.
+  //  scheduler runtime information.
   //  7) Get sequential order of fusion segments using prepareGroupOrder.
   //  8) Return the number of segments created by segmentation algorithm.
   int64_t setupSegmentation(
@@ -180,6 +185,7 @@ class SegmentationState {
       const std::unordered_map<const Val*, int64_t>& map_value_to_original_fid,
       const at::ArrayRef<c10::IValue>& inputs);
 
+ private:
   // prepareGroupOrder is similar to prepareRuntimeOrder. It generates the
   // topological order of SegmentedGroups in SegmentedFusion.
   //
@@ -200,7 +206,7 @@ class SegmentationState {
 
  private:
   // Clone of original fusion for segmentation
-  std::unique_ptr<Fusion> segment_fusion_ = nullptr;
+  std::unique_ptr<Fusion> cloned_fusion_ = nullptr;
 
   // This FusionDefinition may require multiple kernels if it cannot be handled
   // by a single heuristic scheduler. SegmentedFusion takes a fusion and runs
