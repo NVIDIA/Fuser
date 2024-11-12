@@ -2177,7 +2177,7 @@ TensorView* fusedMultiplySum(
       NVF_CHECK(
           a_concrete && b_concrete,
           "Reduction dimensions must be concrete in both operands");
-      is_reduction == true;
+      is_reduction = true;
     }
 
     IterDomain* orig_id = a_concrete ? a_id : b_id;
