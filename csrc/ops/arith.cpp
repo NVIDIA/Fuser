@@ -2172,7 +2172,13 @@ TensorView* fusedMultiplySum(
     // dims
 
     // Check for K dimensions
-    bool is_reduction = a_concrete && b_concrete && axes_set.count(i);
+    bool is_reduction = false;
+    if (axes_set.count(i)) {
+      NVF_CHECK(
+          a_concrete && b_concrete,
+          "Reduction dimensions must be concrete in both operands");
+      is_reduction == true;
+    }
 
     IterDomain* orig_id = a_concrete ? a_id : b_id;
     out_domain.push_back(
