@@ -35,6 +35,10 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
     // map all other extents to the same set, otherwise create a new set.
     DisjointSets<Val*>::DisjointSet current_extent_set = nullptr;
 
+    // First substitutable id in this set, used to create a new set when no
+    // extent is mapped
+    IterDomain* first_substitutable_id = nullptr;
+
     // First loop over the set, to check if one of the extent is already mapped
     for (auto id_set_val : *id_set_ptr) {
       auto id = dynamic_cast<IterDomain*>(id_set_val);
@@ -45,12 +49,19 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
         current_extent_set = extent_sets.disjointSetMap().at(id->extent());
         break;
       }
+      if (first_substitutable_id == nullptr) {
+        first_substitutable_id = id;
+      }
     }
 
     // Create a new set if no extent is mapped
+    // if no substitutable id in this set, no need to create a new set, break
+    // from the loop
     if (current_extent_set == nullptr) {
-      auto id = dynamic_cast<IterDomain*>(*id_set_ptr->begin());
-      auto extent = id->extent();
+      if (first_substitutable_id == nullptr) {
+        break;
+      }
+      auto extent = first_substitutable_id->extent();
       auto it = extent_sets.initializeSet(extent).first;
       current_extent_set = it->second;
     }
