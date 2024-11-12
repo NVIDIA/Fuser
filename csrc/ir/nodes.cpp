@@ -2018,12 +2018,7 @@ MmaOp::MmaOp(
       axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
       "Must have the same number of axis positions in axis mapping for each operand");
 
-  auto* out_tv = dynamic_cast<TensorView*>(out);
-  if (out_tv == nullptr) {
-    auto* out_ti = dynamic_cast<kir::TensorIndex*>(out);
-    NVF_ERROR(out_ti != nullptr);
-    out_tv = out_ti->view();
-  }
+  auto* out_tv = ir_utils::getTv(out);
   NVF_ERROR(
       axis_mapping.a_axes.size() == out_tv->getMaybeRootDomain().size(),
       "Must have the same number of axis positions in axis mapping as output root dimensions");
