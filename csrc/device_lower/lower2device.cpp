@@ -398,8 +398,6 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
                       return consumer_expanded_root_ids.count(input);
                     });
               })) {
-        std::cerr << "Reshape with expanded broadcast detected: "
-                  << reshape->toString();
         options.setProducerIndex(true);
         options.setConsumerIndex(true);
         options.setInlinePredicate(true);

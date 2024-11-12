@@ -114,7 +114,8 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
           continue;
         }
         auto num_defs = ir_utils::getOperationCount(id->extent());
-        if (num_defs < rep_num_defs || id->name() < rep->name()) {
+        if (num_defs < rep_num_defs ||
+            (num_defs == rep_num_defs && id->name() < rep->name())) {
           rep = id;
           rep_is_input_id = is_input_id;
           rep_num_defs = num_defs;

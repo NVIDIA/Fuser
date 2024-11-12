@@ -852,6 +852,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
+        this_mma->axisMapping(),
         this_mma->macro());
 
     // Remaining reduction that can be scheduled cross
