@@ -2312,7 +2312,7 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
       IdModel id_model(
           {consumer->definition()},
           /*additional_tvs=*/{},
-          /*build_models=*/false);
+          /*build_graphs=*/false);
       const auto& exact_graph = id_model.buildExactGraph();
       const auto consumer_loop_groups =
           exact_graph.toGroups(consumer->getLoopDomain());
@@ -2690,7 +2690,7 @@ void insertMissingBroadcastDomains(TensorView* reference) {
   Fusion* fusion = reference->fusion();
 
   // Consider reusing IdModels
-  IdModel id_model(fusion, /*build_models=*/false);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
   ValGroups ref_groups = graph.toGroups(reference->getLoopDomain());

@@ -19,12 +19,8 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/tools/resize_utils.h>
-#include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
-#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
@@ -44,11 +40,6 @@ class DomainMap : public pointwise_utils::DomainMap {
     int64_t max_dims = -1;
     for (auto output_tv :
          ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-      std::cerr << "findRef. " << output_tv->toString()
-                << ": isValidReference: " << isValidReference(output_tv)
-                << ", hasMinimum: "
-                << hasMinimumSize(output_tv, minimum_num_axes)
-                << ", !isInput:" << !output_tv->isFusionInput() << "\n";
       if (isValidReference(output_tv) &&
           hasMinimumSize(output_tv, minimum_num_axes) &&
           !output_tv->isFusionInput()) {
@@ -68,265 +59,6 @@ class DomainMap : public pointwise_utils::DomainMap {
     return (num_axes == 0 || (int64_t)tv->getLogicalDomain().size() > num_axes);
   }
 };
-
-TensorView* getAllocationReferenceTensor(Fusion* fusion) {
-  TensorView* reference = nullptr;
-  for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    if (reference == nullptr) {
-      reference = input_tv;
-      continue;
-    }
-
-    if (input_tv->getLogicalDomain().size() >
-        reference->getLogicalDomain().size()) {
-      reference = input_tv;
-      continue;
-    }
-
-    if (TensorDomain::noBroadcasts(input_tv->getLogicalDomain()).size() >
-        TensorDomain::noBroadcasts(reference->getLogicalDomain()).size()) {
-      reference = input_tv;
-      continue;
-    }
-  }
-
-  std::cerr << "Allocation reference TV: " << reference->toString()
-            << ", allocation: "
-            << toDelimitedString(reference->getMaybeAllocationDomain()) << "\n";
-  return reference;
-}
-
-TensorView* getReferenceTensor(Fusion* fusion, TensorView* largest_out) {
-  TensorView* ref = nullptr;
-  for (auto expr : fusion->exprs()) {
-    auto cat = dynamic_cast<CatOp*>(expr);
-    if (cat == nullptr) {
-      continue;
-    }
-
-    auto cat_output = cat->output(0)->as<TensorView>();
-
-    ref = cat_output;
-    break;
-  }
-
-  if (ref == nullptr) {
-    // ref = getAllocationReferenceTensor(fusion);
-    ref = largest_out;
-  }
-
-  std::cerr << "Reference TV: " << ref->toString() << ", allocation: "
-            << toDelimitedString(ref->getMaybeAllocationDomain()) << "\n";
-  return ref;
-}
-
-std::vector<std::pair<TensorView*, std::vector<TensorView*>>>
-getReferenceTensors(Fusion* fusion, TensorView* largest_out) {
-  std::vector<TensorView*> ref_candidates;
-
-  const auto all_tvs = fusion->allTvs();
-
-  for (auto expr : fusion->exprs()) {
-    auto cat = dynamic_cast<CatOp*>(expr);
-    if (cat == nullptr) {
-      continue;
-    }
-
-    auto cat_output = cat->output(0)->as<TensorView>();
-
-    ref_candidates.emplace_back(cat_output);
-  }
-
-  if (ref_candidates.empty()) {
-    // ref_candidates.emplace_back(largest_out,
-    // std::vector<TensorView*>{});
-    std::cerr << "getReferenceTensors: Using largest out: "
-              << largest_out->toString() << "\n";
-    return {std::make_pair(largest_out, all_tvs)};
-  }
-
-  if (ref_candidates.size() == 1) {
-    std::cerr << "Unique reference: " << ref_candidates[0]->toString();
-    return {std::make_pair(ref_candidates[0], all_tvs)};
-  }
-
-  IdModel id_model(fusion, /*build_models=*/false);
-  const auto& graph = id_model.buildExactGraph();
-
-  auto can_schedule = [&graph](TensorView* ref, TensorView* tv) -> bool {
-    ValGroups ref_groups = graph.toGroups(ref->getLoopDomain());
-
-    // ValGroups tv_groups = graph.toGroups(tv->getLogicalDomain());
-    ValGroups tv_groups = graph.toGroups(tv->getLoopDomain());
-
-    auto path_from_ref = ValGraphBFS::getExprsBetween(
-        graph, ref_groups, tv_groups, /*require_all_to_visited=*/false);
-
-    auto path_outputs = getOutputsOfExprPath(graph, path_from_ref);
-    NVF_ERROR(path_outputs.size() <= tv_groups.size());
-
-    if (path_outputs.size() < tv_groups.size()) {
-      // something is unreachable
-      for (const auto& tv_group : tv_groups) {
-        if (ref_groups.has(tv_group) || path_outputs.has(tv_group)) {
-          continue;
-        }
-
-        // Unreachable. If it's a broadcast, ignore it. Otherwise,
-        // this tensor cannot be scheduled by this reference
-        if (tv_group->front()->as<IterDomain>()->isBroadcast()) {
-          continue;
-        }
-
-        // tv_group is unreachable. Give up
-        std::cerr << "Unreachable tv group: " << nvfuser::toString(tv_group)
-                  << " of " << tv->toString() << "\n";
-        return false;
-      }
-    }
-
-    // if the path involves resize, don't consider a valid refernce
-    // for this tensor as resize should not be propagated
-    for (const auto& [expr, dir] : path_from_ref) {
-      if (expr->front()->isA<Resize>()) {
-        // resize found
-        std::cerr << "Resize found: " << expr->front()->toString() << " of "
-                  << tv->toString() << "\n";
-        return false;
-      }
-    }
-
-    return true;
-  };
-
-  std::unordered_map<TensorView*, std::unordered_set<TensorView*>> grouping_map;
-  std::unordered_map<TensorView*, TensorView*> tv_to_ref;
-
-  // Check duplicates and make sure completeness
-  for (auto tv : all_tvs) {
-    // Don't care fusion inputs
-    if (tv->isFusionInput()) {
-      // Mark it as grouped for convenience
-      tv_to_ref.emplace(tv, nullptr);
-      continue;
-    }
-
-    // Check if this tv itself is a ref candidate
-    if (auto ref_candidates_it =
-            std::find(ref_candidates.begin(), ref_candidates.end(), tv);
-        ref_candidates_it != ref_candidates.end()) {
-      grouping_map[tv].insert(tv);
-      tv_to_ref.emplace(tv, tv);
-      continue;
-    }
-
-    std::vector<bool> match_with_refs(false, ref_candidates.size());
-    int64_t num_matches = 0;
-    TensorView* matched_ref = nullptr;
-    for (const auto ref_candidate : ref_candidates) {
-      auto b = can_schedule(ref_candidate, tv);
-      if (b) {
-        ++num_matches;
-        matched_ref = ref_candidate;
-      }
-      match_with_refs.push_back(b);
-    }
-
-    NVF_ERROR(num_matches != 0, "Uncaptured tensor: ", tv->toString());
-
-    // If multiple refs are candidates, don't group it at this time
-    if (num_matches == 1) {
-      grouping_map[matched_ref].insert(tv);
-      tv_to_ref.emplace(tv, matched_ref);
-    }
-  }
-
-  // Group the remaining tensors based on their producers and
-  // consumers. If any of them is already grouped and the group is
-  // eligible, prefer that group for the tensro
-  bool changed = true;
-  while (changed) {
-    changed = false;
-
-    for (auto tv : all_tvs) {
-      if (tv_to_ref.count(tv)) {
-        continue;
-      }
-
-      for (auto producer_tv : ir_utils::producerTvsOf(tv)) {
-        auto ref_it = tv_to_ref.find(producer_tv);
-        if (ref_it != tv_to_ref.end()) {
-          auto producer_ref = ref_it->second;
-          // producer_ref may be nullptr (when it's fusion input)
-          if (producer_ref == nullptr) {
-            continue;
-          }
-          if (!can_schedule(producer_ref, tv)) {
-            continue;
-          }
-
-          grouping_map[producer_ref].insert(tv);
-          tv_to_ref.emplace(tv, producer_ref);
-          changed = true;
-          break;
-        }
-      }
-
-      if (changed) {
-        continue;
-      }
-
-      for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
-        auto ref_it = tv_to_ref.find(consumer_tv);
-        if (ref_it != tv_to_ref.end()) {
-          auto consumer_ref = ref_it->second;
-          if (!can_schedule(consumer_ref, tv)) {
-            continue;
-          }
-
-          grouping_map[consumer_ref].insert(tv);
-          tv_to_ref.emplace(tv, consumer_ref);
-          changed = true;
-          break;
-        }
-      }
-    }
-  }
-
-  NVF_ERROR(tv_to_ref.size() == all_tvs.size());
-
-  // Create a sorted grouping list
-  std::vector<std::pair<TensorView*, std::vector<TensorView*>>> ref_list;
-  for (const auto ref : ref_candidates) {
-    auto it = grouping_map.find(ref);
-    if (it == grouping_map.end()) {
-      // This ref wasn't used at all
-      continue;
-    }
-
-    const auto& member_set = it->second;
-
-    ref_list.emplace_back(ref, std::vector<TensorView*>{});
-    auto& member_list = ref_list.back().second;
-    for (auto tv : all_tvs) {
-      if (member_set.count(tv)) {
-        member_list.push_back(tv);
-      }
-    }
-  }
-
-  std::cerr << "Disjoint grouping of tensors with representatives:\n";
-  for (const auto& [ref, set] : ref_list) {
-    std::cerr << "\tRepresentative: " << ref->toString() << "\n"
-              << "\t{";
-    for (auto tv : set) {
-      std::cerr << " T" << tv->name();
-    }
-    std::cerr << "}\n";
-  }
-
-  return ref_list;
-}
 
 } // namespace
 
@@ -358,13 +90,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             return std::make_unique<std::vector<TensorView*>>(std::move(data));
           });
   TensorView* largest_out = largest_out_entry.get()[0];
-
-  if (!getenv("USE_LARGEST_OUT")) {
-    auto cur_ref = largest_out;
-    largest_out = getReferenceTensor(fusion, largest_out);
-    std::cerr << "Reference: Using " << largest_out->toString()
-              << " instead of " << cur_ref->toString() << "\n";
-  }
 
   NVF_ERROR(largest_out != nullptr);
 
@@ -779,101 +504,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  std::cout << std::endl;
-  std::cerr << "schedulePointwise\n";
-  fusion->printMath();
-  std::cout << std::endl;
-
   // Cache inputs
-  // auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
   // Cache and fork outputs
-  // auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
-
-  // Reference for ordering
-  TensorView* reference_order_tv = nullptr;
-  {
-    // TODO: Propagate slice first. DO it manually for now. Or use
-    // scheduleLoopDomain in a forward fashion. It should be possible
-    // to reverse the setting.
-
-    std::cout << "Before resize scheduling" << std::endl;
-    fusion->printMath();
-    std::cout << std::endl;
-
-    if (!getenv("PROPAGATE_SLICE_TO_OUTPUTS")) {
-      scheduler_tools::propagateSliceToInputs(fusion);
-
-      scheduler_tools::propagateCatToInputs(fusion);
-
-      // Need to propagate to outputs if squeezed
-      scheduler_tools::propagateSqueezedSliceToOutputs(fusion);
-    } else {
-      scheduler_tools::propagateCatToInputs(fusion);
-
-      std::cout << "After cat prop" << std::endl;
-
-      fusion->printMath();
-      std::cout << std::endl;
-
-      for (auto tv : fusion->allTvs()) {
-        std::cerr << "Scheduled TV (after cat prop): " << tv->toString()
-                  << "\n";
-        if (tv->hasRoot()) {
-          std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain())
-                    << "\n";
-        }
-        std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
-                  << "\n";
-        std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain())
-                  << "\n";
-        std::cerr << "\tAdditional ids: "
-                  << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
-        for (auto expr : tv->domain()->allExprs()) {
-          std::cerr << expr->toString(4);
-        }
-      }
-
-      scheduler_tools::propagateSliceToOutputs(fusion);
-    }
-
-    for (auto tv : fusion->allTvs()) {
-      std::cerr << "Scheduled TV (after all prop): " << tv->toString() << "\n";
-      if (tv->hasRoot()) {
-        std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain())
-                  << "\n";
-      }
-      std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
-                << "\n";
-      std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
-      std::cerr << "\tAdditional ids: "
-                << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
-      for (auto expr : tv->domain()->allExprs()) {
-        std::cerr << expr->toString(4);
-      }
-    }
-
-    reference_order_tv = getAllocationReferenceTensor(fusion);
-  }
-
-  std::cout << "scheduling done\n";
-  fusion->printMath();
-  std::cout << std::endl;
-
-  for (auto tv : fusion->allTvs()) {
-    std::cerr << "Scheduled TV: " << tv->toString() << "\n";
-    if (tv->hasRoot()) {
-      std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain()) << "\n";
-    }
-    std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
-              << "\n";
-    std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
-    std::cerr << "\tAdditional ids: "
-              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
-    for (auto expr : tv->domain()->allExprs()) {
-      std::cerr << expr->toString(4);
-    }
-  }
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
@@ -906,107 +541,415 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     return;
   }
 
-  auto original_reference = getReferenceTensorView(fusion);
-  TensorView* reference_tv = getReferenceTensor(fusion, original_reference);
-  std::cerr << "Reference: " << reference_tv->toString() << "\n";
-
-  // Make sure reference is ordered properly
-  auto reorder_tv = [](TensorView* tv, TensorView* ref) {
-    IdModel id_model(tv->fusion(), /*build_models=*/false);
-    const auto& graph = id_model.buildExactGraph();
-    const auto ordered_domains =
-        scheduler_utils::getIterationDomainsOrderedLike(
-            graph,
-            graph.toGroups(tv->getLoopDomain()),
-            graph.toGroups(ref->getMaybeAllocationDomain()));
-    std::unordered_map<int64_t, int64_t> old2new;
-    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
-      const auto& loop_group = graph.toGroup(tv->getLoopDomain().at(i));
-      auto it =
-          std::find(ordered_domains.begin(), ordered_domains.end(), loop_group);
-      NVF_ERROR(it != ordered_domains.end());
-      auto new_pos = (int64_t)std::distance(ordered_domains.begin(), it);
-      old2new.emplace((int64_t)i, new_pos);
-    }
-
-    std::cerr << "Pre-reordering reference: " << tv->toString() << "\n";
-    std::cerr << "old2new: ";
-    for (const auto& [o, n] : old2new) {
-      std::cerr << " " << o << "->" << n;
-    }
-    std::cerr << "\n";
-    tv->reorder(old2new);
-    std::cerr << "Reordered reference: " << tv->toString() << "\n";
-  };
-
-  fusion->printMath();
-  std::cout << std::endl;
+  TensorView* reference_tv = getReferenceTensorView(fusion);
 
   NVF_ERROR(
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
-  // TODO: Do this with a list of all references
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
-  for (const auto& [reference_tv, tvs_to_schedule] :
-       getReferenceTensors(fusion, original_reference)) {
-    reorder_tv(reference_tv, reference_order_tv);
-    // Trivial scheduling
-    reference_tv->flatten();
-    reference_tv->split(0, 128);
-    reference_tv->split(0, 1 << 15);
-    reference_tv->axis(-1)->parallelize(ParallelType::TIDx);
-    reference_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  int64_t num_device_dims = numDeviceDims(reference_tv);
+  int64_t device_aware_break_point = pparams->break_point + num_device_dims;
 
-    std::cout << "Scheduled reference:\n";
-    reference_tv->printTransforms();
-    std::cout << std::endl;
+  // Positions of rhs and lhs after merging all dimensions.
+  int64_t rhs_i = -1;
+  int64_t lhs_i = -1;
 
-    // TODO: Don't try to prop to all tensors
-    scheduler_tools::scheduleLoopDomainsLike(
-        tvs_to_schedule, reference_tv->getLoopDomain());
-  }
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    // Propagate reshape transforms through the graph, expecially the reference.
+    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
 
-  std::cout << "Reference scheduling propagated\n";
-  fusion->printMath();
-  fusion->print();
-  std::cout << std::endl;
+    // Reorder reference_tv after propagating the view operation. This will
+    // reorder for better merging.
+    reference_tv->reorder(
+        scheduler_utils::domainReorderAsLogicalMap(reference_tv));
+    // Reorder so that DeviceDims are in front
+    reorderDIDToFront(reference_tv);
 
-  for (auto tv : fusion->allTvs()) {
-    std::cerr << "Final scheduled TV: " << tv->toString() << "\n";
-    if (tv->hasRoot()) {
-      std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain()) << "\n";
+    // Break point is relative to logical domain, find the loop domain ID's in
+    // the left/right side, we really need the values in domain, but easiest way
+    // to do this is with Dependency check which will grab all intermediate
+    // values too.
+    auto lhs_all_vals = DependencyCheck::getAllValsBetween(
+        {reference_tv->getLogicalDomain().begin(),
+         reference_tv->getLogicalDomain().begin() + device_aware_break_point},
+        {reference_tv->getLoopDomain().begin() + num_device_dims,
+         reference_tv->getLoopDomain().end()});
+
+    std::unordered_set<Val*> lhs_all_vals_set(
+        lhs_all_vals.begin(), lhs_all_vals.end());
+
+    auto rhs_all_vals = DependencyCheck::getAllValsBetween(
+        {reference_tv->getLogicalDomain().begin() + device_aware_break_point,
+         reference_tv->getLogicalDomain().end()},
+        {reference_tv->getLoopDomain().begin() + num_device_dims,
+         reference_tv->getLoopDomain().end()});
+
+    std::unordered_set<Val*> rhs_all_vals_set(
+        rhs_all_vals.begin(), rhs_all_vals.end());
+
+    // Make sure lhs and rhs groups are disjoint.
+    for (auto lhs_val : lhs_all_vals) {
+      if (rhs_all_vals_set.count(lhs_val) != 0) {
+        std::ostringstream os;
+        IrTransformPrinter printer(os);
+        printer.printTransforms(reference_tv);
+        NVF_THROW(
+            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint. ",
+            lhs_val->toString(),
+            " belongs to both. device_aware_break_point = ",
+            device_aware_break_point,
+            ". reference_tv = ",
+            reference_tv->toString(),
+            " and its transforms are:\n",
+            os.str());
+      }
     }
-    std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
-              << "\n";
-    std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
-    std::cerr << "\tAdditional ids: "
-              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
-    for (auto expr : tv->domain()->allExprs()) {
-      std::cerr << expr->toString();
+    NVF_ERROR(
+        !rhs_all_vals.empty(),
+        "Expecting at least one dimension in the RHS of the pointwise scheduler.");
+
+    // Merge rhs, then lhs.
+    IterDomain* rhs_id = nullptr;
+    IterDomain* lhs_id = nullptr;
+    auto ndims = reference_tv->nDims();
+    for (auto i : c10::irange(ndims)) {
+      // Merge from right to left
+      auto pos = ndims - 1 - i;
+      auto id = reference_tv->axis(pos);
+      if (lhs_all_vals_set.count(id) > 0) {
+        if (lhs_id == nullptr) {
+          lhs_id = id;
+          lhs_i = pos;
+        } else {
+          reference_tv->merge(pos, lhs_i);
+          lhs_i = pos;
+          if (rhs_i > lhs_i) {
+            rhs_i--;
+          }
+        }
+      } else if (rhs_all_vals_set.count(id) > 0) {
+        if (rhs_id == nullptr) {
+          rhs_id = id;
+          rhs_i = pos;
+        } else {
+          reference_tv->merge(pos, rhs_i);
+          rhs_i = pos;
+          if (lhs_i > rhs_i) {
+            lhs_i--;
+          }
+        }
+      }
+    }
+    // Find the iter domains that should be in the lhs, and rhs.
+  } else {
+    // Don't need to worry about view transformations, just merge reference tv
+    // as we normally would.
+
+    std::unordered_map<int64_t, int64_t> logical_reorder_map =
+        scheduler_utils::maybeLogicalReorderAsAllocationMap(reference_tv);
+    if (!logical_reorder_map.empty()) {
+      reference_tv->reorder(logical_reorder_map);
+    }
+    reorderDIDToFront(reference_tv);
+
+    // Merge right side of break point
+    for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {
+      auto axis_i = i - 1;
+      if (rhs_i == -1) {
+        rhs_i = axis_i;
+      } else {
+        reference_tv->merge(axis_i, rhs_i);
+        rhs_i = axis_i;
+      }
+    }
+    if (rhs_i >= 0) {
+      // If there's an rhs
+      reference_tv->reorder({{rhs_i, -1}});
+    }
+
+    // Merge left side of break point
+    for (int64_t i = device_aware_break_point; i > num_device_dims; i--) {
+      auto axis_i = i - 1;
+      if (lhs_i == -1) {
+        lhs_i = axis_i;
+      } else {
+        reference_tv->merge(axis_i, lhs_i);
+        lhs_i = axis_i;
+      }
     }
   }
 
-  {
-    IdModel id_model(fusion);
-    std::cout << id_model.idGraph(IdMappingMode::EXACT).toString();
-    std::cout << std::endl;
+  int64_t unswitch_pos = 0;
+  IterDomain* vectorize_id = nullptr;
+  if (pparams->break_point) {
+    // 2D parallelization scheme
+    NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
+
+    // Right (inner merged) dimension is at inner most position, left (outer
+    // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
+    reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
+
+    // vectorization without unroll
+    if (pparams->unroll_factor_outer == 1 &&
+        pparams->unroll_factor_inner == 1 &&
+        pparams->vectorization_factor > 1) {
+      reference_tv->split(1, pparams->vectorization_factor);
+      reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+      reference_tv->split(0, 1);
+      // [outer, Unswitch | i-remainder, TIDx, Vectorization]
+      // Here and in the following comments:
+      // prefix [i] represent inner dimension
+      // prefix [o] represent inner dimension
+      // [|] separates the outer and inner dimensions
+      reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
+      reference_tv->axis(3)->parallelize(ParallelType::TIDx);
+      // Vectorization are propagated separately
+      vectorize_id = reference_tv->axis(4);
+
+      // [outer, Unswitch | i-remainder, TIDx, Vectorization]
+      // To make consistent with unrolling:
+      reference_tv->reorder({{1, 2}, {2, 1}, {3, 4}, {4, 3}});
+      //[outer | i-remainder, Unswitch, Vectorization, TIDx]
+    } else {
+      // [outer | inner]
+      if (pparams->vectorization_factor > 1) {
+        reference_tv->split(1, pparams->vectorization_factor);
+      }
+      // [outer | i-remainder, Vect]
+      reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+      // [outer | i-remainder, TIDx, Vect]
+
+      if (pparams->unroll_factor_inner > 1) {
+        reference_tv->split(1, pparams->unroll_factor_inner);
+      }
+      // [outer| i-remainder, i-Unroll, TIDx, Vect]
+
+      if (pparams->unroll_factor_outer > 1) {
+        reference_tv->split(0, pparams->unroll_factor_outer);
+      }
+      // [o-remainder, o-Unroll, | i-remainder, i-Unroll, TIDx, Vect]
+
+      reference_tv->split(0, 1);
+      // [o-remainder, Unswitch, o-Unroll | i-remainder, i-Unroll, TIDx, Vect]
+
+      int i_remainder_pos = pparams->unroll_factor_outer > 1 ? 3 : 2;
+      reference_tv->reorder({{i_remainder_pos, 1}});
+      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+
+      reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
+      // Here we do not set axis(3)->parallelize(Unroll) because we do not want
+      // it to be propagated. We manually unroll by splitting the inline
+      // propagation process into two steps:
+      // step 1: inline at the unswitch position for cached inputs and outputs
+      // step 2: inline at the inner most dim for the rest of the graph
+      int tidx_pos = 3;
+      if (pparams->unroll_factor_inner > 1) {
+        tidx_pos++;
+      }
+      if (pparams->unroll_factor_outer > 1) {
+        tidx_pos++;
+      }
+      reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
+      if (pparams->vectorization_factor > 1) {
+        // can't use {-1}, there may be deviceId
+        vectorize_id = reference_tv->axis(tidx_pos + 1);
+      }
+      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+    }
+
+    // Move out of the way to furthest left point
+    reference_tv->reorder({{1, 0}});
+    // [i-remainder, o-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+    if (pparams->split_block) {
+      reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
+      // [i-remainder, o-remainder, TIDy, Unswitch, o-Unroll, i-Unroll, TIDx,
+      // Vect]
+      if (pparams->flip_grid_binding) {
+        // [BIDy | BIDx, TIDy | Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+        reference_tv->axis(1)->parallelize(ParallelType::BIDx);
+        reference_tv->axis(2)->parallelize(ParallelType::TIDy);
+        if (pparams->split_grid_y_dim) {
+          // [i-remainder, BIDy{65535} | BIDx, TIDy | Unswitch, o-Unroll,
+          // i-Unroll, TIDx, Vect]
+          reference_tv->split(0, 65535);
+          reference_tv->axis(1)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 5;
+        } else {
+          reference_tv->axis(0)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 4;
+        }
+      } else {
+        // [BIDx | BIDy TIDy | Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+        reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+        reference_tv->axis(2)->parallelize(ParallelType::TIDy);
+        if (pparams->split_grid_y_dim) {
+          // [BIDx | i-remainder, BIDy{65535}, TIDy | Unswitch, o-Unroll,
+          // i-Unroll, TIDx, Vect]
+          reference_tv->split(1, 65535);
+          reference_tv->axis(2)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 5;
+        } else {
+          reference_tv->axis(1)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 4;
+        }
+      }
+    } else {
+      // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
+      if (pparams->flip_grid_binding) {
+        // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
+        reference_tv->axis(1)->parallelize(ParallelType::BIDx);
+        if (pparams->split_grid_y_dim) {
+          // [i-remainder, BIDy{65535} | BIDx | Unswitch, Unroll, TIDx]
+          reference_tv->split(0, 65535);
+          reference_tv->axis(1)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 4;
+        } else {
+          // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
+          reference_tv->axis(0)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 3;
+        }
+      } else {
+        // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
+        reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+        if (pparams->split_grid_y_dim) {
+          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, Vect]
+          reference_tv->split(1, 65535);
+          reference_tv->axis(2)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 4;
+        } else {
+          // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
+          reference_tv->axis(1)->parallelize(ParallelType::BIDy);
+          unswitch_pos = 3;
+        }
+      }
+    }
+  } else {
+    // 1D Scheduler
+    NVF_ERROR(rhs_i >= 0 && lhs_i == -1);
+
+    // right hand side exists and is the only axis we care to schedule, move
+    // it from the inner most position to left most. Order as [rhs_i,
+    // unmerged...]
+    reference_tv->reorder({{-1, 0}});
+
+    if (pparams->unroll_factor_inner == 1 &&
+        pparams->vectorization_factor > 1) {
+      // Vectorize
+      reference_tv->split(0, pparams->vectorization_factor);
+      // Unswitch
+      reference_tv->split(0, 1);
+      // Threads
+      reference_tv->split(0, kThreadX);
+
+      reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+      reference_tv->axis(1)->parallelize(ParallelType::TIDx);
+      reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
+      // Vectorization are propagated separately
+      vectorize_id = reference_tv->axis(3);
+
+      //[BIDx, TIDx, Unswitch, Vectorization]
+      // To make consistent with unrolling:
+      reference_tv->reorder({{1, 3}, {2, 1}, {3, 2}});
+      //[BIDx, Unswitch, Vectorization, TIDx]
+    } else {
+      // Vectorize
+      if (pparams->vectorization_factor > 1) {
+        reference_tv->split(0, pparams->vectorization_factor);
+      }
+      // Threads
+      reference_tv->split(0, kThreadX);
+      // Unroll
+      if (pparams->unroll_factor_inner > 1) {
+        reference_tv->split(0, pparams->unroll_factor_inner);
+      }
+      // Unswitch
+      reference_tv->split(0, 1);
+
+      // [BIDx, Unswitch, Unroll, TIDx, Vect]
+      reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+      reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
+      // Here we do not set axis(2)->parallelize(Unroll) because we do not want
+      // it to be propagated. We manually unroll by splitting the inline
+      // propagation process into two steps:
+      // step 1: inline at the unswitch position for cached inputs and outputs
+      // step 2: inline at the inner most dim for the rest of the graph
+      int tidx_pos = pparams->unroll_factor_inner > 1 ? 3 : 2;
+      reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
+      if (pparams->vectorization_factor > 1) {
+        vectorize_id = reference_tv->axis(tidx_pos + 1);
+      }
+    }
+    unswitch_pos = 2;
   }
 
-  inlineMost();
+  TransformPropagator propagator(reference_tv);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
+  spanning_tree.traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(reference_tv);
 
-  // scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+  if (pparams->vectorization_factor > 1) {
+    // Grab all tensor views that should be vectorized
+    auto inputs_outputs =
+        scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);
+    std::vector<TensorView*> vectorized_tvs;
+    bool should_vectorize_reference_tv = false;
+    for (auto tv : inputs_outputs) {
+      if (tv == reference_tv) {
+        should_vectorize_reference_tv = true;
+      }
+      if (!tv->isFusionInput()) {
+        vectorized_tvs.emplace_back(tv);
+        continue;
+      }
+      // move inputs to consumers of inputs
+      auto consumer_tvs = ir_utils::consumerTvsOf(tv);
+      vectorized_tvs.insert(
+          vectorized_tvs.end(), consumer_tvs.begin(), consumer_tvs.end());
+    }
+    if (!vectorized_tvs.empty()) {
+      // Aggressively mark with vectorized and cleanup later. That way we
+      // don't have to manually specify parallelization outside the reference.
+      vectorize_id->parallelize(ParallelType::Vectorize);
+      scheduler_utils::parallelizeAllLike(
+          reference_tv, vectorized_tvs, {ParallelType::Vectorize});
+      if (!should_vectorize_reference_tv) {
+        vectorize_id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+
+  // Begin by inlining at the unswitch position for the entire DAG. The cached
+  // inputs, and outputs will keep this inline position, but other tensors will
+  // get a higher position in later inline propagation. We need this separate
+  // step because we were not using ParallelType::Unroll, so we have to do
+  // unrolling manually.
+  inlineAllAt(reference_tv, unswitch_pos, true);
+
+  auto all_tvs = fusion->allTvs();
+
+  // Inline at the inner most position. The CA position of all tensors except
+  // inputs, cached inputs and outputs will be updated.
+  std::unordered_set<TensorView*> inner_most_tensors(
+      all_tvs.begin(), all_tvs.end());
+  for (auto cached_input : cached_inputs) {
+    inner_most_tensors.erase(cached_input);
+  }
+  for (auto entry : cached_outputs) {
+    auto output = entry.second;
+    inner_most_tensors.erase(output);
+  }
+  inlineMost(inner_most_tensors);
+
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   // TODO(#1401): We could let segmentation split a partially alias-producing
   // fusion into an alias-only segment and the rest. This way, the rest of the
   // fusion (which has fewer expressions) can potentially find a better
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
-
-  std::cout << "All done\n";
-  fusion->printMath();
-  std::cout << std::endl;
 }
 
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
