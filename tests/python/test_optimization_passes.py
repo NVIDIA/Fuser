@@ -145,7 +145,7 @@ def test_litgpt_variants_gpt_neox_like():
 
 # https://github.com/NVIDIA/Fuser/issues/3369
 # don't need to replace constants in the same Id set
-def test_extent_substitution():
+def test_square_linear():
     def nvfuser_fusion_id28(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
             shape=[5, 5],

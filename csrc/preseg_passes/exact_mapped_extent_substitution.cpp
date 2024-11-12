@@ -36,19 +36,20 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
     DisjointSets<Val*>::DisjointSet current_extent_set = nullptr;
 
     // First loop over the set, to check if one of the extent is already mapped
-    for (auto id_set_val : *set_ptr) {
-      auto id = dynamic_cast<IterDomain*>(v);
+    for (auto id_set_val : *id_set_ptr) {
+      auto id = dynamic_cast<IterDomain*>(id_set_val);
       if (isNonSubstitutableID(id)) {
         continue;
       }
       if (extent_sets.mappingExists(id->extent())) {
-        current_set = extent_sets.disjointSetMap().at(id->extent());
+        current_extent_set = extent_sets.disjointSetMap().at(id->extent());
+        break;
       }
     }
 
     // Second loop over the ID set, to map all extents to the same extent set.
-    for (auto id_set_val : *set_ptr) {
-      auto id = dynamic_cast<IterDomain*>(v);
+    for (auto id_set_val : *id_set_ptr) {
+      auto id = dynamic_cast<IterDomain*>(id_set_val);
       if (isNonSubstitutableID(id)) {
         continue;
       }
@@ -58,11 +59,11 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
       if (extent_sets.mappingExists(extent)) {
         continue;
       }
-      if (current_set) {
-        extent_sets.appendToSet(extent, current_set);
+      if (current_extent_set) {
+        extent_sets.appendToSet(extent, current_extent_set);
       } else {
         auto it = extent_sets.initializeSet(extent).first;
-        current_set = it->second;
+        current_extent_set = it->second;
       }
     }
   }
