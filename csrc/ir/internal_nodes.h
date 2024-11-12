@@ -1365,6 +1365,30 @@ class NVF_API MmaOp : public Expr {
   // Positions are absolute and refer to the noReductions logical domain. NOTE:
   // -1 indicates that the axis does not exist, so Broadcast and Reduction
   // dimensions should not have position -1.
+  //
+  // Example 1:
+  //    a [ K, 1, M ]
+  //    b [ 1, N, K ]
+  //    out [ M, N, rK ]
+  //    axisMapping:
+  //      a_axes = [ 2, 1, 0 ]
+  //      b_axes = [ 0, 1, 2 ]
+  //    This results in the following groups of mapped axes:
+  //      { tv_a->axis(2), tv_b->axis(0), out->axis(0) }
+  //      { tv_a->axis(1), tv_b->axis(1), out->axis(1) }
+  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
+  //
+  // Example 1:
+  //    a [ K, M ]
+  //    b [ 1, N, K ]
+  //    out [ M, N, rK ]
+  //    axisMapping:
+  //      a_axes = [ 1, -1, 0 ]
+  //      b_axes = [ 0, 1, 2 ]
+  //    This results in the following groups of mapped axes:
+  //      { tv_a->axis(1), tv_b->axis(0), out->axis(0) }
+  //      { tv_b->axis(1), out->axis(1) }
+  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
   struct AxisMapping {
     AxesData a_axes;
     AxesData b_axes;
