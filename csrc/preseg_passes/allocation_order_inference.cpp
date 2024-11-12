@@ -214,6 +214,10 @@ void mapAllocationDomain(
   }
 }
 
+std::vector<int64_t> propagateAllocationOrder(
+    TensorView* src,
+    TensorView* dst) {}
+
 } // namespace
 
 // Note [ Allocation Order Propagation ]
@@ -264,10 +268,10 @@ void inferenceAllocationOrder(
 
   // populate the number of non-trivial iter domains on srcs
   std::unordered_map<TensorView*, int64_t> non_trivial_iter_count;
-  for (auto* tv : srcs) {
+  for (auto* src : srcs) {
     // skip entry with self mapping.
-    if (!hasSelfMapping(tv, exact_graph).has_value()) {
-      non_trivial_iter_count[tv] = countNonTrivialIterDomains(tv);
+    if (!hasSelfMapping(src, exact_graph).has_value()) {
+      non_trivial_iter_count[src] = countNonTrivialIterDomains(src);
     }
   }
 
@@ -284,55 +288,38 @@ void inferenceAllocationOrder(
       continue;
     }
 
-    // find a ref among srcs to be propagated to given dst
-    TensorView* ref = nullptr;
-
-    // high water mark for candidate of ref.
-    int64_t non_bc_high_water_mark = 0;
-    for (auto* tv : srcs) {
+    int64_t non_trivial_highwater_mark = 0;
+    std::vector<int64_t> best_allocation_order(
+        dst->getLogicalDomain().size(), -1);
+    for (auto* src : srcs) {
       // skip when non-trivial iter domains count is missing.
-      if (non_trivial_iter_count.count(tv) == 0) {
+      if (non_trivial_iter_count.count(src) == 0) {
         continue;
       }
+
       // discard srcs for propagation which dst has no dependency on.
-      if (!DependencyCheck::isDependencyOf(tv, dst)) {
+      if (!DependencyCheck::isDependencyOf(src, dst)) {
         continue;
       }
+
       // discard srcs with lower iterdomain count than ref.
-      if (non_trivial_iter_count[tv] < non_bc_high_water_mark) {
+      if (non_trivial_iter_count[src] < non_trivial_highwater_mark) {
         continue;
       }
-      // new candidate found, update ref and high water mark.
-      if (non_trivial_iter_count[tv] > non_bc_high_water_mark) {
-        ref = tv;
-        non_bc_high_water_mark = non_trivial_iter_count[tv];
+
+      if (non_trivial_iter_count[src] > non_trivial_highwater_mark) {
+        non_trivial_highwater_mark = non_trivial_iter_count[src];
+        best_allocation_order = propagateAllocationOrder(src, dst);
         continue;
       }
+
       // found multiple candidate with the same iterdomain count
-      if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
-          ref != nullptr) {
-        // ensure that there's no ambiguity on permutation mapping from multiple
-        // references. we need both ref candidates to have the same mapping on
-        // allocation domain
-        for (auto i : c10::irange(ref->nDims())) {
-          if (!val_sets.permissiveAreMapped(
-                  ref->getMaybeAllocationDomain()[i],
-                  tv->getMaybeAllocationDomain()[i])) {
-            // reset ref to nullptr, while keeping the iterdomain count high
-            // water mark. No propagation will occur unless we found another ref
-            // candidate with a higher iterdomain count.
-            ref = nullptr;
-            break;
-          }
-        }
-        continue;
-      }
+      best_allocation_order = mergeAllocationOrder(
+          best_allocation_order, propagateAllocationOrder(src, dst));
     }
 
     // propagate allocation domain if we still have a candidate.
-    if (ref) {
-      mapAllocationDomain(id_model, ref, dst);
-    }
+    mapAllocationDomain(id_model, best_allocation_order, dst);
   }
 }
 
