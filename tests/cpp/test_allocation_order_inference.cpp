@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,16 +8,16 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <torch/torch.h>
+
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 #include <runtime/executor.h>
-
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
-#include <torch/torch.h>
 
 namespace nvfuser {
 
@@ -355,6 +355,8 @@ TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {
   fusion.addOutput(outs.output);
   fusion.addOutput(outs.log_sumexp);
 
+  preseg_passes::OptimizationPass<
+      preseg_passes::MarkAliasesPreparePass>::runPass(&fusion);
   preseg_passes::OptimizationPass<preseg_passes::AllocationDomainPass>::runPass(
       &fusion);
   EXPECT_THAT(getAllocationOrder(outs.output), ElementsAre(0, 2, 1, 3));
@@ -392,7 +394,7 @@ TEST_F(AllocationOrderInferenceTest, SdpaBackward) {
   for (auto* tv : {q, k, v}) {
     tv->setAllocationDomain(
         {tv->axis(0), tv->axis(2), tv->axis(1), tv->axis(3)},
-        {true, true, false, true});
+        {true, false, true, true});
   }
   o->setAllocationDomain(
       {o->axis(0), o->axis(2), o->axis(1), o->axis(3)}, true);

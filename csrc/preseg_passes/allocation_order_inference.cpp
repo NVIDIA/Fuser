@@ -334,6 +334,15 @@ void inferenceAllocationOrder(
   }
 }
 
+void propagateAllocation(TensorView* in, TensorView* out) {
+  auto in_order = ir_utils::computePermutation(
+      in->getLogicalDomain(), in->getMaybeAllocationDomain());
+  if (!in_order.has_value()) {
+    return;
+  }
+  out->setAllocationDomain(
+      ir_utils::applyPermutation(out->getLogicalDomain(), *in_order), true);
+}
 } // namespace
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
@@ -351,15 +360,54 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // hint, but they should respect semantic requirement.
   // see issue: https://github.com/NVIDIA/Fuser/pull/2425
   for (TensorView* output : output_tvs) {
-    if (output->isDefinitionType<LinearOp>() ||
-        output->isDefinitionType<MatmulOp>() ||
-        output->isDefinitionType<MmaOp>()) {
-      continue;
+    if (Expr* def = output->definition()) {
+      if (def->isOneOf<LinearOp, SdpaFwdOp, SdpaBwdOp, MatmulOp, MmaOp>()) {
+        continue;
+      }
     }
     dsts.push_back(output);
   }
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
+
+  for (Expr* e : fusion->exprs()) {
+    if (auto* sdpa_fwd = dynamic_cast<SdpaFwdOp*>(e)) {
+      std::optional<std::vector<int64_t>> out_order = std::vector<int64_t>();
+      for (TensorView* in :
+           {sdpa_fwd->query(), sdpa_fwd->key(), sdpa_fwd->value()}) {
+        auto in_order = ir_utils::computePermutation(
+            in->getLogicalDomain(), in->getMaybeAllocationDomain());
+        if (!in_order.has_value()) {
+          out_order = std::nullopt;
+          break;
+        }
+        if ((*out_order).empty()) {
+          out_order = *in_order;
+          continue;
+        }
+        if (*out_order != *in_order) {
+          out_order = std::nullopt;
+          break;
+        }
+      }
+      if (out_order.has_value()) {
+        TensorView* out = sdpa_fwd->attn_out();
+        out->setAllocationDomain(
+            ir_utils::applyPermutation(out->getLogicalDomain(), *out_order),
+            true);
+      }
+    } else if (auto* sdpa_bwd = dynamic_cast<SdpaBwdOp*>(e)) {
+      propagateAllocation(sdpa_bwd->query(), sdpa_bwd->grad_query());
+      propagateAllocation(sdpa_bwd->key(), sdpa_bwd->grad_key());
+      propagateAllocation(sdpa_bwd->value(), sdpa_bwd->grad_value());
+    }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+  }
 }
 
 } // namespace nvfuser::preseg_passes
