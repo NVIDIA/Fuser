@@ -33,7 +33,7 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
   for (const auto& set_ptr : id_sets.disjointSets()) {
     // If one of the extent in this set is already in the extent_sets, then
     // map all other extents to the same set, otherwise create a new set.
-    DisjointSets<Val*>::DisjointSet current_set = nullptr;
+    DisjointSets<Val*>::DisjointSet current_extent_set = nullptr;
 
     // First loop over the set, to check if one of the extent is already mapped
     for (auto v : *set_ptr) {
