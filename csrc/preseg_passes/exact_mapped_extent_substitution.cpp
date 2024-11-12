@@ -46,7 +46,7 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
       }
     }
 
-    // Second loop over the set, to map all extents to the same set.
+    // Second loop over the ID set, to map all extents to the same extent set.
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
       if (isNonSubstitutableID(id)) {
