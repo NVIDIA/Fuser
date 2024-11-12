@@ -547,7 +547,7 @@ void HopperMultipleMatmulScheduler::run() {
 
   inspectPrologues();
 
-  scheduleOperandSmemStores();
+  scheduleOperands();
 
   // schedule mma instruction output (mma_result)
   scheduleMmaResults();
@@ -801,7 +801,7 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
   }
 }
 
-void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
+void HopperMultipleMatmulScheduler::scheduleOperands() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
                             MmaOperand operand_type) {

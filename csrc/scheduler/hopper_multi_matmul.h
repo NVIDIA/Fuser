@@ -153,7 +153,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during
   //! defineOperandCaches().
-  void scheduleOperandSmemStores();
+  void scheduleOperands();
 
   //! Check that there is no computation in the prologues, since we do not
   //! support that (yet)
