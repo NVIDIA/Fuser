@@ -1169,30 +1169,27 @@ TensorView* TensorView::cacheAfter(
     LoadStoreOpType op_type,
     CacheOp cache_op,
     bool propagate_allocation_domain,
-    const std::unordered_set<Expr*>& cached_uses) {
+    const std::vector<Expr*>& cached_uses) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
-  std::vector<Expr*> target_uses;
   if (!cached_uses.empty()) {
     std::unordered_set<Expr*> unique_uses = fusion()->unordered_uses(this);
-    target_uses.reserve(cached_uses.size());
     for (auto use : cached_uses) {
       NVF_ERROR(
           unique_uses.count(use),
           "cached_uses is not among the use of the TensorView");
-      target_uses.push_back(use);
     }
   } else {
     // avoid non-determinism and ensure unique
     std::unordered_set<Expr*> unique_uses;
     auto this_uses = uses();
-    target_uses.reserve(this_uses.size());
+    cached_uses.reserve(this_uses.size());
     for (Expr* use : this_uses) {
       if (unique_uses.count(use) == 0) {
-        target_uses.push_back(use);
+        cached_uses.push_back(use);
         unique_uses.insert(use);
       }
     }
@@ -1200,7 +1197,7 @@ TensorView* TensorView::cacheAfter(
 
   // Get all the uses for this Tensorview
   NVF_CHECK(
-      !target_uses.empty(),
+      !cached_uses.empty(),
       "Error adding cacheAfter ",
       this,
       " we restrict using cacheAfter on tensors that have no further uses.");
@@ -1212,7 +1209,7 @@ TensorView* TensorView::cacheAfter(
       "Caching computed-at tensors is not allowed. Apply caching before computeAt.");
 
   // disallow cache on operation where we require data remain in global memory.
-  for (auto use : target_uses) {
+  for (auto use : cached_uses) {
     NVF_ERROR(
         !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
             !(use->isA<IndexSelectOp>() && use->input(0) == this),
@@ -1223,7 +1220,7 @@ TensorView* TensorView::cacheAfter(
   // input and the outputs of its consumers have computeAt. Make sure
   // we no longer rely on that behavior.
   if (isFusionInput()) {
-    for (const auto& expr : target_uses) {
+    for (const auto& expr : cached_uses) {
       for (TensorView* output :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         NVF_CHECK(
@@ -1266,7 +1263,7 @@ TensorView* TensorView::cacheAfter(
   // After:  This TV -> [Set Op] -> New CA TV -> [Use Op] -> Next TV
 
   // Expr* consumer_uses =
-  for (auto expr : target_uses) {
+  for (auto expr : cached_uses) {
     ir_utils::replaceValInExprInputs(expr, this, consumer);
   }
 

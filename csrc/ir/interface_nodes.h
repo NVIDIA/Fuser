@@ -491,7 +491,7 @@ class NVF_API TensorView : public Val {
       LoadStoreOpType op_type = LoadStoreOpType::Set,
       CacheOp cache_op = CacheOp::Unspecified,
       bool propagate_allocation_domain = true,
-      const std::unordered_set<Expr*>& cached_uses = {});
+      const std::vector<Expr*>& cached_uses = {});
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory

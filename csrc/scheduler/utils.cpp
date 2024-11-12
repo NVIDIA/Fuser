@@ -1212,10 +1212,10 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // used without padding, it will be read twice, once for pad and
     // once more for caching load. It would make sense to use the PTX
     // caching load instructions.
-    std::unordered_set<Expr*> cached_uses;
+    std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
       if (!use->isA<PadOp>()) {
-        cached_uses.insert(use);
+        cached_uses.push_back(use);
       }
     }
 
