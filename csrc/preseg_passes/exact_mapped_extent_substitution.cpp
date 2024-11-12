@@ -36,7 +36,7 @@ auto buildExtentSetFromIdSets(const DisjointSets<Val*>& id_sets) {
     DisjointSets<Val*>::DisjointSet current_extent_set = nullptr;
 
     // First loop over the set, to check if one of the extent is already mapped
-    for (auto v : *set_ptr) {
+    for (auto id_set_val : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
       if (isNonSubstitutableID(id)) {
         continue;
