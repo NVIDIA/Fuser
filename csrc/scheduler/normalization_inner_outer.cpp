@@ -566,10 +566,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     // (2) outer reduction
     // Iteration dim: gdimy, bdimx, vectorization_factor_outer
     // Reduction dim: bdimy
-    auto [write_vect, read_vect] =
+    std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
         getOuterReductionBufferVectFactor(iop.inner_vect);
-    iop.tmp_gmem_write_vect = write_vect;
-    iop.vectorization_factor_outer = read_vect;
     auto [bdimx, bdimy] = getBdimxBdimy(
         threads_per_block, iop.vectorization_factor_outer, iop.gdimy);
     iop.bdimx = bdimx;
