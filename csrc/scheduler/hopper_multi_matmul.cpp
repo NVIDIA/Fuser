@@ -851,14 +851,13 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
 
 void HopperMultipleMatmulScheduler::scheduleMmaResults() {
   GemmTile instruction_tile = getMmaOpShape(params_->mma_macro);
-  /*NVF_ERROR(
-      params_->tile_sizes.warp_tile == instruction_tile,
-      "Warp tile must match instruction tile for Hopper matmul but found ",
+  NVF_CHECK(
+      params_->tile_sizes.cta_tile.k == params_->tile_sizes.warp_tile.k,
+      "CTA tile must match warp tile K dimension for Hopper matmul but found ",
       toString(params_->tile_sizes));
-      */
   // If cta_tile is not divisible by instruction tile the mma instruction will
   // be predicated.
-  NVF_ERROR(
+  NVF_CHECK(
       params_->tile_sizes.cta_tile.m % instruction_tile.m == 0 &&
           params_->tile_sizes.cta_tile.n % instruction_tile.n == 0 &&
           params_->tile_sizes.cta_tile.k % instruction_tile.k == 0,
