@@ -53,8 +53,7 @@ TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
 
   preseg_passes::OptimizationPass<preseg_passes::AllocationDomainPass>::runPass(
       &fusion);
-  EXPECT_THAT(
-      getAllocationOrder(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
+  EXPECT_THAT(getAllocationOrder(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
   EXPECT_THAT(getAllocationOrder(tv3), ElementsAre(0, 2, 3, 1));
 }
 
