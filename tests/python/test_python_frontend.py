@@ -4728,20 +4728,25 @@ fd.execute(inputs)
         with FusionDefinition() as fd:
             fusion_func(fd, inps=inps)
 
-        with pytest.raises(
+        # By default, matmul will be be run through expr_eval scheduler.
+        # Through setting the enable and disable options as below,
+        # we can execute it through matmul scheduler. The above fusion will not
+        # be accepted by the matmul scheduler since the outputs are of type Float and raises a RuntimeError.
+        # Note: We use this error-based test since for compatible dtypes (float16/bfloat16),
+        # the matmul scheduler ran into a scheduling error on H100. This test might be more robust against
+        # changes in matmul scheduler in the interim.
+
+        self.assertRaisesRegex(
             RuntimeError,
-            match="Can not find a scheduler to schedule fusion segment",
-        ):
-            # By default, matmul will be be run through expr_eval scheduler.
-            # Through setting the enable and disable options as below,
-            # we can execute it through matmul scheduler. The above fusion will not
-            # be accepted by the matmul scheduler since the outputs are of type Float.
-            # Note: We use this error-based test since for compatible dtypes (float16/bfloat16),
-            # the matmul scheduler ran into a scheduling error on H100. This test might be more robust against
-            # changes in matmul scheduler in the interim.
-            nvf_out = fd.execute(
-                inps,
-                _enable_options=["fuse_matmul"],
-                _disable_options=["matmul_expr_eval"],
-                profile=True,
-            )
+            "Can not find a scheduler to schedule fusion segment",
+            self.exec_nvfuser,
+            partial(fusion_func, inps=inps),
+            inps,
+            _enable_options=["fuse_matmul"],
+            _disable_options=["matmul_expr_eval"],
+            skip_serde_check=True,
+        )
+
+        # Serializing error test cases corrupts the serialized binary causing subsequent tests to fail.
+        # Reset the fusion cache to avoid this.
+        FusionCache.reset()
