@@ -817,12 +817,6 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
       MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv);
       MatmulDimRole inner_dim_role =
           findMatmulDimRole(tv->getLogicalDomain().back());
-
-      // Reorder last two iterDomains to have (K, M/N) ordering before
-      // running applyMmaSwizzleForTMALoad
-      if (inner_dim_role == MatmulDimRole::K) {
-        tv->reorder({{-1, -2}, {-2, -1}});
-      }
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
