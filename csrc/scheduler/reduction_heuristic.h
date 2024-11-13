@@ -53,7 +53,7 @@ class ReductionParams : public HeuristicParams {
 
   // Extra unroll on top of vectorization
   int64_t unroll_factor_top_of_vectorization = 1;
-    
+
   // vectorize instead of unroll
   bool vectorize_inner_reduction = false;
   // Split grid dim for iteration axis in case it's too large for cuda
@@ -106,7 +106,6 @@ class ReductionParams : public HeuristicParams {
   int64_t batches_per_block_outer_reduction = 1;
   // Unrolling/Vectorization factor for outer reduction factor
   int64_t unroll_factor_outer_reduction = 1;
-
 
   // Which block parallel dimension should be used for the outer reduction.
   // !!WARNING!! Convenience method, this be unique based on non-parallel type
