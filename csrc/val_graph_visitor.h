@@ -235,6 +235,18 @@ class ValGraphBFS : public BFS<
       const ValGroups& vals,
       Direction allowed_direction = Direction::Undefined);
 
+  static ValGroups getReachableValsFrom(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& vals,
+      const ValGraphBFS::ExprPath& from_to_vals);
+
+  static ValGroups getUnreachableValsFrom(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& vals,
+      const ValGraphBFS::ExprPath& from_to_vals);
+
   // Given `from`, project it to `to`. This function will return a subset of
   // `to` that is connected to `from`.
   static std::unordered_set<ValGroup> projectTo(

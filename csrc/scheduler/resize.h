@@ -36,6 +36,15 @@ class ResizeScheduler : public SchedulerEntry {
   constexpr static SchedulerType schedulerType() {
     return SchedulerType::Resize;
   }
+
+ private:
+  int64_t getVersion() const;
+
+  bool canScheduleCompileTimeV1(Fusion* fusion);
+  bool canScheduleCompileTimeV2(Fusion* fusion);
+
+  void scheduleV1(Fusion* fusion, const HeuristicParams* params);
+  void scheduleV2(Fusion* fusion, const HeuristicParams* params);
 };
 
 } // namespace nvfuser

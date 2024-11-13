@@ -7,9 +7,12 @@
 // clang-format on
 
 #include <instrumentation.h>
+#include <ir/utils.h>
 #include <scheduler/cache_policy_refiner.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/pointwise_utils.h>
+#include <scheduler/registry_utils.h>
 #include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
@@ -19,7 +22,157 @@
 
 namespace nvfuser {
 
+int64_t ResizeScheduler::getVersion() const {
+  int64_t ver = 1;
+
+  if (auto ver_env = getenv("RESIZE_SCHEDULER_VERSION")) {
+    ver = std::atoi(ver_env);
+  }
+
+  return ver;
+}
+
 bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
+  switch (getVersion()) {
+    case 1:
+      return canScheduleCompileTimeV1(fusion);
+      break;
+    case 2:
+      return canScheduleCompileTimeV2(fusion);
+    default:
+      NVF_THROW("invalid scheduler version");
+  }
+}
+
+namespace {
+TensorView* getReference() {
+  return nullptr;
+}
+} // namespace
+
+bool ResizeScheduler::canScheduleCompileTimeV1(Fusion* fusion) {
+  std::cerr << "ResizeScheduler::canScheduleCompileTimeV1\n";
+
+  if (!ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "No resize op to schedule");
+  }
+
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Fusion is resharding.");
+    return false;
+  }
+
+  if (ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "No support for reduction ops");
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  return true;
+}
+
+bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
+  std::cerr << "ResizeScheduler::canScheduleCompileTimeV2\n";
+  if (!canScheduleCompileTimeV1(fusion)) {
+    return false;
+  }
+
+  // Add more conditions to check
+
+  // Ignore reshape for now
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Reshape not yet supported.");
+    return false;
+  }
+
+  std::vector<Expr*> resize_ops =
+      ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+
+  // Find an output that is a dependent of all of the resize ops
+  TensorView* ref_output = nullptr;
+  if (fusion->outputs().size() == 1) {
+    ref_output = fusion->outputs().at(0)->as<TensorView>();
+  } else {
+    std::vector<std::unordered_set<Val*>> all_outputs;
+    all_outputs.reserve(resize_ops.size());
+    for (const Expr* resize_op : resize_ops) {
+      all_outputs.emplace_back(
+          DependencyCheck::getAllOutputsOf({resize_op->output(0)}));
+    }
+
+    for (auto output_tv :
+         ir_utils::filterByType<TensorView>(fusion->outputs())) {
+      if (std::all_of(
+              all_outputs.begin(), all_outputs.end(), [&](const auto& outputs) {
+                return outputs.count(output_tv);
+              })) {
+        ref_output = output_tv;
+        break;
+      }
+    }
+
+    if (ref_output == nullptr) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Cannot find any reference output candidate");
+      return false;
+    }
+
+    // All output IDs must be connected without resize ops. This can
+    // be lifted.
+    IdModel id_model(fusion, /*build_models=*/false);
+    const auto& graph = id_model.buildBroadcastGraph();
+
+    for (auto output_tv :
+         ir_utils::filterByType<TensorView>(fusion->outputs())) {
+      if (output_tv == ref_output) {
+        continue;
+      }
+
+      auto exprs_from_ref = ValGraphBFS::getExprsBetween(
+          graph,
+          graph.toGroups(ref_output->getLogicalDomain()),
+          graph.toGroups(output_tv->getLogicalDomain()),
+          /*require_all_to_visited=*/false);
+
+      // Reject if there's any resize
+      if (std::any_of(
+              exprs_from_ref.begin(),
+              exprs_from_ref.end(),
+              [](const auto& path_eg_dir) {
+                return path_eg_dir.first->front()->template isA<Resize>();
+              })) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedulerType(),
+            "Has another output that has different resize op: ",
+            output_tv->toString());
+        return false;
+      }
+
+      if (!ValGraphBFS::getUnreachableValsFrom(
+               graph,
+               graph.toGroups(ref_output->getLogicalDomain()),
+               graph.toGroups(output_tv->getLogicalDomain()),
+               exprs_from_ref)
+               .empty()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedulerType(),
+            "Has another output that has disconnected ID: ",
+            output_tv->toString());
+        return false;
+      }
+    }
+  }
+
   return true;
 }
 
@@ -339,12 +492,25 @@ TensorView* getReferenceTensorView(Fusion* fusion) {
 
 } // namespace
 
-void ResizeScheduler::schedule(
+void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
+  switch (getVersion()) {
+    case 1:
+      scheduleV1(fusion, params);
+      break;
+    case 2:
+      scheduleV2(fusion, params);
+      break;
+    default:
+      NVF_THROW("invalid scheduler version");
+  }
+}
+
+void ResizeScheduler::scheduleV1(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
-  std::cerr << "ResizeScheduler::schedule\n";
+  std::cerr << "ResizeScheduler::scheduleV1\n";
 
   FusionGuard fg(fusion);
 
@@ -580,7 +746,12 @@ void ResizeScheduler::schedule(
   std::cout << "All done\n";
   fusion->printMath();
   std::cout << std::endl;
-  
+}
+
+void ResizeScheduler::scheduleV2(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  return;
 }
 
 } // namespace nvfuser

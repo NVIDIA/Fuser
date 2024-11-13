@@ -234,6 +234,42 @@ ValGroups ValGraphBFS::getReachableValsFrom(
   return reachable_vals;
 }
 
+ValGroups ValGraphBFS::getReachableValsFrom(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& vals,
+    const ValGraphBFS::ExprPath& from_to_vals) {
+  auto path_vals = getValsOfExprPath(graph, from_to_vals);
+
+  ValGroups reachable_vals;
+
+  for (const auto& val : vals) {
+    if (from.has(val) || path_vals.has(val)) {
+      reachable_vals.pushBack(val);
+    }
+  }
+
+  return reachable_vals;
+}
+
+ValGroups ValGraphBFS::getUnreachableValsFrom(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& vals,
+    const ValGraphBFS::ExprPath& from_to_vals) {
+  auto reachable_vals = getReachableValsFrom(graph, from, vals, from_to_vals);
+
+  ValGroups unreachable_vals;
+
+  for (const auto& val : vals) {
+    if (!reachable_vals.has(val)) {
+      unreachable_vals.pushBack(val);
+    }
+  }
+
+  return unreachable_vals;
+}
+
 std::unordered_set<ValGroup> ValGraphBFS::projectTo(
     const ValGraph& id_graph,
     const ValGroup& from,
