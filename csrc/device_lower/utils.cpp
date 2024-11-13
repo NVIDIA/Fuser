@@ -633,6 +633,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
+          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -1943,7 +1944,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
   // Currently, the concrete loop ID depends on if loops are generated
   // based on the IdModel loop promotion, which needs to be enabled
   // explicitly by the IdModelEnableOption::Loop option.
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+  if (GpuLower::current()->idModelOptions().loop()) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
     // of generated kernels so that the CI diff check could report

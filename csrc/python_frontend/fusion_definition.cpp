@@ -337,7 +337,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
-    bool profile) const {
+    bool profile,
+    std::vector<std::string> _enable_options,
+    std::vector<std::string> _disable_options) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -349,6 +351,21 @@ std::vector<at::Tensor> FusionDefinition::execute(
   std::vector<at::Tensor> outputs;
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
+
+  EnableOptionsGuard enable_opt_guard;
+  for (const auto& _enable_option : _enable_options) {
+    std::optional<EnableOption> opt = stringToEnableOption(_enable_option);
+    NVF_CHECK(opt.has_value(), "Unrecognized enable_option: ", _enable_option);
+    EnableOptionsGuard::getCurOptions().set(opt.value());
+  }
+
+  DisableOptionsGuard disable_opt_guard;
+  for (const auto& _disable_option : _disable_options) {
+    std::optional<DisableOption> opt = stringToDisableOption(_disable_option);
+    NVF_CHECK(
+        opt.has_value(), "Unrecognized disable_option: ", _disable_option);
+    DisableOptionsGuard::getCurOptions().set(opt.value());
   }
 
   if (!override_user_schedule) {

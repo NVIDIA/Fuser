@@ -2660,7 +2660,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
   const int64_t slice_offset = 4;
   const std::vector<int64_t> shape({1024L * 1024L});
 
-  // Using a concrete tensor to avoid dynamic reshape
+  // Using a concrete tensor to avoid dynamic resize
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -3439,9 +3439,8 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
       __FILE__);
 }
 
-// Vectorization through resize is not supported yet. Make sure
-// vectorization is disabled.
-TEST_F(ResizeTest, AvoidVectorization) {
+// Vectorization through pad is supported now!
+TEST_F(ResizeTest, PadVectorization) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3471,9 +3470,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
       tv1->getLoopDomain(),
-      Each(
-          Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
-      << "Unexpected vectorization: " << tv1;
+      Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
+      << "Failed to vectorize: " << tv1;
 
   // Make sure tv2 should be vectorized, i.e., at least one loop IterDomain is
   // vectorized.
@@ -4093,7 +4091,6 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
   FusionGuard fg(fusion_ptr.get());
 
   const std::vector<int64_t> shape({1024L * 1024L});
-
   // Note: nvfuser currently only supports vectorization with a single
   // TensorView input.
   auto s0 = IrBuilder::create<Val>(DataType::Bool);
@@ -4122,5 +4119,303 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
   // predicate.
   ASSERT_TRUE(t0.equal(cg_outputs[0]));
 }
+
+TEST_F(ResizeTest, VectorizeFactorFour) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic resize
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+
+  // check that we vectorize 4
+  bool found_vectorize = false;
+  auto exprs = fusion.exprs();
+  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
+  EXPECT_EQ(pad_ops.size(), 1);
+  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
+  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// This test is to check that the pad extent is used to limit the vectorization
+// factor.
+TEST_F(ResizeTest, VectorizeFactorTwo) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic resize
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // pad extent would restrict vectorization factor
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(2L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+
+  // check that we vectorize 2
+  bool found_vectorize = false;
+  auto exprs = fusion.exprs();
+  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
+  EXPECT_EQ(pad_ops.size(), 1);
+  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
+  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 2);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// This test is to check that the pad with 0-extent
+TEST_F(ResizeTest, VectorizeFactorTwoPadZeroExtent) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic resize
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // pad extent would restrict vectorization factor
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+
+  // check that we vectorize 2
+  bool found_vectorize = false;
+  auto exprs = fusion.exprs();
+  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
+  EXPECT_EQ(pad_ops.size(), 1);
+  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
+  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 2);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, VectorizePadNonInnermost) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape({1024L, 1024L, 2L});
+
+  // Using a concrete tensor to avoid dynamic resize
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+
+  // check that we vectorize 4
+  bool found_vectorize = false;
+  auto exprs = fusion.exprs();
+  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
+  EXPECT_EQ(pad_ops.size(), 1);
+  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
+  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// padding with negative extent should prevent us considering the resize id for
+// vectorization. So the example below should only have a vectorization factor
+// of 2
+TEST_F(ResizeTest, VectorizePadNonInnermostNegativeExtent) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape({1024L, 1024L, 2L});
+
+  // Using a concrete tensor to avoid dynamic resize
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(-4L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+
+  // check that we vectorize 4
+  bool found_vectorize = false;
+  auto exprs = fusion.exprs();
+  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
+  EXPECT_EQ(pad_ops.size(), 1);
+  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
+  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 2);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, PadAndCacheUses) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic resize
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  fusion.addOutput(tv1);
+  auto tv2 = relu(tv0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+
+  // check that pad vectorize 4
+  bool found_vectorize = false;
+  auto exprs = fusion.exprs();
+  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
+  EXPECT_EQ(pad_ops.size(), 1);
+  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
+  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  // check that relu vectorize 4
+  found_vectorize = false;
+  auto uops = ir_utils::filterByType<UnaryOp>(exprs).vector();
+  EXPECT_EQ(uops.size(), 1);
+  EXPECT_TRUE(uops.at(0)->in()->isA<TensorView>());
+  for (auto id : uops.at(0)->in()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// we cannot yet test this one, as pad in the middle causes segmentation
+// This test checks that the propagation vectorization factor is not stopped by
+// padding on non-innermost dimension, when the pad operation isn't the
+// vectorized operation. TEST_F(ResizeTest, PropagatePadNonInnermost) {
+//   Fusion fusion;
+//   FusionGuard fg(&fusion);
+//
+//   const std::vector<int64_t> shape({1024L, 1024L, 2L});
+//
+//   // Using a concrete tensor to avoid dynamic resize
+//   auto tv0 = makeContigConcreteTensor(shape);
+//   fusion.addInput(tv0);
+//   auto tv1 = relu(tv0);
+//   auto tv2 =
+//       pad(tv1,
+//           {IrBuilder::create<Val>(0L),
+//            IrBuilder::create<Val>(0L),
+//            IrBuilder::create<Val>(3L),
+//            IrBuilder::create<Val>(3L),
+//            IrBuilder::create<Val>(0L),
+//            IrBuilder::create<Val>(0L)});
+//   fusion.addOutput(tv2);
+//
+//   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+//   auto t0 = at::randn(shape, options);
+//   std::vector<c10::IValue> aten_inputs({t0});
+//   auto cg_outputs =
+//       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+//
+//   FusionExecutorCache executor_cache(std::move(fusion_ptr));
+//   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+//
+//   auto ref = at::pad(t0.relu(), {0, 0, 4, 4, 0, 0});
+//
+//   NVF_CHECK(ref.equal(cg_outputs[0]));
+//   // TODO: check vectorization factor
+// }
 
 } // namespace nvfuser
