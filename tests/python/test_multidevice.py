@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+from enum import Enum, auto
 from torch.nn.attention import SDPBackend
 
 import mpi_fixtures
@@ -163,32 +164,41 @@ def test_matmul_allreduce(mpi_test):
     torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
 
 
+class QkvFormat(Enum):
+    BHSE = auto()
+    BSHE = auto()
+
+
 @pytest.mark.skipif(
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
-@pytest.mark.parametrize("memory_format", ["bhse", "bshe"])
+@pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
 @pytest.mark.mpi
-def test_sdpa(mpi_test, memory_format: str):
+def test_sdpa(mpi_test, qkv_format: QkvFormat):
     d, b, s, h, e = mpi_test.size, 2, 1024, 12, 768
 
     if h % d != 0:
         pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     class Model(FusionDefinition):
-        def __init__(self, memory_format: str):
+        def __init__(self, qkv_format: QkvFormat):
             super().__init__()
-            self._memory_format = memory_format
+            self._qkv_format = qkv_format
 
         def definition(self) -> None:
+            match self._qkv_format:
+                case QkvFormat.BHSE:
+                    stride_order = [4, 3, 2, 1, 0]
+                case QkvFormat.BSHE:
+                    stride_order = [4, 3, 1, 2, 0]
+
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
                     shape=[d, b, h // d, s, e // h],
                     contiguity=True,
                     dtype=DataType.BFloat16,
-                    stride_order=[4, 3, 2, 1, 0]
-                    if self._memory_format == "bhse"
-                    else [4, 3, 1, 2, 0],
+                    stride_order=stride_order,
                 )
                 for _ in range(4)
             ]
@@ -248,12 +258,13 @@ def test_sdpa(mpi_test, memory_format: str):
         # The input `t` may require gradient. We .detach() so the new `t`
         # doesn't require gradient.
         t = t.detach().view([b, d, h // d, s, e // h]).narrow(1, rank, 1)
-        if memory_format == "bhse":
-            return t.transpose(0, 1).contiguous()
-        else:
-            return t.permute(1, 0, 3, 2, 4).contiguous().transpose(2, 3)
+        match qkv_format:
+            case QkvFormat.BHSE:
+                return t.transpose(0, 1).contiguous()
+            case QkvFormat.BSHE:
+                return t.permute(1, 0, 3, 2, 4).contiguous().transpose(2, 3)
 
-    fd = Model(memory_format)
+    fd = Model(qkv_format)
     outs = fd.execute(
         [
             head_parallelize(q).requires_grad_(),
@@ -265,10 +276,12 @@ def test_sdpa(mpi_test, memory_format: str):
     out, q_grad, k_grad, v_grad = outs
 
     def assert_close(actual, expected):
-        if memory_format == "bhse":
-            assert actual.is_contiguous()
-        else:
-            assert actual.transpose(2, 3).is_contiguous()
+        match qkv_format:
+            case QkvFormat.BHSE:
+                assert actual.is_contiguous()
+            case QkvFormat.BSHE:
+                assert actual.transpose(2, 3).is_contiguous()
+
         # Use the default rtol for bfloat16 and a relaxed atol.
         torch.testing.assert_close(actual, expected, rtol=1.6e-2, atol=1e-2)
 
