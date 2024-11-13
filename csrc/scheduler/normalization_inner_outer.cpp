@@ -399,7 +399,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     // derived metrics for sorting
     int64_t warps_per_sm = -1;
     int64_t required_register_per_thread = -1;
-    int64_t avilable_register_per_thread = -1;
+    int64_t available_register_per_thread = -1;
 
     void verify() {
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
