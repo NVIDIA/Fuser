@@ -147,6 +147,7 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
   auto heuristic_params =
       scheduler_instance->computeHeuristics(fusion.get(), runtime_info);
   auto rparams = heuristic_params->as<ReductionParams>();
+  EXPECT_TRUE(rparams->vectorize_inner_reduction);
   rparams->unroll_factor_top_of_vectorization = 2;
 
   // Schedule, compile, run, validate
