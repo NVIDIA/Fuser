@@ -815,8 +815,6 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
       MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv);
-      MatmulDimRole inner_dim_role =
-          findMatmulDimRole(tv->getLogicalDomain().back());
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
