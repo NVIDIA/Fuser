@@ -2283,7 +2283,9 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({t0, 10}); },
+      [&]() {
+        executor_cache.runFusionWithInputs({t0, 10});
+      },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
