@@ -31,7 +31,7 @@ namespace vectorize_helper {
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
-// that the iter domains are consecutive and next to eachother in the
+// that the iter domains are consecutive and next to each other in the
 // reference. This property is not enforced, but mapping can have some
 // unpredictbale results if they are not. The reason we want contiguity here
 // is this class is primarily used for vectorization analysis. Domains may be
@@ -78,7 +78,7 @@ namespace vectorize_helper {
 //   tv1[2*3, 5, 7*11] = view(tv0)
 // with tv1 and [2*3, 7*11] as the reference and ids. tv0's 2 and 11 dim are
 // easily identified as being mapped. The 3*5*7 dimension however, is
-// partially mapped on the left and right side. Since this class is  intended to
+// partially mapped on the left and right side. Since this class is intended to
 // line up "inner dimensions" of tensors through out the graph for the purpose
 // of unrolling and vectorization, it only tracks partial dimensions as they are
 // on the right hand side of iteration domains. For example in the last case we
@@ -289,6 +289,9 @@ class NVF_API ContiguousInnerDimensionsMapper
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
 
+  // traverse fusion to mark the origin of Resize
+  void initializeResizeInfo(Fusion* fusion);
+
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
   // recording_ starts as false, and stays that way during the first series of
@@ -308,6 +311,9 @@ class NVF_API ContiguousInnerDimensionsMapper
       tv_infos_;
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
+
+  //! stores all Resize* op that's added from PadOp*
+  std::unordered_set<Resize*> resize_in_pad_;
 };
 
 // logical_reorder_map is provided to assume reference_tv will be reordered per

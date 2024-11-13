@@ -55,6 +55,30 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
 }
 
+void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  for (auto* pad_op : ir_utils::filterByType<PadOp>(exprs)) {
+    if (!pad_op->out()->isA<TensorView>()) {
+      continue;
+    }
+
+    auto* out_tv = pad_op->out()->as<TensorView>();
+
+    auto consumer_exprs = StmtSort::getExprsBetween(
+        {out_tv->getMaybeRootDomain().begin(),
+         out_tv->getMaybeRootDomain().end()},
+        {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
+
+    // NOTE: if we can assume that PadOp is always on inputs, then we can skip
+    // to innermost resize instead.
+    auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
+    std::copy(
+        resize_ops.begin(),
+        resize_ops.end(),
+        std::inserter(resize_in_pad_, resize_in_pad_.end()));
+  }
+}
+
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     TensorView* reference,
     const std::vector<IterDomain*>& ids,
@@ -67,6 +91,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
+
+  initializeResizeInfo(reference->fusion());
+
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
@@ -365,9 +392,51 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     distributePE(merge_or_split);
   };
 
-  auto clear_left_of = [&frontier](IterDomain* id) {
-    auto it = std::find(frontier.begin(), frontier.end(), id);
-    if (it != frontier.end()) {
+  auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
+    IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
+    IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
+
+    auto it = std::find(frontier.begin(), frontier.end(), id_from);
+    if (it == frontier.end()) {
+      return;
+    }
+
+    auto pos = std::distance(frontier.begin(), it);
+    if (resize_in_pad_.count(resize_op) != 0) {
+      // resize created by PadOp.
+
+      // project resize op to frontier.
+      frontier[pos] = id_to;
+      // clear left of resize, since those are no long contiguous.
+      frontier.erase(frontier.begin(), it);
+
+      if (recording_) {
+        // TODO: support negative resize extent.
+        //
+        // Limit current support to only positive resize extent for now. So we
+        // only consider the pad_extent, which becomes the real buffer on
+        // output. Hence we do GCD among padded extent as well as extent of the
+        // id_from. Note since we are taking the GCD here, I don't think using
+        // id_from or id_to makes a difference.
+        auto consumer_factor = getProjectedExtent(id_from);
+        auto comp = [](Val* factor, Val* extent) {
+          return SimplifyingIrBuilder::whereExpr(
+              SimplifyingIrBuilder::eqExpr(
+                  extent, extent->container()->zeroVal()),
+              factor,
+              // for extent < 0, we'll take max(1, extent). Because of the gcd,
+              // This is effectively excluding the resize id from vectorization.
+              SimplifyingIrBuilder::gcdExpr(
+                  factor,
+                  SimplifyingIrBuilder::maxExpr(
+                      extent->container()->oneVal(), extent)));
+        };
+        consumer_factor = comp(consumer_factor, resize_op->leftExpand());
+        consumer_factor = comp(consumer_factor, resize_op->rightExpand());
+        addProjectedExtent(id_to, consumer_factor);
+      }
+    } else {
+      // unsupproted resize.
       frontier.erase(frontier.begin(), it + 1);
     }
   };
@@ -391,8 +460,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateDistribute(merge);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->out());
+      propagateResize(resize, false);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -415,8 +483,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->in());
+      propagateResize(resize, true);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
