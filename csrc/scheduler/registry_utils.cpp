@@ -192,6 +192,7 @@ bool rejectScheduleForMemoryPromotion(
               return output->isA<TensorView>() &&
                   ir_utils::hasResizedRfactor(output->as<TensorView>());
             })) {
+#if 0
       if (scheduler_type == SchedulerType::PointWise) {
         if (expr->isA<PadOp>()) {
           auto uses = expr->output(0)->uses();
@@ -203,7 +204,6 @@ bool rejectScheduleForMemoryPromotion(
           continue;
         }
       }
-#if 0
       if (expr->isA<SliceOp>()) {
         scheduler_debug_utils::canScheduleRejectReason(
             scheduler_type,

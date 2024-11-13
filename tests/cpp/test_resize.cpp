@@ -5370,26 +5370,6 @@ TEST_F(ResizeTest, NonFusionInputSlicePropagateToInputs) {
   fusion.printKernel();
 }
 
-TEST_F(ResizeTest, ToString) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
-  Fusion& fusion = *fusion_ptr;
-
-  auto tv0 = makeConcreteTensor({128});
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  // fusion.printMath();
-
-  tv1->split(0, 4);
-  tv1->split(0, 8);
-  tv1->merge(0, 1);
-
-  std::cout << tv1->axis(0)->extent()->toInlineString() << "\n";
-}
-
 // manual scheduling that should have vectorized load on padded inputs.
 TEST_F(ResizeTest, VectorizePadLowering) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -5458,6 +5438,60 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.
   ASSERT_TRUE(t0.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, SchedulerTest1) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(inputs);
+}
+
+TEST_F(ResizeTest, SchedulerTest2) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  // Two different slices. Currently it should be segmented
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      std::vector<Slice>{{fusion.zeroVal(), IrBuilder::create<Val>(127L)}});
+  fusion.addOutput(tv2);
+  auto tv3 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(inputs);
 }
 
 } // namespace nvfuser

@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <debug.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <scheduler/cache_policy_refiner.h>
@@ -56,6 +57,7 @@ bool ResizeScheduler::canScheduleCompileTimeV1(Fusion* fusion) {
   if (!ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No resize op to schedule");
+    return false;
   }
 
   if (scheduler_utils::isResharding(fusion)) {
@@ -103,11 +105,18 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
   if (fusion->outputs().size() == 1) {
     ref_output = fusion->outputs().at(0)->as<TensorView>();
   } else {
+    std::cerr << "Multiple outputs: " << toDelimitedString(fusion->outputs())
+              << "\n";
     std::vector<std::unordered_set<Val*>> all_outputs;
     all_outputs.reserve(resize_ops.size());
     for (const Expr* resize_op : resize_ops) {
       all_outputs.emplace_back(
           DependencyCheck::getAllOutputsOf({resize_op->output(0)}));
+      if (resize_op->output(0)->isFusionOutput()) {
+        all_outputs.back().insert(resize_op->output(0));
+      }
+      std::cerr << "output of " << resize_op->toString() << ": "
+                << toDelimitedString(all_outputs.back()) << "\n";
     }
 
     for (auto output_tv :
@@ -127,6 +136,7 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
       return false;
     }
 
+#if 0
     // All output IDs must be connected without resize ops. This can
     // be lifted.
     IdModel id_model(fusion, /*build_models=*/false);
@@ -171,6 +181,7 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
         return false;
       }
     }
+#endif
   }
 
   return true;
@@ -512,16 +523,16 @@ void ResizeScheduler::scheduleV1(
 
   std::cerr << "ResizeScheduler::scheduleV1\n";
 
+  DebugStreamGuard dsg(std::cerr);
+
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  std::cout << std::endl;
   std::cerr << "schedulePointwise\n";
   fusion->printMath();
-  std::cout << std::endl;
 
   // Cache inputs
   // auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
@@ -536,9 +547,8 @@ void ResizeScheduler::scheduleV1(
     // scheduleLoopDomain in a forward fashion. It should be possible
     // to reverse the setting.
 
-    std::cout << "Before resize scheduling" << std::endl;
+    std::cerr << "Before resize scheduling\n";
     fusion->printMath();
-    std::cout << std::endl;
 
     if (!getenv("PROPAGATE_SLICE_TO_OUTPUTS")) {
       scheduler_tools::propagateSliceToInputs(fusion);
@@ -743,14 +753,37 @@ void ResizeScheduler::scheduleV1(
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
 
-  std::cout << "All done\n";
+  std::cerr << "All done\n";
   fusion->printMath();
-  std::cout << std::endl;
 }
 
 void ResizeScheduler::scheduleV2(
     Fusion* fusion,
     const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("ResizeScheduler::schedule");
+
+  DebugStreamGuard dsg(std::cerr);
+
+  std::cerr << "ResizeScheduler::scheduleV2\n";
+
+  scheduler_utils::clearMemorySpace(fusion);
+
+  fusion->printMath();
+
+  FusionGuard fg(fusion);
+
+  const auto exprs = fusion->exprs();
+  for (auto expr : exprs) {
+    if (auto slice = dynamic_cast<SliceOp*>(expr)) {
+      scheduler_tools::propagateSliceToInputs(slice);
+    } else if (auto pad = dynamic_cast<PadOp*>(expr)) {
+      scheduler_tools::propagatePadToInputs(pad);
+    }
+  }
+
+  std::cerr << "After resize propagation\n";
+  fusion->printMath();
+
   return;
 }
 

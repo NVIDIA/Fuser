@@ -443,5 +443,9 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
   return true;
 }
 
+void propagatePadToInputs(PadOp* pad_op) {
+  // Fusion* fusion = pad_op->fusion();
+}
+
 } // namespace scheduler_tools
 } // namespace nvfuser

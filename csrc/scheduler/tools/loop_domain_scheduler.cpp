@@ -890,5 +890,16 @@ void scheduleLoopDomainsLike(
   }
 }
 
+void scheduleLoopDomainsBy(
+    const std::vector<TensorView*>& tvs,
+    Expr* transform) {
+  std::cerr << "Schedule loop domains of " << toDelimitedString(tvs) << " by "
+            << transform->toString();
+
+  // TODO
+
+  return;
+}
+
 } // namespace scheduler_tools
 } // namespace nvfuser

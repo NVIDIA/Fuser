@@ -11,6 +11,7 @@
 
 namespace nvfuser {
 
+class Expr;
 class TensorView;
 class IterDomain;
 
@@ -26,6 +27,11 @@ void scheduleLoopDomainsLike(
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     IterDomain* ref_loop_id);
+
+// Should the Param be ExprGroup?
+void scheduleLoopDomainsBy(
+    const std::vector<TensorView*>& tvs,
+    Expr* transform);
 
 } // namespace scheduler_tools
 } // namespace nvfuser
