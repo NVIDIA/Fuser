@@ -362,6 +362,10 @@ class SdpaPropagator : public OptOutConstDispatch {
   // that may or may not change the IR.  Compared with returning `void`, it is
   // little extra code to maintain and becomes handy when actually needed.
   static bool propagateAllocation(TensorView* in, TensorView* out) {
+    if (out->hasAllocation()) {
+      return false;
+    }
+
     auto in_order = ir_utils::computePermutation(
         in->getLogicalDomain(), in->getMaybeAllocationDomain());
     if (!in_order.has_value()) {
