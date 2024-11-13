@@ -214,8 +214,6 @@ void mapAllocationDomain(
   }
 }
 
-} // namespace
-
 // Note [ Allocation Order Propagation ]
 //
 // The propagation tries to populate allocation domain from srcs to dsts.
@@ -335,6 +333,8 @@ void inferenceAllocationOrder(
     }
   }
 }
+
+} // namespace
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
   // mark input TensorViews as propagation sources
