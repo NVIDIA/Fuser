@@ -3445,20 +3445,19 @@ TEST_F(MatmulSchedulerTest, MmaOpAxisMapping) {
   const mma_utils::MatmulPattern& pattern = patterns.front();
 
   IdModel id_model(&fusion);
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   mma_utils::DimRolesMap dim_roles = pattern.getDimRoles(id_model);
   EXPECT_FALSE(dim_roles.empty());
 
-  auto checkAxisRoles = [&permissive_graph, &dim_roles](
+  auto checkAxisRoles = [&graph, &dim_roles](
                             TensorView* tv,
                             const std::vector<MatmulDimRole>& roles) {
     ASSERT_EQ(tv->nDims(), (int64_t)roles.size());
     for (size_t i : c10::irange(roles.size())) {
       IterDomain* id = tv->axis(i);
       MatmulDimRole role = roles[i];
-      ValGroup vg = permissive_graph.toGroup(id);
+      ValGroup vg = graph.toGroup(id);
       auto it = dim_roles.find(vg);
       ASSERT_FALSE(it == dim_roles.end())
           << "Could not find role for " << id->toString() << " in "

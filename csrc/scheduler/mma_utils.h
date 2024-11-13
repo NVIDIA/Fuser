@@ -92,7 +92,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 //! The return value gives the role of each loop IterDomain in tv.
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
-    const ValGraph& permissive_graph,
+    const ValGraph& broadcast_graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering);
 
@@ -445,14 +445,14 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst);
 //!    b. K dimensions are ordered like the allocation domain of the first
 //!       A operand
 //!
-//! NOTE: The permissive graph is used for this so that we map broadcast
+//! NOTE: The broadcast graph is used for this so that we map broadcast
 //! dimensions to non-broadcast.
 // TODO: we might want more sophisticated ordering analysis for multi-dim role
 // ordering to maximize vectorization across multiple tensors (rule 4)
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph);
+    const ValGraph& broadcast_graph);
 
 //! Returns roles maps which have been merged across individual maps generated
 //! by the provided matmul patterns.
