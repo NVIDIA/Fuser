@@ -58,7 +58,7 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
-  hir::HostIrExecutorParams host_ir_executor_params;
+  hir::HostIrEvaluatorParams host_ir_executor_params;
 };
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {

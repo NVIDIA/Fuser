@@ -135,6 +135,10 @@ std::vector<std::byte> getKernelArgument(
     Val* parameter,
     PrimDataType index_type);
 
+int64_t computeBytes(const KernelArgumentHolder& args);
+
+int64_t computeBytes(const std::vector<at::Tensor>& outputs);
+
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
 
 } // namespace nvfuser
