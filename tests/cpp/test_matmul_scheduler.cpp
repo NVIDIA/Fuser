@@ -3250,7 +3250,6 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
       matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  // TODO Disabled until hopper wgmma is used
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
