@@ -802,6 +802,9 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
 }
 
 void HopperMultipleMatmulScheduler::scheduleOperands() {
+  NVF_CHECK(
+      params_->async_gmem_load_operands,
+      "Hopper matmul scheduler currently requires TMA to be enabled");
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
                             MmaOperand operand_type) {
@@ -1196,24 +1199,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
     }
   }
 
-  if (params_->circular_buffer_options.circular_buffer_smem_read) {
-    // Only apply circular buffering if we can fill the entire pipeline.
-    auto safely_apply_circular_buffering = [](TensorView* tv) {
-      constexpr int64_t number_of_stages = 2;
-      IterDomain* cb_axis = getCircularBufferAxis(tv);
-      NVF_ERROR(cb_axis != nullptr);
-      NVF_ERROR(cb_axis->extent()->isConstScalar());
-      if (cb_axis->extent()->evaluate() >= number_of_stages) {
-        tv->circularBuffer(number_of_stages);
-      }
-    };
-    for (TensorView* acr : acrs_) {
-      safely_apply_circular_buffering(acr);
-    }
-    for (TensorView* bcr : bcrs_) {
-      safely_apply_circular_buffering(bcr);
-    }
-  }
+  // NOTE: circular_buffer_smem_read is ignored for Hopper matmul since we do
+  // not do any cache reads
 
   /*
   // TODO Investigate. Disable loop rotation with tma circular buffering
