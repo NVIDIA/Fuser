@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import torch
 from nvfuser import FusionDefinition, DataType
-
+import pytest
 
 def test_issue_2395():
     def create_fusion(fd: FusionDefinition) -> None:
@@ -335,3 +335,26 @@ def test_implicit_bcast_inplace():
 
     torch.testing.assert_close(ref_out[0], out[0])
     torch.testing.assert_close(ref_out[1], inputs[0])
+
+# Test that an error is raised if there are segments
+# with no CUDA tensor inputs See https://github.com/NVIDIA/Fuser/issues/2853.
+def test_issue2853():
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+        torch.randn(3, device="cuda", dtype=torch.float)
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv_cpu = fd.from_pytorch(inputs[0])
+        tv_cuda = fd.from_pytorch(inputs[1])
+        s0 = fd.define_scalar(3.0)
+        # CPU scalar only segment that should raise an error
+        t2 = fd.ops.add(tv_cpu, s0)
+        t3 = fd.ops.add(tv_cuda, s0)
+        fd.add_output(t2)
+        fd.add_output(t3)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+    with pytest.raises(RuntimeError, match="Expected atleast one input to be on DeviceType::CUDA."):
+        _ = fd.execute(inputs)
