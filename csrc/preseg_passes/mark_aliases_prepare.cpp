@@ -100,7 +100,6 @@ void insertSegmentSetAfter(
 
   // The general case.
   TensorView* copy = segment_set(use_of);
-  std::cerr << "Inserted SegmentSet: " << copy->definition()->toString();
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
   TensorDomain* replayed_domain =
