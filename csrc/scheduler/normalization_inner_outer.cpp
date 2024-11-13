@@ -422,7 +422,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
          << ", threads_per_block: " << threads_per_block
          << ", warps_per_sm: " << warps_per_sm
          << ", required_register_per_thread: " << required_register_per_thread
-         << ", avilable_register_per_thread: " << avilable_register_per_thread;
+         << ", available_register_per_thread: "
+         << available_register_per_thread;
       return ss.str();
     }
   };
@@ -575,30 +576,34 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     // (3) Derived metrics warps_per_sm and register usage for sorting
     iop.warps_per_sm = iop.threads_per_block / dev_prop->warpSize * iop.gdimy /
         device_multiprocessor_count;
-    iop.avilable_register_per_thread =
+    iop.available_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
     iop.required_register_per_thread =
         getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
     return iop;
   };
 
+  // Use the maximum vectorization factor
+  const int64_t vect_factor = (int64_t)vectorize_factor;
+
   // Set a reasonable range for threads per block based on the number of
   // elements in the inner dimension after vectorization.
   // Start from 128 or a smaller number if inner dim is small.
-  const int64_t vect_factor = (int64_t)vectorize_factor;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   const int64_t batch_min = getMinimumBatch();
   int64_t threads_per_block_min =
       InnerOuterPersistentKernelScheduler::threads_per_block_min;
   threads_per_block_min = std::min(threads_per_block_min, after_vect);
   threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
-  // End at 512 or a smaller number if inner dim is small.
-  // This ensures the batch size is large enough to issue multiple memory
-  // loading instructions.
+
+  // star max threads per block from min threads per block
   int64_t threads_per_block_max = threads_per_block_min;
+  // increase to cover the whole inner dim
   threads_per_block_max =
       std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
+  // round up to power of 2
   threads_per_block_max = scheduler_utils::roundUpPow2(threads_per_block_max);
+  // don't go beyond the maximum threads per block
   threads_per_block_max = std::min(
       threads_per_block_max,
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
@@ -622,9 +627,9 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         // chance that it can void register spilling and compiler can optimize
         // for better instruction level parallelism.
         int64_t extra_regs_a =
-            a.avilable_register_per_thread - a.required_register_per_thread;
+            a.available_register_per_thread - a.required_register_per_thread;
         int64_t extra_regs_b =
-            b.avilable_register_per_thread - b.required_register_per_thread;
+            b.available_register_per_thread - b.required_register_per_thread;
         if (extra_regs_a > 0 && extra_regs_b < 0) {
           return true;
         } else if (extra_regs_a < 0 && extra_regs_b > 0) {
@@ -673,7 +678,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
     iop.warps_per_sm = (iop.bdimx * iop.bdimy) / dev_prop->warpSize *
         iop.gdimy / device_multiprocessor_count;
-    iop.avilable_register_per_thread =
+    iop.available_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
 
     if (iop.bdimx % dev_prop->warpSize == 0) {
@@ -708,7 +713,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // so the maximum vectorization factor is 4.
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
-  rparams->cparams.maxrregcount = iop.avilable_register_per_thread;
+  rparams->cparams.maxrregcount = iop.available_register_per_thread;
   rparams->unroll_factor_inner_reduction = iop.inner_vect;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
