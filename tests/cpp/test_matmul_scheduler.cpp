@@ -3285,7 +3285,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 256, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
   gemm_tile.warp_tile = GemmTile(64, 128, 16);
