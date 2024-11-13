@@ -625,6 +625,25 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+template <typename T>
+std::vector<T> applyPermutation(
+    const std::vector<T>& in,
+    const std::vector<int64_t>& permutation) {
+  NVF_CHECK(in.size() == permutation.size());
+
+  std::vector<int64_t> identity(permutation.size());
+  std::iota(identity.begin(), identity.end(), 0);
+  NVF_CHECK(std::is_permutation(
+      permutation.begin(), permutation.end(), identity.begin()));
+
+  std::vector<T> out;
+  out.reserve(permutation.size());
+  for (auto i : permutation) {
+    out.push_back(in[i]);
+  }
+  return out;
+}
+
 bool hasTrivialAllocationDomain(const TensorView* tv);
 
 // Returns true if all expr outputs should be mapped unconditionally
