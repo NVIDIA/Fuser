@@ -1545,4 +1545,38 @@ TEST_F(AliasTest, Issue2664) {
       __FILE__);
 }
 
+TEST_F(AliasTest, AliasOutputNoSegmentation) {
+  // testing a complete fusion
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = add(in, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(out);
+  // this is an inplace update and shouldn't be segmented into its own kernel by alias analysis
+  TensorView* update_input = set(out);
+  fusion->aliasOutputToInput(update_input, in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor original_tensor = in_tensor.clone();
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+
+  // Verify inplace update
+  EXPECT_TRUE(out_tensors[0].equal(in_tensor));
+  // Verify no segmentation
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
+      << "segmentation is not supposed to happen";
+
+  // Verify output values.
+  testValidate(
+      executor_cache.fusion(), out_tensors, {original_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

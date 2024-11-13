@@ -248,6 +248,11 @@ void AliasFinder::handle(const LoadStoreOp* set) {
   }
   TensorView* out = set->out()->as<TensorView>();
 
+  // The set operation is an inplace update and shouldn't be marked as alias op.
+  if (out->fusion()->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
+    return;
+  }
+
   // Compute `out`'s preferred allocation domain for aliasing.
   //
   // For example,
