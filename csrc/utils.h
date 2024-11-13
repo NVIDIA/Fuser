@@ -598,4 +598,19 @@ template <typename T>
 using MaybeUniqueOwningPtr = dynamic_type::
     DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;
 
+template <typename T>
+void checkAllEqual(std::initializer_list<T> elements) {
+  for (const auto& element : elements) {
+    NVF_CHECK(
+        element == *elements.begin(),
+        "Expected all elements to be equal, but found ",
+        element,
+        " and ",
+        *elements.begin(),
+        " in [",
+        toDelimitedString(elements),
+        "]");
+  }
+}
+
 } // namespace nvfuser

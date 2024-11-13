@@ -6753,6 +6753,8 @@ TEST_F(NVFuserTest, FusionPersistentSoftmaxLocalShared_CUDA) {
 
   TensorView* sx_softmax = div(sx_exp, bcast_sum); // (M, N)
   TensorView* dx_softmax = div(dx_exp, bcast_sum); // (M, N)
+  sx_softmax->setContiguity(false);
+  dx_softmax->setContiguity(false);
   fusion.addOutput(sx_softmax);
   fusion.addOutput(dx_softmax);
 
