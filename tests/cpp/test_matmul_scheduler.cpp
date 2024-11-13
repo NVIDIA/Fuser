@@ -3144,20 +3144,18 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3172,7 +3170,7 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);
 
-  const int M = 32, N = 32, K = 256;
+  const int M = 512, N = 256, K = 256;
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
@@ -3184,8 +3182,7 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
       matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  // TODO Disabled until hopper wgmma is used
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_F(MatmulSchedulerTest, HSH_TN) {
@@ -3215,20 +3212,18 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3243,7 +3238,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);
 
-  const int M = 32, N = 32, K = 256;
+  const int M = 512, N = 256, K = 256;
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
@@ -3255,8 +3250,7 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
       matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  // TODO Disabled until hopper wgmma is used
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_F(MatmulSchedulerTest, HSH_NT) {
@@ -3290,20 +3284,18 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 64, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3318,7 +3310,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);
 
-  const int M = 32, N = 32, K = 256;
+  const int M = 512, N = 256, K = 256;
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
@@ -3331,8 +3323,7 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
 
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  // TODO Disabled until hopper wgmma is used
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_F(MatmulSchedulerTest, HSH_NN) {
@@ -3365,20 +3356,18 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   // Create custom Matmul Params
   MatMulTileOptions gemm_tile;
   // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO use hopper macro
-  // mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
   mparams.tile_sizes = gemm_tile;
   mparams.async_gmem_load_operands = true;
@@ -3393,7 +3382,7 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);
 
-  const int M = 32, N = 32, K = 256;
+  const int M = 512, N = 256, K = 256;
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
@@ -3405,8 +3394,76 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
       matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  // TODO Disabled until hopper wgmma is used
-  EXPECT_FALSE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+// Test a kernel with MmaOp that has inputs like [B, M, K] and [B, K, N]
+// and whose output is [B, M, N, K]
+TEST_F(MatmulSchedulerTest, MmaOpAxisMapping) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int64_t B = 4, M = 16, N = 32, K = 64;
+  DataType dtype = DataType::Half;
+
+  auto tv0 = makeConcreteTensor({B, M, K}, dtype);
+  auto tv1 = makeConcreteTensor({B, K, N}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  MmaOp::AxisMapping axis_mapping{
+      /*a_axes=*/{0, 1, -1, 2},
+      /*b_axes=*/{0, -1, 2, 1}};
+
+  auto tv2 =
+      fusedMultiplySum(tv0, tv1, /*axes=*/{-1}, /*init=*/nullptr, axis_mapping);
+
+  fusion.addOutput(tv2);
+
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(&fusion);
+
+  ASSERT_EQ(patterns.size(), 1);
+  const mma_utils::MatmulPattern& pattern = patterns.front();
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+
+  mma_utils::DimRolesMap dim_roles = pattern.getDimRoles(id_model);
+  EXPECT_FALSE(dim_roles.empty());
+
+  auto checkAxisRoles = [&graph, &dim_roles](
+                            TensorView* tv,
+                            const std::vector<MatmulDimRole>& roles) {
+    ASSERT_EQ(tv->nDims(), (int64_t)roles.size());
+    for (size_t i : c10::irange(roles.size())) {
+      IterDomain* id = tv->axis(i);
+      MatmulDimRole role = roles[i];
+      ValGroup vg = graph.toGroup(id);
+      auto it = dim_roles.find(vg);
+      ASSERT_FALSE(it == dim_roles.end())
+          << "Could not find role for " << id->toString() << " in "
+          << tv->toString();
+      EXPECT_TRUE(it->second == role)
+          << "Role mismatch for " << id->toString() << " in " << tv->toString();
+    }
+  };
+  checkAxisRoles(
+      tv0, {MatmulDimRole::Batch, MatmulDimRole::M, MatmulDimRole::K});
+  checkAxisRoles(
+      tv1, {MatmulDimRole::Batch, MatmulDimRole::K, MatmulDimRole::N});
+  checkAxisRoles(
+      tv2,
+      {MatmulDimRole::Batch,
+       MatmulDimRole::M,
+       MatmulDimRole::N,
+       MatmulDimRole::K});
 }
 
 } // namespace nvfuser

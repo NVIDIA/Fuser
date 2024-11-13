@@ -425,23 +425,6 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
-namespace {
-template <typename T>
-void checkAllEqual(std::initializer_list<T> elements) {
-  for (const auto& element : elements) {
-    NVF_CHECK(
-        element == *elements.begin(),
-        "Expected all elements to be equal, but found ",
-        element,
-        " and ",
-        *elements.begin(),
-        " in [",
-        toDelimitedString(elements),
-        "]");
-  }
-}
-} // namespace
-
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
