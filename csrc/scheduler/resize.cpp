@@ -774,11 +774,11 @@ void ResizeScheduler::scheduleV2(
 
   const auto exprs = fusion->exprs();
   for (auto expr : exprs) {
-    if (auto slice = dynamic_cast<SliceOp*>(expr)) {
-      scheduler_tools::propagateSliceToInputs(slice);
-    } else if (auto pad = dynamic_cast<PadOp*>(expr)) {
-      scheduler_tools::propagatePadToInputs(pad);
+    if (!expr->isOneOf<SliceOp, PadOp>()) {
+      continue;
     }
+
+    scheduler_tools::propagateResizeTensorOpToInputs(expr);
   }
 
   std::cerr << "After resize propagation\n";

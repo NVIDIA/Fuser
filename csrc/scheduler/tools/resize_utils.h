@@ -12,6 +12,7 @@
 namespace nvfuser {
 
 class CatOp;
+class Expr;
 class Fusion;
 class PadOp;
 class SliceOp;
@@ -29,6 +30,8 @@ bool propagateSliceToOutputs(Fusion* fusion);
 bool propagateSqueezedSliceToOutputs(Fusion* fusion);
 
 void propagatePadToInputs(PadOp* pad);
+
+void propagateResizeTensorOpToInputs(Expr* resize_op);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

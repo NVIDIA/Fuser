@@ -896,7 +896,104 @@ void scheduleLoopDomainsBy(
   std::cerr << "Schedule loop domains of " << toDelimitedString(tvs) << " by "
             << transform->toString();
 
-  // TODO
+  Fusion* fusion = transform->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const ValGraph& exact_graph = id_model.buildExactGraph();
+
+  // const ExprGroup& transform_group = exact_graph.toGroup(transform);
+
+  const ValGroups input_groups = exact_graph.toGroups(transform->inputs());
+  const ValGroups output_groups = exact_graph.toGroups(transform->outputs());
+
+  for (auto tv : tvs) {
+    std::cerr << "Scheduling " << tv->toString() << "\n";
+
+    // Replay transform on the loop domain of tv. If the input of the
+    // transform matches with the loop domain, the transform is
+    // replayed as a forward op. If the output matches with the loop
+    // domain, it's replayed as a backward op.
+
+    const ValGroups loop_groups = exact_graph.toGroups(tv->getLoopDomain());
+
+    std::vector<IterDomain*> input_ids;
+    input_ids.reserve(transform->inputs().size());
+    std::vector<IterDomain*> output_ids;
+    output_ids.reserve(transform->outputs().size());
+
+    for (const auto& input_g : input_groups) {
+      for (const auto loop_id : tv->getLoopDomain()) {
+        if (input_g->has(loop_id)) {
+          input_ids.push_back(loop_id);
+        }
+      }
+    }
+
+    for (const auto& output_g : output_groups) {
+      for (const auto loop_id : tv->getLoopDomain()) {
+        if (output_g->has(loop_id)) {
+          output_ids.push_back(loop_id);
+        }
+      }
+    }
+
+    Direction replay_dir = Direction::Undefined;
+
+    // It should be either: all of the inputs found and none of the
+    // outputs found, or none of the inputs found and all of the
+    // outputs found.
+    if (input_ids.size() == transform->inputs().size()) {
+      NVF_ERROR(output_ids.empty());
+      replay_dir = Direction::Forward;
+    } else if (output_ids.size() == transform->outputs().size()) {
+      NVF_ERROR(input_ids.empty());
+      replay_dir = Direction::Backward;
+    } else {
+      std::cerr
+          << "Replay not possible since none of inputs nor outputs are connected with the transform: "
+          << tv->toString() << "\n";
+      continue;
+    }
+
+    // Clone inputs or outputs
+    auto& missing_ids =
+        replay_dir == Direction::Forward ? output_ids : input_ids;
+    const auto& ref_of_missing_ids = replay_dir == Direction::Forward
+        ? transform->outputs()
+        : transform->inputs();
+
+    for (const auto& ref_id : ref_of_missing_ids) {
+      auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
+      missing_ids.push_back(clone);
+    }
+
+    std::cerr << "Replaying " << replay_dir << " " << transform->toString();
+    Expr* replayed_expr = LoopDomainSchedulerReplayTransform::replayAs(
+        input_ids, output_ids, transform);
+    std::cerr << "Replayed expr: " << replayed_expr->toString();
+
+    const auto& existing_ids =
+        replay_dir == Direction::Forward ? input_ids : output_ids;
+    const auto& new_ids =
+        replay_dir == Direction::Forward ? output_ids : input_ids;
+
+    auto new_loop_domain = tv->getLoopDomain();
+    auto outermost_pos = (int64_t)tv->getLoopDomain().size();
+    for (const auto& existing_id : existing_ids) {
+      auto it = std::find(
+          new_loop_domain.begin(), new_loop_domain.end(), existing_id);
+      NVF_ERROR(it != new_loop_domain.end());
+      auto pos = (int64_t)std::distance(new_loop_domain.begin(), it);
+      outermost_pos = std::min(outermost_pos, pos);
+      new_loop_domain.erase(it);
+    }
+
+    for (auto it = new_ids.rbegin(); it != new_ids.rend(); ++it) {
+      IterDomain* new_id = *it;
+      new_loop_domain.insert(new_loop_domain.begin() + outermost_pos, new_id);
+    }
+
+    tv->setLoopDomain(new_loop_domain);
+  }
 
   return;
 }

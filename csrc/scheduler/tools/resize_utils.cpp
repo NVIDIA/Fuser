@@ -447,5 +447,129 @@ void propagatePadToInputs(PadOp* pad_op) {
   // Fusion* fusion = pad_op->fusion();
 }
 
+void propagateResizeTensorOpToInputs(Expr* resize_op) {
+  DebugStreamGuard dsg(std::cerr);
+
+  NVF_ERROR(
+      resize_op->isA<SliceOp>() || resize_op->isA<PadOp>(),
+      "Unexpected resize tensor op: ",
+      resize_op->toString());
+
+  Fusion* fusion = resize_op->fusion();
+
+  DisjointSets<TensorView*> input_sets;
+
+  std::cerr << "propagateResizeTensorOpToInputs: " << resize_op->toString();
+
+  auto get_inputs = [&](Val* tv) -> std::vector<Val*> {
+    auto dep_inputs = DependencyCheck::getAllValsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()}, {tv});
+    dep_inputs.erase(
+        std::remove_if(
+            dep_inputs.begin(),
+            dep_inputs.end(),
+            [&](Val* dep_tv) {
+              return dep_tv == tv || dep_tv->isFusionInput();
+            }),
+        dep_inputs.end());
+    return dep_inputs;
+  };
+
+  // TODO: Avoid privatize if the dep chain is exclusively used by input
+  auto privatize_input = [&](TensorView* input) -> TensorView* {
+    auto private_copy = RecomputeTv::recompute(input);
+    DisjointSets<TensorView*>::DisjointSet& input_set =
+        input_sets.initializeSet(private_copy).first->second;
+    std::stringstream ss;
+    ss << private_copy->toString();
+    for (auto val : get_inputs(private_copy)) {
+      ss << " " << val->toString();
+      input_sets.appendToSet(val->as<TensorView>(), input_set);
+    }
+    std::cerr << "recomputed: " << ss.str() << "\n";
+    return private_copy;
+  };
+
+  auto has_overlap = [&input_sets](TensorView* input) -> bool {
+    Fusion* fusion = input->fusion();
+    std::cerr << "Input: " << input->toString() << "\n";
+    if (input_sets.mappingExists(input)) {
+      // Overlapped inputs
+      std::cerr << "Overlapped input: " << input->toString() << "\n";
+      return true;
+    }
+    DisjointSets<TensorView*>::DisjointSet& input_set =
+        input_sets.initializeSet(input).first->second;
+    auto dep_inputs = DependencyCheck::getAllValsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()}, {input});
+    dep_inputs.erase(
+        std::remove_if(
+            dep_inputs.begin(),
+            dep_inputs.end(),
+            [&](Val* tv) { return tv->isFusionInput(); }),
+        dep_inputs.end());
+    std::cerr << "Dep input: " << toDelimitedString(dep_inputs) << "\n";
+    for (auto tv : ir_utils::filterByType<TensorView>(dep_inputs)) {
+      if (input_sets.mappingExists(tv)) {
+        // Overlapped cat inputs
+        std::cerr << "Overlapped input: " << tv->toString() << "\n";
+        return true;
+      }
+      input_sets.appendToSet(tv, input_set);
+    }
+    return false;
+  };
+
+  auto inp_tv = resize_op->input(0)->as<TensorView>();
+  std::cerr << "Input: " << inp_tv->toString() << "\n";
+
+  if (inp_tv->isFusionInput()) {
+    return;
+  }
+
+  TensorView* original = inp_tv;
+  TensorView* clone = nullptr;
+  [[maybe_unused]] bool overlap = has_overlap(inp_tv);
+  // Needs to be privatized if dep tensors are used by non-cat
+  // consumers. For now, just always privatize
+  clone = privatize_input(inp_tv);
+
+  Expr* updated_op = resize_op;
+  std::cerr << "Replacing " << original->toString() << " with "
+            << clone->toString() << "\n";
+  updated_op = ir_utils::replaceValInExprInputs(updated_op, original, clone);
+
+  std::cerr << "New op: " << updated_op->toString();
+  std::cerr << "Num disjoint sets: " << input_sets.size() << "\n";
+  std::cerr << "Propagating slice resizes to each disjoint set\n";
+
+  fusion->printMath();
+
+  const auto& inp_dep_set = input_sets.getDisjointSetOf(clone);
+  std::cerr << "Dep: " << toDelimitedString(inp_dep_set.vector()) << "\n";
+  auto out_tv = updated_op->output(0)->as<TensorView>();
+
+  for (const auto i : c10::irange(out_tv->getLogicalDomain().size())) {
+    auto out_logical_id = out_tv->getLogicalDomain().at(i);
+    auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
+    if (resize == nullptr) {
+      continue;
+    }
+
+    auto tvs_to_schedule = inp_dep_set.vector();
+    for (auto& tv : tvs_to_schedule) {
+      if (tv == original) {
+        tv = clone;
+      }
+    }
+
+    std::cerr << "Scheduling " << toDelimitedString(tvs_to_schedule) << " with "
+              << out_logical_id->toString() << "\n";
+    // scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule,
+    // out_logical_id);
+    scheduler_tools::scheduleLoopDomainsBy(tvs_to_schedule, resize);
+  }
+}
+
 } // namespace scheduler_tools
 } // namespace nvfuser
