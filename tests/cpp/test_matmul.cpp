@@ -3892,9 +3892,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   tv1c->reorder({{-1, -2}});
   tv1c->applyMmaSwizzleForTMALoad(swizzle);
 
-  tv0c->computeAt(tv0c->uses().at(0)->output(0)->as<TensorView>(), 3);
-  tv1c->computeAt(tv1c->uses().at(0)->output(0)->as<TensorView>(), 3);
-
   {
     tv2->split(-3, getM(macro));
     tv2->split(-2, getN(macro));
