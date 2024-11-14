@@ -3874,13 +3874,14 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
 
   // Schedule operands
   for (TensorView* tv : {tv0c, tv1c}) {
+    tv->reorder({{-3, -1}}); // [K, M, N] -> [M, N, K]
     // NOTE: above axes are given in MNK order, but inputs are in KMN
-    tv->split(-3, getK(macro));
-    tv->split(-2, cta_m);
-    tv->split(-1, cta_n);
+    tv->split(-3, cta_m);
+    tv->split(-2, cta_n);
+    tv->split(-1, getK(macro));
     // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
     // [Ko, Ki, Mo, Mi, No, Ni] -> [Mo, No, Ko, Mi, Ni, Ki]
-    tv->reorder({{-6, -4}, {-5, -1}, {-3, -3}});
+    tv->reorder({{-5, -3}, {-3, -2}});
     tv->axis(0)->parallelize(ParallelType::BIDy);
     tv->axis(1)->parallelize(ParallelType::BIDx);
   }
