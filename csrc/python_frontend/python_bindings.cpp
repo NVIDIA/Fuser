@@ -1003,6 +1003,35 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
       .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
+          "_setup_segmentation",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            // Instrumentation to mark the beginning of segmentation
+            inst::Trace::instance()->beginEvent(
+                "FusionDefinition Segmentation");
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
+            }
+            return self.setupSegmentation(inputs);
+          })
+      .def(
+          "_finalize_segmentation",
+          [](FusionDefinition& self) {
+            self.finalizeSegmentation();
+            // Mark the end of segmentation
+            inst::Trace::instance()->endEvent(nullptr);
+          })
+      .def(
           "__repr__",
           [](FusionDefinition& self) {
             std::stringstream ss;
@@ -1016,7 +1045,9 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::optional<int64_t> device,
              bool override_user_schedule,
              bool capture_debug_output,
-             bool profile) {
+             bool profile,
+             std::vector<std::string> _enable_options,
+             std::vector<std::string> _disable_options) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -1041,7 +1072,9 @@ void initNvFuserPythonBindings(PyObject* module) {
                 int8_device,
                 override_user_schedule,
                 capture_debug_output,
-                profile);
+                profile,
+                _enable_options,
+                _disable_options);
           },
           py::arg("inputs"),
           py::kw_only(),
@@ -1049,6 +1082,8 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("override_user_schedule") = false,
           py::arg("capture_debug_output") = false,
           py::arg("profile") = false,
+          py::arg("_enable_options") = py::none(),
+          py::arg("_disable_options") = py::none(),
           py::return_value_policy::reference)
       .def_static(
           "_profile",

@@ -416,6 +416,8 @@ class NVFuserTest(TestCase):
         fusion_func,
         inputs,
         *,
+        _enable_options=[],
+        _disable_options=[],
         new_fusion_expected=True,
         device=None,
         is_clonable=True,
@@ -432,7 +434,12 @@ class NVFuserTest(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
         torch.manual_seed(0)
-        out = fd.execute(inputs, device=device)
+        out = fd.execute(
+            inputs,
+            device=device,
+            _enable_options=_enable_options,
+            _disable_options=_disable_options,
+        )
 
         self.assertTrue(
             check_captured_python_definition(out, fd, inputs_captured, device)

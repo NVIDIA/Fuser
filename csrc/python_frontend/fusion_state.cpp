@@ -68,6 +68,27 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
   return os;
 }
 
+std::vector<Val*> getExtents(Fusion* fusion) {
+  NVF_CHECK(fusion != nullptr, "Fusion is undefined.");
+
+  std::vector<Val*> extents;
+  for (Val* v : fusion->inputs()) {
+    // short-circuit: skip if not TensorView
+    if (!v->isA<TensorView>()) {
+      continue;
+    }
+    TensorView* tv = v->as<TensorView>();
+    std::vector<IterDomain*> logical_dom =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+    std::transform(
+        logical_dom.begin(),
+        logical_dom.end(),
+        std::back_inserter(extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+  }
+  return extents;
+}
+
 FusionState::FusionState()
     : end_record_(new EndRecord()),
       recording_(),
@@ -247,27 +268,6 @@ const std::vector<int64_t>& FusionState::outputs() const {
 
 const std::vector<int64_t>& FusionState::extents() const {
   return extents_fid_;
-}
-
-std::vector<Val*> FusionState::getExtents(Fusion* fusion) {
-  NVF_CHECK(fusion != nullptr, "Fusion is undefined.");
-
-  std::vector<Val*> extents;
-  for (Val* v : fusion->inputs()) {
-    // short-circuit: skip if not TensorView
-    if (!v->isA<TensorView>()) {
-      continue;
-    }
-    TensorView* tv = v->as<TensorView>();
-    std::vector<IterDomain*> logical_dom =
-        TensorDomain::noReductions(tv->getLogicalDomain());
-    std::transform(
-        logical_dom.begin(),
-        logical_dom.end(),
-        std::back_inserter(extents),
-        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
-  }
-  return extents;
 }
 
 void FusionState::addExtents() {

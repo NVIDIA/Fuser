@@ -203,6 +203,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
@@ -270,6 +271,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/segmentation.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/translation.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp

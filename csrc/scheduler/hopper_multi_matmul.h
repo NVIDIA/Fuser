@@ -120,16 +120,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
       const std::vector<TensorView*>& operands,
       std::vector<TensorView*>& smem_operands);
 
-  // We add two LoadStore operators to the inputs of our fusions. The first
-  // one is for a read from global memory and the second one (below) is for a
-  // cache read. As an optimizaton, we avoid adding an operator if there's an
-  // existing LoadStoreOp present. Please note that for the second LoadStore
-  // we don't propagate the allocation domain, since the scheduler sets the
-  // allocation domain in the registers.
-  void addSetsForCacheReads(
-      const std::vector<TensorView*>& tv_smems,
-      std::vector<TensorView*>& tv_rs);
-
   //! Swizzle the M and N outer dimensions after makeTile has been called.
   //! This updates outer_dim_roles if we introduce a new dimension, which can
   //! happen if tv is missing a merged axis, in which case we skip merging after
@@ -163,17 +153,15 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during
   //! defineOperandCaches().
-  void scheduleOperandSmemStores();
+  void scheduleOperands();
 
-  void scheduleMmaOperands(
-      std::vector<TensorView*>& tvs,
-      const std::optional<MmaOperand> operand_type);
+  //! Check that there is no computation in the prologues, since we do not
+  //! support that (yet)
+  void inspectPrologues() const;
 
-  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
-  // then operand_type should be std::nullopt.
+  void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
+
   void scheduleMmaResults();
-
-  void schedulePrologues();
 
   void scheduleOutputTensor(TensorView* c);
 
@@ -188,8 +176,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void setUpInlining();
 
-  // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
-  // transforms have been applied and inlining
   void setUpCircularBuffering();
 
   // Map TensorView's iterDomain to its ValGroup.

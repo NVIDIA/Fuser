@@ -1758,7 +1758,8 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   const DataType dtype = DataType::Float;
   const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
 
-  auto tv0 = makeContigTensor(2, dtype);
+  auto tv0 = makeSymbolicTensor(2, dtype);
+  tv0->setContiguity({false, true});
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
