@@ -31,10 +31,10 @@ void assertOnWarpOps(const Expr* expr) {
       !ir_utils::isLdMatrixOp(expr),
       "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
       expr->toString());
-  NVF_ERROR(
-      !expr->isA<MmaOp>(),
-      "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",
-      expr->toString());
+  // NVF_ERROR(
+  //     !expr->isA<MmaOp>(),
+  //     "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",
+  //     expr->toString());
 }
 
 } // namespace

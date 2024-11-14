@@ -38,9 +38,16 @@ struct hash<PAndID> {
 namespace nvfuser {
 
 void ParallelDimensionMap::build(Fusion* fusion) {
+  VectorOfUniqueEntries<ParallelType> warp_specialized_types;
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
+    if (tv->isCircularBuffered() &&
+        std::holds_alternative<WarpSpecialized>(tv->circularBufferingType())) {
+      const auto& warp_specialized =
+          std::get<WarpSpecialized>(tv->circularBufferingType());
+      warp_specialized_types.pushBack(warp_specialized.on);
+    }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
       if (!isParallelTypeThread(ptype)) {
@@ -83,6 +90,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
+
+  for (auto pt : warp_specialized_types) {
+    setWarpSpecializeOn(pt);
+  }
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
@@ -135,6 +146,11 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 
   // TIDx is no longer exact
   exact_types_.erase(ParallelType::TIDx);
+}
+
+void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
+  dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_map_.at(pt), 1);
+  exact_types_.erase(pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {

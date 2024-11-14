@@ -46,6 +46,8 @@ class ParallelDimensionMap {
   //! multiple of the warp size.
   void adjustMappingsForWarpPadding();
 
+  void setWarpSpecializeOn(ParallelType pt);
+
  private:
   //! Maps from parallel types to dimensions, which are constant if
   //! a unique value is found.
