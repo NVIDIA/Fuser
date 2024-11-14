@@ -1750,6 +1750,35 @@ class CircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
+    // Prefetch:
+    auto prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop->iter_domain());
+    auto stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop->iter_domain());
+    auto circular_buffer_tvs =
+        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
+            circular_buffer_loop->iter_domain());
+    VectorOfUniqueEntries<TensorView*> mbarriers;
+    for (auto tv : circular_buffer_tvs) {
+      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      NVF_ERROR(ldst != nullptr);
+      auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+      mbarriers.pushBack(mbarrier);
+    }
+    for (auto mbarrier : mbarriers) {
+      auto prefetch_loop = ir_utils::createRangeLoop(prefetch_distance);
+      auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
+          mbarrier,
+          SimplifyingIrBuilder::addExpr(
+              prefetch_loop->indexOrStartIfTrivial(), stage_depth));
+      auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
+          /*state=*/nullptr, mbarrier_to_arrive);
+      prefetch_loop->body().push_back(prefetch);
+      warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+    }
+
     // Compute loop:
     ForLoop* compute_loop =
         CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync::clone(

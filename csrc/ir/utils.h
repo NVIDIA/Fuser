@@ -737,4 +737,6 @@ bool isRecursivelyDefined(Val* val);
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
 
+ForLoop* createRangeLoop(int64_t size);
+
 } // namespace nvfuser::ir_utils
