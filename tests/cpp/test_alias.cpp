@@ -1549,7 +1549,8 @@ TEST_F(AliasTest, AliasOutputNoSegmentation) {
   fusion->addInput(in);
   TensorView* out = add(in, IrBuilder::create<Val>(3.141));
   fusion->addOutput(out);
-  // this is an inplace update and shouldn't be segmented into its own kernel by alias analysis
+  // this is an inplace update and shouldn't be segmented into its own kernel by
+  // alias analysis
   TensorView* update_input = set(out);
   fusion->aliasOutputToInput(update_input, in, AllocationType::ReuseBuffer);
 
@@ -1569,7 +1570,11 @@ TEST_F(AliasTest, AliasOutputNoSegmentation) {
 
   // Verify output values.
   testValidate(
-      executor_cache.fusion(), out_tensors, {original_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {original_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
