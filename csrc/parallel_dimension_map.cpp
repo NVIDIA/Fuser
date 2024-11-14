@@ -149,7 +149,12 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 }
 
 void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
-  dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_map_.at(pt), 1);
+  auto dim_it = dim_map_.find(pt);
+  if (dim_it == dim_map_.end()) {
+    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
+  } else {
+    dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_it->second, 1);
+  }
   exact_types_.erase(pt);
 }
 
