@@ -1287,16 +1287,31 @@ void scheduleStMatrixForMmaOutput(
   NVF_ERROR(
       ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
       "We only support 16x16 and 16x16 stmatrix now");
+
+  NVF_ERROR(
+      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
+
+  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
   auto s =
       mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
   tv->setLoopDomain(s.as<IterDomain*>());
+
   if (tile_m == 16 && tile_n == 16) {
+    // Let [M, N] be [64, 32]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+    // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
     tv->split(-3, 2);
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
     tv->reorder({{-4, -5}});
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
     tv->merge(2);
     tv->merge(2);
   } else if (tile_m == 16 && tile_n == 8) {
+    // Let [M, N] be [64, 16]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
+    // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
     tv->reorder({{-3, -4}});
+    // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(2);
   }
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
