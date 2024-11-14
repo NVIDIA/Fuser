@@ -624,7 +624,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       iop_candidates.end(),
       [](const InnerOuterParams& a, const InnerOuterParams& b) {
         // If a thread can use more registers than required, there is a high
-        // chance that it can void register spilling and compiler can optimize
+        // chance that it can avoid register spilling and compiler can optimize
         // for better instruction level parallelism.
         int64_t extra_regs_a =
             a.available_register_per_thread - a.required_register_per_thread;
