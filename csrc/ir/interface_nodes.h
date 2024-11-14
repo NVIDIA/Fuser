@@ -85,6 +85,7 @@ struct WarpSpecialized {
 
 using CircularBufferingType = std::variant<Pipelined, WarpSpecialized>;
 
+#if 0
 if (std::holds_alternative<Pipelined>(tv->getCircularBufferType())) {
   // The behavior today. Clone loop like this:
   //   allocate mbarriers[stage_depth];
@@ -147,6 +148,7 @@ if (std::holds_alternative<Pipelined>(tv->getCircularBufferType())) {
 } else {
   // Always use the original loop variable, no special handle here
 }
+#endif
 
 // A non-circle-buffered loop looks like below (assuming both the load and the
 // compute are async ops):
