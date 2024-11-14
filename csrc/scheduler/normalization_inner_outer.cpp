@@ -576,8 +576,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimx = bdimx;
     iop.bdimy = bdimy;
     // (3) Derived metrics warps_per_sm and register usage for sorting
-    iop.warps_per_sm = iop.threads_per_block / dev_prop->warpSize * iop.gdimy /
-        device_multiprocessor_count;
+    iop.warps_per_sm = ceilDiv(iop.threads_per_block, dev_prop->warpSize) *
+        iop.gdimy / device_multiprocessor_count;
     iop.available_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
     iop.required_register_per_thread =
@@ -677,7 +677,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
-    iop.warps_per_sm = (iop.bdimx * iop.bdimy) / dev_prop->warpSize *
+    iop.warps_per_sm = ceilDiv(iop.bdimx * iop.bdimy, dev_prop->warpSize) *
         iop.gdimy / device_multiprocessor_count;
     iop.available_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
