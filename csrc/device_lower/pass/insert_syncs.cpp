@@ -979,8 +979,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       const int64_t prefetch_distance =
           gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
               circular_buffer_loop->iter_domain());
-      std::cout << "Prefetch distance: " << prefetch_distance << std::endl;
-      std::cout << "Stage depth: " << stage_depth << std::endl;
       pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
     }
     NVF_ERROR(pending_ops != std::numeric_limits<int64_t>::max());
@@ -1036,7 +1034,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         while (!sync_exprs.empty()) {
           // TODO: wrong
           if (for_loop->circularBufferLoopStage() == CircularBufferLoopStage::ComputeWarp) {
-            std::cout << for_loop->toString() << std::endl;
             NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
             registerInsertAfter(
                 for_loop->body().exprs().at(for_loop->body().exprs().size() - 2),
