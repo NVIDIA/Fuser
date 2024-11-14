@@ -1222,8 +1222,6 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
       for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
-      auto wait_empty = createMbarrierWait(
-          circular_buffer_load_tvs_.begin()->definition()->as<LoadStoreOp>());
     }
     return elect_sync_if_then_else_;
   }
@@ -1253,6 +1251,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
+    auto wait_empty = createMbarrierWait(expr);
+    if_expr->thenBody().push_back(wait_empty);
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
 
