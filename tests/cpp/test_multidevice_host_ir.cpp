@@ -106,14 +106,14 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   hic->addInput(post_compute->inputs().back());
   hic->addOutput(communication->outputs().back());
 
-  // [Step 8)] Execute the Host program
-  HostIrExecutorParams params;
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   if (with_sharding_annotations && use_fusion_executor_cache) {
     // sharding + autoscheduler is not supported at this point
     params.skip_auto_scheduling = true;
   }
-  HostIrExecutor hie(std::move(hic), communicator_, params);
+  HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   auto options = at::TensorOptions().device(communicator_->device());
   at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
@@ -201,14 +201,14 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   hic->addInput(post_compute->inputs().back());
   hic->addOutput(communication->outputs().back());
 
-  // [Step 8)] Execute the Host program
-  HostIrExecutorParams params;
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   if (with_sharding_annotations && use_fusion_executor_cache) {
     // sharding + autoscheduler is not supported at this point
     params.skip_auto_scheduling = true;
   }
-  HostIrExecutor hie(std::move(hic), communicator_, params);
+  HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   auto options = at::TensorOptions().device(communicator_->device());
   at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
@@ -284,7 +284,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   }
   hic->pushBackTopLevelExprs(wait);
 
-  HostIrExecutor hie(std::move(hic), communicator_);
+  HostIrEvaluator hie(std::move(hic), communicator_);
 
   auto options = at::TensorOptions().device(communicator_->device());
   at::Tensor send_buffer_aten =
@@ -334,7 +334,7 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
     hic->pushBackTopLevelExprs(host_expr);
   }
 
-  HostIrExecutor hie(std::move(hic), communicator_);
+  HostIrEvaluator hie(std::move(hic), communicator_);
 
   auto options = at::TensorOptions().device(communicator_->device());
   at::Tensor send_buffer_aten =

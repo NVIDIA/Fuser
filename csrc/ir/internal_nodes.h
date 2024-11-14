@@ -2609,40 +2609,40 @@ class SdpaBwdOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* grad_query() const {
-    return output(0);
+  TensorView* grad_query() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* grad_key() const {
-    return output(1);
+  TensorView* grad_key() const {
+    return output(1)->as<TensorView>();
   }
 
-  Val* grad_value() const {
-    return output(2);
+  TensorView* grad_value() const {
+    return output(2)->as<TensorView>();
   }
 
-  Val* grad_attn() const {
-    return input(0);
+  TensorView* grad_attn() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* query() const {
-    return input(1);
+  TensorView* query() const {
+    return input(1)->as<TensorView>();
   }
 
-  Val* key() const {
-    return input(2);
+  TensorView* key() const {
+    return input(2)->as<TensorView>();
   }
 
-  Val* value() const {
-    return input(3);
+  TensorView* value() const {
+    return input(3)->as<TensorView>();
   }
 
-  Val* attn_out() const {
-    return input(4);
+  TensorView* attn_out() const {
+    return input(4)->as<TensorView>();
   }
 
-  Val* logsumexp() const {
-    return input(5);
+  TensorView* logsumexp() const {
+    return input(5)->as<TensorView>();
   }
 
   Val* dropout_p() const {

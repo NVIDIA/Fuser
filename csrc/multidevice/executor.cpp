@@ -75,7 +75,7 @@ std::vector<at::Tensor> allocateOutputSpace(
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    hir::HostIrExecutorParams params)
+    hir::HostIrEvaluatorParams params)
     : comm_(comm), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
@@ -157,9 +157,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     hic->addOutput(ir_cloner.clone(output));
   }
 
-  // Create the HostIrExecutor representing the host program
+  // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
-      std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, params);
+      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,

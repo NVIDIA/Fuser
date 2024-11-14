@@ -80,93 +80,94 @@ TEST_F(Tutorial, Memcpy) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
+  {
+    // Next, lower the fusion to Kernel, generate CUDA kernel source and then
+    // compile it with nvrtc. All of them are done by KernelExecutor
+    KernelExecutor ke;
+    ke.compile(&fusion, aten_inputs);
 
-  // Next, lower the fusion to Kernel, generate CUDA kernel source and then
-  // compile it with nvrtc. All of them are done by KernelExecutor
-  KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+    // KernelExecutor now has a compiled kernel, which can be executed as:
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
+    // Note that this run is done using just one thread, which will be
+    // corrected below.
 
-  // KernelExecutor now has a compiled kernel, which can be executed as:
-  std::vector<at::Tensor> outputs = ke.run(aten_inputs);
-  // Note that this run is done using just one thread, which will be
-  // corrected below.
+    // To validate the output, we can just assert that the output is
+    // equal to the input as this is just a copy fusion. More commonly,
+    // though, testValidate is used to validate outputs while
+    // automatically adjusting thresholds of valid deviations
+    ASSERT_TRUE(outputs[0].equal(t0));
 
-  // To validate the output, we can just assert that the output is
-  // equal to the input as this is just a copy fusion. More commonly,
-  // though, testValidate is used to validate outputs while
-  // automatically adjusting thresholds of valid deviations
-  ASSERT_TRUE(outputs[0].equal(t0));
+    // Next, instead of just running the fusion as is, we manually
+    // schedule it so that it runs in parallel. In this case, we only
+    // have one expression, i.e., the set expression, so we just need to
+    // schedule tv1.
 
-  // Next, instead of just running the fusion as is, we manually
-  // schedule it so that it runs in parallel. In this case, we only
-  // have one expression, i.e., the set expression, so we just need to
-  // schedule tv1.
+    // tv1 is a 2D tensor. Let its domain be [i0, i1]. What we are going
+    // to do is to transform this 2D domain to the multi-dimensional
+    // CUDA parallelism, i.e., a grid consisting of multiple thread
+    // blocks, each of which consisting of multiple threads. A common
+    // transformation pattern is to merge all of each axis to get a
+    // flattened domain, and then split the domain to factor out axes
+    // that are parallelized by threads and thread blocks.
 
-  // tv1 is a 2D tensor. Let its domain be [i0, i1]. What we are going
-  // to do is to transform this 2D domain to the multi-dimensional
-  // CUDA parallelism, i.e., a grid consisting of multiple thread
-  // blocks, each of which consisting of multiple threads. A common
-  // transformation pattern is to merge all of each axis to get a
-  // flattened domain, and then split the domain to factor out axes
-  // that are parallelized by threads and thread blocks.
+    // For example, the current domain of tv1 looks like [i0, i1]. We
+    // can merge the two axes by:
+    tv1->merge(0, 1);
+    // This creates a single axis that merges i0 and i1. Its extent is a
+    // multiplication of the extents of i0 and i1, so we commonly
+    // represent it as [i0*i1]. It can be also examined with:
+    if (verbose_) {
+      std::cout << tv1->toString() << std::endl;
+    }
 
-  // For example, the current domain of tv1 looks like [i0, i1]. We
-  // can merge the two axes by:
-  tv1->merge(0, 1);
-  // This creates a single axis that merges i0 and i1. Its extent is a
-  // multiplication of the extents of i0 and i1, so we commonly
-  // represent it as [i0*i1]. It can be also examined with:
-  if (verbose_) {
-    std::cout << tv1->toString() << std::endl;
-  }
+    // Next, we factor out a subdomain for threads in each thread
+    // block.
+    tv1->split(0, 256);
+    // In this case, the flattened domain is now 2D domain with an inner
+    // domain of extent 256 and an outer domain of extent i0*i1/256, so
+    // the tensor should now look like [i0*i1/256, 256]. Note that in
+    // reality we do ceil division as i0*i1 may not be divisible by
+    // 256.
+    if (verbose_) {
+      std::cout << tv1->toString() << std::endl;
+    }
 
-  // Next, we factor out a subdomain for threads in each thread
-  // block.
-  tv1->split(0, 256);
-  // In this case, the flattened domain is now 2D domain with an inner
-  // domain of extent 256 and an outer domain of extent i0*i1/256, so
-  // the tensor should now look like [i0*i1/256, 256]. Note that in
-  // reality we do ceil division as i0*i1 may not be divisible by
-  // 256.
-  if (verbose_) {
-    std::cout << tv1->toString() << std::endl;
-  }
+    // Now that we have two domains, we can parallelize each domain
+    // using IterDomain::parallelize(ParallelType). Specifically, to
+    // parallelize the inner domain with threads, we can do:
+    tv1->axis(1)->parallelize(ParallelType::TIDx);
+    // Similarly, to paralllize the outer domain with thread blocks:
+    tv1->axis(0)->parallelize(ParallelType::BIDx);
+    // This way, the inner and outer axes are divided by blockDim.x
+    // threads and gridDim.x blocks, respectively. Each element in each
+    // axis is computed by one thread or one block, so this means that
+    // the size of each thread block and a grid must match the size of
+    // each domain. Specifically, blockDim.x and gridDim.x must be 256
+    // and i0*i1/256, respectively.
 
-  // Now that we have two domains, we can parallelize each domain
-  // using IterDomain::parallelize(ParallelType). Specifically, to
-  // parallelize the inner domain with threads, we can do:
-  tv1->axis(1)->parallelize(ParallelType::TIDx);
-  // Similarly, to paralllize the outer domain with thread blocks:
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  // This way, the inner and outer axes are divided by blockDim.x
-  // threads and gridDim.x blocks, respectively. Each element in each
-  // axis is computed by one thread or one block, so this means that
-  // the size of each thread block and a grid must match the size of
-  // each domain. Specifically, blockDim.x and gridDim.x must be 256
-  // and i0*i1/256, respectively.
+    // Now that the fusion is parallelized, it can be examined again
+    if (verbose_) {
+      fusion.printMath();
+      // Notice that the axes of tv1 are now printed with blockIdx.x and
+      // threadIdx.x, which shows they are parallelized by the
+      // respective parallel types
 
-  // Now that the fusion is parallelized, it can be examined again
-  if (verbose_) {
-    fusion.printMath();
-    // Notice that the axes of tv1 are now printed with blockIdx.x and
-    // threadIdx.x, which shows they are parallelized by the
-    // respective parallel types
-
-    // The CUDA kernel should look very differently as there should be
-    // no for-loops
-    fusion.printKernel();
+      // The CUDA kernel should look very differently as there should be
+      // no for-loops
+      fusion.printKernel();
+    }
   }
 
   // Since the fusion is modified, we need to recompile it.
-  KernelExecutor ke2;
-  ke2.compile(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
 
   // This time, the kernel is launched with multiple threads and
   // thread blocks. Note that the launch configurations, i.e., the
   // thread block and grid shapes, are autoatically inferred from the
   // given inputs. To see how many threads are used, run this test
   // with NVFUSER_DUMP=launch_param
-  outputs = ke2.run(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   ASSERT_TRUE(outputs[0].equal(t0));
 }
