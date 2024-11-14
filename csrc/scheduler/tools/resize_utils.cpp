@@ -549,18 +549,25 @@ void propagateResizeTensorOpToInputs(Expr* resize_op) {
   std::cerr << "Dep: " << toDelimitedString(inp_dep_set.vector()) << "\n";
   auto out_tv = updated_op->output(0)->as<TensorView>();
 
+  auto tvs_to_schedule = inp_dep_set.vector();
+  for (auto& tv : tvs_to_schedule) {
+    if (tv == original) {
+      tv = clone;
+    }
+  }
+
+  std::cerr << "Propagating pre-resize producer loop domain "
+            << toDelimitedString(tvs_to_schedule) << " with "
+            << clone->toString() << "\n";
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      tvs_to_schedule, clone->getLoopDomain());
+
   for (const auto i : c10::irange(out_tv->getLogicalDomain().size())) {
     auto out_logical_id = out_tv->getLogicalDomain().at(i);
     auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
     if (resize == nullptr) {
       continue;
-    }
-
-    auto tvs_to_schedule = inp_dep_set.vector();
-    for (auto& tv : tvs_to_schedule) {
-      if (tv == original) {
-        tv = clone;
-      }
     }
 
     std::cerr << "Scheduling " << toDelimitedString(tvs_to_schedule) << " with "

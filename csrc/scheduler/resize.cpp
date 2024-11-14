@@ -91,11 +91,13 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
   // Add more conditions to check
 
   // Ignore reshape for now
+#if 0  
   if (!ir_utils::getViewOps(fusion).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Reshape not yet supported.");
     return false;
   }
+#endif
 
   std::vector<Expr*> resize_ops =
       ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
@@ -560,10 +562,9 @@ void ResizeScheduler::scheduleV1(
     } else {
       scheduler_tools::propagateCatToInputs(fusion);
 
-      std::cout << "After cat prop" << std::endl;
+      std::cerr << "After cat prop\n";
 
       fusion->printMath();
-      std::cout << std::endl;
 
       for (auto tv : fusion->allTvs()) {
         std::cerr << "Scheduled TV (after cat prop): " << tv->toString()
@@ -605,9 +606,8 @@ void ResizeScheduler::scheduleV1(
     reference_order_tv = getAllocationReferenceTensor(fusion);
   }
 
-  std::cout << "scheduling done\n";
+  std::cerr << "scheduling done\n";
   fusion->printMath();
-  std::cout << std::endl;
 
   for (auto tv : fusion->allTvs()) {
     std::cerr << "Scheduled TV: " << tv->toString() << "\n";
@@ -689,7 +689,6 @@ void ResizeScheduler::scheduleV1(
   };
 
   fusion->printMath();
-  std::cout << std::endl;
 
   NVF_ERROR(
       reference_tv != nullptr,
@@ -717,10 +716,9 @@ void ResizeScheduler::scheduleV1(
         tvs_to_schedule, reference_tv->getLoopDomain());
   }
 
-  std::cout << "Reference scheduling propagated\n";
+  std::cerr << "Reference scheduling propagated\n";
   fusion->printMath();
   fusion->print();
-  std::cout << std::endl;
 
   for (auto tv : fusion->allTvs()) {
     std::cerr << "Final scheduled TV: " << tv->toString() << "\n";
@@ -737,12 +735,6 @@ void ResizeScheduler::scheduleV1(
     }
   }
 
-  {
-    IdModel id_model(fusion);
-    std::cout << id_model.idGraph(IdMappingMode::EXACT).toString();
-    std::cout << std::endl;
-  }
-
   inlineMost();
 
   // scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
@@ -756,6 +748,168 @@ void ResizeScheduler::scheduleV1(
   std::cerr << "All done\n";
   fusion->printMath();
 }
+
+namespace {
+
+std::vector<std::pair<TensorView*, std::vector<TensorView*>>>
+getReferenceTensors2(Fusion* fusion) {
+  std::vector<TensorView*> ref_candidates;
+
+  const auto all_tvs = fusion->allTvs();
+
+  // Use resize output tensors and fusion outputs as reference
+  // candidates
+
+  // TODO: canScheduleCompileTime should do some more checks if
+  // disconnected ops should be merged
+  for (auto expr : fusion->exprs()) {
+    for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      if (expr->isOneOf<SliceOp, PadOp>() || output_tv->isFusionOutput()) {
+        ref_candidates.emplace_back(output_tv);
+      }
+    }
+  }
+
+  NVF_ERROR(!ref_candidates.empty())
+
+  IdModel id_model(fusion, /*build_models=*/false);
+  const auto& graph = id_model.buildExactGraph();
+
+  auto can_schedule = [&graph](TensorView* ref, TensorView* tv) -> bool {
+    ValGroups ref_groups = graph.toGroups(ref->getLoopDomain());
+
+    // ValGroups tv_groups = graph.toGroups(tv->getLogicalDomain());
+    ValGroups tv_groups = graph.toGroups(tv->getLoopDomain());
+
+    auto path_from_ref = ValGraphBFS::getExprsBetween(
+        graph, ref_groups, tv_groups, /*require_all_to_visited=*/false);
+
+    auto path_outputs = getOutputsOfExprPath(graph, path_from_ref);
+    NVF_ERROR(path_outputs.size() <= tv_groups.size());
+
+    if (path_outputs.size() < tv_groups.size()) {
+      // something is unreachable
+      for (const auto& tv_group : tv_groups) {
+        if (ref_groups.has(tv_group) || path_outputs.has(tv_group)) {
+          continue;
+        }
+
+        // Unreachable. If it's a broadcast, ignore it. Otherwise,
+        // this tensor cannot be scheduled by this reference
+        if (tv_group->front()->as<IterDomain>()->isBroadcast()) {
+          continue;
+        }
+
+        // tv_group is unreachable. Give up
+        std::cerr << "Unreachable tv group: " << nvfuser::toString(tv_group)
+                  << " of " << tv->toString() << "\n";
+        return false;
+      }
+    }
+
+    // if the path involves resize, don't consider a valid refernce
+    // for this tensor as resize should not be propagated
+    for (const auto& [expr, dir] : path_from_ref) {
+      if (expr->front()->isA<Resize>()) {
+        // resize found
+        std::cerr << "Resize found: " << expr->front()->toString() << " of "
+                  << tv->toString() << "\n";
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  std::unordered_map<TensorView*, std::unordered_set<TensorView*>> grouping_map;
+  std::unordered_map<TensorView*, TensorView*> tv_to_ref;
+
+  // Check duplicates and make sure completeness
+  for (auto tv : all_tvs) {
+    // Don't care fusion inputs
+    if (tv->isFusionInput()) {
+      // Mark it as grouped for convenience
+      tv_to_ref.emplace(tv, nullptr);
+      continue;
+    }
+
+    // std::vector<bool> match_with_refs(false, ref_candidates.size());
+    // int64_t num_matches = 0;
+    // TensorView* matched_ref = nullptr;
+    for (const auto ref_candidate : ref_candidates) {
+      auto b = tv == ref_candidate || can_schedule(ref_candidate, tv);
+      if (b) {
+        //++num_matches;
+        grouping_map[ref_candidate].insert(tv);
+        tv_to_ref.emplace(tv, ref_candidate);
+        std::cerr << tv->toString() << " -> Ref: " << ref_candidate->toString()
+                  << "\n";
+        break;
+      }
+    }
+#if 0
+    NVF_ERROR(num_matches != 0, "Uncaptured tensor: ", tv->toString());
+
+    // If multiple refs are candidates, don't group it at this time
+    if (num_matches == 1) {
+      grouping_map[matched_ref].insert(tv);
+      tv_to_ref.emplace(tv, matched_ref);
+      std::cerr << tv->toString() << " -> Ref: " << matched_ref->toString() << "\n";
+    }
+#endif
+  }
+
+  std::stringstream ss;
+  if (tv_to_ref.size() != all_tvs.size()) {
+    std::cerr << "All tvs: " << toDelimitedString(all_tvs) << "\n";
+    for (const auto& [tv, ref] : tv_to_ref) {
+      NVF_ERROR(tv != nullptr);
+      std::cerr << tv->toString() << " -> "
+                << ((ref == nullptr) ? std::string("null") : ref->toString())
+                << "\n";
+    }
+    for (auto tv : all_tvs) {
+      if (tv_to_ref.find(tv) == tv_to_ref.end()) {
+        ss << "Failed to capture: " << tv->toString() << "\n";
+      }
+    }
+  }
+  NVF_ERROR(tv_to_ref.size() == all_tvs.size(), ss.str());
+
+  // Create a sorted grouping list
+  std::vector<std::pair<TensorView*, std::vector<TensorView*>>> ref_list;
+  for (const auto ref : ref_candidates) {
+    auto it = grouping_map.find(ref);
+    if (it == grouping_map.end()) {
+      // This ref wasn't used at all
+      continue;
+    }
+
+    const auto& member_set = it->second;
+
+    ref_list.emplace_back(ref, std::vector<TensorView*>{});
+    auto& member_list = ref_list.back().second;
+    for (auto tv : all_tvs) {
+      if (member_set.count(tv)) {
+        member_list.push_back(tv);
+      }
+    }
+  }
+
+  std::cerr << "Disjoint grouping of tensors with representatives:\n";
+  for (const auto& [ref, set] : ref_list) {
+    std::cerr << "\tRepresentative: " << ref->toString() << "\n"
+              << "\t{";
+    for (auto tv : set) {
+      std::cerr << " T" << tv->name();
+    }
+    std::cerr << "}\n";
+  }
+
+  return ref_list;
+}
+
+} // namespace
 
 void ResizeScheduler::scheduleV2(
     Fusion* fusion,
@@ -782,7 +936,57 @@ void ResizeScheduler::scheduleV2(
   }
 
   std::cerr << "After resize propagation\n";
-  fusion->printMath();
+
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << "Scheduled TV (after all prop): " << tv->toString() << "\n";
+    if (tv->hasRoot()) {
+      std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain()) << "\n";
+    }
+    std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
+              << "\n";
+    std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+    std::cerr << "\tAdditional ids: "
+              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString(4);
+    }
+  }
+
+  const auto ref_tensors = getReferenceTensors2(fusion);
+
+  for (const auto& [ref_tv, tvs_to_schedule] : ref_tensors) {
+    std::cerr << "Reference: " << ref_tv->toString() << "\n";
+    std::cerr << "Tvs to schedule: " << toDelimitedString(tvs_to_schedule)
+              << "\n";
+
+    ref_tv->flatten();
+    ref_tv->split(0, 128);
+    ref_tv->split(0, 1 << 15);
+    ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+    ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+
+    std::cerr << "Scheduled reference:\n";
+    ref_tv->printTransforms();
+
+    scheduler_tools::scheduleLoopDomainsLike(
+        tvs_to_schedule, ref_tv->getLoopDomain());
+  }
+
+  std::cerr << "All done\n";
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << "Final scheduled T" << tv->name() << "\n";
+    if (tv->hasRoot()) {
+      std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain()) << "\n";
+    }
+    std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
+              << "\n";
+    std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+    std::cerr << "\tAdditional ids: "
+              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString(4);
+    }
+  }
 
   return;
 }

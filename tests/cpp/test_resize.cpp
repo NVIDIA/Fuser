@@ -4332,8 +4332,8 @@ TEST_F(ResizeTest, SliceSliceConcatConcat2) {
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   auto ref = at::concat(
       {at::slice(t0, 0, 0, rope_size / 2) + 1,
@@ -4514,8 +4514,8 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   auto t2 = at::randn({seq_length, rope_n_elem}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   if (getenv("BENCHMARK")) {
     [[maybe_unused]] int64_t mem_size = 1;
@@ -4544,7 +4544,7 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
       clearL2Cache();
       // FusionProfiler::start();
       // FusionProfiler::createSegments(1);
-      outputs = fec.runFusionWithInputs(inputs);
+      outputs = executor_cache.runFusionWithInputs(inputs);
       // FusionProfiler::stop();
       // auto t = FusionProfiler::lastKernelTime();
       // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
@@ -4832,8 +4832,8 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
   auto t2 = at::randn({seq_length, rope_n_elem}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   if (getenv("BENCHMARK")) {
     [[maybe_unused]] int64_t mem_size = 1;
@@ -4862,7 +4862,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
       clearL2Cache();
       // FusionProfiler::start();
       // FusionProfiler::createSegments(1);
-      outputs = fec.runFusionWithInputs(inputs);
+      outputs = executor_cache.runFusionWithInputs(inputs);
       // FusionProfiler::stop();
       // auto t = FusionProfiler::lastKernelTime();
       // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
@@ -5053,8 +5053,8 @@ TEST_F(ResizeTest, ReshapeBeforeSlice2) {
   auto t2 = at::randn({seq_length, rope_n_elem}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   if (getenv("BENCHMARK")) {
     [[maybe_unused]] int64_t mem_size = 1;
@@ -5083,7 +5083,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice2) {
       clearL2Cache();
       // FusionProfiler::start();
       // FusionProfiler::createSegments(1);
-      outputs = fec.runFusionWithInputs(inputs);
+      outputs = executor_cache.runFusionWithInputs(inputs);
       // FusionProfiler::stop();
       // auto t = FusionProfiler::lastKernelTime();
       // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
@@ -5277,8 +5277,8 @@ TEST_F(ResizeTest, RoPEFull) {
   auto t2 = at::randn({seq_length, rope_n_elem}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   if (getenv("BENCHMARK")) {
     [[maybe_unused]] int64_t mem_size = 1;
@@ -5307,7 +5307,7 @@ TEST_F(ResizeTest, RoPEFull) {
       clearL2Cache();
       // FusionProfiler::start();
       // FusionProfiler::createSegments(1);
-      outputs = fec.runFusionWithInputs(inputs);
+      outputs = executor_cache.runFusionWithInputs(inputs);
       // FusionProfiler::stop();
       // auto t = FusionProfiler::lastKernelTime();
       // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
@@ -5463,9 +5463,40 @@ TEST_F(ResizeTest, SchedulerTest1) {
   auto t0 = at::randn({128}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Save the full tensor as another output
+TEST_F(ResizeTest, SchedulerTest1_1) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 TEST_F(ResizeTest, SchedulerTest2) {
@@ -5493,9 +5524,10 @@ TEST_F(ResizeTest, SchedulerTest2) {
   auto t0 = at::randn({128}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // pad
@@ -5519,9 +5551,10 @@ TEST_F(ResizeTest, SchedulerTest3) {
   auto t0 = at::randn({128}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // Slice then pad
@@ -5548,9 +5581,10 @@ TEST_F(ResizeTest, SchedulerTest4) {
   auto t0 = at::randn({128}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // Split to half and then concat
@@ -5586,9 +5620,10 @@ TEST_F(ResizeTest, SchedulerTest5) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // Rotation
@@ -5625,9 +5660,98 @@ TEST_F(ResizeTest, SchedulerTest6) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Reshape then rotation
+TEST_F(ResizeTest, SchedulerTest7) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({100});
+  std::vector<int64_t> shape2({5, 20});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal());
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  // left half
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1] / 2)}});
+
+  // right half
+  auto tv4 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {IrBuilder::create<Val>(shape2[1] / 2),
+        IrBuilder::create<Val>(shape2[1])}});
+
+  auto tv5 = cat({tv4, tv3}, 1);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Rotation then reshape
+TEST_F(ResizeTest, SchedulerTest8) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({100});
+  std::vector<int64_t> shape2({5, 20});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape1[0] / 2)}});
+
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape1[0] / 2),
+        IrBuilder::create<Val>(shape1[0])}});
+
+  auto tv4 = cat({tv3, tv2}, 0);
+
+  auto tv5 = reshape(tv4, shape1, shape2);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 } // namespace nvfuser
