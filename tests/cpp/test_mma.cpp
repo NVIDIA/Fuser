@@ -400,102 +400,6 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-TEST_P(HopperRS, SingleTileWithTMALoadStore) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto shapes = matmulAtInputShape3DHopperRS(
-      getM(macro), getN(macro), getK(macro), layout);
-
-  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
-  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  // Just doing a gmem->register copy
-  tv0 = set(tv0);
-  // Just doing a gmem->smem copy
-  tv1 = set(tv1);
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
-
-  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
-
-  auto tv3 = set(tv2);
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
-
-  fusion.addOutput(tv3);
-
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
-  NVF_CHECK(
-      1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
-      mma_ops.size());
-  mma_ops.front()->setMacro(macro);
-
-  auto tv2c = tv2->cacheBefore();
-
-  matmul_utils::moveInnerBroadcastLeft(tv0);
-  tv0->applyMmaSwizzle(MmaOperand::A);
-
-  tv0->merge(1);
-  tv0->merge(1);
-  tv0->axis(1)->parallelize(ParallelType::TIDx);
-
-  matmul_utils::moveInnerBroadcastLeft(tv1);
-  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
-
-  if (layout == MmaLayout::TT) {
-    // [M, K, N] -> [M, N, K]
-    tv2c->reorder({{-1, -2}});
-  }
-
-  EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
-  EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
-  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
-
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2c->getLoopDomain());
-    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
-    // Note: according to internal doc "Representing ldmatrix", we need both a
-    // read domain and a write domain to correctly represent MmaOp. Without this
-    // new mechanism, there is no correct loop domain, and the only choices are
-    // either we want to represent the smem read well, or represent the register
-    // write well. We choose to represent the smem read well here. Likely, this
-    // means we will not be able to have multiple tiles in register, but we can
-    // workaround this by always inlining the MmaOp most. We should fix this
-    // after we implemented the new read/write domain mechanism.
-    tv2c->axis(-1)->parallelize(ParallelType::Mma);
-    tv2c->axis(-2)->parallelize(ParallelType::Mma);
-    tv2c->axis(-3)->parallelize(ParallelType::Mma);
-  }
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
-    tv2->setLoopDomain(s.as<IterDomain*>());
-  }
-
-  mma_utils::scheduleTMAStoreForMmaOutput(tv3, getM(macro), getN(macro));
-
-  auto inputs = matmulAtInput3DHopperRS(
-      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
-
-  KernelExecutor ke;
-  ke.compile(
-      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-
-  auto cg_outputs = ke.run({inputs.first, inputs.second});
-  auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kFloat),
-      inputs.second.squeeze().to(at::kFloat),
-      layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
-}
-
 using HopperMmaRSStMatrixTestParams = std::tuple<
     MmaMacro,
     PrimDataType,
@@ -634,11 +538,11 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
