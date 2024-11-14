@@ -251,6 +251,10 @@ struct CircularBufferOptions {
   bool isEnable() const {
     return stage > 1;
   }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return type == other.type && stage == other.stage && prefetch == other.prefetch;
+  }
 };
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
