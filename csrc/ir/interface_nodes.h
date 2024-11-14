@@ -80,7 +80,7 @@ struct Pipelined {};
 // For example, if `on` is TIDy, then will assign additional TIDy for cirular
 // buffer loading.
 struct WarpSpecialized {
-  ParallelType on
+  ParallelType on;
 };
 
 using CircularBufferingType = std::variant<Pipelined, WarpSpecialized>;
