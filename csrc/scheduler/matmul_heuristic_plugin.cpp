@@ -146,8 +146,6 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
                                                                            : 1;
   config->circular_buffer_smem_read =
       mparams->circular_buffer_options.circular_buffer_smem_read;
-  config->rotate_ldmatrix_out_of_main_loop =
-      mparams->rotate_ldmatrix_out_of_main_loop;
   config->problem.supported_vec_size.a = (uint8_t)mparams->supported_vec_size.a;
   config->problem.supported_vec_size.b = (uint8_t)mparams->supported_vec_size.b;
   config->problem.supported_vec_size.epilogue =
@@ -190,8 +188,6 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   }
   mparams->circular_buffer_options.circular_buffer_smem_read =
       config->circular_buffer_smem_read;
-  mparams->rotate_ldmatrix_out_of_main_loop =
-      config->rotate_ldmatrix_out_of_main_loop;
 
   // enable circular buffering if configured
   mparams->circular_buffer_options.circular_buffer_smem_write =

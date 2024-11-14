@@ -752,27 +752,6 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   return terminating_outputs;
 }
 
-bool Fusion::isAliasCompatible(Val* left, Val* right) {
-  // Nullptr check
-  if (left == nullptr || right == nullptr) {
-    return false;
-  }
-
-  // DataType check
-  if (!left->getDataType().has_value() || !right->getDataType().has_value() ||
-      left->getDataType().value() != right->getDataType().value()) {
-    return false;
-  }
-
-  // ValType check
-  if (!left->getValType().has_value() || !right->getValType().has_value() ||
-      left->getValType().value() != right->getValType().value()) {
-    return false;
-  }
-
-  return true;
-}
-
 void Fusion::aliasOutputToInput(
     Val* output,
     Val* input,
@@ -791,33 +770,16 @@ void Fusion::aliasOutputToInput(
   }
 
   NVF_ERROR(type == AllocationType::ReuseBuffer);
-  // `input` can be a cast of a fusion input.
-  if (!input->isFusionInput()) {
-    auto input_expr = input->definition();
-    NVF_ERROR(
-        input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
-    auto input_uop = input_expr->as<UnaryOp>();
-    NVF_ERROR(
-        input_uop->getUnaryOpType() == UnaryOpType::Cast,
-        "expected aliased input to be output of cast op");
-    input = input_uop->in();
-  }
+  NVF_ERROR(input->isFusionInput(), "alias source can only be a fusion input");
   NVF_ERROR(
       input->getDataType().has_value() && output->getDataType().has_value(),
       "requires DataType to be available for aliased output to input");
-
-  if (input->getDataType().value() != output->getDataType().value()) {
-    output = castOp(input->getDataType().value(), output);
-  }
 
   if (output->isFusionInput()) {
     // ensure that codegen produce a write operation on the buffer.
     output = set(output);
   }
 
-  NVF_ERROR(
-      isAliasCompatible(input, output),
-      "The input and output values are not alias-compatible.");
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
   // batch norm.
@@ -843,13 +805,6 @@ const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
 
 bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
-}
-
-bool isExpressionEvaluated(Fusion* fusion) {
-  return std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
 }
 
 namespace {

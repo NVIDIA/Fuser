@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -111,8 +111,6 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    clear_cuda_cache()
-
     input1 = torch.randn(size, device="cuda", dtype=dtype)
     input2 = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
@@ -147,17 +145,16 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [input1, input2, weights])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_rmsnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     dropout_p = 0.2
 
@@ -168,10 +165,15 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
         dropout_p,
     ]
 
+    benchmark_fn = {
+        "eager": dropout_rmsnorm_fwd,
+        "torchcompile": torch.compile(dropout_rmsnorm_fwd),
+    }
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd,
+        benchmark_fn[executor],
         inputs,
         iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype),
     )

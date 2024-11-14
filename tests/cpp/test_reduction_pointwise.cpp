@@ -126,4 +126,37 @@ TEST_F(PointwiseFusedReductionTest, OuterReductionBroadcast) {
   const int reduction_dim = 0;
   ReductionBroadcast(reduction_dim);
 }
+
+TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({256, 10240}, options);
+  std::vector<c10::IValue> runtime_inputs({t0});
+
+  // Generate heuristics & enforce unroll on top of vectorization
+  SchedulerRuntimeInfo runtime_info(fusion.get(), runtime_inputs);
+  auto scheduler_instance =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
+  auto heuristic_params =
+      scheduler_instance->computeHeuristics(fusion.get(), runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
+  EXPECT_TRUE(rparams->vectorize_inner_reduction);
+  rparams->unroll_factor_top_of_vectorization = 2;
+
+  // Schedule, compile, run, validate
+  auto fusion_copy = *fusion;
+  scheduler_instance->schedule(fusion.get(), rparams);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), runtime_inputs, rparams->lparams);
+  auto cg_outputs = ke.run(runtime_inputs, rparams->lparams);
+  testValidate(&fusion_copy, cg_outputs, runtime_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

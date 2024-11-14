@@ -287,7 +287,10 @@ TensorView* replayConcretePad(
 
   auto* new_out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          merged_root_ids, merged_logical_ids, merged_logical_ids),
+          merged_root_ids,
+          merged_logical_ids,
+          merged_logical_ids,
+          TensorDomain::getContiguityFilledWith(merged_logical_ids, true)),
       pad_tv->getDataType().value());
   IrBuilder::create<PadOp>(
       new_out,

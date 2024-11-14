@@ -1198,12 +1198,36 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(tv)) {
+        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp>(tv)) {
       // Right now, tensors that are input to the slice, select, and pad ops
       // can't be cached as they must be in global memory.
       continue;
     }
-    auto cached_tv = tv->cacheAfter();
+
+    // TODO: might need to reverse this when scheduler handles pad directly
+    // Do not insert a cache for pad as vectorization needs to be
+    // done directly.
+    //
+    // Note that this means that if an input is padded and also is
+    // used without padding, it will be read twice, once for pad and
+    // once more for caching load. It would make sense to use the PTX
+    // caching load instructions.
+    std::vector<Expr*> cached_uses;
+    for (auto use : tv->uses()) {
+      if (!use->isA<PadOp>()) {
+        cached_uses.push_back(use);
+      }
+    }
+
+    if (cached_uses.empty()) {
+      continue;
+    }
+
+    auto cached_tv = tv->cacheAfter(
+        /*op_type=*/LoadStoreOpType::Set,
+        /*cache_op=*/CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/true,
+        /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;
@@ -1290,12 +1314,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // We do not allow vectorization with resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->in();
-        }
+        projected_id = resize->in();
       }
     } else {
       NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
@@ -1350,12 +1369,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        // We do not allow vectorization wit resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->out();
-        }
+        projected_id = resize->out();
       }
     } else {
       NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
@@ -1549,12 +1563,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   // scheduler prefer to use output instead of input as reference tensor.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
-    // At this moment, vectorization through resize is not
-    // supported. This is not required currently as we always insert
-    // cacheBefore, but just in case.
-    if (ir_utils::hasResizedRfactor(output_tv)) {
-      continue;
-    }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(output_tv);
     }
@@ -1569,19 +1577,11 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
       continue;
     }
 
-    auto expr_resizes = [](Expr* e) -> bool {
-      return std::any_of(
-          e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
-            if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
-              return ir_utils::hasResizedRfactor(out_tv);
-            }
-            return false;
-          });
-    };
-
-    // At this moment, vectorization through resize is not supported
-    if (std::any_of(
-            input_tv->uses().begin(), input_tv->uses().end(), expr_resizes)) {
+    // Slice op is explicitly not enabled for vectorized load.
+    if (std::all_of(
+            input_tv->uses().begin(),
+            input_tv->uses().end(),
+            [](Expr* e) -> bool { return e->isA<SliceOp>(); })) {
       continue;
     }
 
@@ -2385,7 +2385,7 @@ bool revertUseOfInputCache(
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of each proucer. If a tensor shows up as a
+  // Inserting a copy of each producer. If a tensor shows up as a
   // producer for multiple consumers, only insert one
   // copy and share it with all the consumers.
 
@@ -2565,7 +2565,7 @@ int64_t getSharedMemoryOverheadPerBlock(
     dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
-  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {

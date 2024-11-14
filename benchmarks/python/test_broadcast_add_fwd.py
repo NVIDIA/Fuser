@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -65,8 +65,6 @@ def test_bcast_add_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     bias = torch.randn(size[1 - bcast_axis], dtype=dtype, device="cuda")
 
     input_shape = size if contiguous else (size[1], size[0])
@@ -90,7 +88,7 @@ def test_bcast_add_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [bias, x])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("bcast_axis", [0, 1], ids=["outer", "inner"])
@@ -103,10 +101,9 @@ def test_bcast_add_baseline_benchmark(
     dtype: torch.dtype,
     bcast_axis: int,
     contiguous: bool,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     bias = torch.randn(size[1 - bcast_axis], dtype=dtype, device="cuda")
     input_shape = size if contiguous else (size[1], size[0])
@@ -115,9 +112,14 @@ def test_bcast_add_baseline_benchmark(
         x = x.t()
     assert x.is_contiguous() == contiguous
 
+    benchmark_fn = {
+        "eager": bcast_add_fwd_fn,
+        "torchcompile": torch.compile(bcast_add_fwd_fn),
+    }
+
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        torch.compile(bcast_add_fwd_fn) if compile else bcast_add_fwd_fn,
+        benchmark_fn[executor],
         [bias, x, bcast_axis],
     )

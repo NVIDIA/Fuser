@@ -28,7 +28,6 @@
 #include <complex>
 #include <iterator>
 #include <numeric>
-#include <regex>
 #include <sstream>
 #include <string>
 
@@ -1980,12 +1979,24 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
+MmaOp::AxisMapping MmaOp::AxisMapping::trivialMapping(size_t dimension) {
+  AxesData a_axes, b_axes;
+  a_axes.reserve(dimension);
+  b_axes.reserve(dimension);
+  for (size_t i : c10::irange(dimension)) {
+    a_axes.push_back((int64_t)i);
+    b_axes.push_back((int64_t)i);
+  }
+  return {a_axes, b_axes};
+}
+
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in_a,
     Val* in_b,
-    Val* init)
+    Val* init,
+    const AxisMapping& axis_mapping)
     : Expr(passkey) {
   NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
@@ -2002,6 +2013,15 @@ MmaOp::MmaOp(
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
 
+  NVF_ERROR(
+      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
+      "Must have the same number of axis positions in axis mapping for each operand");
+
+  auto* out_tv = ir_utils::getTv(out);
+  NVF_ERROR(
+      axis_mapping.a_axes.size() == out_tv->getMaybeRootDomain().size(),
+      "Must have the same number of axis positions in axis mapping as output root dimensions");
+
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
@@ -2009,28 +2029,8 @@ MmaOp::MmaOp(
   addAttribute(init);
   // ATTR_POS_MACRO
   addDataAttribute(MmaMacro::NoMMA);
-  // ATTR_POS_M_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_N_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_K_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_BATCH_AXES
-  addDataAttribute(AxesData{});
-
-  MmaOpUtils::MmaOpDetails mma_details;
-  // Detailed consistency checks for use case with TensorViews as
-  // inputs/output
-  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
-      out->isA<TensorView>()) {
-    mma_details = MmaOpUtils::getMmaOpDetails(
-        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
-  }
-
-  attribute<AxesData>(ATTR_POS_M_AXES) = std::move(mma_details.m_axes);
-  attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
-  attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
-  attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
+  // ATTR_POS_AXIS_MAPPING
+  addDataAttribute(axis_mapping);
 }
 
 MmaOp::MmaOp(
@@ -2039,8 +2039,9 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
+    const AxisMapping& axis_mapping,
     const MmaMacro& macro)
-    : MmaOp(passkey, out, in_a, in_b, init) {
+    : MmaOp(passkey, out, in_a, in_b, init, axis_mapping) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
@@ -2273,7 +2274,12 @@ std::string LoadStoreOp::toString(int indent_size) const {
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(
+      !(out()->isA<TensorView>() || in()->isA<TensorView>()),
+      "Tensor op can not be printed inline");
+  // Set is allowed to have a scalar, e.g. setting the iteration domain
+  // of a tensor in pad.
+  return in()->toInlineString();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
@@ -2550,7 +2556,8 @@ IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
 IterDomain* IterDomain::merge(
     IterDomain* outer,
     IterDomain* inner,
-    bool rfactor_domain) {
+    std::optional<bool> rfactor_domain,
+    std::optional<IterType> iter_type) {
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
@@ -2563,24 +2570,34 @@ IterDomain* IterDomain::merge(
       !outer->isStride() && !inner->isStride(),
       "No support for merging stride domains");
 
-  Val* merged_id_size = mul(outer->extent(), inner->extent());
-
-  IterType itype = outer->getIterType();
-
-  if (outer->isBroadcast() && inner->isBroadcast()) {
-    itype = IterType::Broadcast;
+  // By default, if not specified, don't create rfactor
+  // outputs. Reshape transformations should propagate the flag, which
+  // should explicitly specify the flag
+  if (!rfactor_domain.has_value()) {
+    rfactor_domain = false;
   }
 
-  if ((outer->isBroadcast() || inner->isBroadcast()) &&
-      (outer->getIterType() == IterType::Iteration ||
-       inner->getIterType() == IterType::Iteration)) {
-    itype = IterType::Iteration;
-  }
+  Val* merged_id_size =
+      SimplifyingIrBuilder::mulExpr(outer->extent(), inner->extent());
 
-  if ((outer->isBroadcast() || inner->isBroadcast()) &&
-      (outer->getIterType() == IterType::GatherScatter ||
-       inner->getIterType() == IterType::GatherScatter)) {
-    itype = IterType::GatherScatter;
+  if (!iter_type.has_value()) {
+    iter_type = outer->getIterType();
+
+    if (outer->isBroadcast() && inner->isBroadcast()) {
+      iter_type = IterType::Broadcast;
+    }
+
+    if ((outer->isBroadcast() || inner->isBroadcast()) &&
+        (outer->getIterType() == IterType::Iteration ||
+         inner->getIterType() == IterType::Iteration)) {
+      iter_type = IterType::Iteration;
+    }
+
+    if ((outer->isBroadcast() || inner->isBroadcast()) &&
+        (outer->getIterType() == IterType::GatherScatter ||
+         inner->getIterType() == IterType::GatherScatter)) {
+      iter_type = IterType::GatherScatter;
+    }
   }
 
   Val* expanded_extent = nullptr;
@@ -2593,7 +2610,7 @@ IterDomain* IterDomain::merge(
       } else {
         expanded_extent = mul(outer->expandedExtent(), inner->extent());
       }
-    } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
+    } else if (!outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
       } else {
@@ -2606,8 +2623,8 @@ IterDomain* IterDomain::merge(
       IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
-          .iter_type(itype)
-          .is_rfactor_domain(rfactor_domain)
+          .iter_type(*iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   IrBuilder::createInContainer<Merge>(
@@ -2620,15 +2637,34 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    bool rfactor_domain) {
+    std::optional<bool> rfactor_domain,
+    std::optional<IterType> outer_iter_type,
+    std::optional<IterType> inner_iter_type) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder = ceilDiv(in->extent(), factor);
+  Val* remainder = SimplifyingIrBuilder::ceilDivExpr(in->extent(), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
-    expanded_remainder = ceilDiv(in->expandedExtent(), factor);
+    expanded_remainder =
+        SimplifyingIrBuilder::ceilDivExpr(in->expandedExtent(), factor);
+  }
+
+  // By default, if not specified, don't create rfactor
+  // outputs. Reshape transformations should propagate the flag, which
+  // should explicitly specify the flag
+  if (!rfactor_domain.has_value()) {
+    rfactor_domain = false;
+  }
+
+  // If not specified, inherit these properties from the input iter domain
+  if (!outer_iter_type.has_value()) {
+    outer_iter_type = in->getIterType();
+  }
+
+  if (!inner_iter_type.has_value()) {
+    inner_iter_type = in->getIterType();
   }
 
   // outer loop IterDomain
@@ -2639,8 +2675,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
           .parallel_type(in->getParallelType())
-          .iter_type(in->getIterType())
-          .is_rfactor_domain(rfactor_domain)
+          .iter_type(*outer_iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   // inner loop IterDomain
@@ -2651,8 +2687,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
           .parallel_type(in->getParallelType())
-          .iter_type(in->getIterType())
-          .is_rfactor_domain(rfactor_domain)
+          .iter_type(*inner_iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   IrBuilder::createInContainer<Split>(
@@ -4426,7 +4462,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
 std::string SdpaFwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << attn_out()->toString() << "\n";
+  indent(ss, indent_size) << attn_out()->toString() << ",\n";
+  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size) << philox_offset()->toString() << "\n";
   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
@@ -4847,6 +4886,13 @@ bool ForLoop::isTrivial() const {
           BinaryOpType::Sub &&
       start()->definition()->as<BinaryOp>()->lhs() == stop() &&
       start()->definition()->as<BinaryOp>()->rhs()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->isConstScalar() && simplifiedStop()->isConstScalar() &&
+      start()->evaluate().as<int64_t>() + 1 ==
+          simplifiedStop()->evaluate().as<int64_t>() &&
+      step()->isOneInt()) {
     return true;
   }
 

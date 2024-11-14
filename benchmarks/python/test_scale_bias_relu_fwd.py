@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -67,8 +67,6 @@ def test_sbr_fwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     scale = torch.ones(size[-1], device="cuda", dtype=dtype)
@@ -84,25 +82,26 @@ def test_sbr_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [bias, scale, inputs])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_sbr_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     scale = torch.ones(size[-1], device="cuda", dtype=dtype)
 
+    benchmark_fn = {"eager": sbr_fwd_fn, "torchcompile": torch.compile(sbr_fwd_fn)}
+
     run_benchmark(
         benchmark,
-        torch.compile(sbr_fwd_fn) if compile else sbr_fwd_fn,
+        benchmark_fn[executor],
         [bias, scale, inputs],
         iobytes=sbr_fwd_iobytes(size, dtype),
     )

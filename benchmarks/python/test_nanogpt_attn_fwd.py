@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -102,7 +102,6 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
     dropout_p = 0.2
@@ -138,17 +137,16 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, bias])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
@@ -156,10 +154,16 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
     )
+
+    benchmark_fn = {
+        "eager": nanogpt_attn_fwd,
+        "torchcompile": torch.compile(nanogpt_attn_fwd),
+    }
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(nanogpt_attn_fwd) if compile else nanogpt_attn_fwd,
+        benchmark_fn[executor],
         [inputs, bias, size, dropout_p],
         iobytes=nanogpt_attn_fwd_iobytes(size, dtype),
     )

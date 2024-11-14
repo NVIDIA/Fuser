@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -117,8 +117,6 @@ def test_layernorm_bwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    clear_cuda_cache()
-
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
@@ -148,17 +146,16 @@ def test_layernorm_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd, weights])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_layernorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
 
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
@@ -166,17 +163,24 @@ def test_layernorm_bwd_baseline_benchmark(
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    output = torch.nn.functional.layer_norm(
-        inputs,
-        inputs.shape[1:],
-        weight=weights,
-        bias=bias,
-    )
+    def layernorm_fwd():
+        return torch.nn.functional.layer_norm(
+            inputs,
+            inputs.shape[1:],
+            weight=weights,
+            bias=bias,
+        )
+
+    fwd_fn = {
+        "eager": layernorm_fwd,
+        "torchcompile": torch.compile(layernorm_fwd),
+    }
+    outputs = fwd_fn[executor]()
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [output, grads],
+        unary_bwd_torch,
+        [outputs, grads],
         iobytes=layernorm_bwd_iobytes(size, dtype),
     )

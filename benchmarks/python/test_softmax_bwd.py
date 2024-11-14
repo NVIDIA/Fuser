@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
-from .core import run_benchmark, clear_dynamo_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES
 import numpy as np
@@ -58,11 +58,6 @@ def softmax_bwd_fusion(
     fd.add_output(T19)
 
 
-def unary_bwd_torch(inputs: list):  # [in_tensor, output, grads]
-    inputs[1].backward(inputs[2], retain_graph=True)
-    return inputs[0].grad
-
-
 def softmax_bwd_iobytes(size: tuple, dtype: torch.dtype):
     # Total IO bytes = output + grad_out + grad_input
     return int(np.prod(size) * dtype.itemsize * 3)
@@ -79,8 +74,6 @@ def test_softmax_bwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
         torch.randn(size, device="cuda", dtype=dtype),
@@ -98,7 +91,7 @@ def test_softmax_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
@@ -107,17 +100,22 @@ def test_softmax_bwd_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     reduction_axis: int,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    output = torch.nn.functional.softmax(input, dim=reduction_axis)
+
+    def softmax_fwd():
+        return torch.nn.functional.softmax(input, dim=reduction_axis)
+
+    fwd_fn = {"eager": softmax_fwd, "torchcompile": torch.compile(softmax_fwd)}
+    outputs = fwd_fn[executor]()
+
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [input, output, grads],
+        unary_bwd_torch,
+        [outputs, grads],
         iobytes=softmax_bwd_iobytes(size, dtype),
     )

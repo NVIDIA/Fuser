@@ -93,7 +93,7 @@ static void setupGeluBackwardReduction(
 
 static void NvFuserScheduler_GeluBackwardReduction(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int reduction_dim) {
   auto reduction_size = benchmark_state.range(0);
@@ -112,7 +112,7 @@ static void NvFuserScheduler_GeluBackwardReduction(
 
   std::vector<c10::IValue> aten_inputs = {aten_input_grad, aten_input_x};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   // inputs: gradient tensor + input tensor
   // outputs: output, output_of_reduction

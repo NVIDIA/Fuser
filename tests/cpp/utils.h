@@ -40,12 +40,16 @@ namespace nvfuser {
 struct CGResultsPackage {
   std::vector<at::Tensor> outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
-  std::unique_ptr<FusionExecutor> fusion_executor;
+  std::unique_ptr<KernelExecutor> kernel_executor;
 };
+
+// Returns the only executor in the most recent runtime.
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache);
 
 // Grabs heuristics and schedules with the provided scheduler type, compiles and
 // runs with Fuion executor, returns a struct containing the outputs,
-// heuristic_params, and FusionExecutor. These structures are for convenience in
+// heuristic_params, and KernelExecutor. These structures are for convenience in
 // testing. If validate_scheduler is set to false the scheduler check will still
 // be run but it will be ignored. Otherwise canScheduler returning false will
 // throw.

@@ -6,10 +6,12 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
+
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+#include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
@@ -52,12 +54,28 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
   return fusion_copy;
 }
 
+// Used in distributed setting where we only want to allocate output space and
+// receive output data from a different rank instead of computing them.
+std::vector<at::Tensor> allocateOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device) {
+  FUSER_PERF_SCOPE("multidevice::executor::allocateOutputSpace");
+  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
+
+  auto output_info =
+      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
+
+  return allocateOutputs(fusion, output_info, device, expr_eval);
+}
+
 } // namespace
 
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    hir::HostIrExecutorParams params)
+    hir::HostIrEvaluatorParams params)
     : comm_(comm), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
@@ -139,9 +157,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     hic->addOutput(ir_cloner.clone(output));
   }
 
-  // Create the HostIrExecutor representing the host program
+  // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
-      std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, params);
+      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
@@ -186,7 +204,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   }
 
   auto allocations =
-      allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
+      allocateOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
   NVF_ERROR(vals_to_allocate_.size() == allocations.size());
   for (auto i : c10::irange(allocations.size())) {
     val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);

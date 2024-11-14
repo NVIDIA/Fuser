@@ -229,11 +229,11 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
@@ -269,12 +269,8 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   // Ensure there's a mma op.
   // If there's no mma op present, then stop the test.
-  ASSERT_FALSE(
-      ir_utils::getOpsOfType<MmaOp>(executor_cache.getMostRecentKernelRuntime()
-                                        ->executors()
-                                        .at(0)
-                                        .kernel())
-          .empty());
+  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
 
   // Ensure that the matmul scheduler ran.
   EXPECT_TRUE(
@@ -392,9 +388,9 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
 
   if (scheduler_type == SchedulerType::Matmul) {
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
   }
 
   testValidate(
@@ -572,9 +568,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     // do if ExprEval accepts the segment.
     ASSERT_EQ(scheduler_type, SchedulerType::Matmul);
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
   }
 
   testValidate(
@@ -666,13 +661,13 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, SwapAandB) {
     // Check that we properly map M and N to their roles even with swap
     IdModel id_model(&fusion);
     mma_utils::DimRolesMap dim_roles = pattern.getDimRoles(id_model);
-    ValGraph& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
-    const ValGroup& m_gp = permissive_graph.toGroup(tv0->axis(-3));
+    ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+    const ValGroup& m_gp = graph.toGroup(tv0->axis(-3));
     auto m_it = dim_roles.find(m_gp);
     ASSERT_NE(m_it, dim_roles.end());
     EXPECT_EQ(m_it->second, MatmulDimRole::M);
 
-    const ValGroup& n_gp = permissive_graph.toGroup(tv1->axis(-2));
+    const ValGroup& n_gp = graph.toGroup(tv1->axis(-2));
     auto n_it = dim_roles.find(n_gp);
     ASSERT_NE(n_it, dim_roles.end());
     EXPECT_EQ(n_it->second, MatmulDimRole::N);

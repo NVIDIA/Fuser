@@ -147,7 +147,8 @@ TEST_P(ShardingTest, ComputeIndex) {
   c->setDeviceMesh(mesh);
   d->setDeviceMesh(mesh);
   a->axis(2)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDx);
+  TensorDomain::noReductions(b->getLoopDomain())[1]->parallelize(
+      ParallelType::DIDx);
   c->axis(2)->parallelize(ParallelType::DIDx);
   d->axis(0)->parallelize(ParallelType::DIDx);
 
@@ -155,9 +156,9 @@ TEST_P(ShardingTest, ComputeIndex) {
   // Dimension 2 has size 1 because that dimension is DIDx parallelized.
   auto a_tensor = at::randn({4, 2, 1, 5}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {a_tensor});
-  auto outputs = fe.runFusion({a_tensor});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {a_tensor});
+  auto outputs = ke.run({a_tensor});
   testValidate(fusion.get(), outputs, {a_tensor}, __LINE__, __FILE__);
 }
 

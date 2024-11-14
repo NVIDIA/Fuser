@@ -17,6 +17,7 @@
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/id_model_options.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/predicate.h>
@@ -45,10 +46,6 @@
 
 namespace nvfuser {
 
-// TODO: we frequently use pairwise root mapping from consumers to producers.
-// This information is implicitly in the computeAtMaps, but there's no isolated
-// container for this information that we can reuse. Would be nice to generate
-// such a structure and propagate it through lowering.
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 class GpuLower : public NonCopyable {
   class KernelIrMapper;
@@ -206,14 +203,6 @@ class GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
-  bool requiresIdModel() const {
-    return requires_id_model_;
-  }
-
-  bool& requiresIdModel() {
-    return requires_id_model_;
-  }
-
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -313,6 +302,10 @@ class GpuLower : public NonCopyable {
       CircularBufferLoopStage stage =
           CircularBufferLoopStage::NotApplicable) const;
 
+  const IdModelOptions idModelOptions() const {
+    return id_model_options_;
+  }
+
  private:
   void analysis(Fusion* fusion);
 
@@ -379,9 +372,8 @@ class GpuLower : public NonCopyable {
 
   Fusion* fusion_ = nullptr;
 
-  // A temporary flag which is true if the fusion uses any feature that requires
-  // the new experimental id model
-  bool requires_id_model_ = false;
+  // A temporary option set to selectively enable IdModel usage
+  IdModelOptions id_model_options_;
 };
 
 } // namespace nvfuser
