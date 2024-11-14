@@ -1581,114 +1581,31 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
 }
 
 namespace {
+
 // Helper function to compute the index of the output of stmatrix (in shared
-// memory). We have two special cases (1) Handle tiles of size 8x8 and 16x8 and
-// (2) tiles of size 16x16. Each of these two cases has further two special
-// cases, (1) there is exactly one tile, (2) mulitple tiles thus multiple
-// stmatrix calls are issued in a for-loop. Please note that in a 16x16 tile,
-// the 4 8x8 tiles are stores/accessed in a m/column-major fasion. When we
-// mulitple tiles (whether it be 8x8, 18x6 or 16x16), the tiles are stored in a
-// m/column-major fashion.
-#if 0
-Val* hardCodedIndexGenerationForStMatrix(
-    const LoadStoreOp* ldst,
-    const ForLoop* outer_loop,
-    const int64_t m_tile,
-    const int64_t n_tile,
-    const int64_t m,
-    const int64_t n) {
-  NVF_ERROR(
-      (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
-          (m_tile == 16 && n_tile == 16),
-      "size not currently supported for stmatrix");
+// memory). We currently handle the cases:
+// 1. stmatrix.x4 (we have 16x16 tiles)
+// 2. stmatrix.x2 (we have 16x8 tiles)
+// The assumption of the function is that we have 128-threads (warp group or 4
+// warps) The stmatrix call is inside a for-loop. We can think of 4-stmatrix (4
+// warps) calls being issued for every iteration of the for-loop. For example if
+// we are storing [64, 16] piece of memory using stmatrix.x2 (16x8), there will
+// be two iteration of the for-loop. In the first iteration we'll store [64 (0
+// ... 63), 8(0 ... 7)] and in the next iteration we'll store [64 (0 ... 63),
+// 8(8 ... 15)].
 
-  auto m_tiles = m / m_tile;
+// In each iteration, the 4-warps will be storing what we'll call
+// a warp group box. Each warp group box will have (at most) 4 tile boxes,
+// that's the memory stored by each stmatrix issued. This each tile-box is of
+// shape: [16, 16], [16, 8]; to be supported: [8, 8].
 
-  Val* out_index = nullptr;
+// For example, if we are store [64, 16] using stmatrix.x2 [16, 8], then the
+// warp group box will be [64, 8] (there will be 2 warp group boxes). If we are
+// using stmatrix.x4 [16, 16] then the warp group box will be [64, 16].
 
-  // For example: M=32, N=64, m_tile=16, n_tile=8.
-  // So m_tiles == 32/16 == 2; n_tiles == 8
-  // This is computed by getting the loop index say L, then mod the
-  // number of tiles in the m-dimension, then multiplying by n (*2 for Half)
-  // into the size of the tile in the n-dimension.
-  //  (L % m_tiles) * m_tile * n * 2
-  auto tile_offset_m = IrBuilder::mulExpr(
-      IrBuilder::modExpr(
-          outer_loop->index(),
-          IrBuilder::create<Val>(m_tiles, DataType::Index)),
-      IrBuilder::create<Val>(m_tile * n * 2, DataType::Index));
-
-  // Offset of the tile in the n-dim.
-  // (L / m_tiles) * n_tile * 2
-  auto tile_offset_n = IrBuilder::mulExpr(
-      IrBuilder::divExpr(
-          outer_loop->index(),
-          IrBuilder::create<Val>(m_tiles, DataType::Index)),
-      IrBuilder::create<Val>(n_tile * 2, DataType::Index));
-
-  // This will hanlde 8x8 and 16x8.
-  if (n_tile == 8) {
-    // tidx.x * n * 2(dtype = Half)
-    auto offset_in_tile = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(n * 2, DataType::Index),
-        IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index));
-
-    // If it's a single tile we don't need to add the tile offsets.
-    if (m_tile == m && n_tile == n) {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-          offset_in_tile);
-
-    } else {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-          IrBuilder::addExpr(
-              offset_in_tile,
-              IrBuilder::addExpr(tile_offset_m, tile_offset_n)));
-    }
-
-  } else if (n_tile == 16) {
-    // This will hanlde 16x16
-
-    // 2 is for dtype Half
-    // (tidx.x /  (8 * 2)) * 16
-    // This gives the offset in the n-dim
-    auto offset_in_tile_n = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(16, DataType::Index),
-        IrBuilder::divExpr(
-            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-            IrBuilder::create<Val>(8 * 2, DataType::Index)));
-
-    // (tidx.x%16) * n * 2
-    // This gives the offset inside the 16x16 tile in the m-dim.
-    auto offset_in_tile_m = IrBuilder::mulExpr(
-        IrBuilder::modExpr(
-            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-            IrBuilder::create<Val>(16, DataType::Index)),
-        IrBuilder::create<Val>(n * 2, DataType::Index));
-
-    // If it's a single tile we don't need to add the tile offsets.
-    if (m_tile == m && n_tile == n) {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-          IrBuilder::addExpr(offset_in_tile_n, offset_in_tile_m));
-    } else {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-          IrBuilder::addExpr(
-              offset_in_tile_n,
-              IrBuilder::addExpr(
-                  offset_in_tile_m,
-                  IrBuilder::addExpr(tile_offset_m, tile_offset_n))));
-    }
-  }
-  Val* out = IrBuilder::create<kir::TensorIndex>(
-      dynamic_cast<TensorView*>(ldst->out()), out_index);
-
-  return out;
-}
-#endif
-
+// To compute the index/offset into shared memory, we sum the offset of the warp
+// group box, the tile box inside the warp group box, and then finally the
+// offset of the thread inside the tile box.
 Val* hardCodedIndexGenerationForStMatrix(
     const LoadStoreOp* ldst,
     const ForLoop* outer_loop,
@@ -1702,37 +1619,48 @@ Val* hardCodedIndexGenerationForStMatrix(
       "size not currently supported for stmatrix");
   Val* out_index = nullptr;
 
-  // A tile_box can be 16x16, 16x8. 8x8
+  NVF_ERROR(
+      ldst->out()->dtype() == DataType::Half,
+      "we only support half type in stmatrix");
+
+  auto dtype_size = 2;
+
+  // A tile_box can be 16x16, 16x8 [to do: 8x8]
   // A warp group (128 threads) can work on a number of tile boxes.
   int64_t max_tile_boxes_in_warp_group_box = 4;
 
-  // These two variables gives the shape of the warp group in terms of tile
+  // These two variables gives the shape of the warp group box in terms of tile
   // boxes. Think of a tile box as a stmatrix call.
   auto tiles_in_warp_group_m =
-      std::max(m / m_tile, max_tile_boxes_in_warp_group_box);
+      std::min(m / m_tile, max_tile_boxes_in_warp_group_box);
   auto tiles_in_warp_group_n =
       max_tile_boxes_in_warp_group_box / tiles_in_warp_group_m;
 
+  // The size of a warp group box in the m dim.
   auto warp_group_box_size_m = tiles_in_warp_group_m * m_tile;
 
-  // each iteration of the for-loop compute a warp-group worth of stmatrix
+  // Each iteration of the for-loop compute a warp group box worth of stmatrix
+  // Compute how many warp group boxes are there in the m-dim
   auto warp_groups_m = m / warp_group_box_size_m;
 
-  // With iteration we work on a different warp-group box.
+  // Compute the offset of a warp group box.
+  // On each iteration we work on a different warp-group box. So the offset
+  // is a function of the trip-count and the shape of the warp group box.
   auto warp_group_box_offset_m = IrBuilder::mulExpr(
       IrBuilder::modExpr(
           outer_loop->index(),
           IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
       IrBuilder::create<Val>(
-          tiles_in_warp_group_m * m_tile * n * 2, DataType::Index));
+          tiles_in_warp_group_m * m_tile * n * dtype_size, DataType::Index));
 
   auto warp_group_box_offset_n = IrBuilder::mulExpr(
       IrBuilder::divExpr(
           outer_loop->index(),
           IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
       IrBuilder::create<Val>(
-          tiles_in_warp_group_n * n_tile * 2, DataType::Index));
+          tiles_in_warp_group_n * n_tile * dtype_size, DataType::Index));
 
+  // Offset of the warp group box.
   auto warp_group_box_offset =
       IrBuilder::addExpr(warp_group_box_offset_m, warp_group_box_offset_n);
 
@@ -1740,6 +1668,9 @@ Val* hardCodedIndexGenerationForStMatrix(
       IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
       IrBuilder::create<Val>(/* each warp gets a box */ 32, DataType::Index));
 
+  // We compute the offset the the tile box inside the warp group box.
+  // We identify the co-ord (m, n ) of the tile box in the warp group box.
+  // The compute the offset of the box in terms of the m and n-dim and sum.
   auto tile_box_id_m = IrBuilder::modExpr(
       tile_box_id,
       IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
@@ -1749,25 +1680,32 @@ Val* hardCodedIndexGenerationForStMatrix(
       IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
 
   auto tile_box_id_m_offset = IrBuilder::mulExpr(
-      tile_box_id_m, IrBuilder::create<Val>(m_tile * n * 2, DataType::Index));
+      tile_box_id_m, IrBuilder::create<Val>(m_tile * n * dtype_size, DataType::Index));
 
   auto tile_box_id_n_offset = IrBuilder::mulExpr(
-      tile_box_id_n, IrBuilder::create<Val>(n_tile * 2, DataType::Index));
+      tile_box_id_n, IrBuilder::create<Val>(n_tile * dtype_size, DataType::Index));
 
+  // Offset of the tile box inside the warp group box.
   auto tile_box_offset =
       IrBuilder::addExpr(tile_box_id_m_offset, tile_box_id_n_offset);
 
+  // Cumulative offset of the the warp group box and tile box.
   auto cum_offset = IrBuilder::addExpr(warp_group_box_offset, tile_box_offset);
-  // For example M=64, N=8. There's no for-loop.
+
+  // If there is only one warp group box, then the cumulative offset is just the
+  // tile box offset.
   if (n == n_tile) {
     cum_offset = tile_box_offset;
   }
 
-  // Offset inside the tile.
+  // Compute the offset of the thread inside the tile box.
+  // Since each warp works on a tile box, and there are 128-threads
+  // the effective tidx is threadIdx % 32
   auto effective_tidx = IrBuilder::modExpr(
       IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
       IrBuilder::create<Val>(32, DataType::Index));
 
+  // tidx.x is the effective threadIdx.x
   if (m_tile == 16 && n_tile == 16) {
     // 2 is for dtype Half
     // (tidx.x /  (8 * 2)) * 16
@@ -1775,14 +1713,14 @@ Val* hardCodedIndexGenerationForStMatrix(
     auto offset_in_tile_n = IrBuilder::mulExpr(
         IrBuilder::create<Val>(16, DataType::Index),
         IrBuilder::divExpr(
-            effective_tidx, IrBuilder::create<Val>(8 * 2, DataType::Index)));
+            effective_tidx, IrBuilder::create<Val>(8 * dtype_size, DataType::Index)));
 
     // (tidx.x%16) * n * 2
     // This gives the offset inside the 16x16 tile in the m-dim.
     auto offset_in_tile_m = IrBuilder::mulExpr(
         IrBuilder::modExpr(
             effective_tidx, IrBuilder::create<Val>(16, DataType::Index)),
-        IrBuilder::create<Val>(n * 2, DataType::Index));
+        IrBuilder::create<Val>(n * dtype_size, DataType::Index));
 
     out_index = IrBuilder::addExpr(
         IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
@@ -1791,7 +1729,7 @@ Val* hardCodedIndexGenerationForStMatrix(
             IrBuilder::addExpr(offset_in_tile_m, offset_in_tile_n)));
   } else if (m_tile == 16 && n_tile == 8) {
     auto offset_in_tile = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(n * 2, DataType::Index), effective_tidx);
+        IrBuilder::create<Val>(n * dtype_size, DataType::Index), effective_tidx);
 
     out_index = IrBuilder::addExpr(
         IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),

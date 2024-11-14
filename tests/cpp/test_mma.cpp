@@ -587,6 +587,9 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
+  // This is a temporary way to pass this information
+  // to the custom index generator for stmatrix.
+  // TODO: remove the need for fusion managed cache.
   fusion.manage("st_matrix_m_tile", tile_m);
   fusion.manage("st_matrix_n_tile", tile_n);
   fusion.manage("st_matrix_m", getM(macro));
@@ -602,7 +605,7 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2->reorder({{-1, -2}});
-  } 
+  }
 
   EXPECT_TRUE(tv3c->getMemoryType() == MemoryType::Local);
   EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Shared);
@@ -613,27 +616,12 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
         tv3c->getLoopDomain());
     tv3c->setLoopDomain(s.as<IterDomain*>());
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
-    // Note: according to internal doc "Representing ldmatrix", we need both a
-    // read domain and a write domain to correctly represent MmaOp. Without this
-    // new mechanism, there is no correct loop domain, and the only choices are
-    // either we want to represent the smem read well, or represent the register
-    // write well. We choose to represent the smem read well here. Likely, this
-    // means we will not be able to have multiple tiles in register, but we can
-    // workaround this by always inlining the MmaOp most. We should fix this
-    // after we implemented the new read/write domain mechanism.
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setAllocationDomain(s.as<IterDomain*>(), true);
-    // Note: according to internal doc "Representing ldmatrix", we need both a
-    // read domain and a write domain to correctly represent MmaOp. Without this
-    // new mechanism, there is no correct loop domain, and the only choices are
-    // either we want to represent the smem read well, or represent the register
-    // write well. We choose to represent the smem read well here. Likely, this
-    // means we will not be able to have multiple tiles in register, but we can
-    // workaround this by always inlining the MmaOp most. We should fix this
-    // after we implemented the new read/write domain mechanism.
+
     tv2->axis(-1)->parallelize(ParallelType::Mma);
     tv2->axis(-2)->parallelize(ParallelType::Mma);
     tv2->axis(-3)->parallelize(ParallelType::Mma);
