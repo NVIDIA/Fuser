@@ -3128,8 +3128,8 @@ std::string hopperTestName(
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
   std::tie(a_k_inner, b_k_inner, M, N, K) = info.param;
-  os << "ak" << (a_k_inner ? "i" : "o");
-  os << "_bk" << (b_k_inner ? "i" : "o");
+  os << (a_k_inner ? "K" : "M");
+  os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
   return os.str();
 }
@@ -3147,11 +3147,6 @@ class HopperMatmulSchedulerTest
     } else {
       layout = b_k_inner ? MmaLayout::NN : MmaLayout::NT;
     }
-
-    const auto& [A, B] =
-        matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-    input_ivalues = {A, B};
-    input_tensors = {A, B};
 
     fusion_up = std::make_unique<Fusion>();
     fusion = fusion_up.get();
@@ -3189,15 +3184,15 @@ class HopperMatmulSchedulerTest
 
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion).size(),
-        "matmul fusion must have at least one MmaOp");
+        "matmul fusion must have exactly one MmaOp");
 
     // Schedule matmul fusion using custom parameters
     SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
         ->schedule(fusion, &mparams);
 
     KernelExecutor ke;
-    ke.compile(fusion, input_ivalues, LaunchParams(), matmul_cparams);
-    auto nvf_out = ke.run(input_ivalues);
+    ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
+    auto nvf_out = ke.run(inputs);
     EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-5, 1e-5));
   }
 
@@ -3213,38 +3208,66 @@ class HopperMatmulSchedulerTest
 
   MatmulParams mparams;
 
-  std::vector<c10::IValue> input_ivalues;
-  std::vector<at::Tensor> input_tensors;
+  std::vector<c10::IValue> inputs;
 
   // Tests should place the reference tensor here
   at::Tensor tref;
 };
 
-TEST_P(HopperMatmulSchedulerTest, GEMM) {
-  if (layout != MmaLayout::TT) {
-    GTEST_SKIP() << "Only implemented TN for now";
-    return;
+TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
+  const auto& [A, B] =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  inputs = {A, B};
+
+  TensorView* tv0 = nullptr;
+  TensorView* tv1 = nullptr;
+  std::unordered_map<int64_t, int64_t> old2new;
+  int64_t k_axis = 0;
+
+  switch (layout) {
+    case MmaLayout::TT:
+      // Inner dims KN, order is MKN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {{-2, -1}, {-1, -2}};
+      k_axis = -2;
+      break;
+    case MmaLayout::TN:
+      // Inner dims KK, order is MNK
+      tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {};
+      k_axis = -1;
+      break;
+    case MmaLayout::NT:
+      // Inner dims MN, order is KMN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      old2new = {{-3, -1}};
+      k_axis = -3;
+      break;
+    case MmaLayout::NN:
+      // Inner dims MK, order is NKM
+      tv0 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      old2new = {{-1, -3}};
+      k_axis = -2;
+      break;
   }
 
-  // TODO: Figure out tensor pattern based on layout
-  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // A [M, K, b]
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // B [b, K, N]
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {k_axis});
 
-  // TODO: Figure out how to reorder based on layout
   // Reorder the accumulator as [M, N, K]
-  // [M, rK, N] -> [M, N, K]
-  tv2->reorder({{-2, -1}, {-1, -2}});
+  tv2->reorder(old2new);
   tv2->commitLeafToLogical();
 
-  auto tv3 = castOp(DataType::Half, tv2);
+  auto tv3 = castOp(dtype, tv2);
   fusion->addOutput(tv3);
 
-  tref = atMatmul(
-      input_tensors.at(0).squeeze(), input_tensors.at(1).squeeze(), layout);
+  tref = atMatmul(A.squeeze(), B.squeeze(), layout);
 }
 
 INSTANTIATE_TEST_SUITE_P(
