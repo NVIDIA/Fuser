@@ -741,7 +741,7 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertBefore(fl, mbarrier_init_filled, current_scope);
       registerInsertAfter(fl, mbarrier_inval_filled, current_scope);
 
-      if (std::holds_alternative<WarpSpecialized>()) {
+      if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
         auto mbarrier_init_empty =
             initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Empty);
         auto mbarrier_inval_empty =
