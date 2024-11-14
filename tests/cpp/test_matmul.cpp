@@ -3757,6 +3757,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv2->reorder({{-4, -3}});
     tv2->merge(-5);
     tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    std::cout << tv2->axis(-4)->toString() << std::endl;
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         tv2,
         -1,
