@@ -638,7 +638,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         // High occupancy provides better threads level parallelism.
         // 25% is sufficient since ILP is high due to persistent batch sizes
         // which is equivalent to unrolling inner dim.
-        if (a.warps_per_sm < 16 || b.warps_per_sm < 16) {
+        if (a.warps_per_sm != b.warps_per_sm &&
+            (a.warps_per_sm < 16 || b.warps_per_sm < 16)) {
           return a.warps_per_sm > b.warps_per_sm;
         }
         // Tie breaker, smaller threads_per_block to reduce communication
