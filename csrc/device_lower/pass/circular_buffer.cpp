@@ -333,10 +333,10 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
             circular_buffer_load_exprs,
             loop_type,
             exclude),
-        mbarriers_to_wait_(getAllMbarriersToWaitFor()),
         circular_buffer_load_tvs_(
             GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-                circular_buffer_loop_)) {}
+                circular_buffer_loop_)),
+        mbarriers_to_wait_(getAllMbarriersToWaitFor()) {}
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
@@ -682,11 +682,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
   getAllMbarriersToWaitFor() {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
-    auto circular_buffer_tvs =
-        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-            circular_buffer_loop_);
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
-    for (auto tv : circular_buffer_tvs) {
+    for (auto tv : circular_buffer_load_tvs_) {
       LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       auto mbarrier_it = ldst_mbarrier_map.find(ldst);
       if (mbarrier_it == ldst_mbarrier_map.end()) {
@@ -824,6 +821,9 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
  private:
+  // The circular buffered TVs for the loop being cloned
+  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
+
   // Mbarriers whose wait is not inserted to the loop yet, and its corresponding
   // wait expression. This map is initialized as:
   //   mbarrier1 -> nullptr
@@ -853,9 +853,6 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
   kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
-
-  // The circular buffered TVs for the loop being cloned
-  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
 };
 
 // Description:
@@ -970,10 +967,11 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
             circular_buffer_load_exprs,
             loop_type,
             exclude),
-        mbarriers_to_wait_(getAllMbarriersToWaitFor()),
         circular_buffer_load_tvs_(
             GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-                circular_buffer_loop_)) {}
+                circular_buffer_loop_)),
+        mbarriers_to_wait_(getAllMbarriersToWaitFor()),
+        mbarriers_to_uses_(getAllMbarriersToUse()) {}
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
@@ -1005,6 +1003,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     // before `cloned_loop`.
     if (loop_type_ == CircularBufferLoopStage::ComputeWarp &&
         onlyOneSerialForLoopOnStack()) {
+      // wait before reading the circular buffer
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
         auto wait = it->second;
@@ -1018,6 +1017,19 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         }
         for_loop_stack_.back()->body().push_back(wait);
         it = mbarriers_to_wait_.erase(it);
+      }
+
+      // arrive after reading the circular buffer
+      for (auto it = mbarriers_to_uses_.begin();
+           it != mbarriers_to_uses_.end();) {
+        auto& uses = it->second;
+        if (uses.empty()) {
+          auto arrive = createMbarrierArrive(it->first);
+          for_loop_stack_.back()->body().push_back(arrive);
+          it = mbarriers_to_uses_.erase(it);
+        } else {
+          ++it;
+        }
       }
     }
 
@@ -1183,6 +1195,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
       case CircularBufferLoopStage::ComputeWarp: {
         if (!is_circular_buffer_load_expr) {
           for_loop_stack_.back()->body().push_back(expr);
+          handleComputeWarp(expr);
           return;
         }
         break;
@@ -1240,17 +1253,54 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     for_loop_stack_.back()->body().push_back(new_ldst);
   }
 
+  void handleComputeWarp(Expr* expr) {
+    NVF_ERROR(expr != nullptr);
+
+    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+
+    // remove expr from mbarriers_to_uses_
+    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+    for (auto tv : input_tvs) {
+      if (circular_buffer_load_tvs_.count(tv) == 0) {
+        continue;
+      }
+      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      auto mbarrier_it = ldst_mbarrier_map.find(ldst);
+      if (mbarrier_it == ldst_mbarrier_map.end()) {
+        continue;
+      }
+      auto mbarrier = mbarrier_it->second;
+      auto use_it = mbarriers_to_uses_.find(mbarrier);
+      if (use_it == mbarriers_to_uses_.end()) {
+        continue;
+      }
+      auto& uses = use_it->second;
+      uses.erase(expr);
+    }
+
+    if (onlyOneSerialForLoopOnStack()) {
+      for (auto it = mbarriers_to_uses_.begin();
+           it != mbarriers_to_uses_.end();) {
+        auto& uses = it->second;
+        if (uses.empty()) {
+          auto arrive = createMbarrierArrive(it->first);
+          for_loop_stack_.back()->body().push_back(arrive);
+          it = mbarriers_to_uses_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+  }
+
   // For each mbarrier that is used to wait for the loading of circular buffers
   // in the given loop, create a placeholder (nullptr) for mbarrier_wait
   // expressions
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
   getAllMbarriersToWaitFor() {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
-    auto circular_buffer_tvs =
-        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-            circular_buffer_loop_);
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
-    for (auto tv : circular_buffer_tvs) {
+    for (auto tv : circular_buffer_load_tvs_) {
       LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       auto mbarrier_it = ldst_mbarrier_map.find(ldst);
       if (mbarrier_it == ldst_mbarrier_map.end()) {
@@ -1262,6 +1312,41 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
       wait_exprs[mbarrier] = nullptr;
     }
     return wait_exprs;
+  }
+
+  std::unordered_map<TensorView*, std::unordered_set<Expr*>>
+  getAllMbarriersToUse() {
+    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    std::unordered_map<TensorView*, std::unordered_set<Expr*>> mbarrier_to_uses;
+    for (auto tv : circular_buffer_load_tvs_) {
+      LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      auto mbarrier_it = ldst_mbarrier_map.find(ldst);
+      if (mbarrier_it == ldst_mbarrier_map.end()) {
+        // This circular buffer tensor does not use mbarrier to synchronize.
+        // That is, its definition is not a TMA load operation.
+        continue;
+      }
+      auto mbarrier = mbarrier_it->second;
+      mbarrier_to_uses[mbarrier] = {};
+    }
+    auto exprs =
+        ir_utils::flattenScopedExprs(circular_buffer_loop_->body().exprs());
+    for (auto expr : exprs) {
+      auto tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+      for (auto tv : tvs) {
+        LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+        if (ldst == nullptr) {
+          continue;
+        }
+        auto mbarrier_it = ldst_mbarrier_map.find(ldst);
+        if (mbarrier_it == ldst_mbarrier_map.end()) {
+          continue;
+        }
+        auto mbarrier = mbarrier_it->second;
+        mbarrier_to_uses[mbarrier].insert(expr);
+      }
+    }
+    return mbarrier_to_uses;
   }
 
   // If there is already an if-then-else with electSync() predicate, use it.
@@ -1300,7 +1385,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
-    auto wait_it = mbarriers_to_wait_.find(ir_utils::getTv(mbarrier_arrive_tx_->mbarrier()));
+    auto wait_it = mbarriers_to_wait_.find(
+        ir_utils::getTv(mbarrier_arrive_tx_->mbarrier()));
     if (wait_it != mbarriers_to_wait_.end()) {
       NVF_ERROR(wait_it->second != nullptr);
       if_expr->thenBody().push_back(wait_it->second);
@@ -1377,6 +1463,16 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     return mbarrier_arrive_tx;
   }
 
+  kir::MBarrierArrive* createMbarrierArrive(TensorView* all_mbarriers) {
+    // Get mbarrier for this circular buffer stage.
+    kir::TensorIndex* stage_mbarrier =
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentEmptyStage());
+    kir::MBarrierArrive* mbarrier_arrive =
+        IrBuilder::create<kir::MBarrierArrive>(
+            /*state=*/nullptr, stage_mbarrier);
+    return mbarrier_arrive;
+  }
+
   // This function creates kir::MBarrierWaitParity for given LoadStoreOp and
   // circular buffer stage.
   kir::MBarrierWaitParity* createMbarrierWait(LoadStoreOp* ldst) {
@@ -1401,6 +1497,9 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   }
 
  private:
+  // The circular buffered TVs for the loop being cloned
+  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
+
   // Mbarriers whose wait is not inserted to the loop yet, and its corresponding
   // wait expression. This map is initialized as:
   //   mbarrier1 -> nullptr
@@ -1424,15 +1523,14 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   // create a single wait expression to wait for all of them.
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*> mbarriers_to_wait_;
 
+  std::unordered_map<TensorView*, std::unordered_set<Expr*>> mbarriers_to_uses_;
+
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
 
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
   kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
-
-  // The circular buffered TVs for the loop being cloned
-  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
