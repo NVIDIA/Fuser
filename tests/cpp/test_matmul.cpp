@@ -3798,4 +3798,150 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+// Test scheduling a Hopper matmul where the operands are 2D
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
+  constexpr auto macro = MmaMacro::Hopper_64_256_16;
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+  constexpr auto swizzle = MmaInputSmemSwizzle::B128;
+  const auto dtype = DataType::Half;
+
+  constexpr int64_t stages = 4;
+  constexpr int64_t prefetch = 3;
+  const int64_t cta_m = 2 * getM(macro);
+  const int64_t cta_n = 1 * getN(macro);
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // [K, M]
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // [K, N]
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // The output is [M, N, K] (no reordering needed)
+  MmaOp::AxisMapping axis_mapping{.a_axes = {1, -1, 0}, .b_axes = {-1, 1, 0}};
+  auto tv2 =
+      fusedMultiplySum(tv0, tv1, /*axes=*/{-1}, /*init=*/nullptr, axis_mapping);
+
+  auto tv3 = castOp(DataType::Half, tv2);
+
+  fusion.addOutput(tv3);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  // gmem [K, M] x gmem [K, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> gmem [M, N]
+
+  auto tv0c = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0c->setMemoryType(MemoryType::Shared);
+  auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1c->setMemoryType(MemoryType::Shared);
+  auto tv3c = tv3->cacheBefore();
+
+  tv0c->broadcast(-1); // [K, M] -> [K, M, 1]
+  tv1c->broadcast(-2); // [K, N] -> [K, 1, N]
+
+  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
+  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
+  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
+
+  // Create tiles
+  tv2->split(-3, cta_m);
+  tv2->split(-2, cta_n);
+  tv2->split(-1, getK(macro));
+  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+  tv2->reorder({{-5, -3}, {-3, -2}});
+  tv2->axis(0)->parallelize(ParallelType::BIDy);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+  // NOTE: since in this case we do not have "proper" broadcast in the inputs,
+  // we cannot simply propagate transforms to the operands. Instead, we
+  // propagate forward to the outputs and manually schedule the smem operands.
+  scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+      tv2,
+      -1,
+      {tv3},
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+          .propagateParallelType()
+          .propagateToBoundary());
+
+  // Schedule operands
+  for (TensorView* tv : {tv0c, tv1c}) {
+    // NOTE: above axes are given in MNK order, but inputs are in KMN
+    tv->split(-3, getK(macro));
+    tv->split(-2, cta_m);
+    tv->split(-1, cta_n);
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    // [Ko, Ki, Mo, Mi, No, Ni] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv->reorder({{-6, -4}, {-5, -1}, {-3, -3}});
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+  }
+
+  // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
+  tv0c->reorder({{-3, -1}});
+  tv0c->applyMmaSwizzleForTMALoad(swizzle);
+  // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
+  tv1c->reorder({{-1, -2}});
+  tv1c->applyMmaSwizzleForTMALoad(swizzle);
+
+  tv0c->computeAt(tv0c->uses().at(0)->output(0)->as<TensorView>(), 3);
+  tv1c->computeAt(tv1c->uses().at(0)->output(0)->as<TensorView>(), 3);
+
+  {
+    tv2->split(-3, getM(macro));
+    tv2->split(-2, getN(macro));
+    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
+    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    tv2->reorder({{-4, -3}});
+    tv2->merge(-5);
+    tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+        tv2,
+        -1,
+        {tv3},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+  for (auto tv : {tv3c, tv3}) {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
+  }
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  tv0c->circularBuffer(stages, prefetch);
+  tv1c->circularBuffer(stages, prefetch);
+
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  KernelExecutor ke;
+  ke.compile(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 } // namespace nvfuser
