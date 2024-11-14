@@ -1113,6 +1113,51 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         stage_parity, for_loop_stack_);
   }
 
+  // Check if the given expr is the first read of a circular buffered
+  // TensorView. If so, create the mbarrier::wait expression for the
+  // corresponding buffer. And if the given expr is on the top-level of the
+  // cloned loop, insert the newly created mbarrier::wait expression before the
+  // given expr.
+  void insertMBarrierWaitBeforeFirstRead(Expr* expr) {
+    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+
+    auto tvs_to_wait = loop_type_ == CircularBufferLoopStage::ComputeWarp
+        ? ir_utils::filterByType<TensorView>(expr->inputs())
+        : ir_utils::filterByType<TensorView>(expr->outputs());
+
+    for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      // short-circuit: The TensorView input for current expression is not
+      // defined by a circular buffered TMA load. So it is unrelated here.
+      // Here, we are only interested in inserting mbarrier::wait for the
+      // circular buffered TMA loads.
+      if (circular_buffer_load_tvs_.count(tv) == 0) {
+        continue;
+      }
+      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      auto mbarrier_it = ldst_mbarrier_map.find(ldst);
+      // short-circuit: Failed to find mbarrier for given TMA load. This could
+      // happen when a TV is circular buffered, but not using TMA to load.
+      if (mbarrier_it == ldst_mbarrier_map.end()) {
+        continue;
+      }
+      auto mbarrier = mbarrier_it->second;
+      auto wait_it = mbarriers_to_wait_.find(mbarrier);
+      // short-circuit: mbarrier does not exist in mbarriers_to_wait_, so its
+      // corresponding wait expression was already inserted.
+      if (wait_it == mbarriers_to_wait_.end()) {
+        continue;
+      }
+      auto& wait = wait_it->second;
+      if (wait == nullptr) {
+        wait = createMbarrierWait(ldst);
+      }
+      if (onlyOneSerialForLoopOnStack()) {
+        for_loop_stack_.back()->body().push_back(wait_it->second);
+        mbarriers_to_wait_.erase(wait_it);
+      }
+    }
+  }
+
   void processExpr(Expr* expr) final {
     TensorView* out_tv = ir_utils::getTvOutput(expr);
     bool is_circular_buffer_load_expr = std::any_of(
@@ -1123,6 +1168,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
           NVF_ERROR(circular_buffer_tv != nullptr);
           return out_tv == circular_buffer_tv;
         });
+
+    insertMBarrierWaitBeforeFirstRead(expr);
 
     switch (loop_type_) {
       case CircularBufferLoopStage::LoadWarp: {
@@ -1167,6 +1214,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
     mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
         ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+    active_tma_tensorview_ = ir_utils::getTvOutput(expr);
 
     // Clone LoadStoreOp and map it to mbarrier alloc
     Expr* new_ldst =
@@ -1243,6 +1291,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   //  iterDomains to the right of the computeAt position.
   void addTmaLoadBlock(Expr* expr) {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
+    NVF_ERROR(active_tma_tensorview_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
     // Use the if-then-else with electSync() predicate for the arrive expect
@@ -1251,12 +1300,14 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
-    auto wait_empty = createMbarrierWait(expr);
-    if_expr->thenBody().push_back(wait_empty);
+    // auto wait_empty = mbarriers_to_wait_.at(active_tma_tensorview_);
+    // NVF_ERROR(wait_empty != nullptr);
+    // if_expr->thenBody().push_back(wait_empty);
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
 
     mbarrier_arrive_tx_ = nullptr;
+    active_tma_tensorview_ = nullptr;
   }
 
   // Get size of tma load in bytes. It is used for expected transaction count in
@@ -1331,7 +1382,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
     auto stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_);
+            circular_buffer_loop_->iter_domain());
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
@@ -1339,7 +1390,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         all_mbarriers,
         loop_type_ == CircularBufferLoopStage::LoadWarp
             ? SimplifyingIrBuilder::addExpr(currentStage(), stage_depth)
-            : currentEmptyStage());
+            : currentStage());
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
@@ -1373,6 +1424,9 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
+
+  // The current circular buffered TV that mbarrier_arrive_tx_ is arriving for.
+  TensorView* active_tma_tensorview_ = nullptr;
 
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
