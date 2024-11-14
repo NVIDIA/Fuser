@@ -503,8 +503,8 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 int64_t getShardedAxis(TensorView* tv) {
-  auto ids = TensorDomain::noReductions(tv->getLoopDomain());
-  for (size_t i = 0; i < ids.size(); ++i) {
+  auto ids = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  for (const auto i : c10::irange(ids.size())) {
     if (ids[i]->getParallelType() == ParallelType::DIDx) {
       return static_cast<int64_t>(i);
     }
