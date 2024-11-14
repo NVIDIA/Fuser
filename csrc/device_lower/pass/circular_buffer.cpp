@@ -1222,6 +1222,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
       for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
+      auto wait_empty = createMbarrierWait(
+          circular_buffer_load_tvs_.begin()->definition()->as<LoadStoreOp>());
     }
     return elect_sync_if_then_else_;
   }
@@ -1327,10 +1329,17 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   kir::MBarrierWaitParity* createMbarrierWait(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
 
+    auto stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_);
+
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-    kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentStage());
+    kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        all_mbarriers,
+        loop_type_ == CircularBufferLoopStage::LoadWarp
+            ? SimplifyingIrBuilder::addExpr(currentStage(), stage_depth)
+            : currentEmptyStage());
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
