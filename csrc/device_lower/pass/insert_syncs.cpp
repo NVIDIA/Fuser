@@ -204,7 +204,8 @@ class WarSyncInserter : private kir::ExprMutator {
     auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (auto out_tv : out_tvs) {
       if (out_tv->getMemoryType() != MemoryType::Shared ||
-          GpuLower::current()->syncMap()->needsRawSync(out_tv).none()) {
+          GpuLower::current()->syncMap()->needsRawSync(out_tv).none() ||
+          out_tv->isCircularBuffered()) {
         continue;
       }
 
@@ -222,7 +223,8 @@ class WarSyncInserter : private kir::ExprMutator {
     auto inp_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto inp_tv : inp_tvs) {
       if (inp_tv->getMemoryType() != MemoryType::Shared ||
-          GpuLower::current()->syncMap()->needsRawSync(inp_tv).none()) {
+          GpuLower::current()->syncMap()->needsRawSync(inp_tv).none() ||
+          inp_tv->isCircularBuffered()) {
         continue;
       }
 
