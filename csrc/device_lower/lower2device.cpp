@@ -356,6 +356,9 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       auto producer_tv = reshape->in();
       auto consumer_tv = reshape->out();
 
+      // Find expanded producer IDs. Note that corresponding consumer IDs do
+      // not inherit the iteration type and are no longer expanded IDs, so the
+      // producer domain needs to be checked to find expanded IDs.
       std::unordered_set<IterDomain*> expanded_ids;
       std::copy_if(
           producer_tv->getLogicalDomain().begin(),
