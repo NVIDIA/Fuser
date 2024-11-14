@@ -1002,7 +1002,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     // circular buffered TensorView. We need to insert that wait expression
     // before `cloned_loop`.
     if (loop_type_ == CircularBufferLoopStage::ComputeWarp &&
-        onlyOneSerialForLoopOnStack()) {
+        for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
       // wait before reading the circular buffer
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
@@ -1017,19 +1018,6 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         }
         for_loop_stack_.back()->body().push_back(wait);
         it = mbarriers_to_wait_.erase(it);
-      }
-
-      // arrive after reading the circular buffer
-      for (auto it = mbarriers_to_uses_.begin();
-           it != mbarriers_to_uses_.end();) {
-        auto& uses = it->second;
-        if (uses.empty()) {
-          auto arrive = createMbarrierArrive(it->first);
-          for_loop_stack_.back()->body().push_back(arrive);
-          it = mbarriers_to_uses_.erase(it);
-        } else {
-          ++it;
-        }
       }
     }
 
@@ -1056,6 +1044,22 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         // }
         NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         addTmaLoadBlock(cloned_loop);
+      }
+    }
+
+    if (loop_type_ == CircularBufferLoopStage::ComputeWarp &&
+        for_loop_stack_.size() == 1) {
+      // arrive after reading the circular buffer
+      for (auto it = mbarriers_to_uses_.begin();
+           it != mbarriers_to_uses_.end();) {
+        auto& uses = it->second;
+        if (uses.empty()) {
+          auto arrive = createMbarrierArrive(it->first);
+          for_loop_stack_.back()->body().push_back(arrive);
+          it = mbarriers_to_uses_.erase(it);
+        } else {
+          ++it;
+        }
       }
     }
   }
@@ -1165,7 +1169,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         wait = createMbarrierWait(ldst);
       }
       if (loop_type_ == CircularBufferLoopStage::ComputeWarp &&
-          onlyOneSerialForLoopOnStack()) {
+          for_loop_stack_.size() == 1) {
+        NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         for_loop_stack_.back()->body().push_back(wait_it->second);
         mbarriers_to_wait_.erase(wait_it);
       }
@@ -1278,7 +1283,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
       uses.erase(expr);
     }
 
-    if (onlyOneSerialForLoopOnStack()) {
+    if (for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
       for (auto it = mbarriers_to_uses_.begin();
            it != mbarriers_to_uses_.end();) {
         auto& uses = it->second;
