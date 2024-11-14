@@ -65,9 +65,20 @@ class IdGraphIndexCompute : public OptOutDispatch {
   void setIndex(IterDomain* id, Val* idx) {
     const auto& group = toGroup(id);
     if (auto it = index_map_.find(group); it != index_map_.end()) {
-      std::cerr << "Updating index for " << id->toString() << " ("
+      // This can happen when back propagating a merge with a
+      // broadcast domain. For example, merge 1, 8 -> 8. Here, the
+      // index of the output ID is valid also for the inner input ID
+      // since it's almost exact. However, to get the index of the the
+      // outer broadcast input ID, the propgation would generate a new
+      // index for the inner input ID that would look like x%8, which
+      // may not be what we need for predication.
+      // I don't think we would need to do any update here. The
+      // shortest way to get an index should be the most preferred
+      // option.
+      std::cerr << "Do not updating index for " << id->toString() << " ("
                 << nvfuser::toString(group) << "): " << idx->toInlineString()
                 << "\n";
+      return;
       it->second = idx;
       NVF_ERROR(index_map_.at(group) == idx);
     } else {

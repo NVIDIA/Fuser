@@ -90,15 +90,6 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
 
   // Add more conditions to check
 
-  // Ignore reshape for now
-#if 0  
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Reshape not yet supported.");
-    return false;
-  }
-#endif
-
   std::vector<Expr*> resize_ops =
       ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 

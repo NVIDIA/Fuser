@@ -1059,7 +1059,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
-  _debug = tv->name() == 6;
+  _debug = tv->name() == 1;
 
   const std::vector<IterDomain*>& predicate_ids = getPredicateDomains(
       tv, expr, getLoopIds(expr, id_model_), traversalGraph());
@@ -1182,6 +1182,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           getCoveredPredicatedDomains(contig_domain_group);
     }
 
+    if (_debug) {
+      std::cerr << "Actual predicate domain: "
+                << nvfuser::toString(actual_predicate_domain_group) << "\n";
+    }
     auto idx_it = index_map.find(actual_predicate_domain_group);
     NVF_ERROR(
         idx_it != index_map.end(),

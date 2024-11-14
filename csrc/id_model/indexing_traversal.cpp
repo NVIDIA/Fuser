@@ -116,7 +116,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     NVF_ERROR(found);
   }
 
-  if (consumer_tv->name() == 33) {
+  if (consumer_tv->name() == 1) {
     std::ofstream ofs("debug.dot", std::ofstream::trunc);
     auto dot_string = local_graph.toGraphvizDotGraph();
     ofs << dot_string;
@@ -179,6 +179,8 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
       path.has_value()) {
     return *path;
   }
+
+  std::cerr << "Not using resize war\n";
 
   auto from_groups = graph.toGroups(from_domains);
   auto to_groups = graph.toGroups(to_domains);
