@@ -370,8 +370,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t smem_overhead,
     const size_t tmp_gmem_dtype_size,
     const size_t vectorize_factor,
-    const int64_t threads_per_block_min,
-    const int64_t threads_per_block_max,
+    const int64_t hp_threads_per_block_min,
+    const int64_t hp_threads_per_block_max,
     const bool project_to_input,
     const PrimDataType index_type) {
   auto rparams = std::make_unique<ReductionParams>(
@@ -593,8 +593,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // Start from 128 or a smaller number if inner dim is small.
   const int64_t after_vect = inner_dim_numel / vect_factor;
   const int64_t batch_min = getMinimumBatch();
-  int64_t threads_per_block_min =
-      InnerOuterPersistentKernelScheduler::threads_per_block_min;
+  int64_t threads_per_block_min = hp_threads_per_block_min;
   threads_per_block_min = std::min(threads_per_block_min, after_vect);
   threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
 
@@ -606,9 +605,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // round up to power of 2
   threads_per_block_max = scheduler_utils::roundUpPow2(threads_per_block_max);
   // don't go beyond the maximum threads per block
-  threads_per_block_max = std::min(
-      threads_per_block_max,
-      InnerOuterPersistentKernelScheduler::threads_per_block_max);
+  threads_per_block_max =
+      std::min(threads_per_block_max, hp_threads_per_block_max);
 
   // Store all the possible heuristics based on different threads per block.
   // Vectorizaton is fixed at the maximum value.
