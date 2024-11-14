@@ -1003,7 +1003,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     // that the `cloned_loop` is the loop containing the first read of a
     // circular buffered TensorView. We need to insert that wait expression
     // before `cloned_loop`.
-    if (onlyOneSerialForLoopOnStack()) {
+    if (loop_type_ == CircularBufferLoopStage::ComputeWarp &&
+        onlyOneSerialForLoopOnStack()) {
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
         auto wait = it->second;
@@ -1125,7 +1126,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
         ? ir_utils::filterByType<TensorView>(expr->inputs())
         : ir_utils::filterByType<TensorView>(expr->outputs());
 
-    for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto tv : tvs_to_wait) {
       // short-circuit: The TensorView input for current expression is not
       // defined by a circular buffered TMA load. So it is unrelated here.
       // Here, we are only interested in inserting mbarrier::wait for the
@@ -1151,7 +1152,8 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
       if (wait == nullptr) {
         wait = createMbarrierWait(ldst);
       }
-      if (onlyOneSerialForLoopOnStack()) {
+      if (loop_type_ == CircularBufferLoopStage::ComputeWarp &&
+          onlyOneSerialForLoopOnStack()) {
         for_loop_stack_.back()->body().push_back(wait_it->second);
         mbarriers_to_wait_.erase(wait_it);
       }
@@ -1214,7 +1216,6 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
     mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
         ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
-    active_tma_tensorview_ = ir_utils::getTvOutput(expr);
 
     // Clone LoadStoreOp and map it to mbarrier alloc
     Expr* new_ldst =
@@ -1291,7 +1292,6 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   //  iterDomains to the right of the computeAt position.
   void addTmaLoadBlock(Expr* expr) {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
-    NVF_ERROR(active_tma_tensorview_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
     // Use the if-then-else with electSync() predicate for the arrive expect
@@ -1300,14 +1300,16 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
-    // auto wait_empty = mbarriers_to_wait_.at(active_tma_tensorview_);
-    // NVF_ERROR(wait_empty != nullptr);
-    // if_expr->thenBody().push_back(wait_empty);
+    auto wait_it = mbarriers_to_wait_.find(ir_utils::getTv(mbarrier_arrive_tx_->mbarrier()));
+    if (wait_it != mbarriers_to_wait_.end()) {
+      NVF_ERROR(wait_it->second != nullptr);
+      if_expr->thenBody().push_back(wait_it->second);
+      mbarriers_to_wait_.erase(wait_it);
+    }
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
 
     mbarrier_arrive_tx_ = nullptr;
-    active_tma_tensorview_ = nullptr;
   }
 
   // Get size of tma load in bytes. It is used for expected transaction count in
@@ -1424,9 +1426,6 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
-
-  // The current circular buffered TV that mbarrier_arrive_tx_ is arriving for.
-  TensorView* active_tma_tensorview_ = nullptr;
 
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
@@ -1632,8 +1631,6 @@ class CircularBufferInserter : private kir::ExprMutator {
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
-    std::cout << "Inserting TMA Warp Specialized" << std::endl;
-    std::cout << circular_buffer_loop->toString() << std::endl;
     ParallelType warp_specialize_on =
         std::get<WarpSpecialized>(GpuLower::current()
                                       ->circularBufferInfo()
