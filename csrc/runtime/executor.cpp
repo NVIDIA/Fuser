@@ -244,7 +244,82 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
   return outputs;
 }
 
-void KernelExecutor::compile(
+bool KernelExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("KernelExecutor::supported");
+
+  to has_only_scalar_inputs = [](std::vector<Val*> inputs) -> bool {
+ 
+    turn std::all_of(
+ puts.begin(),
+  uts.end(),
+   al * ip){
+    
+      rn !inp->isA<TensorView>();
+   
+       
+    
+
+   has_atleast_one_cuda_input = [](std::vector<Val*> inputs) -> bool {
+   
+    rn std::any_of(
+   ts.begin(),
+    s.end(),
+     l* inp){
+     
+      n inp->isA<TensorView>() && !inp->as<TensorView>()->isCpuScalar();
+    
+       
+    
+
+   exprs is present for aliasing only segments
+    
+  n a fusion with no exprs have only scalar inputs?
+    
+  usion->exprs().size() == 0){
+     
+    n has_only_scalar_inputs(fusion->inputs()) ||
+        has_atleast_one_cuda_input(fusion->inputs());
+    
+   
+
+  Expr* expr: fus ion->exprs()){
+     
+    prs can have the following combination of inputs:
+    
+     expr->inputs() = {scalars}
+    
+    ese are expressions like `full`, `uniform` that generate CUDA tensors
+    
+     do not accept any fusion inputs.
+     
+    expr->inputs() = {scalars, CPU scalar tensor}
+     
+    expr->inputs() = {scalars, CPU scalar tensor, CUDA tensor}
+     
+    the given fusion only has expressions of the second category,
+     
+     fusion output is expected to be CPU scalar tensor, however nvFuser can
+ 
+    //     enerate CUDA tensors. Raise an error in this case since nvFuser does 
+    // ot
+      t this.
+      Alternatively, we can evaluate such fusions using
+    // ExpressionEvaluator
+     
+    s_only_scalar_inputs(expr->inputs()) ||
+     
+        east_one_cuda_input(expr->inputs())){
+       
+      true;
+      
+    
+
+  e
+  false;
+  }
+
+v
+ KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1779,3 +1854,4 @@ GlobalBufferInfo KernelExecutor::deserialize(
 }
 
 } // namespace nvfuser
+       
