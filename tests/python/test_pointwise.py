@@ -359,6 +359,6 @@ def test_issue2853():
     with FusionDefinition() as fd:
         fusion_func(fd)
     with pytest.raises(
-        RuntimeError, match="Expected atleast one input to be on DeviceType::CUDA."
+        RuntimeError, match="KernelExecutor does not support the Fusion provided."
     ):
         _ = fd.execute(inputs)

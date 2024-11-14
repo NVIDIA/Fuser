@@ -74,7 +74,41 @@ class KernelExecutor : public ExecutorAbstract {
 
   // TODO: What rules should be in this check?
   static bool supported(Fusion* fusion) {
-    return true;
+    auto has_only_scalar_inputs = [](Expr* expr) -> bool {
+      return std::all_of(
+        expr->inputs().begin(), 
+        expr->inputs().end(), 
+        [](Val * inp){
+          return !inp->isA<TensorView>();
+        });
+    };
+
+    auto has_atleast_one_cuda_input = [](Expr* expr) -> bool {
+      return std::any_of(
+        expr->inputs().begin(), 
+        expr->inputs().end(), 
+        [](Val* inp){
+          return inp->isA<TensorView>() && !inp->as<TensorView>()->isCpuScalar();
+      });
+    };
+
+    for (Expr* expr: fusion->exprs()){
+      // Exprs can have the following combination of inputs:
+      // 1. expr->inputs() = {scalars}
+      // These are expressions like `full`, `uniform` that generate CUDA tensors 
+      // but do not accept any fusion inputs.
+      // 2. expr->inputs() = {scalars, CPU scalar tensor}
+      // 3. expr->inputs() = {scalars, CPU scalar tensor, CUDA tensor}
+      // If the given fusion only has expressions of the second category,
+      // the fusion output is expected to be CPU scalar tensor, however nvFuser can
+      // only generate CUDA tensors. Raise an error in this case since nvFuser does not
+      // support this.
+      // Note: Alternatively, we can evaluate such fusions using ExpressionEvaluator
+      if (has_only_scalar_inputs(expr) || has_atleast_one_cuda_input(expr)){
+        return true;
+      }
+    }
+    return false;
   }
 
   //! To compile a fusion with the 32-bit index type, CompileParams
