@@ -1565,8 +1565,7 @@ TEST_F(AliasTest, TrivialInplaceUpdateNoSegmentation) {
   // Verify inplace update
   EXPECT_TRUE(out_tensors[0].equal(in_tensor));
   // Verify no segmentation
-  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
-      << "segmentation is not supposed to happen";
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
   // Verify output values.
   testValidate(
@@ -1605,11 +1604,11 @@ TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
   ASSERT_EQ(out_tensors.size(), 1);
 
   // Verify inplace update
-  EXPECT_TRUE(out_tensors[0].as_strided({2, 3, 4}, {12, 4, 1}).equal(in_tensor));
+  EXPECT_TRUE(
+      out_tensors[0].as_strided({2, 3, 4}, {12, 4, 1}).equal(in_tensor));
 
   // Verify no segmentation
-  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
-      << "segmentation is not supposed to happen";
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
   // Verify output values.
   testValidate(
