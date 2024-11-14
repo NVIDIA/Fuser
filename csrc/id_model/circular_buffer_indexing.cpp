@@ -66,6 +66,13 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
+  if (for_loop->circularBufferLoopStage() ==
+          CircularBufferLoopStage::LoadWarp ||
+      for_loop->circularBufferLoopStage() ==
+          CircularBufferLoopStage::ComputeWarp) {
+    return nullptr;
+  }
+
   // This loop should be either prologue or main
   NVF_ERROR(
       for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog ||
@@ -109,6 +116,8 @@ Val* getOffsetForCircularBufferTensor(
   const bool is_prolog = stage == CircularBufferLoopStage::Prolog;
   const bool is_main = stage == CircularBufferLoopStage::Main;
   const bool is_epilog = stage == CircularBufferLoopStage::Epilog;
+  const bool is_load_warp = stage == CircularBufferLoopStage::LoadWarp;
+  const bool is_compute_warp = stage == CircularBufferLoopStage::ComputeWarp;
 
   auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
 
@@ -121,8 +130,8 @@ Val* getOffsetForCircularBufferTensor(
   // If this appears as a consumer, it should be either prologue or
   // main. If it's producer, it should be main or epilogue
   NVF_ERROR(
-      (as_consumer && (is_prolog || is_main)) ||
-          (!as_consumer && (is_main || is_epilog)),
+      (as_consumer && (is_prolog || is_main || is_load_warp)) ||
+          (!as_consumer && (is_main || is_epilog || is_compute_warp)),
       "Unexpected circular buffer stage: ",
       stage,
       " for using ",

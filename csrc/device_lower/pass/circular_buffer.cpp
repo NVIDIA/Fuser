@@ -1569,6 +1569,8 @@ class CircularBufferInserter : private kir::ExprMutator {
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
+    std::cout << "Inserting TMA Warp Specialized" << std::endl;
+    std::cout << circular_buffer_loop->toString() << std::endl;
     ParallelType warp_specialize_on =
         std::get<WarpSpecialized>(GpuLower::current()
                                       ->circularBufferInfo()

@@ -870,6 +870,10 @@ void ComputeAtMap::allocateIndexVariables() {
                {CircularBufferLoopStage::Main,
                 IrBuilder::create<Val>(DataType::Index)},
                {CircularBufferLoopStage::Epilog,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::LoadWarp,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::ComputeWarp,
                 IrBuilder::create<Val>(DataType::Index)}}));
     } else {
       // Everything now should be serial concrete loops,
@@ -900,7 +904,7 @@ Val* ComputeAtMap::getIndexVariable(
     // buffer loop
     if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
       // The circular buffered loop stages are created after the loop nest
-      //  lowering phase so this function will be querried before the double
+      //  lowering phase so this function will be querried before the circular
       //  buffer pass. At that point, no forloop has any circular buffer
       //  stage defined, and we just default to using the main stage index.
       circular_buffer_loop_stage = CircularBufferLoopStage::Main;
