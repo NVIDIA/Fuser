@@ -246,7 +246,7 @@ void AliasFinder::handle(const LoadStoreOp* set) {
   if (in == nullptr) {
     return;
   }
-  TensorView* out = set->out()->as<TensorView>();
+  auto* out = set->out()->as<TensorView>();
 
   // Compute `out`'s preferred allocation domain for aliasing.
   //
