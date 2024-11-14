@@ -264,6 +264,11 @@ struct CircularBufferOptions {
   }
 };
 
+inline std::ostream& operator<<(std::ostream& os, const CircularBufferOptions& options) {
+  // TODO
+  return os;
+}
+
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
 //! modifed as split/merge/computeAt functions are called. The history of

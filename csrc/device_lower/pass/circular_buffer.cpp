@@ -1550,7 +1550,7 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
         GpuLower::current()->circularBufferInfo().getCircularBufferingTypeFor(
-            circular_buffer_loop->iter_domain()));
+            loop->iter_domain()));
     if (use_warp_specialization) {
       NVF_ERROR(
           std::all_of(
