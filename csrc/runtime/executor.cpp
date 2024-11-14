@@ -247,79 +247,48 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
 bool KernelExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("KernelExecutor::supported");
 
-  to has_only_scalar_inputs = [](std::vector<Val*> inputs) -> bool {
- 
-    turn std::all_of(
- puts.begin(),
-  uts.end(),
-   al * ip){
-    
-      rn !inp->isA<TensorView>();
-   
-       
-    
+  auto has_only_scalar_inputs = [](Expr* expr) -> bool {
+    return std::all_of(
+        expr->inputs().begin(), expr->inputs().end(), [](Val* inp) {
+          return !inp->isA<TensorView>();
+        });
+  };
 
-   has_atleast_one_cuda_input = [](std::vector<Val*> inputs) -> bool {
-   
-    rn std::any_of(
-   ts.begin(),
-    s.end(),
-     l* inp){
-     
-      n inp->isA<TensorView>() && !inp->as<TensorView>()->isCpuScalar();
-    
-       
-    
+  auto has_atleast_one_cuda_input = [](Expr* expr) -> bool {
+    return std::any_of(
+        expr->inputs().begin(), expr->inputs().end(), [](Val* inp) {
+          return inp->isA<TensorView>() &&
+              !inp->as<TensorView>()->isCpuScalar();
+        });
+  };
 
-   exprs is present for aliasing only segments
-    
-  n a fusion with no exprs have only scalar inputs?
-    
-  usion->exprs().size() == 0){
-     
-    n has_only_scalar_inputs(fusion->inputs()) ||
-        has_atleast_one_cuda_input(fusion->inputs());
-    
-   
-
-  Expr* expr: fus ion->exprs()){
-     
-    prs can have the following combination of inputs:
-    
-     expr->inputs() = {scalars}
-    
-    ese are expressions like `full`, `uniform` that generate CUDA tensors
-    
-     do not accept any fusion inputs.
-     
-    expr->inputs() = {scalars, CPU scalar tensor}
-     
-    expr->inputs() = {scalars, CPU scalar tensor, CUDA tensor}
-     
-    the given fusion only has expressions of the second category,
-     
-     fusion output is expected to be CPU scalar tensor, however nvFuser can
- 
-    //     enerate CUDA tensors. Raise an error in this case since nvFuser does 
-    // ot
-      t this.
-      Alternatively, we can evaluate such fusions using
-    // ExpressionEvaluator
-     
-    s_only_scalar_inputs(expr->inputs()) ||
-     
-        east_one_cuda_input(expr->inputs())){
-       
-      true;
-      
-    
-
-  e
-  false;
+  // No exprs is present for trivial forwarding only segments
+  // In this case, no kernel is launched (no-op scheduler)
+  // CPU scalar tensors are forwarded as CPU scalar tensors.
+  if (fusion->exprs().size() == 0) {
+    return true;
   }
 
-v
- KernelExecutor::compile(
+  for (Expr* expr : fusion->exprs()) {
+    // Exprs can have the following combination of inputs:
+    // 1. expr->inputs() = {scalars}
+    // These are expressions like `full`, `uniform` that generate CUDA tensors
+    // but do not accept any fusion inputs.
+    // 2. expr->inputs() = {scalars, CPU scalar tensor}
+    // 3. expr->inputs() = {scalars, CPU scalar tensor, CUDA tensor}
+    // If the given fusion only has expressions of the second category,
+    // the fusion output is expected to be CPU scalar tensor, however nvFuser
+    // can only generate CUDA tensors. Raise an error in this case since nvFuser
+    // does not support this. Note: Alternatively, we can evaluate such fusions
+    // using ExpressionEvaluator
+    if (has_only_scalar_inputs(expr) || has_atleast_one_cuda_input(expr)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1854,4 +1823,3 @@ GlobalBufferInfo KernelExecutor::deserialize(
 }
 
 } // namespace nvfuser
-       

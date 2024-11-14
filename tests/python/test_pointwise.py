@@ -339,7 +339,8 @@ def test_implicit_bcast_inplace():
 
 
 # Test that an error is raised if there are segments
-# with no CUDA tensor inputs See https://github.com/NVIDIA/Fuser/issues/2853.
+# with no CUDA tensor outputs.
+# See https://github.com/NVIDIA/Fuser/issues/2853.
 def test_issue2853():
     inputs = [
         torch.tensor(2.0, device="cpu", dtype=torch.float),
@@ -347,18 +348,58 @@ def test_issue2853():
     ]
 
     def fusion_func(fd: FusionDefinition):
-        tv_cpu = fd.from_pytorch(inputs[0])
-        tv_cuda = fd.from_pytorch(inputs[1])
+        tv0 = fd.from_pytorch(inputs[0]) # CPU scalar tensor
+        tv1 = fd.from_pytorch(inputs[1]) # CUDA input
         s0 = fd.define_scalar(3.0)
         # CPU scalar only segment that should raise an error
-        t2 = fd.ops.add(tv_cpu, s0)
-        t3 = fd.ops.add(tv_cuda, s0)
+        t2 = fd.ops.add(tv0, s0) # Should be a CPU scalar tensor
+        t3 = fd.ops.add(tv1, s0)
         fd.add_output(t2)
         fd.add_output(t3)
 
     with FusionDefinition() as fd:
         fusion_func(fd)
     with pytest.raises(
-        RuntimeError, match="KernelExecutor does not support the Fusion provided."
+        RuntimeError, match="No executor supports provided fusion."
     ):
         _ = fd.execute(inputs)
+
+# This example contains CPU scalar only fusion inputs.
+# The `full` op does not take any fusion inputs but generates a 
+# CUDA tensor. This is a nvFuser supported fusion since the final
+# output is a CUDA tensor.
+def test_full_with_cpu_inputs():
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])
+        s0 = fd.define_scalar(3.0)
+        tv1 = fd.ops.full(shape=[2,2], fill_value=s0, dtype=DataType.Float)
+        t2 = fd.ops.mul(tv0, tv1) # CPU scalar * CUDA tensor = CUDA tensor
+        fd.add_output(t2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+    _ = fd.execute(inputs)
+
+# If fusion segment do not consist of any exprs, no kernel is 
+# launched and the output is on the correct device.
+def test_input_forwarding_device():
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float)
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])
+        fd.add_output(tv0)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    out = fd.execute(inputs)
+    assert out[0].device == "cpu"
+    
+    
+    
