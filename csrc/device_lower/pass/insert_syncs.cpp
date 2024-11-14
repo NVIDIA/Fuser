@@ -951,9 +951,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     const auto gpu_lower = GpuLower::current();
     int64_t pending_ops = std::numeric_limits<int64_t>::max();
     for (auto inp : expr->inputs()) {
-      if (async_inputs_in_current_scope_.count(inp) == 0) {
-        continue;
-      }
+      // if (async_inputs_in_current_scope_.count(inp) == 0) {
+      //   continue;
+      // }
       auto tv = dynamic_cast<TensorView*>(inp);
       if (tv == nullptr) {
         continue;
@@ -969,17 +969,21 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       }
       auto stage = circular_buffer_loop->circularBufferLoopStage();
       NVF_ERROR(
-          stage == CircularBufferLoopStage::Main,
+          stage == CircularBufferLoopStage::Main ||
+              stage == CircularBufferLoopStage::ComputeWarp,
           "Only main circular buffer loop needs WAR async wait, ",
           "so the code should not reach here. Stage:",
           stage);
-      const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
+      const int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
           circular_buffer_loop->iter_domain());
-      const auto prefetch_distance =
+      const int64_t prefetch_distance =
           gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
               circular_buffer_loop->iter_domain());
+      std::cout << "Prefetch distance: " << prefetch_distance << std::endl;
+      std::cout << "Stage depth: " << stage_depth << std::endl;
       pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
     }
+    NVF_ERROR(pending_ops != std::numeric_limits<int64_t>::max());
     return pending_ops;
   }
 
@@ -1002,7 +1006,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         auto expr = *it;
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
-        if (std::none_of(
+        if (for_loop->circularBufferLoopStage() !=
+                CircularBufferLoopStage::ComputeWarp &&
+            std::none_of(
                 expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
                   return async_inputs_in_current_scope_.count(val);
                 })) {
@@ -1028,10 +1034,20 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
         auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
         while (!sync_exprs.empty()) {
-          registerInsertAfter(
-              for_loop->body().exprs().back(),
-              sync_exprs.back(),
-              &for_loop->body());
+          // TODO: wrong
+          if (for_loop->circularBufferLoopStage() == CircularBufferLoopStage::ComputeWarp) {
+            std::cout << for_loop->toString() << std::endl;
+            NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
+            registerInsertAfter(
+                for_loop->body().exprs().at(for_loop->body().exprs().size() - 2),
+                sync_exprs.back(),
+                &for_loop->body());
+          } else {
+            registerInsertAfter(
+                for_loop->body().exprs().back(),
+                sync_exprs.back(),
+                &for_loop->body());
+          }
           sync_exprs.pop_back();
         }
       }
