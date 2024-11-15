@@ -188,7 +188,37 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
             .getReplay();
 
-    ProducerConsumerPairAnalyzer analyzer(c2p);
+    // Find all IterDomains involved in index expressions
+    // TODO: do we need to find logical IDs in producer that are involved in
+    // its allocation domain too?
+    std::vector<Val*> mapped_root_vals, loop_vals;
+    for (IterDomain* id : consumer->getRootDomain()) {
+      if (c2p.find(id) != c2p.end()) {
+        mapped_root_vals.push_back(id);
+      }
+    }
+    for (IterDomain* id : consumer->getLoopDomain()) {
+      loop_vals.push_back(id);
+    }
+
+    // Collect all IterDomains along path instead of Exprs
+    std::unordered_set<IterDomain*> index_ids;
+    for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
+             mapped_root_vals,
+             loop_vals,
+             /*require_all_to_visited=*/false)) {
+      for (Val* v : expr->inputs()) {
+        if (auto* id = dynamic_cast<IterDomain*>(v)) {
+          index_ids.insert(id);
+        }
+      }
+      for (Val* v : expr->outputs()) {
+        if (auto* id = dynamic_cast<IterDomain*>(v)) {
+          index_ids.insert(id);
+        }
+      }
+    }
+    ProducerConsumerPairAnalyzer analyzer(c2p, index_ids);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -201,12 +231,19 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
  private:
   ProducerConsumerPairAnalyzer(
-      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
-      : c2p_(c2p) {}
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p,
+      const std::unordered_set<IterDomain*> index_ids)
+      : c2p_(c2p), index_ids_(index_ids) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
   bool needsPredicate(IterDomain* consumer_id) {
+    // TODO: check that this consumer_id is actually involved in indexing the
+    // producer. If it is not connected to the producer allocation domain in
+    // the broadcast graph, then we can skip processing it.
+    if (index_ids_.find(consumer_id) == index_ids_.end()) {
+      return false;
+    }
     needs_predicate_ = false;
     handle(consumer_id);
     return needs_predicate_;
@@ -297,6 +334,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
+  std::unordered_set<IterDomain*> index_ids_;
 };
 
 class PredicateChcker : public IterVisitor {
