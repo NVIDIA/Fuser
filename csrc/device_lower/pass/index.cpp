@@ -1616,12 +1616,49 @@ namespace {
 
 // warp_group_box_size_m = 64; warp_group_box_size_n = 16 * 2 = 32
 // num_warps_groups_m = 64/ (warp_group_box_size_m = 64)  = 1
-// warp_groups_box_offset_m = (I % num_warps_groups_m ) * warp_group_box_size_m = 0 
-// warp_groups_box_offset_n = (I /  num_warps_groups_m) * warp_group_box_size_n = 32 (when I = 1) 
-// warp_groups_offset = warp_groups_box_offset_m +  warp_groups_box_offset_n
+// warp_groups_box_offset_m =
+//        (I % num_warps_groups_m ) * warp_group_box_size_m = 0
+// warp_groups_box_offset_n =
+//        (I /  num_warps_groups_m) * warp_group_box_size_n = 32 (when I = 1)
+// warp_groups_offset =
+//                warp_groups_box_offset_m +  warp_groups_box_offset_n
 
-// A warp group box of size [64, 16] has 4 tile boxes of size [16, 16] each.
+// A warp group box of size [64(M), 16(N)] has 4 tile boxes of size [16(tile_m),
+// 16(tile_n)] each.
+// Since each warp computes a tile box, we find tile_box_id as:
+// tile_box_id = threadIdx.x/32
+// tile_box_id will have two components tile_box_id_m, tile_box_id_n
+// But first we compute the number of tile boxes in the m and n dim .
+// tile_boxes_in_warp_group_box_m =
+//                    min (4, m/ tile_m(16))
+// tile_boxes_in_warp_group_box_n = 4 / tile_boxes_in_warp_group_box_m
+// Now tile_box_id_m =  tile_box_id % tile_boxes_in_warp_group_box_m
+// tile_box_id_n = tile_box_id / tile_boxes_in_warp_group_box_m
+// tile_box_offset_m = tile_box_id_m * tile_m(16) * N * 2 (half)
+// tile_box_offset_n = tile_box_id_m * tile_n (16) * N * 2 (half)
+// tile_box_offset = tile_box_offet_m + tile_box_offset_m
 
+// Inside the tile box [16, 16], we can think of it as 4 8x8 tiles
+// *****************
+// *       *       *
+// *       *       *
+// *  T0   *  T2   *
+// *       *       *
+// *       *       *
+// *****************
+// *       *       *
+// *       *       *
+// *  T1   *  T3   *
+// *       *       *
+// *       *       *
+// *****************
+// Since there aree 128 threads working on 4 tile boxes.
+// Effective threadIdx effective_tidx = tidx.x % 32
+// offset_in_tile_box_m =
+//              (effective_tidx % 16 ) * N * 2 (half)
+// offset_in_tile_box_n =
+//              (effective_tidx/ 16 ) * 8 * 2 (half)
+// offset_in_tile = offset_in_tile_box_m + offset_in_tile_box_n
 Val* hardCodedIndexGenerationForStMatrix(
     const LoadStoreOp* ldst,
     const ForLoop* outer_loop,
@@ -1729,10 +1766,9 @@ Val* hardCodedIndexGenerationForStMatrix(
     // (tidx.x /  (8 * 2)) * 16
     // This gives the offset in the n-dim
     auto offset_in_tile_n = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(16, DataType::Index),
+        IrBuilder::create<Val>(8 * dtype_size, DataType::Index),
         IrBuilder::divExpr(
-            effective_tidx,
-            IrBuilder::create<Val>(8 * dtype_size, DataType::Index)));
+            effective_tidx, IrBuilder::create<Val>(16, DataType::Index)));
 
     // (tidx.x%16) * n * 2
     // This gives the offset inside the 16x16 tile in the m-dim.
