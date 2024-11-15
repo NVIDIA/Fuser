@@ -203,6 +203,13 @@ class BFS {
         }
       }
       ss << ")";
+      ss << ", visited: (";
+      for (const auto& visited : visited_) {
+        if (const ValT* v = std::get_if<ValT>(&visited)) {
+          ss << " " << toString(visited);
+        }
+      }
+      ss << ")";
       NVF_THROW("BFS traversal could not visit some nodes: ", ss.str());
     }
   }

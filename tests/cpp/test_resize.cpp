@@ -5972,6 +5972,45 @@ TEST_F(ResizeTest, SchedulerTest12) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Reshape then squeezed slice
+TEST_F(ResizeTest, SchedulerTest13) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({48});
+  std::vector<int64_t> shape2({3, 16});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal());
+
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), fusion.oneVal()},
+       {fusion.zeroVal(), tv2->axis(1)->extent()}});
+  auto tv4 = squeeze(tv3, {0});
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 TEST_F(ResizeTest, TMP1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());

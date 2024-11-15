@@ -45,6 +45,19 @@ IndexingTraversal::IndexingTraversal(
     }
     resize_paths_.insert(resize);
   }
+
+  // A unique expr path should be always allowed
+  for (const auto& expr_g : graph.disjointExprSets().disjointSets()) {
+    auto resize = dynamic_cast<Resize*>(expr_g->front());
+    if (resize == nullptr) {
+      continue;
+    }
+
+    if (graph.inputGroups(expr_g).size() == 1 &&
+        graph.outputGroups(expr_g).size() == 1) {
+      resize_paths_.insert(resize);
+    }
+  }
 }
 
 IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(

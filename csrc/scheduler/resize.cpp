@@ -89,6 +89,9 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
   }
 
   // Add more conditions to check
+
+  // TODO: Reject padding of unsqueezeed broadcast IDs.
+
 #if 0
   std::vector<Expr*> resize_ops =
       ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
@@ -1030,7 +1033,28 @@ void ResizeScheduler::scheduleV2(
       continue;
     }
 
+    std::cerr << "Propagating resize tensor op: " << expr->toString();
     scheduler_tools::propagateResizeTensorOpToInputs(expr);
+
+    for (auto tv : fusion->allTvs()) {
+      if (tv->name() == 37) {
+        std::cerr << "Scheduled TV (after all prop): " << tv->toString()
+                  << "\n";
+        if (tv->hasRoot()) {
+          std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain())
+                    << "\n";
+        }
+        std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
+                  << "\n";
+        std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain())
+                  << "\n";
+        std::cerr << "\tAdditional ids: "
+                  << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
+        for (auto expr : tv->domain()->allExprs()) {
+          std::cerr << expr->toString(4);
+        }
+      }
+    }
   }
 
   std::cerr << "After resize propagation\n";
@@ -1071,6 +1095,7 @@ void ResizeScheduler::scheduleV2(
   }
 
   std::cerr << "All done\n";
+  fusion->printMath();
   for (auto tv : fusion->allTvs()) {
     std::cerr << "Final scheduled T" << tv->name() << "\n";
     if (tv->hasRoot()) {
@@ -1085,6 +1110,8 @@ void ResizeScheduler::scheduleV2(
       std::cerr << expr->toString(4);
     }
   }
+
+  // TODO: inlining
 
   return;
 }

@@ -480,6 +480,24 @@ void propagateResizeTensorOpToInputs(Expr* resize_op) {
   scheduler_tools::scheduleLoopDomainsLike(
       tvs_to_schedule, producer_tv->getLoopDomain(), false);
 
+  for (auto tv : tvs_to_schedule) {
+    if (tv->name() == 37) {
+      std::cerr << "After reshape prop T" << tv->name() << "\n";
+      if (tv->hasRoot()) {
+        std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain())
+                  << "\n";
+      }
+      std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
+                << "\n";
+      std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+      std::cerr << "\tAdditional ids: "
+                << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
+      for (auto expr : tv->domain()->allExprs()) {
+        std::cerr << expr->toString(4);
+      }
+    }
+  }
+
   for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
     auto out_logical_id = consumer_tv->getLogicalDomain().at(i);
     auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
