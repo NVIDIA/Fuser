@@ -91,9 +91,13 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   adjustMappingsForWarpPadding();
 
+  std::cout << toString() << std::endl;
+
   for (auto pt : warp_specialized_types) {
     setWarpSpecializeOn(pt);
   }
+
+  std::cout << toString() << std::endl;
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
