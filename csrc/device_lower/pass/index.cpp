@@ -1659,6 +1659,18 @@ namespace {
 // offset_in_tile_box_n =
 //              (effective_tidx/ 16 ) * 8 * 2 (half)
 // offset_in_tile = offset_in_tile_box_m + offset_in_tile_box_n
+// cumulative_offset = warp_groups_offset + tile_box_offset + offset_in_tile
+
+// In the above comment, M and N are instruction tiles.
+// We can mulitples of 4-warps (warp groups) working to execute stmatrix.
+// threadIdx.x will range from [0 ... 127] and will be the 4 warps to store
+// an instruction tile work of data.
+// threadIdx.y will provide the multiples of warp groups.
+
+// To account for the threadIdx.y we have to add it to the offest:
+// offset_from_threadIdx.y = threadIdx.y * M * N * 2 (half)
+
+// Final offset: cumulative_offset + offset_from_threadIdx.y
 Val* hardCodedIndexGenerationForStMatrix(
     const LoadStoreOp* ldst,
     const ForLoop* outer_loop,
@@ -1744,14 +1756,20 @@ Val* hardCodedIndexGenerationForStMatrix(
   auto tile_box_offset =
       IrBuilder::addExpr(tile_box_id_m_offset, tile_box_id_n_offset);
 
-  // Cumulative offset of the the warp group box and tile box.
-  auto cum_offset = IrBuilder::addExpr(warp_group_box_offset, tile_box_offset);
-
   // If there is only one warp group box, then the cumulative offset is just the
   // tile box offset.
-  if (n == n_tile) {
-    cum_offset = tile_box_offset;
-  }
+  auto warp_box_tile_box_offset_sum = (n == n_tile)
+      ? tile_box_offset
+      : IrBuilder::addExpr(warp_group_box_offset, tile_box_offset);
+
+  auto threadIdx_y_offset = IrBuilder::mulExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.y", DataType::Index),
+      IrBuilder::create<Val>(m * n * 2));
+
+  // Cumulative offset of the the warp group box and tile box and the product of
+  // the threadIx.y and the instruction tile.
+  auto cum_offset =
+      IrBuilder::addExpr(threadIdx_y_offset, warp_box_tile_box_offset_sum);
 
   // Compute the offset of the thread inside the tile box.
   // Since each warp works on a tile box, and there are 128-threads
