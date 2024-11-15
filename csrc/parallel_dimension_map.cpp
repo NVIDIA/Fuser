@@ -46,6 +46,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
         std::holds_alternative<WarpSpecialized>(tv->circularBufferingType())) {
       const auto& warp_specialized =
           std::get<WarpSpecialized>(tv->circularBufferingType());
+      // TODO: why I am getting DIDx here? Something is wrong.
       // warp_specialized_types.pushBack(warp_specialized.on);
       warp_specialized_types.pushBack(ParallelType::TIDy);
     }
