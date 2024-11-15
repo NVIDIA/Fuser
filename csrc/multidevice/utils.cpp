@@ -156,12 +156,12 @@ bool haveDifferentShardings(
   // iterdomain
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
+  for (auto p_id : producer->getLogicalDomain()) {
     const auto i = p2c.find(p_id);
     if (i == p2c.end()) {
-      // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
-      // parallelized on DID, the squeezed dimension is size-1 and doesn't
-      // trigger resharding.
+      // This happens e.g. when `p_id` is squeezed or is a product of a
+      // reduction. Even if `p_id` is parallelized on DID, the dimension is
+      // size-1 and doesn't trigger resharding.
       continue;
     }
 
