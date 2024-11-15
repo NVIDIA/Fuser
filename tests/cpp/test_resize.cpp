@@ -5775,8 +5775,9 @@ TEST_F(ResizeTest, SchedulerTest9) {
 
   auto tv2 = reshape(tv1, {tv1->axis(1)->extent()});
   auto tv3 = add(tv2, fusion.oneVal());
+  auto tv4 = slice(tv3, {{fusion.oneVal(), tv3->axis(0)->extent()}});
 
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
@@ -5906,6 +5907,68 @@ TEST_F(ResizeTest, SchedulerTest11) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Two rotations (like q and k of qkv) with squeeze
+TEST_F(ResizeTest, SchedulerTest12) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({3, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  // q
+  auto tv1 = slice(
+      tv0,
+      {{fusion.zeroVal(), fusion.oneVal()},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  tv1 = squeeze(tv1, {0});
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape1[1] / 2)}});
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape1[1] / 2),
+        IrBuilder::create<Val>(shape1[1])}});
+  auto tv4 = cat({tv3, tv2}, 0);
+  fusion.addOutput(tv4);
+
+  // k
+  auto tv5 = slice(
+      tv0,
+      {{fusion.oneVal(), IrBuilder::create<Val>(2L)},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  tv5 = squeeze(tv5, {0});
+  // left half
+  auto tv6 =
+      slice(tv5, {{fusion.zeroVal(), IrBuilder::create<Val>(shape1[1] / 2)}});
+  // right half
+  auto tv7 = slice(
+      tv5,
+      {{IrBuilder::create<Val>(shape1[1] / 2),
+        IrBuilder::create<Val>(shape1[1])}});
+  auto tv8 = cat({tv7, tv6}, 0);
+  fusion.addOutput(tv8);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 

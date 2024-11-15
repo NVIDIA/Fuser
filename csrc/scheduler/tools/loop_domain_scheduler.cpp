@@ -101,8 +101,11 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
 
 class LoopDomainScheduler {
  public:
-  LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
-      : ref_loop_dom_(std::move(ref_loop_dom)) {
+  LoopDomainScheduler(
+      std::vector<IterDomain*> ref_loop_dom,
+      bool enable_resize_war = true)
+      : ref_loop_dom_(std::move(ref_loop_dom)),
+        enable_resize_war_(enable_resize_war) {
     NVF_ERROR(!ref_loop_dom_.empty());
 #if 0
     // For now, ref must not be a broadcast domain
@@ -195,6 +198,7 @@ class LoopDomainScheduler {
 
  private:
   std::vector<IterDomain*> ref_loop_dom_;
+  bool enable_resize_war_ = true;
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
@@ -217,8 +221,12 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
     return;
   }
 
-  const auto resize_path_from_ref = getReplayPathForResize(tv);
-  bool resize_war = resize_path_from_ref.has_value();
+  bool resize_war = false;
+  std::optional<ValGraphBFS::ExprPath> resize_path_from_ref;
+  if (enable_resize_war_) {
+    resize_path_from_ref = getReplayPathForResize(tv);
+    resize_war = resize_path_from_ref.has_value();
+  }
 
   // All of the existing IDs are reused as much as possible to
   // minimize creating new IDs.
@@ -856,12 +864,13 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
 
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom) {
+    const std::vector<IterDomain*>& ref_loop_dom,
+    bool enable_resize_war) {
   if (tvs.empty()) {
     return;
   }
 
-  LoopDomainScheduler scheduler(ref_loop_dom);
+  LoopDomainScheduler scheduler(ref_loop_dom, enable_resize_war);
 
   for (auto tv : tvs) {
     // Loop domain of fusion inputs should have no meaning

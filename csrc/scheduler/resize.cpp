@@ -89,7 +89,7 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
   }
 
   // Add more conditions to check
-
+#if 0
   std::vector<Expr*> resize_ops =
       ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
@@ -129,7 +129,7 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
       return false;
     }
 
-#if 0
+
     // All output IDs must be connected without resize ops. This can
     // be lifted.
     IdModel id_model(fusion, /*build_models=*/false);
@@ -174,9 +174,9 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
         return false;
       }
     }
-#endif
-  }
 
+  }
+#endif
   return true;
 }
 
@@ -900,6 +900,83 @@ getReferenceTensors2(Fusion* fusion) {
   return ref_list;
 }
 
+std::vector<std::pair<TensorView*, std::vector<TensorView*>>>
+getReferenceTensors3(Fusion* fusion) {
+  std::vector<TensorView*> ref_candidates;
+
+  const auto all_tvs = fusion->allTvs();
+
+  DisjointSets<TensorView*> disjoint_val_sets;
+  for (auto output_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    auto dep_vals = DependencyCheck::getAllValsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()}, {output_tv});
+    auto disjoint_set_it = disjoint_val_sets.initializeSet(output_tv).first;
+    // Don't add inputs. Inputs are not replicated nor scheduled.
+    for (auto tv : ir_utils::filterByType<TensorView>(dep_vals)) {
+      if (tv->isFusionInput()) {
+        continue;
+      }
+      if (disjoint_val_sets.mappingExists(tv)) {
+        disjoint_val_sets.mapEntries(output_tv, tv);
+        disjoint_set_it = disjoint_val_sets.find(tv);
+      } else {
+        disjoint_val_sets.appendToSet(tv, disjoint_set_it->second);
+      }
+    }
+  }
+
+  std::cerr << "TV disjoint groups: " << disjoint_val_sets.size() << "\n";
+
+  std::vector<std::pair<TensorView*, std::vector<TensorView*>>> ref_list;
+
+  // Pick a reference in each disjoint set
+  for (const auto& disjoint_set : disjoint_val_sets.disjointSets()) {
+    TensorView* ref_tv = nullptr;
+    for (TensorView* tv : *disjoint_set) {
+      // All of the slice/pad/cat output tensors should have the same
+      // loop domain. Any of them can be equally used as the reference
+      // for this group
+      if (auto def = tv->definition();
+          def != nullptr && def->isOneOf<SliceOp, PadOp>()) {
+        ref_tv = def->output(0)->as<TensorView>();
+        break;
+      }
+    }
+
+    if (ref_tv) {
+      std::cerr << "Reference selected from resize ops: " << ref_tv->toString()
+                << "\n";
+
+      ref_list.emplace_back(ref_tv, std::vector<TensorView*>{});
+      auto& member_list = ref_list.back().second;
+      for (auto tv : all_tvs) {
+        if (disjoint_set->has(tv)) {
+          member_list.push_back(tv);
+        }
+      }
+
+      continue;
+    }
+
+    // No slice or pad found
+    std::cerr << "No slice/pad found for "
+              << toDelimitedString(disjoint_set->vector()) << "\n";
+    NVF_THROW();
+  }
+
+  std::cerr << "Disjoint grouping of tensors with representatives:\n";
+  for (const auto& [ref, set] : ref_list) {
+    std::cerr << "\tRepresentative: " << ref->toString() << "\n"
+              << "\t{";
+    for (auto tv : set) {
+      std::cerr << " T" << tv->name();
+    }
+    std::cerr << "}\n";
+  }
+
+  return ref_list;
+}
+
 } // namespace
 
 void ResizeScheduler::scheduleV2(
@@ -916,6 +993,34 @@ void ResizeScheduler::scheduleV2(
   fusion->printMath();
 
   FusionGuard fg(fusion);
+
+  // Privatize all first
+  for (auto expr : fusion->exprs()) {
+    if (!expr->isOneOf<SliceOp, PadOp>()) {
+      continue;
+    }
+
+    auto producer_tv = expr->input(0)->as<TensorView>();
+    if (producer_tv->isFusionInput()) {
+      continue;
+    }
+
+    auto private_copy = RecomputeTv::recompute(producer_tv);
+
+    std::cerr << "Replacing " << producer_tv->toString() << " with "
+              << private_copy->toString() << "\n";
+    auto updated_op =
+        ir_utils::replaceValInExprInputs(expr, producer_tv, private_copy);
+
+    std::cerr << "New op: " << updated_op->toString();
+  }
+
+  fusion->printMath();
+
+  scheduler_tools::propagateSqueezedSliceToOutputs(fusion);
+
+  std::cerr << "Squeezed slice propagated\n";
+  fusion->printMath();
 
   const auto exprs = fusion->exprs();
   for (auto expr : exprs) {
@@ -943,7 +1048,7 @@ void ResizeScheduler::scheduleV2(
     }
   }
 
-  const auto ref_tensors = getReferenceTensors2(fusion);
+  const auto ref_tensors = getReferenceTensors3(fusion);
 
   for (const auto& [ref_tv, tvs_to_schedule] : ref_tensors) {
     std::cerr << "Reference: " << ref_tv->toString() << "\n";
