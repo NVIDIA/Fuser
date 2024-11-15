@@ -401,7 +401,7 @@ void KernelExecutor::compile(
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
+  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), launch_constraints);
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
   // If the loaded external source code is empty, revert to the default codegen.

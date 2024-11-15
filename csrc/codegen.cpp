@@ -158,8 +158,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
  public:
   static std::string generateKernelDefinition(
       const kir::Kernel* kernel,
-      const std::string& kernel_name) {
+      const std::string& kernel_name,
+      const LaunchParams& launch_constraints) {
     CudaKernelGenerator codegen(kernel);
+    codegen.genLaunchBounds(launch_constraints);
     codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
@@ -268,6 +270,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return genVariableName(tv).append(".array");
     } else {
       return genVariableName(v);
+    }
+  }
+
+  void genLaunchBounds(const LaunchParams& launch_constraints) {
+    int64_t threads = launch_constraints.nThreads();
+    if(threads > 1){
+      code_ << "__launch_bounds__(" << threads << ")";
     }
   }
 
@@ -3477,9 +3486,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
 std::string generateCudaKernel(
     const kir::Kernel* kernel,
-    const std::string& kernel_name) {
+    const std::string& kernel_name,
+    const LaunchParams& launch_constraints) {
   FUSER_PERF_SCOPE("generateCudaKernel");
-  return CudaKernelGenerator::generateKernelDefinition(kernel, kernel_name);
+  return CudaKernelGenerator::generateKernelDefinition(kernel, kernel_name, launch_constraints);
 }
 
 } // namespace codegen

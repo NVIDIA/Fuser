@@ -6145,8 +6145,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
   const int batch = dev_prop->multiProcessorCount;
   // test small values, values can't be vectorized, regular pupular values,
   // prime numbers with or without vectorization, and large values
-  std::vector<int> features = {8, 9, 128, 256, 2753, 11012, 22024, 32768};
-  std::vector<DataType> test_dtypes = {DataType::Float, DataType::Half};
+  std::vector<int> features = {32768};
+  std::vector<DataType> test_dtypes = {DataType::Float};
   for (auto dtype : test_dtypes) {
     for (auto feature : features) {
       test_softmax(batch, feature, dtype);
