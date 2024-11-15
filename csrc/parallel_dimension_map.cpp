@@ -46,7 +46,8 @@ void ParallelDimensionMap::build(Fusion* fusion) {
         std::holds_alternative<WarpSpecialized>(tv->circularBufferingType())) {
       const auto& warp_specialized =
           std::get<WarpSpecialized>(tv->circularBufferingType());
-      warp_specialized_types.pushBack(warp_specialized.on);
+      // warp_specialized_types.pushBack(warp_specialized.on);
+      warp_specialized_types.pushBack(ParallelType::TIDy);
     }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
