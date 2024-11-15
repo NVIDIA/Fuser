@@ -3706,7 +3706,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   auto tv3 = castOp(DataType::Half, tv2);
 
-  fusion.addOutput(tv3);
+  auto tv4 = set(tv3);
+
+  tv3->setMemoryType(MemoryType::Shared);
+  tv4->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv4);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -3723,6 +3729,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv1c->setMemoryType(MemoryType::Shared);
   auto tv3c = tv3->cacheBefore();
+
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+
+  fusion.manage("st_matrix_m_tile", 16);
+  fusion.manage("st_matrix_n_tile", 16);
+  fusion.manage("st_matrix_m", getM(macro));
+  fusion.manage("st_matrix_n", getN(macro));
 
   // gmem [K, M, 1] -TMA-> smem [K, M, 1]
   // gmem [K, 1, N] -TMA-> smem [K, 1, N]
@@ -3775,12 +3788,26 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
-  for (auto tv : {tv3c, tv3}) {
+  // for (auto tv : {tv3c, tv3}) {
+  //   auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+  //       tv->getLoopDomain());
+  //   tv->setLoopDomain(s.as<IterDomain*>());
+  // }
+
+  {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv->getLoopDomain());
-    tv->setLoopDomain(s.as<IterDomain*>());
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
   }
-  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+
+  // tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+  // tv3c->axis(-1)->parallelize(ParallelType::Serial);
+  tv3->axis(-1)->parallelize(ParallelType::Serial);
+  mma_utils::scheduleStMatrixForMmaOutput(tv3, 16, 16);
+
+  mma_utils::scheduleTMAStoreForMmaOutput(tv4, M, N);
 
   inlineMost();
 
@@ -3789,6 +3816,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  fusion.printKernel();
 
   KernelExecutor ke;
   ke.compile(
