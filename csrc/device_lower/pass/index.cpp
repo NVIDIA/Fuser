@@ -1690,11 +1690,6 @@ Val* hardCodedIndexGenerationForStMatrix(
 
   auto dtype_size = 2;
 
-  // offset due from threadIdx.y
-  auto threadIdx_y_offset = IrBuilder::mulExpr(
-      IrBuilder::create<NamedScalar>("threadIdx.y", DataType::Index),
-      IrBuilder::create<Val>(m * n * 2));
-
   // A tile_box can be 16x16, 16x8 [to do: 8x8]
   // A warp group (128 threads) can work on a number of tile boxes.
   int64_t max_tile_boxes_in_warp_group_box = 4;

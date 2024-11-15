@@ -3687,6 +3687,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
+  constexpr bool use_smem_epilogue = false;
+
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
   const int64_t cta_m = 2 * getM(macro);
@@ -3706,13 +3708,26 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   auto tv3 = castOp(DataType::Half, tv2);
 
-  auto tv4 = set(tv3);
+  TensorView* tv4 = nullptr;
+  if (use_smem_epilogue) {
+    // Copy from shared memory to global using TMA
+    tv4 = set(tv3);
 
-  tv3->setMemoryType(MemoryType::Shared);
-  tv4->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv3->setMemoryType(MemoryType::Shared);
+    tv4->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  fusion.addOutput(tv4);
+    fusion.addOutput(tv4);
+
+    // We'll use stmatrix.x4 to store from reg to shared memory
+    fusion.manage("st_matrix_m_tile", 16);
+    fusion.manage("st_matrix_n_tile", 16);
+    fusion.manage("st_matrix_m", getM(macro));
+    fusion.manage("st_matrix_n", getN(macro));
+
+  } else {
+    fusion.addOutput(tv3);
+  }
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -3730,12 +3745,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   tv1c->setMemoryType(MemoryType::Shared);
   auto tv3c = tv3->cacheBefore();
 
-  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
-
-  fusion.manage("st_matrix_m_tile", 16);
-  fusion.manage("st_matrix_n_tile", 16);
-  fusion.manage("st_matrix_m", getM(macro));
-  fusion.manage("st_matrix_n", getN(macro));
+  if (use_smem_epilogue) {
+    tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  }
 
   // gmem [K, M, 1] -TMA-> smem [K, M, 1]
   // gmem [K, 1, N] -TMA-> smem [K, 1, N]
@@ -3788,26 +3800,28 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
-  // for (auto tv : {tv3c, tv3}) {
-  //   auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-  //       tv->getLoopDomain());
-  //   tv->setLoopDomain(s.as<IterDomain*>());
-  // }
-
-  {
+  if (!use_smem_epilogue) {
+    for (auto tv : {tv3c, tv3}) {
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          tv->getLoopDomain());
+      tv->setLoopDomain(s.as<IterDomain*>());
+    }
+  } else {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv3c->getLoopDomain());
     tv3c->setLoopDomain(s.as<IterDomain*>());
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+
+    // We need to split and merge dimensions which have
+    // been marked parallel/vectorized. So we revert the
+    // inner-most dimension back to serial.
+    tv3->axis(-1)->parallelize(ParallelType::Serial);
+    // This internally calls
+    // mma_utils::MmaSwizzler::scheduleMmaOutputAllocation
+    mma_utils::scheduleStMatrixForMmaOutput(tv3, 16, 16);
+
+    mma_utils::scheduleTMAStoreForMmaOutput(tv4, M, N);
   }
-
-
-  // tv3->axis(-1)->parallelize(ParallelType::Vectorize);
-  // tv3c->axis(-1)->parallelize(ParallelType::Serial);
-  tv3->axis(-1)->parallelize(ParallelType::Serial);
-  mma_utils::scheduleStMatrixForMmaOutput(tv3, 16, 16);
-
-  mma_utils::scheduleTMAStoreForMmaOutput(tv4, M, N);
 
   inlineMost();
 
@@ -3816,8 +3830,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-
-  fusion.printKernel();
 
   KernelExecutor ke;
   ke.compile(
