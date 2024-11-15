@@ -924,7 +924,8 @@ std::unique_ptr<ReductionParams> heuristicParaToSchedulerPara(
       2;
   int64_t threads_per_block = params.bdimx * params.bdimy;
   int64_t threads_per_sm =
-      target_threads_per_sm / threads_per_block * threads_per_block;
+      scheduler_utils::safeDiv(target_threads_per_sm, threads_per_block) *
+      threads_per_block;
   int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(threads_per_sm);
   rparams->cparams.maxrregcount = reg_per_thread;
 
