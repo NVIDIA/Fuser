@@ -1098,7 +1098,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
         SimplifyingIrBuilder::addExpr(
             cloned_top_level_loop_->indexOrStartIfTrivial(),
-            IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
+            prefetch_distance + 1),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         current_load_stage, for_loop_stack_);
@@ -1779,7 +1779,7 @@ class CircularBufferInserter : private kir::ExprMutator {
       mbarriers.pushBack(mbarrier);
     }
     for (auto mbarrier : mbarriers) {
-      auto prefetch_loop = ir_utils::createRangeLoop(prefetch_distance);
+      auto prefetch_loop = ir_utils::createRangeLoop(prefetch_distance + 1);
       auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
           mbarrier,
           SimplifyingIrBuilder::addExpr(
