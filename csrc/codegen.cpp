@@ -273,10 +273,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  // __launch_bounds__(MAX_THREADS_PER_BLOCK, MIN_BLOCKS_PER_MP)
+  // MIN_BLOCKS_PER_MP is not used
   void genLaunchBounds(const LaunchParams& launch_constraints) {
     int64_t threads = launch_constraints.nThreads();
-    if(threads > 1){
-      code_ << "__launch_bounds__(" << threads << ")";
+    if (threads > 1) {
+      code_ << "__launch_bounds__(" << threads << ")\n";
     }
   }
 
@@ -3489,7 +3491,8 @@ std::string generateCudaKernel(
     const std::string& kernel_name,
     const LaunchParams& launch_constraints) {
   FUSER_PERF_SCOPE("generateCudaKernel");
-  return CudaKernelGenerator::generateKernelDefinition(kernel, kernel_name, launch_constraints);
+  return CudaKernelGenerator::generateKernelDefinition(
+      kernel, kernel_name, launch_constraints);
 }
 
 } // namespace codegen

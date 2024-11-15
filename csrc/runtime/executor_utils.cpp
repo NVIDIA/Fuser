@@ -784,18 +784,6 @@ std::optional<int64_t> getMaxRegCount(
   // limit.
   int64_t max_register = max_register_limit + 1;
 
-  // If the block size is known, set the maximum that at least allows
-  // one block to be resident on an SM
-  // if (opt_block_size.has_value() && opt_block_size.value() > 0) {
-  //   constexpr int64_t block_per_sm = 1;
-  //   max_register = std::min(
-  //       max_register_limit,
-  //       getRegPerThreadGivenThreadsPerSM(
-  //           opt_block_size.value() * block_per_sm));
-    
-  //   std::cout << "max_register: " << max_register << std::endl;
-  // }
-
   // If a heuristic value is given, i.e., max_register_heuristic is
   // less than the limit, use that value if it's smaller than the
   // block-size based count
