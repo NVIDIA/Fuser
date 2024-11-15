@@ -968,8 +968,12 @@ IndexingInfo TensorIndexer::computeIndex(
         : traversalGraph().inputGroups(expr_group);
     for (const auto& output : output_groups) {
       for (const auto& input : input_groups) {
-        const auto& input_loop_groups = loop_group_dependencies.at(input);
-        loop_group_dependencies[output].pushBack(input_loop_groups);
+        // Broadcast can be visited with no corresponding loop group
+        if (auto it = loop_group_dependencies.find(input);
+            it != loop_group_dependencies.end()) {
+          const auto& input_loop_groups = it->second;
+          loop_group_dependencies[output].pushBack(input_loop_groups);
+        }
       }
     }
   }
@@ -1083,15 +1087,15 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           break;
         }
       }
-      NVF_ERROR(
-          own_id != nullptr,
-          "Corresponding ID not found for ",
-          singular_id->toString(),
-          ", tensor: ",
-          tv->toString());
-      std::cerr << "Adding singular predicate ID: " << own_id->toString()
-                << "\n";
-      predicate_and_singular_ids.push_back(own_id);
+      if (own_id == nullptr) {
+        std::cerr << "Corresponding ID not found for "
+                  << singular_id->toString() << ", tensor: " << tv->toString()
+                  << "\n";
+      } else {
+        std::cerr << "Adding singular predicate ID: " << own_id->toString()
+                  << "\n";
+        predicate_and_singular_ids.push_back(own_id);
+      }
     }
   }
 
@@ -1285,10 +1289,13 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     for (const auto& singular_id_info : thread_pred_info.singular_ids) {
       const auto& id_group = traversalGraph().toGroup(singular_id_info.id);
       auto index_map_it = index_map.find(id_group);
-      NVF_ERROR(
-          index_map_it != index_map.end(),
-          "Could not find an index for a singular id: ",
-          singular_id_info.id->toString());
+      if (index_map_it == index_map.end()) {
+        // Not found. It should be fine. It must be that squeezed
+        // slices are not propagated.
+        std::cerr << "Could not find an index for a singular id: "
+                  << singular_id_info.id->toString() << "\n";
+        continue;
+      }
 
       Val* idx = index_map_it->second;
       Val* replaced_idx =

@@ -1017,10 +1017,12 @@ void ResizeScheduler::scheduleV2(
 
   fusion->printMath();
 
-  scheduler_tools::propagateSqueezedSliceToOutputs(fusion);
+  if (getenv("SQUEEZED_SLICES")) {
+    scheduler_tools::propagateSqueezedSliceToOutputs(fusion);
 
-  std::cerr << "Squeezed slice propagated\n";
-  fusion->printMath();
+    std::cerr << "Squeezed slice propagated\n";
+    fusion->printMath();
+  }
 
   const auto exprs = fusion->exprs();
   for (auto expr : exprs) {

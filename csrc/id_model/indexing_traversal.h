@@ -25,7 +25,8 @@ class IndexingTraversal : public ValGraphBFS {
       const Expr* expr,
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups);
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true);
 
   ~IndexingTraversal() override = default;
 

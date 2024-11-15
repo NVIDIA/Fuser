@@ -16,8 +16,9 @@ IndexingTraversal::IndexingTraversal(
     const Expr* expr,
     const ValGraph& graph,
     std::vector<NodeType> from_groups,
-    std::vector<NodeType> to_groups)
-    : ValGraphBFS(graph, from_groups, to_groups) {
+    std::vector<NodeType> to_groups,
+    bool require_all_to_visited)
+    : ValGraphBFS(graph, from_groups, to_groups, require_all_to_visited) {
   auto consumer_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(consumer_tv != nullptr);
   // Remember the resize exprs appearing in the consumer
@@ -51,13 +52,46 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
     const ValGraph& graph,
     const ValGroups& from_groups,
     const ValGroups& to_groups) {
-  IndexingTraversal traversal(
+  // First traversal. Allows unreachable nodes as they may be resolved
+  // by the second traversal
+  IndexingTraversal first_traversal(
       expr,
       graph,
       {from_groups.vector().begin(), from_groups.vector().end()},
-      {to_groups.vector().begin(), to_groups.vector().end()});
-  traversal.traverse();
-  return traversal.getShortestExprPath();
+      {to_groups.vector().begin(), to_groups.vector().end()},
+      /*require_all_to_visited=*/false);
+  first_traversal.traverse();
+  auto first_path = first_traversal.getShortestExprPath();
+  auto unreachable_to_groups = ValGraphBFS::getUnreachableValsFrom(
+      graph, from_groups, to_groups, first_path);
+  if (unreachable_to_groups.empty()) {
+    return first_path;
+  }
+
+  ValGroups from_groups_with_broadcat = from_groups;
+  for (const auto& vg : graph.disjointValSets().disjointSets()) {
+    if (vg->front()->as<IterDomain>()->isBroadcast()) {
+      from_groups_with_broadcat.pushBack(vg);
+    }
+  }
+
+  // Second trial. Ignore dependencies with broadcast groups since
+  // unreachable broadcast groups should be indexable with just
+  // 0. Note that that may not be true if a broadcast group is
+  // reachable from from_groups, so this relaxation should not be used
+  // in the first traversal.
+  IndexingTraversal second_traversal(
+      expr,
+      graph,
+      {from_groups_with_broadcat.vector().begin(),
+       from_groups_with_broadcat.vector().end()},
+      {unreachable_to_groups.begin(), unreachable_to_groups.end()},
+      /*require_all_to_visited=*/true);
+  second_traversal.traverse();
+  auto second_path = second_traversal.getShortestExprPath();
+  first_path.insert(first_path.end(), second_path.begin(), second_path.end());
+
+  return first_path;
 }
 
 std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
@@ -114,16 +148,6 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
       }
     }
     NVF_ERROR(found);
-  }
-
-  if (consumer_tv->name() == 1) {
-    std::ofstream ofs("debug.dot", std::ofstream::trunc);
-    auto dot_string = local_graph.toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
-
-    std::cerr << "FROM: " << nvfuser::toString(from_groups) << "\n";
-    std::cerr << "TO: " << nvfuser::toString(to_groups) << "\n";
   }
 
   IndexingTraversal traversal(
@@ -185,13 +209,8 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
   auto from_groups = graph.toGroups(from_domains);
   auto to_groups = graph.toGroups(to_domains);
 
-  IndexingTraversal traversal(
-      expr,
-      graph,
-      {from_groups.vector().begin(), from_groups.vector().end()},
-      {to_groups.vector().begin(), to_groups.vector().end()});
-  traversal.traverse();
-  return traversal.getShortestExprPath();
+  return IndexingTraversal::getExprsBetween(
+      expr, graph, from_groups, to_groups);
 }
 
 } // namespace nvfuser

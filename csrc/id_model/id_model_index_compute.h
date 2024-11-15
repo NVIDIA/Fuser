@@ -53,11 +53,15 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   bool hasIndex(IterDomain* id) const {
-    return indexMap().find(toGroup(id)) != indexMap().end();
+    return id->isBroadcast() ||
+        indexMap().find(toGroup(id)) != indexMap().end();
   }
 
   Val* getIndex(IterDomain* id) const {
     auto it = index_map_.find(toGroup(id));
+    if (it == index_map_.end() && id->isBroadcast()) {
+      return id->fusion()->zeroVal();
+    }
     NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
     return it->second;
   }
