@@ -3086,7 +3086,7 @@ TensorDomain::TensorDomain(
       allocation_domain_(std::move(allocation_domain)),
       loop_domain_(std::move(loop_domain)),
       initial_loop_domain_(loop_domain_),
-      additional_ids_(additional_ids),
+      additional_ids_(std::move(additional_ids)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
