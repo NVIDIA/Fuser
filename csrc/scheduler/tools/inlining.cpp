@@ -209,12 +209,14 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
                {tv->getLoopDomain().begin(), tv->getLoopDomain().end()},
                /*require_all_to_visited=*/false)) {
         for (Val* v : expr->inputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v)) {
+          if (auto* id = dynamic_cast<IterDomain*>(v);
+              id && id->isBroadcast()) {
             loop_broadcasts.insert(id);
           }
         }
         for (Val* v : expr->outputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v)) {
+          if (auto* id = dynamic_cast<IterDomain*>(v);
+              id && id->isBroadcast()) {
             loop_broadcasts.insert(id);
           }
         }
