@@ -114,10 +114,9 @@ TEST_F(NVFuserTest, OptOutMutatorAdditionalBroadcastID) {
 
   fusion->addOutput(tv1);
 
-  // We add a broadcast domain bS2{1}. This adds the new Broadcast ID to tv1->domain()->additionalIDs()
-  // logical: [ iS1{i0} ]
-  // loop: [ iS1{i0}, bS2{1} ]
-  // additional IDs: [ bS2{1} ]
+  // We add a broadcast domain bS2{1}. This adds the new Broadcast ID to
+  // tv1->domain()->additionalIDs() logical: [ iS1{i0} ] loop: [ iS1{i0}, bS2{1}
+  // ] additional IDs: [ bS2{1} ]
   tv1->broadcast(1);
   EXPECT_FALSE(tv1->domain()->additionalIDs().empty());
 
@@ -130,7 +129,8 @@ TEST_F(NVFuserTest, OptOutMutatorAdditionalBroadcastID) {
 
   // Now register a mutation that will alter some IDs in the domain
   OptOutMutator mut;
-  mut.registerMutation(tv1->axis(0)->extent(), IrBuilder::create<Val>(DataType::Index));
+  mut.registerMutation(
+      tv1->axis(0)->extent(), IrBuilder::create<Val>(DataType::Index));
   TensorDomain* old_tensor_domain = tv1->domain();
   auto all_stmts = StmtSort::getStmts(
       fusion,
@@ -140,10 +140,11 @@ TEST_F(NVFuserTest, OptOutMutatorAdditionalBroadcastID) {
   for (auto stmt : all_stmts) {
     mut.dispatchMutate(stmt);
   }
-  EXPECT_TRUE(tv1->domain() != old_tensor_domain) << "Mutation did not change the TensorDomain";
+  EXPECT_TRUE(tv1->domain() != old_tensor_domain)
+      << "Mutation did not change the TensorDomain";
 
-  EXPECT_FALSE(tv1->domain()->additionalIDs().empty())<< "Mutation did not preserve additional IDs";
+  EXPECT_FALSE(tv1->domain()->additionalIDs().empty())
+      << "Mutation did not preserve additional IDs";
 }
-
 
 } // namespace nvfuser
