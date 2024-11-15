@@ -1458,7 +1458,7 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentStage());
 
     Val* tx_count = GpuLower::current()->commonScalarMap().hoistScalar(
         getSizeOfTmaLoad(ldst), for_loop_stack_);
