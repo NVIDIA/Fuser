@@ -3935,6 +3935,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
 
   inlineMost();
 
+  EXPECT_EQ(tv0c->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv1c->getComputeAtPosition(), 3);
+
   if (stages > 1) {
     tv0c->circularBuffer(stages, prefetch);
     tv1c->circularBuffer(stages, prefetch);

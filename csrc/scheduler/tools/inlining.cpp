@@ -193,6 +193,34 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
+    // Gather sets of loop broadcasts (broadcast domains that are not connected
+    // to the logical domain)
+    std::unordered_set<Val*> all_additional_ids{
+        producer->domain()->additionalIDs().begin(),
+        producer->domain()->additionalIDs().end()};
+    all_additional_ids.insert(
+        consumer->domain()->additionalIDs().begin(),
+        consumer->domain()->additionalIDs().end());
+    std::unordered_set<Val*> loop_broadcasts;
+    for (TensorView* tv : {producer, consumer}) {
+      for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
+               {tv->domain()->additionalIDs().begin(),
+                tv->domain()->additionalIDs().end()},
+               {tv->getLoopDomain().begin(), tv->getLoopDomain().end()},
+               /*require_all_to_visited=*/false)) {
+        for (Val* v : expr->inputs()) {
+          if (auto* id = dynamic_cast<IterDomain*>(v)) {
+            loop_broadcasts.insert(id);
+          }
+        }
+        for (Val* v : expr->outputs()) {
+          if (auto* id = dynamic_cast<IterDomain*>(v)) {
+            loop_broadcasts.insert(id);
+          }
+        }
+      }
+    }
+
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
@@ -211,8 +239,20 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       }
 
       IterDomain* c_id = *consumer_it;
-      if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
-          !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+
+      // If c_id or p_id are a "loop broadcast", then allow inlining past them.
+      // TODO: should we verify that any non-broadcast IDs in this case are not
+      // actually used in indexing?
+      if (loop_broadcasts.count(c_id) == 0 &&
+          loop_broadcasts.count(p_id) == 0 &&
+          (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
+           !isAllowedID(
+               c_id,
+               consumer,
+               best_effort,
+               /*allow_reduction=*/true,
+               /*allow_vectorize=*/false,
+               /*allow_unmappable=*/true))) {
         return producer_pos;
       }
 
