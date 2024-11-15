@@ -3078,13 +3078,15 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> allocation_domain,
     std::vector<IterDomain*> loop_domain,
-    std::vector<std::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity,
+    std::vector<IterDomain*> additional_ids)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
       loop_domain_(std::move(loop_domain)),
       initial_loop_domain_(loop_domain_),
+      additional_ids_(additional_ids),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
