@@ -1471,8 +1471,13 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
 
   kir::MBarrierArrive* createMbarrierArrive(TensorView* all_mbarriers) {
     // Get mbarrier for this circular buffer stage.
-    kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentEmptyStage());
+    auto stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+
+    kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        all_mbarriers,
+        SimplifyingIrBuilder::addExpr(currentEmptyStage(), stage_depth));
     kir::MBarrierArrive* mbarrier_arrive =
         IrBuilder::create<kir::MBarrierArrive>(
             /*state=*/nullptr, stage_mbarrier);
