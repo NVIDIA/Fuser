@@ -31,7 +31,7 @@ bool shouldReshardAfter(Expr* expr) {
 void insertReshardingsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
-  for (auto expr : fusion->exprs()) {
+  for (Expr* expr : fusion->exprs()) {
     if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
       continue;
     }
