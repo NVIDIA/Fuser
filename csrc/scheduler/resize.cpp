@@ -963,23 +963,97 @@ getReferenceTensors3(Fusion* fusion) {
   const auto all_tvs = fusion->allTvs();
 
   DisjointSets<TensorView*> disjoint_val_sets;
-  for (auto output_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+
+  std::vector<Expr*> resize_ops =
+      ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+
+  // Group all tvs that are dependent on resize op outputs
+  for (Expr* resize_op : resize_ops) {
+    auto ref_tv = resize_op->output(0)->as<TensorView>();
+
     auto dep_vals = DependencyCheck::getAllValsBetween(
-        {fusion->inputs().begin(), fusion->inputs().end()}, {output_tv});
-    auto disjoint_set_it = disjoint_val_sets.initializeSet(output_tv).first;
-    // Don't add inputs. Inputs are not replicated nor scheduled.
-    for (auto tv : ir_utils::filterByType<TensorView>(dep_vals)) {
-      if (tv->isFusionInput()) {
+        {fusion->inputs().begin(), fusion->inputs().end()}, {ref_tv});
+
+    for (auto dep_tv : ir_utils::filterByType<TensorView>(dep_vals)) {
+      // Don't add inputs. Inputs are not replicated nor scheduled.
+      if (dep_tv->isFusionInput()) {
         continue;
       }
-      if (disjoint_val_sets.mappingExists(tv)) {
-        disjoint_val_sets.mapEntries(output_tv, tv);
-        disjoint_set_it = disjoint_val_sets.find(tv);
-      } else {
-        disjoint_val_sets.appendToSet(tv, disjoint_set_it->second);
-      }
+      disjoint_val_sets.mapEntries(ref_tv, dep_tv);
     }
   }
+
+  // TODO: Reuse
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& broadcast_graph = id_model.buildBroadcastGraph();
+
+  for (const auto i : c10::irange(resize_ops.size() - 1)) {
+    for (const auto j : c10::irange(i + 1, resize_ops.size())) {
+      auto out_tv_i = resize_ops.at(i)->output(0)->as<TensorView>();
+      auto out_tv_j = resize_ops.at(j)->output(0)->as<TensorView>();
+      if (disjoint_val_sets.strictAreMapped(out_tv_i, out_tv_j)) {
+        continue;
+      }
+
+      bool same_loop_domain =
+          broadcast_graph.toGroups(out_tv_i->getLoopDomain()).set() ==
+          broadcast_graph.toGroups(out_tv_j->getLoopDomain()).set();
+      std::cerr << "Comparing " << out_tv_i->toString() << " and "
+                << out_tv_j->toString() << ": " << same_loop_domain << "\n";
+      if (!same_loop_domain) {
+        continue;
+      }
+
+      disjoint_val_sets.mapEntries(out_tv_i, out_tv_j);
+    }
+  }
+
+  const auto num_disjoint_resize_groups = disjoint_val_sets.size();
+
+  std::cerr << "Number of disjoint resize groups: "
+            << num_disjoint_resize_groups << "\n";
+
+  // Include outputs
+  for (Expr* resize_op : resize_ops) {
+    auto resize_out = resize_op->output(0)->as<TensorView>();
+    auto output_dep_vals =
+        DependencyCheck::getAllValsBetween({resize_out}, fusion->outputs());
+    for (auto tv : ir_utils::filterByType<TensorView>(output_dep_vals)) {
+      disjoint_val_sets.mapEntries(resize_out, tv);
+    }
+  }
+
+  // Output dep vals should also be disjointly grouped, so the number
+  // of groups should not change
+  NVF_ERROR(
+      num_disjoint_resize_groups == disjoint_val_sets.size(),
+      "Expected number of groups: ",
+      num_disjoint_resize_groups,
+      ". Actual: ",
+      disjoint_val_sets.size());
+
+  // There can still be tensors that are not producers nor consumers
+  // of resize ops. They should be fine with any of the groups.
+
+  auto first_group_tv = resize_ops.at(0)->output(0)->as<TensorView>();
+
+  for (auto tv : all_tvs) {
+    if (tv->isFusionInput() || disjoint_val_sets.mappingExists(tv)) {
+      continue;
+    }
+
+    std::cerr << "Remaining tv: " << tv->toString()
+              << ". Put into the group of " << first_group_tv->toString()
+              << "\n";
+    disjoint_val_sets.mapEntries(first_group_tv, tv);
+  }
+
+  NVF_ERROR(
+      num_disjoint_resize_groups == disjoint_val_sets.size(),
+      "Expected number of groups: ",
+      num_disjoint_resize_groups,
+      ". Actual: ",
+      disjoint_val_sets.size());
 
   std::cerr << "TV disjoint groups: " << disjoint_val_sets.size() << "\n";
 
@@ -1061,7 +1135,7 @@ void ResizeScheduler::scheduleV2(
 
   scheduler_utils::clearMemorySpace(fusion);
 
-  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  scheduler_utils::cacheInputs(fusion, true);
 
   fusion->printMath();
 
@@ -1108,7 +1182,7 @@ void ResizeScheduler::scheduleV2(
     scheduler_tools::propagateResizeTensorOpToInputs(expr);
 
     for (auto tv : fusion->allTvs()) {
-      if (tv->name() == 37) {
+      if (tv->name() == 42) {
         std::cerr << "Scheduled TV (after all prop): " << tv->toString()
                   << "\n";
         if (tv->hasRoot()) {
@@ -1154,7 +1228,7 @@ void ResizeScheduler::scheduleV2(
 
     ref_tv->flatten();
     ref_tv->split(0, 128);
-    ref_tv->split(0, 1 << 10);
+    ref_tv->split(0, 1 << 14);
     ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
@@ -1164,8 +1238,6 @@ void ResizeScheduler::scheduleV2(
     scheduler_tools::scheduleLoopDomainsLike(
         tvs_to_schedule, ref_tv->getLoopDomain());
   }
-
-  inlineMost();
 
   std::cerr << "All done\n";
   fusion->printMath();
@@ -1183,6 +1255,10 @@ void ResizeScheduler::scheduleV2(
       std::cerr << expr->toString(4);
     }
   }
+
+  inlineMost();
+
+  fusion->printMath();
 
   return;
 }

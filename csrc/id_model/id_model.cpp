@@ -179,6 +179,10 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
+      if (tv->name() == 42) {
+        std::cerr << "T42 ID: " << id->toString() << "\n";
+      }
+
       // Check if this id is a view like rfactor id
       if (view_like_domain && id->isRFactorProduct()) {
         // If the tensor domain is a view like domain, and the iteration

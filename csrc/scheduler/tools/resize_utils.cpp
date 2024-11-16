@@ -481,7 +481,7 @@ void propagateResizeTensorOpToInputs(Expr* resize_op) {
       tvs_to_schedule, producer_tv->getLoopDomain(), false);
 
   for (auto tv : tvs_to_schedule) {
-    if (tv->name() == 37) {
+    if (tv->name() == 42) {
       std::cerr << "After reshape prop T" << tv->name() << "\n";
       if (tv->hasRoot()) {
         std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain())
