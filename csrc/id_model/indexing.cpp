@@ -878,7 +878,7 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  if (tv->name() == 0 && expr->outputs().at(0)->name() == 61) {
+  if (tv->name() == 0 && expr->outputs().at(0)->name() == 37) {
     _debug = true;
     std::cerr << "getLinearIndex: " << tv->toString() << " for "
               << expr->toString();
@@ -1224,10 +1224,13 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.predicated_domains_ = actual_predicate_domains;
 
     // Set the used loop ID groups for this predicated domain
-    const ValGroups& loop_deps =
-        index_info.loop_group_dependencies.at(actual_predicate_domain_group);
-    for (const auto& loop_dep : loop_deps) {
-      info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+    if (auto it = index_info.loop_group_dependencies.find(
+            actual_predicate_domain_group);
+        it != index_info.loop_group_dependencies.end()) {
+      const ValGroups& loop_deps = it->second;
+      for (const auto& loop_dep : loop_deps) {
+        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+      }
     }
 
     info_vec.emplace_back(info);

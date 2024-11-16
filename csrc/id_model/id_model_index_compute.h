@@ -66,9 +66,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
     return it->second;
   }
 
-  void setIndex(IterDomain* id, Val* idx) {
+  void setIndex(IterDomain* id, Val* idx, const std::vector<Val*>& src) {
     const auto& group = toGroup(id);
     if (auto it = index_map_.find(group); it != index_map_.end()) {
+      // TODO: update the comment below
       // This can happen when back propagating a merge with a
       // broadcast domain. For example, merge 1, 8 -> 8. Here, the
       // index of the output ID is valid also for the inner input ID
@@ -79,10 +80,16 @@ class IdGraphIndexCompute : public OptOutDispatch {
       // I don't think we would need to do any update here. The
       // shortest way to get an index should be the most preferred
       // option.
-      std::cerr << "Do not updating index for " << id->toString() << " ("
+      if (std::any_of(src.begin(), src.end(), [&](Val* src) {
+            return toGroup(id) == toGroup(src->as<IterDomain>());
+          })) {
+        // Don't overwrite if mapped
+        return;
+      }
+      std::cerr << "Updating index for " << id->toString() << " ("
                 << nvfuser::toString(group) << "): " << idx->toInlineString()
                 << "\n";
-      return;
+      // return;
       it->second = idx;
       NVF_ERROR(index_map_.at(group) == idx);
     } else {

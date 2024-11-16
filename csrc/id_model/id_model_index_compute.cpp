@@ -20,14 +20,14 @@ void IdGraphIndexCompute::handle(Split* split) {
     auto in_idx = getIndex(split->in());
     auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
     Val* inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
-    setIndex(split->outer(), outer_idx);
-    setIndex(split->inner(), inner_idx);
+    setIndex(split->outer(), outer_idx, split->inputs());
+    setIndex(split->inner(), inner_idx, split->inputs());
   } else {
     auto outer_idx = getIndex(split->outer());
     auto inner_idx = getIndex(split->inner());
     auto in_idx = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
-    setIndex(split->in(), in_idx);
+    setIndex(split->in(), in_idx, split->outputs());
   }
 }
 
@@ -41,13 +41,13 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     auto inner_idx = getIndex(merge->inner());
     auto out_idx = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext), inner_idx);
-    setIndex(merge->out(), out_idx);
+    setIndex(merge->out(), out_idx, merge->inputs());
   } else {
     auto out_idx = getIndex(merge->out());
     auto outer_idx = SimplifyingIrBuilder::divExpr(out_idx, inner_ext);
-    setIndex(merge->outer(), outer_idx);
+    setIndex(merge->outer(), outer_idx, merge->outputs());
     Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
-    setIndex(merge->inner(), inner_idx);
+    setIndex(merge->inner(), inner_idx, merge->outputs());
   }
 }
 
@@ -62,15 +62,15 @@ void IdGraphIndexCompute::handle(Swizzle* swizzle) {
     auto y_idx = getIndex(swizzle->inY());
     auto [result_x, result_y] =
         dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->outX(), result_x);
-    setIndex(swizzle->outY(), result_y);
+    setIndex(swizzle->outX(), result_x, swizzle->inputs());
+    setIndex(swizzle->outY(), result_y, swizzle->inputs());
   } else {
     auto x_idx = getIndex(swizzle->outX());
     auto y_idx = getIndex(swizzle->outY());
     auto [result_x, result_y] =
         dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->inX(), result_x);
-    setIndex(swizzle->inY(), result_y);
+    setIndex(swizzle->inX(), result_x, swizzle->outputs());
+    setIndex(swizzle->inY(), result_y, swizzle->outputs());
   }
 }
 
@@ -84,7 +84,7 @@ void IdGraphIndexCompute::handle(Resize* resize) {
 
   if (left_expand->isZeroInt()) {
     // Just forward as is
-    setIndex(out_id, getIndex(in_id));
+    setIndex(out_id, getIndex(in_id), {in_id});
     return;
   }
 
@@ -97,11 +97,7 @@ void IdGraphIndexCompute::handle(Resize* resize) {
     out_idx = SimplifyingIrBuilder::subExpr(in_idx, left_expand);
   }
 
-  std::cerr << "setIndex: " << out_id->toString() << ", "
-            << out_idx->toInlineString()
-            << ", input index: " << in_idx->toInlineString() << "\n";
-
-  setIndex(out_id, out_idx);
+  setIndex(out_id, out_idx, {in_id});
 }
 
 } // namespace nvfuser

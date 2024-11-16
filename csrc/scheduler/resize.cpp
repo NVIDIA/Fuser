@@ -90,7 +90,61 @@ bool ResizeScheduler::canScheduleCompileTimeV2(Fusion* fusion) {
 
   // Add more conditions to check
 
-  // TODO: Reject padding of unsqueezeed broadcast IDs.
+  // TODO: Reject padding of unsqueezeed broadcast IDs. Backward propagation
+  // would fail otherwise.
+
+  IdModel id_model(fusion, /*build_models=*/false);
+  const auto& graph = id_model.buildExactGraph();
+
+  std::vector<Expr*> resize_ops =
+      ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+
+  for (const auto& expr_g : graph.disjointExprSets().disjointSets()) {
+    auto resize = dynamic_cast<Resize*>(expr_g->front());
+    if (resize == nullptr) {
+      continue;
+    }
+
+    ValGroups input_groups = graph.inputGroups(expr_g);
+    NVF_ERROR(input_groups.size() == 1);
+    const ValGroup& input_group = input_groups.at(0);
+    if (!input_group->front()->as<IterDomain>()->isBroadcast()) {
+      continue;
+    }
+
+    ExprGroups def_of_input = graph.getDefinitions(input_group);
+    if (!def_of_input.empty()) {
+      // This should be another resize
+      NVF_ERROR(def_of_input.front()->front()->isA<Resize>());
+      continue;
+    }
+
+    // It should still be fine if it's part of the fusion input
+    // tensors
+    if (std::any_of(
+            fusion->inputs().begin(), fusion->inputs().end(), [&](Val* input) {
+              auto input_tv = dynamic_cast<TensorView*>(input);
+              if (input_tv == nullptr) {
+                return false;
+              }
+              for (auto input_logical_id : input_tv->getLogicalDomain()) {
+                if (input_group->has(input_logical_id)) {
+                  return true;
+                }
+              }
+              return false;
+            })) {
+      continue;
+    }
+
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Resizing of unsqueezed broadcast IDs is not supported: ",
+        resize->toString(),
+        ", ",
+        nvfuser::toString(input_group));
+    return false;
+  }
 
 #if 0
   std::vector<Expr*> resize_ops =
@@ -701,9 +755,8 @@ void ResizeScheduler::scheduleV1(
     reference_tv->axis(-1)->parallelize(ParallelType::TIDx);
     reference_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
-    std::cout << "Scheduled reference:\n";
+    std::cerr << "Scheduled reference:\n";
     reference_tv->printTransforms();
-    std::cout << std::endl;
 
     // TODO: Don't try to prop to all tensors
     scheduler_tools::scheduleLoopDomainsLike(
@@ -935,6 +988,7 @@ getReferenceTensors3(Fusion* fusion) {
   // Pick a reference in each disjoint set
   for (const auto& disjoint_set : disjoint_val_sets.disjointSets()) {
     TensorView* ref_tv = nullptr;
+    TensorView* input_tv = nullptr;
     for (TensorView* tv : *disjoint_set) {
       // All of the slice/pad/cat output tensors should have the same
       // loop domain. Any of them can be equally used as the reference
@@ -944,11 +998,25 @@ getReferenceTensors3(Fusion* fusion) {
         ref_tv = def->output(0)->as<TensorView>();
         break;
       }
+
+      if (auto def = tv->definition(); std::any_of(
+              def->inputs().begin(), def->inputs().end(), [](Val* input) {
+                return input->isA<TensorView>() && input->isFusionInput();
+              })) {
+        if (input_tv == nullptr ||
+            (input_tv->domain()->noBroadcasts().size() <
+             tv->domain()->noBroadcasts().size())) {
+          input_tv = tv;
+        }
+      }
+    }
+
+    if (ref_tv == nullptr && input_tv != nullptr) {
+      ref_tv = input_tv;
     }
 
     if (ref_tv) {
-      std::cerr << "Reference selected from resize ops: " << ref_tv->toString()
-                << "\n";
+      std::cerr << "Reference: " << ref_tv->toString() << "\n";
 
       ref_list.emplace_back(ref_tv, std::vector<TensorView*>{});
       auto& member_list = ref_list.back().second;
@@ -961,10 +1029,8 @@ getReferenceTensors3(Fusion* fusion) {
       continue;
     }
 
-    // No slice or pad found
-    std::cerr << "No slice/pad found for "
-              << toDelimitedString(disjoint_set->vector()) << "\n";
-    NVF_THROW();
+    NVF_THROW(
+        "No reference found for ", toDelimitedString(disjoint_set->vector()));
   }
 
   std::cerr << "Disjoint grouping of tensors with representatives:\n";
@@ -989,13 +1055,15 @@ void ResizeScheduler::scheduleV2(
 
   DebugStreamGuard dsg(std::cerr);
 
+  FusionGuard fg(fusion);
+
   std::cerr << "ResizeScheduler::scheduleV2\n";
 
   scheduler_utils::clearMemorySpace(fusion);
 
-  fusion->printMath();
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
-  FusionGuard fg(fusion);
+  fusion->printMath();
 
   // Privatize all first
   for (auto expr : fusion->exprs()) {
@@ -1020,12 +1088,15 @@ void ResizeScheduler::scheduleV2(
 
   fusion->printMath();
 
-  if (getenv("SQUEEZED_SLICES")) {
-    scheduler_tools::propagateSqueezedSliceToOutputs(fusion);
-
-    std::cerr << "Squeezed slice propagated\n";
-    fusion->printMath();
-  }
+  // Having squeezed slices uniformly seems to make things
+  // simpler. Part of the reason is the reshape propagation, which
+  // would remove broadcast IDs. While it shouldn't matter, losing
+  // broadcast IDs makes it more complicated to enable the indexing WAR
+  // for resize. Overall, enabling this seems to be the most reasonable
+  // ATM.
+  scheduler_tools::propagateSqueezedSliceToOutputs(fusion);
+  std::cerr << "Squeezed slice propagated\n";
+  fusion->printMath();
 
   const auto exprs = fusion->exprs();
   for (auto expr : exprs) {
@@ -1083,7 +1154,7 @@ void ResizeScheduler::scheduleV2(
 
     ref_tv->flatten();
     ref_tv->split(0, 128);
-    ref_tv->split(0, 1 << 15);
+    ref_tv->split(0, 1 << 10);
     ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
@@ -1093,6 +1164,8 @@ void ResizeScheduler::scheduleV2(
     scheduler_tools::scheduleLoopDomainsLike(
         tvs_to_schedule, ref_tv->getLoopDomain());
   }
+
+  inlineMost();
 
   std::cerr << "All done\n";
   fusion->printMath();
@@ -1110,8 +1183,6 @@ void ResizeScheduler::scheduleV2(
       std::cerr << expr->toString(4);
     }
   }
-
-  // TODO: inlining
 
   return;
 }

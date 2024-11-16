@@ -163,6 +163,10 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     NVF_ERROR(found);
   }
 
+  std::cerr << "Resize war from: " << nvfuser::toString(from_groups) << " -> "
+            << nvfuser::toString(to_groups) << "\n";
+  std::cerr << expr->toString();
+
   IndexingTraversal traversal(
       expr,
       local_graph,
@@ -180,6 +184,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
             return !path_outputs.has(to_group) && !from_groups.has(to_group);
           })) {
     // Some to_group wasn't reached. Not a valid path.
+    std::cerr << "Unreachable node detected\n";
     return std::nullopt;
   }
 
@@ -202,6 +207,8 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     }
     return path;
   }
+
+  std::cerr << "Resize not used\n";
 
   return std::nullopt;
 }
