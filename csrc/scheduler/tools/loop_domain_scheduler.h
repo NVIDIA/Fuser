@@ -25,10 +25,6 @@ void scheduleLoopDomainsLike(
     const std::vector<IterDomain*>& ref_loop_dom,
     bool enable_resize_war = true);
 
-void scheduleLoopDomainsLike(
-    const std::vector<TensorView*>& tvs,
-    IterDomain* ref_loop_id);
-
 // Should the Param be ExprGroup?
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,

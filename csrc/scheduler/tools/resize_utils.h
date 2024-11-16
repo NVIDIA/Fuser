@@ -11,25 +11,12 @@
 
 namespace nvfuser {
 
-class CatOp;
 class Expr;
 class Fusion;
-class PadOp;
-class SliceOp;
 
 namespace scheduler_tools {
 
-void propagateCatToInputs(CatOp* cat_op);
-bool propagateCatToInputs(Fusion* fusion);
-
-void propagateSliceToInputs(SliceOp* slice_op);
-bool propagateSliceToInputs(Fusion* fusion);
-
-bool propagateSliceToOutputs(Fusion* fusion);
-
 bool propagateSqueezedSliceToOutputs(Fusion* fusion);
-
-void propagatePadToInputs(PadOp* pad);
 
 void propagateResizeTensorOpToInputs(Expr* resize_op);
 
