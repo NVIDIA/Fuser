@@ -414,11 +414,18 @@ class VectorizeValidator : public OptInDispatch {
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
+    std::cerr << "Validation pass:. "
+              << "Alloc: " << toDelimitedString(tv->getMaybeAllocationDomain())
+              << ", "
+              << nvfuser::toString(
+                     graph.toGroups(tv->getMaybeAllocationDomain()))
+              << ", "
+              << nvfuser::toString(graph.toGroups(std::vector<Val*>{v_id}))
+              << "\n";
     auto expr_path = ValGraphBFS::getExprsBetween(
         graph,
-        graph.toGroups(tv->getMaybeAllocationDomain()),
-        graph.toGroups(std::vector<Val*>{v_id}));
-    expr_path = reverse(expr_path);
+        graph.toGroups(tv->getLoopDomain()),
+        graph.toGroups(tv->getMaybeAllocationDomain()));
 
     ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
@@ -431,6 +438,8 @@ class VectorizeValidator : public OptInDispatch {
               expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
           "Unexpected expr: ",
           expr->toString());
+
+      std::cerr << "Visiting " << dir << expr->toString();
 
       const auto& inputs = dir == Direction::Forward
           ? graph.inputGroups(expr_g)
@@ -501,6 +510,14 @@ class VectorizeValidator : public OptInDispatch {
         innermost_alloc_id = alloc;
       }
     }
+
+    std::cerr << "cur_group: " << cur_group->front()->toString() << "\n";
+
+    NVF_ERROR(
+        innermost_alloc_id != nullptr,
+        "No corresponding allocaiton ID found. ",
+        "Last group: ",
+        nvfuser::toString(cur_group));
 
     return {innermost_alloc_id, dep_alloc_ids};
   }

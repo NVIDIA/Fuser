@@ -11,6 +11,7 @@
 
 namespace nvfuser {
 
+class Expr;
 class TensorView;
 class IterDomain;
 
@@ -21,7 +22,17 @@ namespace scheduler_tools {
 // each tensor by replaying exprs found in the Exact ValGraph.
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom);
+    const std::vector<IterDomain*>& ref_loop_dom,
+    bool enable_resize_war = true);
+
+void scheduleLoopDomainsLike(
+    const std::vector<TensorView*>& tvs,
+    IterDomain* ref_loop_id);
+
+// Should the Param be ExprGroup?
+void scheduleLoopDomainsBy(
+    const std::vector<TensorView*>& tvs,
+    Expr* transform);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

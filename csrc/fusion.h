@@ -424,6 +424,9 @@ class NVF_API Fusion : public IrContainer {
   //!
   //! Currently, id0->sameAs(id1) needs to hold. It will be an error
   //! otherwise.
+  //! TODO: As expected, this is not robust. For example, if a tensor
+  //! is recomputed, the new tensor won't inherit this additional
+  //! mapping since it will use different IDs.
   void registerExactMapping(IterDomain* id0, IterDomain* id1);
 
   bool hasRegisteredExactMappings() const {

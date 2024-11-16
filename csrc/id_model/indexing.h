@@ -76,7 +76,7 @@ class TensorIndexer {
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_ids,
       const std::vector<ForLoop*>& loops) const;
 
   // Get the contig indices of the given ID groups with their strides
@@ -137,7 +137,7 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_ids,
       const std::vector<ForLoop*>& for_loops) const;
 
   // Propagate the loop indices of a given list of loop domains to the
@@ -146,12 +146,6 @@ class TensorIndexer {
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
       const std::vector<IterDomain*>& loop_domains,
       const std::vector<ForLoop*>& for_loops) const;
-
-  // Get the loop domains of a given expr. Currently, they're always
-  // the loop domains of a consumer tensor, but in the future this
-  // function may return the loop domains of a producer for
-  // producer-based indexing.
-  std::vector<IterDomain*> getLoopDomains(const Expr* expr) const;
 
   // For a given indexng traversal path toward allocation_domains,
   // return the contiguous domains and their strides that can provide

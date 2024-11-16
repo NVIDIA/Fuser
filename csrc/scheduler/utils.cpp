@@ -2306,14 +2306,37 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
       tvs.emplace_back(index_select->lookupTv(), consumer);
     } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
       tvs.emplace_back(select->lookupTv(), consumer);
-    } else if (ir_utils::hasResizedRfactor(consumer)) {
+    } else {
       // Exprs based on ResizeOp, e.g., slice
       auto producers = ir_utils::producerTvsOf(consumer);
-      NVF_ERROR(
-          producers.size() == 1,
-          "Unexpected number of inputs of the defining expression: ",
-          consumer->definition()->toString());
-      tvs.emplace_back(producers.at(0), consumer);
+      IdModel id_model(
+          {consumer->definition()},
+          /*additional_tvs=*/{},
+          /*build_graphs=*/false);
+      const auto& exact_graph = id_model.buildExactGraph();
+      const auto consumer_loop_groups =
+          exact_graph.toGroups(consumer->getLoopDomain());
+      for (auto producer : producers) {
+        auto producer_consumer_exprs = ValGraphBFS::getExprsBetween(
+            exact_graph,
+            exact_graph.toGroups(producer->getLoopDomain()),
+            consumer_loop_groups,
+            /*require_all_to_visited=*/false);
+        if (std::any_of(
+                producer_consumer_exprs.begin(),
+                producer_consumer_exprs.end(),
+                [](const auto& path_node) {
+                  return path_node.first->front()->template isA<Resize>();
+                })) {
+          std::cerr << "Resize detected between " << producer->toString()
+                    << " and " << consumer->toString() << "\n";
+          for (const auto& [eg, dir] : producer_consumer_exprs) {
+            std::cerr << dir << ": " << eg->front()->toString();
+          }
+
+          tvs.emplace_back(producer, consumer);
+        }
+      }
     }
   }
 
@@ -2393,6 +2416,8 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
   std::unordered_map<TensorView*, TensorView*> producer_copy_map;
 
   for (auto& [producer, consumer] : non_pwise_pairs) {
+    std::cerr << "Non-pwise pair: " << producer->toString() << ", "
+              << consumer->toString() << "\n";
     // At this point, all tensors should be either on Global or Local
     NVF_ERROR(
         producer->getMemoryType() == MemoryType::Local ||
@@ -2659,6 +2684,103 @@ void moveNonConcretizedBroadcastInnermost(
 
     tv->reorder(old2new);
   }
+}
+#if 0
+void insertMissingBroadcastDomains(TensorView* reference) {
+  Fusion* fusion = reference->fusion();
+
+  // Consider reusing IdModels
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& graph = id_model.buildBroadcastGraph();
+
+  ValGroups ref_groups = graph.toGroups(reference->getLoopDomain());
+
+  for (auto tv : fusion->allTvs()) {
+    const auto& loop_domain = tv->getLoopDomain();
+    ValGroups loop_groups = graph.toGroups(loop_domain);
+
+    const auto reachable_ref_groups =
+        ValGraphBFS::getReachableValsFrom(graph, loop_groups, ref_groups);
+
+    std::unordered_set<ValGroup> missing_ref_groups;
+    for (const auto& ref_group : ref_groups) {
+      if (!reachable_ref_groups.has(ref_group)) {
+        missing_ref_groups.emplace(ref_group);
+      }
+    }
+
+    for (const auto i : c10::irange(ref_groups.size())) {
+      if (reachable_ref_groups.has(ref_group)) {
+      }
+    }
+  }
+}
+#endif
+
+ValGroups getIterationDomainsOrderedLike(
+    const ValGraph& graph,
+    const ValGroups& domains_to_reorder,
+    const ValGroups& reference) {
+  const auto path_from_ref = ValGraphBFS::getExprsBetween(
+      graph,
+      reference,
+      domains_to_reorder,
+      /*require_all_to_visited=*/false);
+
+  std::deque<ValGroup> ordered_domains{reference.begin(), reference.end()};
+
+  for (const auto& [eg, dir] : path_from_ref) {
+    std::cerr << dir << " " << eg->front()->toString();
+
+    const auto inputs = inputGroups(graph, eg, dir);
+    const auto outputs = outputGroups(graph, eg, dir);
+    NVF_ERROR(!inputs.empty());
+    NVF_ERROR(!outputs.empty());
+
+    auto innermost_input_it = std::find(
+        ordered_domains.begin(), ordered_domains.end(), inputs.back());
+    NVF_ERROR(
+        innermost_input_it != ordered_domains.end(),
+        "Cannot find: ",
+        nvfuser::toString(inputs.back()));
+
+    ordered_domains.insert(innermost_input_it, outputs.begin(), outputs.end());
+
+    for (const auto& inp : inputs) {
+      auto inp_it =
+          std::find(ordered_domains.begin(), ordered_domains.end(), inp);
+      NVF_ERROR(
+          inp_it != ordered_domains.end(),
+          "Input not found: ",
+          nvfuser::toString(inp));
+      ordered_domains.erase(inp_it);
+    }
+  }
+
+  std::cerr << "Reordered domains:";
+  for (const auto& g : ordered_domains) {
+    std::cerr << " " << nvfuser::toString(g);
+  }
+  std::cerr << "\n";
+
+  ValGroups reordered_domains;
+
+  // Put missing domains at the outermost positions
+  for (const auto& domain : domains_to_reorder) {
+    if (std::find(ordered_domains.begin(), ordered_domains.end(), domain) ==
+        ordered_domains.end()) {
+      reordered_domains.pushBack(domain);
+    }
+  }
+
+  // Append the other domains in the order of ordered_domains
+  for (const auto& ordered_domain : ordered_domains) {
+    if (domains_to_reorder.has(ordered_domain)) {
+      reordered_domains.pushBack(ordered_domain);
+    }
+  }
+
+  return reordered_domains;
 }
 
 } // namespace scheduler_utils

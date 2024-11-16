@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <fusion_profiler.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
@@ -18,6 +19,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
+#include <scheduler/tools/resize_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -133,6 +135,8 @@ TEST_P(ResizeTest, Pad3) {
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
+
+  fusion.print();
 
   // TransformPropagator and inlineMost do not inline tv2, so it can't
   // be on Local memory. It should be possible to expand tv2 such that
@@ -4051,6 +4055,1319 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+#if 0
+TEST_F(ResizeTest, CatScheduledLikeConsumer) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+  std::vector<int64_t> shape1({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  tv4->split(-1, 4);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(-2)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 1);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+#endif
+
+TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+  std::vector<int64_t> shape1({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  for (auto cat_inp : tv4->definition()->inputs()) {
+    auto cat_inp_tv = cat_inp->as<TensorView>();
+    auto inputs = DependencyCheck::getAllValsBetween(
+        {fusion.inputs().begin(), fusion.inputs().end()}, {cat_inp_tv});
+    std::vector<TensorView*> input_tvs;
+    for (const auto inp : inputs) {
+      if (inp == cat_inp_tv) {
+        continue;
+      }
+      input_tvs.push_back(inp->as<TensorView>());
+    }
+
+    std::cerr << "Scheduling loop domains of " << toDelimitedString(input_tvs)
+              << " as " << cat_inp_tv->toString() << "\n";
+    scheduler_tools::scheduleLoopDomainsLike(
+        input_tvs, cat_inp_tv->getLogicalDomain());
+  }
+
+  fusion.print();
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(-1, 4);
+    if (tv == tv2 || tv == tv3) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
+
+  inlineMost();
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 1);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, CatScheduledLikeConsumer3) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+  std::vector<int64_t> shape1({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  scheduler_tools::propagateCatToInputs(tv4->definition()->as<CatOp>());
+
+  fusion.print();
+
+  tv4->split(-1, 4);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  fusion.printMath();
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv == tv2 || tv == tv3) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
+
+  inlineMost();
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 1);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, CatScheduledLikeConsumerInvalid) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv0);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  scheduler_tools::propagateCatToInputs(tv4->definition()->as<CatOp>());
+}
+
+TEST_F(ResizeTest, SliceSliceConcatConcat2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  const int64_t i0 = 128 * 128;
+  const int64_t rope_size = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto zero = fusion.zeroVal();
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+
+  // [i0]
+  // auto tv1 = set(tv0);
+  auto tv1 = tv0;
+
+  // [rope_size]
+  auto tv2 = slice(tv1, {{zero, IrBuilder::create<Val>(rope_size)}});
+
+  auto rope_size_half = IrBuilder::create<Val>(rope_size / 2);
+
+  // first half
+  // [0:rope_size/2]
+  auto tv3 = slice(tv2, {{zero, rope_size_half}});
+  // do some uop
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1));
+
+  // Pad back
+  // [0:rope_size]
+  // auto tv5 = pad(tv4, {zero, rope_size_half});
+
+  // second half
+  // [rope_size/2:]
+  auto tv6 = slice(tv2, {{rope_size_half, IrBuilder::create<Val>(rope_size)}});
+
+  // do some uop
+  auto tv7 = add(tv6, IrBuilder::create<Val>(2));
+
+  // Pad back
+  // [rope_size]
+  // auto tv8 = pad(tv7, {rope_size_half, zero});
+
+  // [rope_size]
+  auto tv9 = cat({tv4, tv7}, -1);
+
+  // [i0]
+  // auto tv10 = pad(tv9, {zero, IrBuilder::create<Val>(i0 - rope_size)});
+
+  // [rope_size:]
+  auto tv11 = slice(
+      tv1, {{IrBuilder::create<Val>(rope_size), IrBuilder::create<Val>(i0)}});
+  // [i0]
+  // auto tv12 = pad(tv11, {IrBuilder::create<Val>(rope_size), zero});
+
+  // auto tv13 = add(tv10, tv12);
+  auto tv13 = cat({tv9, tv11}, -1);
+
+  fusion.addOutput(tv13);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  auto ref = at::concat(
+      {at::slice(t0, 0, 0, rope_size / 2) + 1,
+       at::slice(t0, 0, rope_size / 2, rope_size) + 2,
+       at::slice(t0, 0, rope_size)},
+      0);
+
+  NVF_CHECK(ref.equal(outputs[0]));
+}
+
+TEST_F(ResizeTest, RoPEFullBF16Global) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Llama-2-7b-hf
+  int64_t n_head = 32;
+  int64_t head_size = 128;
+  int64_t n_query_groups = 32;
+  int64_t rope_n_elem = 128;
+  int64_t batches = 2;
+  int64_t seq_length = 4096;
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
+
+  if (getenv("SMALL")) {
+    n_head = 4;
+    n_query_groups = 4;
+    seq_length = 8;
+    head_size = 16;
+    rope_n_elem = 16;
+  }
+
+  // Not possible to have this reshape yet. This is necessary before
+  // the x1/x2 slice. This could be solved by a native alias support.
+  // std::vector<int64_t> input_shape{
+  // batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
+  std::vector<int64_t> shape_before_permutation{
+      batches, seq_length, n_query_groups, total_qkv, head_size};
+  std::vector<int64_t> shape1{
+      batches, n_query_groups, total_qkv, seq_length, head_size};
+
+  std::vector<int64_t> input_shape = shape_before_permutation;
+
+  std::cerr << "input shape: " << input_shape << "\n";
+
+  // qkv after permutation
+  auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  std::cerr << "Input: " << tv0->toString() << "\n";
+
+  // cos
+  auto tv1 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto cos = tv1;
+
+  // sin
+  auto tv2 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv2);
+  [[maybe_unused]] auto sin = tv2;
+
+  auto zero = fusion.zeroVal();
+  [[maybe_unused]] auto one = fusion.oneVal();
+
+  std::vector<Slice> slice_default_arg;
+  slice_default_arg.reserve(input_shape.size());
+  for (const auto s : input_shape) {
+    slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+  }
+
+  auto qkv = tv0;
+
+  int64_t qkv_slice_dim = 3;
+
+  [[maybe_unused]] auto slice_arg_q = slice_default_arg;
+  // slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv
+  //- 2);
+  slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
+
+  [[maybe_unused]] auto slice_arg_k = slice_default_arg;
+  slice_arg_k[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
+  slice_arg_k[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
+
+#if 0
+  // tv6 (v)
+  TensorView* tv8 = nullptr;
+  {
+    auto qkv = tv0;
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv + 1);
+    tv8 = slice(qkv, slice_arg);
+  }
+  [[maybe_unused]] auto v = tv8;
+#endif
+
+  // x: q, k or v
+  // 1. take [..., :rope_n_elem]
+  // 2. apply_rope
+  // 3. concat apply_rope and [..., rope_n_elem:]
+  auto apply_rope = [&](TensorView* x,
+                        bool is_q,
+                        std::vector<Slice> slice_arg) -> TensorView* {
+    // x1
+    auto x1_slice_arg = slice_arg;
+    x1_slice_arg.back().stop =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    auto x1 = slice(x, x1_slice_arg);
+    std::cerr << "x1: " << x1->definition()->toString() << "\n";
+
+    // x2
+    auto x2_slice_arg = slice_arg;
+    x2_slice_arg.back().start =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    [[maybe_unused]] auto x2 = slice(x, x2_slice_arg);
+    std::cerr << "x2: " << x2->definition()->toString() << "\n";
+
+    TensorView* rotated = nullptr;
+    if (getenv("NO_ROTATION")) {
+      rotated = cat({x1, x2}, -1);
+    } else {
+      rotated = cat({x2, x1}, -1);
+    }
+
+    [[maybe_unused]] auto x_cache = slice(x, slice_arg);
+
+    [[maybe_unused]] std::vector<bool> bcast_flags{
+        true, false, true, true, false};
+    [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
+    [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
+
+    TensorView* out = nullptr;
+    if (getenv("NO_COS")) {
+      out = add(x_cache, rotated);
+    } else {
+      out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
+    }
+
+    std::cerr << "apply_rope_result: " << out->toString() << "\n";
+
+    std::vector<int64_t> cur_shape = input_shape;
+    cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
+    std::vector<int64_t> new_shape{batches, seq_length, -1, rope_n_elem};
+    out = reshape(out, cur_shape, new_shape);
+    out = permute(out, {0, 2, 1, 3});
+    out = castOp(DataType::BFloat16, out);
+    return out;
+  };
+
+  [[maybe_unused]] auto q_out = apply_rope(qkv, true, slice_arg_q);
+  if (!getenv("NO_Q")) {
+    fusion.addOutput(q_out);
+  }
+
+  [[maybe_unused]] auto k_out = apply_rope(qkv, false, slice_arg_k);
+  if (!getenv("NO_K")) {
+    fusion.addOutput(k_out);
+  }
+
+  // Not used but just for clarity
+  //[[maybe_unused]] auto v_out = apply_rope(v, false);
+
+  // fusion.addOutput(v_original_shape);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({seq_length, rope_n_elem}, options);
+  auto t2 = at::randn({seq_length, rope_n_elem}, options);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  if (getenv("BENCHMARK")) {
+    [[maybe_unused]] int64_t mem_size = 1;
+    for (const auto s : shape1) {
+      mem_size *= s;
+    }
+    // read and write
+    mem_size *= 2;
+    mem_size = mem_size / total_qkv;
+    int64_t qkv_factor = 0;
+    if (!getenv("NO_Q")) {
+      qkv_factor += q_per_kv;
+    }
+    if (!getenv("NO_K")) {
+      qkv_factor += 1;
+    }
+    mem_size *= qkv_factor;
+    // sin and cos
+    mem_size += seq_length * rope_n_elem * 2;
+    // BFloat16
+    mem_size *= 2;
+
+    // ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+
+    for (int i = 0; i < 10; ++i) {
+      clearL2Cache();
+      // FusionProfiler::start();
+      // FusionProfiler::createSegments(1);
+      outputs = executor_cache.runFusionWithInputs(inputs);
+      // FusionProfiler::stop();
+      // auto t = FusionProfiler::lastKernelTime();
+      // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      // std::cout << "Bandwidth (GB/s): "
+      //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
+      //<< "\n";
+    }
+
+    // std::cerr << FusionProfiler::profile() << "\n";
+  }
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, PredicatingSqueezedSlice) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape{4, 128};
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), IrBuilder::create<Val>(shape.at(0))},
+       {IrBuilder::create<Val>(33L), IrBuilder::create<Val>(34L)}});
+  auto tv3 = squeeze(tv2, {1});
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto tv5 = makeConcreteTensor({1});
+  fusion.addInput(tv5);
+  auto tv6 = squeeze(tv5, {0});
+
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+
+  scheduler_tools::propagateSliceToOutputs(&fusion);
+  scheduler_tools::scheduleLoopDomainsLike({tv2}, tv0->getLoopDomain());
+
+  if (getenv("PARALLELIZE")) {
+    tv1->axis(0)->parallelize(ParallelType::BIDx);
+    tv1->axis(1)->parallelize(ParallelType::TIDx);
+    tv2->axis(0)->parallelize(ParallelType::BIDx);
+    tv2->axis(1)->parallelize(ParallelType::TIDx);
+    tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+    tv1->setMemoryType(MemoryType::Shared);
+  }
+
+  GpuLower lower(&fusion);
+  lower.threadPredMap().print();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  std::cout << std::endl;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randn({1}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, TMP3) {
+  // EnableOptionsGuard enable_options_guard;
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = sum(tv0, {0});
+  auto tv4 = set(tv3);
+
+  fusion.addOutput(tv2);
+  // fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  tv2->split(1, 32, false);
+
+  tv3->split(1, 4);
+  tv3->split(1, 1);
+  tv4->split(0, 4);
+  tv4->split(0, 1);
+
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(0)->parallelize(ParallelType::TIDy);
+
+  tv4->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+
+  fusion.printMath();
+  fusion.printKernel();
+}
+
+TEST_F(ResizeTest, ReshapeBeforeSlice) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Llama-2-7b-hf
+  int64_t n_head = 32;
+  int64_t head_size = 128;
+  int64_t n_query_groups = 32;
+  int64_t rope_n_elem = 128;
+  int64_t batches = 2;
+  int64_t seq_length = 4096;
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
+
+  if (getenv("SMALL")) {
+    n_head = 4;
+    n_query_groups = 4;
+    seq_length = 8;
+    head_size = 16;
+    rope_n_elem = 16;
+  }
+
+  std::vector<int64_t> shape_before_reshape{
+      batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
+  std::vector<int64_t> shape_before_permutation{
+      batches, seq_length, n_query_groups, total_qkv, head_size};
+  std::vector<int64_t> shape_after_permutation{
+      batches, n_query_groups, total_qkv, seq_length, head_size};
+
+  std::vector<int64_t> input_shape = shape_before_reshape;
+
+  std::cerr << "input shape: " << input_shape << "\n";
+
+  // qkv after permutation
+  auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  std::cerr << "Input: " << tv0->toString() << "\n";
+
+  // cos
+  auto tv1 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto cos = tv1;
+
+  // sin
+  auto tv2 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv2);
+  [[maybe_unused]] auto sin = tv2;
+
+  auto zero = fusion.zeroVal();
+  [[maybe_unused]] auto one = fusion.oneVal();
+
+  auto qkv = reshape(tv0, shape_before_reshape, shape_before_permutation);
+  qkv = permute(qkv, {0, 2, 3, 1, 4});
+
+  std::cerr << "qkv: " << qkv->toString() << "\n";
+
+  std::vector<Slice> slice_default_arg;
+  slice_default_arg.reserve(shape_after_permutation.size());
+  for (const auto s : shape_after_permutation) {
+    slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+  }
+
+  int64_t qkv_slice_dim = 2;
+
+  [[maybe_unused]] auto slice_arg_q = slice_default_arg;
+  // slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv
+  //- 2);
+  slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
+
+  [[maybe_unused]] auto slice_arg_k = slice_default_arg;
+  slice_arg_k[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
+  slice_arg_k[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
+
+#if 0
+  // tv6 (v)
+  TensorView* tv8 = nullptr;
+  {
+    auto qkv = tv0;
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv + 1);
+    tv8 = slice(qkv, slice_arg);
+  }
+  [[maybe_unused]] auto v = tv8;
+#endif
+
+  // x: q, k or v
+  // 1. take [..., :rope_n_elem]
+  // 2. apply_rope
+  // 3. concat apply_rope and [..., rope_n_elem:]
+  auto apply_rope = [&](TensorView* x,
+                        bool is_q,
+                        std::vector<Slice> slice_arg) -> TensorView* {
+    // x1
+    auto x1_slice_arg = slice_arg;
+    x1_slice_arg.back().stop =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    auto x1 = slice(x, x1_slice_arg);
+    std::cerr << "x1: " << x1->definition()->toString() << "\n";
+
+    // x2
+    auto x2_slice_arg = slice_arg;
+    x2_slice_arg.back().start =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    [[maybe_unused]] auto x2 = slice(x, x2_slice_arg);
+    std::cerr << "x2: " << x2->definition()->toString() << "\n";
+
+    TensorView* rotated = nullptr;
+    if (getenv("NO_ROTATION")) {
+      rotated = cat({x1, x2}, -1);
+    } else {
+      rotated = cat({x2, x1}, -1);
+    }
+
+    [[maybe_unused]] auto x_cache = slice(x, slice_arg);
+
+    [[maybe_unused]] std::vector<bool> bcast_flags{
+        true, true, true, false, false};
+    [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
+    [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
+
+    TensorView* out = nullptr;
+    if (getenv("NO_X1")) {
+      out = x_cache;
+    } else if (getenv("NO_COS")) {
+      out = add(x_cache, rotated);
+    } else {
+      out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
+    }
+
+    std::cerr << "apply_rope_result: " << out->toString() << "\n";
+
+    std::vector<int64_t> cur_shape = shape_before_permutation;
+    cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
+    std::vector<int64_t> new_shape{batches, seq_length, -1, rope_n_elem};
+    out = reshape(out, cur_shape, new_shape);
+    out = castOp(DataType::BFloat16, out);
+    return out;
+  };
+
+  [[maybe_unused]] auto q_out = apply_rope(qkv, true, slice_arg_q);
+  if (!getenv("NO_Q")) {
+    fusion.addOutput(q_out);
+  }
+
+  [[maybe_unused]] auto k_out = apply_rope(qkv, false, slice_arg_k);
+  if (!getenv("NO_K")) {
+    fusion.addOutput(k_out);
+  }
+
+  // Not used but just for clarity
+  //[[maybe_unused]] auto v_out = apply_rope(v, false);
+
+  // fusion.addOutput(v_original_shape);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({seq_length, rope_n_elem}, options);
+  auto t2 = at::randn({seq_length, rope_n_elem}, options);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  if (getenv("BENCHMARK")) {
+    [[maybe_unused]] int64_t mem_size = 1;
+    for (const auto s : input_shape) {
+      mem_size *= s;
+    }
+    // read and write
+    mem_size *= 2;
+    mem_size = mem_size / total_qkv;
+    int64_t qkv_factor = 0;
+    if (!getenv("NO_Q")) {
+      qkv_factor += q_per_kv;
+    }
+    if (!getenv("NO_K")) {
+      qkv_factor += 1;
+    }
+    mem_size *= qkv_factor;
+    // sin and cos
+    mem_size += seq_length * rope_n_elem * 2;
+    // BFloat16
+    mem_size *= 2;
+
+    // ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+
+    for (int i = 0; i < 10; ++i) {
+      clearL2Cache();
+      // FusionProfiler::start();
+      // FusionProfiler::createSegments(1);
+      outputs = executor_cache.runFusionWithInputs(inputs);
+      // FusionProfiler::stop();
+      // auto t = FusionProfiler::lastKernelTime();
+      // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      // std::cout << "Bandwidth (GB/s): "
+      //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
+      //<< "\n";
+    }
+
+    // std::cerr << FusionProfiler::profile() << "\n";
+  }
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, ReshapeBeforeSlice2) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Llama-2-7b-hf
+  int64_t n_head = 32;
+  int64_t head_size = 128;
+  int64_t n_query_groups = 32;
+  int64_t rope_n_elem = 128;
+  int64_t batches = 2;
+  int64_t seq_length = 4096;
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
+
+  if (getenv("SMALL")) {
+    n_head = 4;
+    n_query_groups = 4;
+    seq_length = 8;
+    head_size = 16;
+    rope_n_elem = 16;
+  }
+
+  std::vector<int64_t> shape_before_reshape{
+      batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
+  std::vector<int64_t> shape_before_permutation{
+      batches, seq_length, n_query_groups, total_qkv, head_size};
+  std::vector<int64_t> shape_after_permutation{
+      batches, n_query_groups, total_qkv, seq_length, head_size};
+  std::vector<int64_t> shape_after_reshape{
+      batches, n_query_groups * total_qkv, seq_length, head_size};
+
+  std::vector<int64_t> input_shape = shape_before_reshape;
+
+  std::cerr << "input shape: " << input_shape << "\n";
+
+  // qkv after permutation
+  auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  std::cerr << "Input: " << tv0->toString() << "\n";
+
+  // cos
+  auto tv1 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto cos = tv1;
+
+  // sin
+  auto tv2 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv2);
+  [[maybe_unused]] auto sin = tv2;
+
+  auto zero = fusion.zeroVal();
+  [[maybe_unused]] auto one = fusion.oneVal();
+
+  auto qkv = reshape(tv0, shape_before_reshape, shape_before_permutation);
+  qkv = permute(qkv, {0, 2, 3, 1, 4});
+
+  std::cerr << "qkv: " << qkv->toString() << "\n";
+
+  std::vector<Slice> slice_default_arg;
+  slice_default_arg.reserve(shape_after_permutation.size());
+  for (const auto s : shape_after_permutation) {
+    slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+  }
+
+  int64_t qkv_slice_dim = 2;
+
+  [[maybe_unused]] auto slice_arg_q = slice_default_arg;
+  slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
+
+  [[maybe_unused]] auto slice_arg_k = slice_default_arg;
+  slice_arg_k[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
+  slice_arg_k[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
+
+#if 0
+  // tv6 (v)
+  TensorView* tv8 = nullptr;
+  {
+    auto qkv = tv0;
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv + 1);
+    tv8 = slice(qkv, slice_arg);
+  }
+  [[maybe_unused]] auto v = tv8;
+#endif
+
+  auto apply_rope = [&](TensorView* x,
+                        bool is_q,
+                        std::vector<Slice> slice_arg) -> TensorView* {
+  // Test this after confirming consecutive slices
+#if 0
+    std::vector<int64_t> cur_shape = shape_after_permutation;
+    cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
+    std::vector<int64_t> new_shape{batches, -1, seq_length, rope_n_elem};
+    x = reshape(x, cur_shape, new_shape);
+#endif
+    // x1
+    auto x1_slice_arg = slice_arg;
+    x1_slice_arg.back().stop =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    auto x1 = slice(x, x1_slice_arg);
+    std::cerr << "x1: " << x1->definition()->toString() << "\n";
+
+    // x2
+    auto x2_slice_arg = slice_arg;
+    x2_slice_arg.back().start =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    [[maybe_unused]] auto x2 = slice(x, x2_slice_arg);
+    std::cerr << "x2: " << x2->definition()->toString() << "\n";
+
+    TensorView* rotated = nullptr;
+    if (getenv("NO_ROTATION")) {
+      rotated = cat({x1, x2}, -1);
+    } else {
+      rotated = cat({x2, x1}, -1);
+    }
+
+    [[maybe_unused]] auto x_cache = slice(x, slice_arg);
+
+    [[maybe_unused]] std::vector<bool> bcast_flags{
+        true, true, true, false, false};
+    [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
+    [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
+
+    TensorView* out = nullptr;
+    if (getenv("NO_X1")) {
+      out = x_cache;
+    } else if (getenv("NO_COS")) {
+      out = add(x_cache, rotated);
+    } else {
+      out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
+    }
+
+    std::cerr << "apply_rope_result: " << out->toString() << "\n";
+
+    std::vector<int64_t> cur_shape = shape_after_permutation;
+    cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
+    std::vector<int64_t> new_shape{batches, -1, seq_length, rope_n_elem};
+    out = reshape(out, cur_shape, new_shape);
+
+    out = castOp(DataType::BFloat16, out);
+    return out;
+  };
+
+  [[maybe_unused]] auto q_out = apply_rope(qkv, true, slice_arg_q);
+  if (!getenv("NO_Q")) {
+    fusion.addOutput(q_out);
+  }
+
+  [[maybe_unused]] auto k_out = apply_rope(qkv, false, slice_arg_k);
+  if (!getenv("NO_K")) {
+    fusion.addOutput(k_out);
+  }
+
+  // Not used but just for clarity
+  //[[maybe_unused]] auto v_out = apply_rope(v, false);
+
+  // fusion.addOutput(v_original_shape);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({seq_length, rope_n_elem}, options);
+  auto t2 = at::randn({seq_length, rope_n_elem}, options);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  if (getenv("BENCHMARK")) {
+    [[maybe_unused]] int64_t mem_size = 1;
+    for (const auto s : input_shape) {
+      mem_size *= s;
+    }
+    // read and write
+    mem_size *= 2;
+    mem_size = mem_size / total_qkv;
+    int64_t qkv_factor = 0;
+    if (!getenv("NO_Q")) {
+      qkv_factor += q_per_kv;
+    }
+    if (!getenv("NO_K")) {
+      qkv_factor += 1;
+    }
+    mem_size *= qkv_factor;
+    // sin and cos
+    mem_size += seq_length * rope_n_elem * 2;
+    // BFloat16
+    mem_size *= 2;
+
+    // ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+
+    for (int i = 0; i < 10; ++i) {
+      clearL2Cache();
+      // FusionProfiler::start();
+      // FusionProfiler::createSegments(1);
+      outputs = executor_cache.runFusionWithInputs(inputs);
+      // FusionProfiler::stop();
+      // auto t = FusionProfiler::lastKernelTime();
+      // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      // std::cout << "Bandwidth (GB/s): "
+      //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
+      //<< "\n";
+    }
+
+    // std::cerr << FusionProfiler::profile() << "\n";
+  }
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, RoPEFull) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Llama-2-7b-hf
+  int64_t n_head = 32;
+  int64_t head_size = 128;
+  int64_t n_query_groups = 32;
+  int64_t rope_n_elem = 128;
+  int64_t batches = 2;
+  int64_t seq_length = 4096;
+
+  if (getenv("LLAMA3_8B")) {
+    n_head = 32;
+    head_size = 128;
+    n_query_groups = 8;
+    rope_n_elem = 128;
+    batches = 2;
+    seq_length = 8192;
+  } else if (getenv("SMALL")) {
+    n_head = 4;
+    n_query_groups = 4;
+    seq_length = 8;
+    head_size = 16;
+    rope_n_elem = 16;
+  }
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
+
+  std::vector<int64_t> shape_before_reshape{
+      batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
+  std::vector<int64_t> shape_before_permutation{
+      batches, seq_length, n_query_groups, total_qkv, head_size};
+  std::vector<int64_t> shape_after_permutation{
+      batches, n_query_groups, total_qkv, seq_length, head_size};
+  std::vector<int64_t> shape_after_reshape{
+      batches, n_query_groups * total_qkv, seq_length, head_size};
+
+  std::vector<int64_t> input_shape = shape_before_reshape;
+
+  std::cerr << "input shape: " << input_shape << "\n";
+
+  // qkv after permutation
+  auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  std::cerr << "Input: " << tv0->toString() << "\n";
+
+  // cos
+  auto tv1 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto cos = tv1;
+
+  // sin
+  auto tv2 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv2);
+  [[maybe_unused]] auto sin = tv2;
+
+  auto zero = fusion.zeroVal();
+  [[maybe_unused]] auto one = fusion.oneVal();
+
+  auto qkv = reshape(tv0, shape_before_reshape, shape_before_permutation);
+  qkv = permute(qkv, {0, 2, 3, 1, 4});
+
+  std::cerr << "qkv: " << qkv->toString() << "\n";
+
+  std::vector<Slice> slice_default_arg;
+  slice_default_arg.reserve(shape_after_permutation.size());
+  for (const auto s : shape_after_permutation) {
+    slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+  }
+
+  int64_t qkv_slice_dim = 2;
+
+  [[maybe_unused]] auto slice_arg_q = slice_default_arg;
+  slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
+
+  [[maybe_unused]] auto slice_arg_k = slice_default_arg;
+  slice_arg_k[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
+  slice_arg_k[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
+
+  auto apply_rope = [&](TensorView* x,
+                        bool is_q,
+                        std::vector<Slice> slice_arg) -> TensorView* {
+    [[maybe_unused]] auto x_slice = slice(x, slice_arg);
+
+    std::cerr << "x_slice: " << x_slice->toString() << "\n";
+
+    std::vector<int64_t> cur_shape = shape_after_permutation;
+    cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
+    std::cerr << "cur_shape: " << cur_shape << "\n";
+    std::vector<int64_t> new_shape{
+        cur_shape[0],
+        n_query_groups * (is_q ? q_per_kv : 1),
+        seq_length,
+        rope_n_elem};
+    std::cerr << "new shape: " << new_shape << "\n";
+    x_slice = reshape(x_slice, cur_shape, new_shape);
+
+    std::cerr << "Reshaped x_slice: " << x_slice->toString() << "\n";
+
+    // x1
+    std::vector<Slice> x1_slice_arg;
+    x1_slice_arg.reserve(new_shape.size());
+    for (const auto s : new_shape) {
+      x1_slice_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+    }
+
+    x1_slice_arg.back().stop =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    auto x1 = slice(x_slice, x1_slice_arg);
+    std::cerr << "x1: " << x1->definition()->toString() << "\n";
+
+    // x2
+    auto x2_slice_arg = x1_slice_arg;
+    x2_slice_arg.back().start =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    x2_slice_arg.back().stop = IrBuilder::create<Val>(rope_n_elem);
+    [[maybe_unused]] auto x2 = slice(x_slice, x2_slice_arg);
+    std::cerr << "x2: " << x2->definition()->toString() << "\n";
+
+    TensorView* rotated = nullptr;
+    if (getenv("NO_ROTATION")) {
+      rotated = cat({x1, x2}, -1);
+    } else {
+      rotated = cat({x2, x1}, -1);
+    }
+
+    [[maybe_unused]] std::vector<bool> bcast_flags(new_shape.size(), false);
+    for (auto it = bcast_flags.begin();
+         it != bcast_flags.begin() + bcast_flags.size() - 2;
+         ++it) {
+      *it = true;
+    }
+    [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
+    [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
+
+    TensorView* out = nullptr;
+    if (getenv("NO_X1")) {
+      out = x_slice;
+    } else if (getenv("NO_COS")) {
+      out = add(x_slice, rotated);
+    } else {
+      out = add(mul(x_slice, cos_broadcast), mul(rotated, sin_broadcast));
+    }
+
+    std::cerr << "apply_rope_result: " << out->toString() << "\n";
+
+    out = castOp(DataType::BFloat16, out);
+    return out;
+  };
+
+  [[maybe_unused]] auto q_out = apply_rope(qkv, true, slice_arg_q);
+  if (!getenv("NO_Q")) {
+    fusion.addOutput(q_out);
+  }
+
+  [[maybe_unused]] auto k_out = apply_rope(qkv, false, slice_arg_k);
+  if (!getenv("NO_K")) {
+    fusion.addOutput(k_out);
+  }
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({seq_length, rope_n_elem}, options);
+  auto t2 = at::randn({seq_length, rope_n_elem}, options);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  if (getenv("BENCHMARK")) {
+    [[maybe_unused]] int64_t mem_size = 1;
+    for (const auto s : input_shape) {
+      mem_size *= s;
+    }
+    // read and write
+    mem_size *= 2;
+    mem_size = mem_size / total_qkv;
+    int64_t qkv_factor = 0;
+    if (!getenv("NO_Q")) {
+      qkv_factor += q_per_kv;
+    }
+    if (!getenv("NO_K")) {
+      qkv_factor += 1;
+    }
+    mem_size *= qkv_factor;
+    // sin and cos
+    mem_size += seq_length * rope_n_elem * 2;
+    // BFloat16
+    mem_size *= 2;
+
+    // ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+
+    for (int i = 0; i < 10; ++i) {
+      clearL2Cache();
+      // FusionProfiler::start();
+      // FusionProfiler::createSegments(1);
+      outputs = executor_cache.runFusionWithInputs(inputs);
+      // FusionProfiler::stop();
+      // auto t = FusionProfiler::lastKernelTime();
+      // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      // std::cout << "Bandwidth (GB/s): "
+      //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
+      //<< "\n";
+    }
+  }
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, NonFusionInputSlice) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  scheduler_tools::propagateSliceToOutputs(&fusion);
+
+  fusion.print();
+  fusion.printKernel();
+}
+
+TEST_F(ResizeTest, NonFusionInputSlicePropagateToInputs) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  scheduler_tools::propagateSliceToInputs(&fusion);
+
+  fusion.print();
+  fusion.printKernel();
+}
+
 // manual scheduling that should have vectorized load on padded inputs.
 TEST_F(ResizeTest, VectorizePadLowering) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -4118,6 +5435,630 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.
   ASSERT_TRUE(t0.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, SchedulerTest1) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = slice(
+      tv2, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(127L)}});
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Save the full tensor as another output
+TEST_F(ResizeTest, SchedulerTest1_1) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ResizeTest, SchedulerTest2) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  // Two different slices. Currently it should be segmented
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      std::vector<Slice>{{fusion.zeroVal(), IrBuilder::create<Val>(127L)}});
+  fusion.addOutput(tv2);
+  auto tv3 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// pad
+TEST_F(ResizeTest, SchedulerTest3) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Slice then pad
+TEST_F(ResizeTest, SchedulerTest4) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(127L)}});
+
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Split to half and then concat
+TEST_F(ResizeTest, SchedulerTest5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)}});
+
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape[0] / 2),
+        IrBuilder::create<Val>(shape[0])}});
+  auto tv4 = cat({tv2, tv3}, 0);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Rotation
+TEST_F(ResizeTest, SchedulerTest6) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)}});
+
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape[0] / 2),
+        IrBuilder::create<Val>(shape[0])}});
+
+  auto tv4 = cat({tv3, tv2}, 0);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Reshape then rotation
+TEST_F(ResizeTest, SchedulerTest7) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({100});
+  std::vector<int64_t> shape2({5, 20});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal());
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  // left half
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1] / 2)}});
+
+  // right half
+  auto tv4 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {IrBuilder::create<Val>(shape2[1] / 2),
+        IrBuilder::create<Val>(shape2[1])}});
+
+  auto tv5 = cat({tv4, tv3}, 1);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Rotation then reshape
+TEST_F(ResizeTest, SchedulerTest8) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({100});
+  std::vector<int64_t> shape2({5, 20});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape1[0] / 2)}});
+
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape1[0] / 2),
+        IrBuilder::create<Val>(shape1[0])}});
+
+  auto tv4 = cat({tv3, tv2}, 0);
+
+  auto tv5 = reshape(tv4, shape1, shape2);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Squeezed slice
+TEST_F(ResizeTest, SchedulerTest9) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({3, 200});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{fusion.oneVal(), IrBuilder::create<Val>(2L)},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+
+  auto tv2 = reshape(tv1, {tv1->axis(1)->extent()});
+  auto tv3 = add(tv2, fusion.oneVal());
+  auto tv4 = slice(tv3, {{fusion.oneVal(), tv3->axis(0)->extent()}});
+
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Reshape then rotation with broadcast
+TEST_F(ResizeTest, SchedulerTest10) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({4, 100});
+  std::vector<int64_t> shape2({4, 5, 20});
+  std::vector<int64_t> shape3({5, 20});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape3);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, fusion.oneVal());
+  auto tv3 = reshape(tv2, shape1, shape2);
+
+  // left half
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->axis(0)->extent()},
+       {fusion.zeroVal(), tv3->axis(1)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape2[2] / 2)}});
+
+  // right half
+  auto tv5 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->axis(0)->extent()},
+       {fusion.zeroVal(), tv3->axis(1)->extent()},
+       {IrBuilder::create<Val>(shape2[2] / 2),
+        IrBuilder::create<Val>(shape2[2])}});
+
+  auto tv6 = cat({tv5, tv4}, 2);
+
+  auto tv7 = add(tv1, fusion.oneVal());
+  std::cerr << tv7->definition()->toString();
+  auto tv8 = broadcast(tv7, {true, false, false});
+  auto tv9 = mul(tv6, tv8);
+  auto tv10 = add(tv3, tv9);
+
+  fusion.addOutput(tv10);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape3, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Two rotations (like q and k of qkv)
+TEST_F(ResizeTest, SchedulerTest11) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({3, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  // q
+  auto tv1 = slice(
+      tv0,
+      {{fusion.zeroVal(), fusion.oneVal()},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  // left half
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape1[1] / 2)}});
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {IrBuilder::create<Val>(shape1[1] / 2), tv1->axis(1)->extent()}});
+  auto tv4 = cat({tv3, tv2}, 1);
+  fusion.addOutput(tv4);
+
+  // k
+  auto tv5 = slice(
+      tv0,
+      {{fusion.oneVal(), IrBuilder::create<Val>(2L)},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  // left half
+  auto tv6 = slice(
+      tv5,
+      {{fusion.zeroVal(), tv5->axis(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape1[1] / 2)}});
+  // right half
+  auto tv7 = slice(
+      tv5,
+      {{fusion.zeroVal(), tv5->axis(0)->extent()},
+       {IrBuilder::create<Val>(shape1[1] / 2), tv1->axis(1)->extent()}});
+  auto tv8 = cat({tv7, tv6}, 1);
+  fusion.addOutput(tv8);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Two rotations (like q and k of qkv) with squeeze
+TEST_F(ResizeTest, SchedulerTest12) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({3, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  // q
+  auto tv1 = slice(
+      tv0,
+      {{fusion.zeroVal(), fusion.oneVal()},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  tv1 = squeeze(tv1, {0});
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape1[1] / 2)}});
+  // right half
+  auto tv3 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape1[1] / 2),
+        IrBuilder::create<Val>(shape1[1])}});
+  auto tv4 = cat({tv3, tv2}, 0);
+  fusion.addOutput(tv4);
+
+  // k
+  auto tv5 = slice(
+      tv0,
+      {{fusion.oneVal(), IrBuilder::create<Val>(2L)},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  tv5 = squeeze(tv5, {0});
+  // left half
+  auto tv6 =
+      slice(tv5, {{fusion.zeroVal(), IrBuilder::create<Val>(shape1[1] / 2)}});
+  // right half
+  auto tv7 = slice(
+      tv5,
+      {{IrBuilder::create<Val>(shape1[1] / 2),
+        IrBuilder::create<Val>(shape1[1])}});
+  auto tv8 = cat({tv7, tv6}, 0);
+  fusion.addOutput(tv8);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Reshape then squeezed slice
+TEST_F(ResizeTest, SchedulerTest13) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({48});
+  std::vector<int64_t> shape2({3, 16});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal());
+
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), fusion.oneVal()},
+       {fusion.zeroVal(), tv2->axis(1)->extent()}});
+  auto tv4 = squeeze(tv3, {0});
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ResizeTest, SchedulerTest14) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({48});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = pad(tv1, {fusion.zeroVal(), fusion.oneVal()});
+  fusion.addOutput(tv2);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ResizeTest, TMP1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1({1, 8});
+
+  // EnableOptionsGuard enable_options_guard;
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->flatten();
+  tv1->split(0, 32);
+
+  fusion.print();
+  fusion.printKernel();
 }
 
 TEST_F(ResizeTest, VectorizeFactorFour) {

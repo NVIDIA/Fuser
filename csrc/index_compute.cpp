@@ -1616,12 +1616,10 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       GpuLower::current()->idModelOptions().consumerIndex()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-    ValGroups logical_indices =
-        indexer.traversalGraph().toGroups(consumer_tv->getLogicalDomain());
     return indexer.getIndexFor(
         consumer_tv->definition(),
         /*as_consumer=*/true,
-        logical_indices,
+        consumer_tv->getLogicalDomain(),
         loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
@@ -1641,12 +1639,10 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-    ValGroups logical_indices =
-        indexer.traversalGraph().toGroups(producer_tv->getLogicalDomain());
     return indexer.getIndexFor(
         consumer_tv->definition(),
         /*as_consumer=*/false,
-        logical_indices,
+        producer_tv->getLogicalDomain(),
         loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
@@ -2654,9 +2650,22 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   ValGroups groups_to_index = tma_info.getTMADomain();
 
+  // WAR
+  std::vector<IterDomain*> ids_to_index;
+  ids_to_index.reserve(groups_to_index.size());
+  const auto gmem_all_ids = gmem_tv->domain()->allIDs();
+  for (const auto& group : groups_to_index) {
+    auto it = std::find_if(
+        gmem_all_ids.begin(), gmem_all_ids.end(), [&](IterDomain* gmem_id) {
+          return group->has(gmem_id);
+        });
+    NVF_ERROR(it != gmem_all_ids.end());
+    ids_to_index.push_back(*it);
+  }
+
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto indices_inner_to_outer =
-      indexer.getIndexFor(ldst, !is_load, groups_to_index, loops);
+      indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

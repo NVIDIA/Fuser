@@ -22,6 +22,7 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -178,6 +179,10 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
+      if (tv->name() == 42) {
+        std::cerr << "T42 ID: " << id->toString() << "\n";
+      }
+
       // Check if this id is a view like rfactor id
       if (view_like_domain && id->isRFactorProduct()) {
         // If the tensor domain is a view like domain, and the iteration
@@ -362,6 +367,13 @@ ValGraph& IdModel::buildExactGraph() {
   }
 
   graph.validateConsistency();
+
+  {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string = graph.toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
 
   return graph;
 }

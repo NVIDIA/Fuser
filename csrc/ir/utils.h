@@ -472,7 +472,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Returns if each domain has unreachable IDs. It is an error if
 //! redundant IDs are detected.
 struct CompareDomainResult {
-  bool dom0_has_unreachable_ids = false;
+  bool dom0_has_unaccounted_ids = false;
   bool dom1_has_unreachable_ids = false;
 };
 CompareDomainResult compareDomains(
@@ -722,5 +722,7 @@ bool isRecursivelyDefined(Val* val);
 // Return the number of operations that are used to define val. One
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
+
+std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
 
 } // namespace nvfuser::ir_utils

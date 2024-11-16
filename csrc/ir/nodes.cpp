@@ -25,6 +25,7 @@
 
 #include <c10/util/irange.h>
 
+#include <cctype>
 #include <complex>
 #include <iterator>
 #include <numeric>
@@ -676,13 +677,25 @@ void BinaryOp::printHelper(
   bool istvop = ir_utils::isTvOp(this);
   auto op_type = getBinaryOpType();
   if (auto inline_bop = inline_op_str(op_type)) {
-    ss << lhs;
+    if (lhs.back() == ')' || std::all_of(lhs.begin(), lhs.end(), [](auto c) {
+          return std::isalnum(c);
+        })) {
+      ss << lhs;
+    } else {
+      ss << "(" << lhs << ")";
+    }
     if (istvop) {
       ss << "\n";
       indent(ss, indent_size);
     }
     ss << " " << inline_bop.value() << " ";
-    ss << rhs;
+    if (rhs.back() == ')' || std::all_of(rhs.begin(), rhs.end(), [](auto c) {
+          return std::isalnum(c);
+        })) {
+      ss << rhs;
+    } else {
+      ss << "(" << rhs << ")";
+    }
   } else {
     ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&
@@ -3396,13 +3409,17 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::broadcast(int64_t axis, Val* extent) {
+void TensorDomain::broadcast(int64_t axis, Val* extent, bool predicate) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
   IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
   additional_ids_.push_back(id);
+
+  if (predicate) {
+    additional_predicate_ids_.push_back(id);
+  }
 }
 
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
@@ -3700,10 +3717,12 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 6> all_domains = {
+      // initial_loop_domain_ is not enough if setLoopDomain is used
+      // multiple times
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &initial_loop_domain_,
-      &loop_domain_,
       &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
