@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
@@ -29,8 +30,6 @@ bool shouldReshardAfter(Expr* expr) {
 }
 
 void insertReshardingsBefore(Fusion* fusion) {
-  IdModel id_model(fusion, false, false, true);
-  id_model.buildPermissiveGraph();
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
@@ -40,14 +39,10 @@ void insertReshardingsBefore(Fusion* fusion) {
 
     // Verify that multi-output expression requires no resharding.
     if (expr->outputs().size() > 1) {
-      for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-          NVF_CHECK(
-              !haveDifferentShardings(input, output, id_model),
-              "Cannot handle resharding a multi-output expression ",
-              expr->toString());
-        }
-      }
+      NVF_CHECK(
+          !isResharding(expr),
+          "Cannot handle resharding a multi-output expression: ",
+          expr);
       continue;
     }
 
@@ -57,6 +52,8 @@ void insertReshardingsBefore(Fusion* fusion) {
     auto output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
+    IdModel id_model({expr}, {}, false, false);
+    id_model.buildPermissiveGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
@@ -79,9 +76,6 @@ void insertReshardingsBefore(Fusion* fusion) {
 }
 
 void insertReshardingsAfter(Fusion* fusion) {
-  IdModel id_model(fusion, false, false, true);
-  id_model.buildPermissiveGraph();
-
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   // Iterate backwards over fusion expressions. Reshard after will
@@ -100,6 +94,8 @@ void insertReshardingsAfter(Fusion* fusion) {
     auto output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
+    IdModel id_model({expr}, {}, false, false);
+    id_model.buildPermissiveGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
