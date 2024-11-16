@@ -74,7 +74,7 @@ class MultiDeviceExecutor {
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm,
-      hir::HostIrExecutorParams params = hir::HostIrExecutorParams());
+      hir::HostIrEvaluatorParams params = hir::HostIrEvaluatorParams());
 
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
@@ -105,8 +105,8 @@ class MultiDeviceExecutor {
   Communicator& comm_;
   // holds the original complete fusion
   std::unique_ptr<Fusion> complete_fusion_;
-  // holds the HostIrExecutor used for execution
-  std::unique_ptr<hir::HostIrExecutor> host_ir_executor_;
+  // holds the HostIrEvaluator used for execution
+  std::unique_ptr<hir::HostIrEvaluator> host_ir_executor_;
   // Cached objects used for MultiDevice allocation
   // TODO: remove and handle the allocation through Host Irs
   std::unique_ptr<Fusion> allocator_fusion_;

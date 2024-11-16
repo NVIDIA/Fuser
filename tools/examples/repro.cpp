@@ -103,7 +103,7 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
     outputs.push_back(t32);
   }
 
-  KernelExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }

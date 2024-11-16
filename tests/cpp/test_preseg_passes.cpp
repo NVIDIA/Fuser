@@ -675,4 +675,99 @@ TEST_F(PresegTest, ExtentSubstitution) {
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+TEST_F(PresegTest, DisjointSetsOfExtents) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  auto lds = tv1->getLogicalDomain();
+  std::vector<Val*> shape{lds.at(1)->extent(), lds.at(0)->extent()};
+  auto tv2 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape(shape)
+                 .contiguity({true, true})
+                 .dtype(DataType::Float)
+                 .build();
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  // This fusion has disjoint sets of Ids
+  // disjoint sets of ids{
+  //   { iS8{i4}; iS4{i4}; iS6{i0}; iS0{i0}; iS2{i3} }
+  //   { iS9{i3}; iS5{i3}; iS7{i2}; iS1{i2}; iS3{i4} }
+  // }
+  // ExactMappedExtentSubstitutionPass generates disjoint sets of extents
+  // disjoint sets of extents{
+  //   { i4; i0; i3; i2 }
+  // }
+  // It works as follows:
+  // { iS8{i4}; iS4{i4}; iS6{i0}; iS0{i0}; iS2{i3} } --> {i4; i0; i3}
+  // then processing {iS9{i3}; iS5{i3}; iS7{i2}; iS1{i2}; iS3{i4}},
+  // it notices the existence of {i3} in disjoint sets of extents and will
+  // directly add all the non-existing extents to the set that contains {i3}
+  // this leads to the final disjoint sets of extents { i4; i0; i3; i2 }
+  // After extent substitution, all extents are replaced with {i0}.
+  OptimizationPass<PreSegmenter>::runPass(fusion.get());
+  auto ref_extent = tv0->getLogicalDomain().at(0)->extent();
+  for (auto tv : {tv0, tv1, tv2}) {
+    for (auto id : tv->getLogicalDomain()) {
+      EXPECT_EQ(id->extent(), ref_extent);
+    }
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 32}, options);
+  auto t1 = at::randn({32, 32}, options);
+  auto t2 = at::randn({32, 32}, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, DisjointSetsOfExtentsConcreteSymbolic) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigConcreteTensor({32, 32});
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // id_sets: disjoint sets{
+  //   { iS4{32}; iS0{i0}; iS2{32} }
+  //   { iS5{32}; iS1{i2}; iS3{32} }
+  // }
+
+  // ExactMappedExtentSubstitutionPass generates disjoint sets of extents:
+
+  // Extent sets: disjoint sets{
+  //   { 32; i0 }
+  //   { 32; i2 }
+  // }
+
+  OptimizationPass<PreSegmenter>::runPass(fusion.get());
+  // all extents are consolidated to 32
+  for (auto tv : {tv0, tv1}) {
+    for (auto id : tv->getLogicalDomain()) {
+      EXPECT_EQ(id->extent()->evaluate().as<int64_t>(), 32);
+    }
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 32}, options);
+  auto t1 = at::randn({32, 32}, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser::preseg_passes

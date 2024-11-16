@@ -5238,4 +5238,39 @@ TEST_F(IndexingTest, Issue3374) {
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
+// Repro of issue #3299
+TEST_F(IndexingTest, Issue3299) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128000, 1024};
+  std::vector<int64_t> shape2{128000, 8, 128};
+  std::vector<int64_t> shape3{8, 4, 128000, 128};
+  std::vector<int64_t> shape4{32, 128000, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, shape1, shape2);
+  auto tv2 = permute(tv1, {1, 0, 2});
+  auto tv3 = broadcast(tv2, {false, true, false, false});
+  auto tv4 = expand(
+      tv3,
+      {IrBuilder::create<Val>(shape3[0], DataType::Index),
+       IrBuilder::create<Val>(shape3[1], DataType::Index),
+       IrBuilder::create<Val>(shape3[2], DataType::Index),
+       IrBuilder::create<Val>(shape3[3], DataType::Index)});
+  auto tv5 = reshape(tv4, shape3, shape4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
