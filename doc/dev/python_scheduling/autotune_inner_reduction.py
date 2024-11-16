@@ -90,46 +90,16 @@ def generate_scheduler_configurations(num_dimensions):
         scheduler_config = collections.namedtuple("Configuration", items.keys())
         return itertools.starmap(scheduler_config, itertools.product(*items.values()))
 
-    warp_size = 32
-    warp_group = warp_size * 4
-    # limited to a maximum of 128 threads because of reduction scheduler
-    max_threads_per_cta = 128
-    threads_per_cta = list(range(warp_group, max_threads_per_cta + 1, warp_group))
+    # NOTE vectorize factor cannot be 1 because of the following error:
+    # Vectorized accesses cannot be inline with computation
 
     scheduler_configs = []
-    for bp in range(num_dimensions):
-        for num_threads in threads_per_cta:
-            if bp == 0:
-                # 1D scheduler configurations
-                bdim_shapes = [(num_threads, 1)]
-                outer_unroll_range = [1]
-                # unroll_factor is between [1, 9]
-                inner_unroll_range = range(1, 10)
-            else:
-                # 2D scheduler configurations
-                max_bdimy = num_threads // warp_size
-                log2_max_bdimy = int(math.log2(max_bdimy))
-                bdimy_configs = [
-                    2**log_bdimy for log_bdimy in range(1, log2_max_bdimy + 1)
-                ]
-
-                bdim_shapes = [
-                    (max(warp_size, num_threads // bdimy), bdimy)
-                    for bdimy in bdimy_configs
-                ]
-                # total_unroll_factor is between [1, 9] given that outer and
-                # inner unroll factors are between [1, 3].
-                outer_unroll_range = range(1, 4)
-                inner_unroll_range = range(1, 4)
-
-            scheduler_config = _named_product(
-                break_point=[bp],
-                bdim=bdim_shapes,
-                vectorize_factor=[1, 2, 4, 8],
-                outer_unroll=outer_unroll_range,
-                inner_unroll=inner_unroll_range,
-            )
-            scheduler_configs.append(scheduler_config)
+    # 1D scheduler configurations
+    scheduler_config = _named_product(
+        vectorize_factor=[2, 4, 8],
+        unroll_factor=range(1, 10),
+    )
+    scheduler_configs.append(scheduler_config)
     return itertools.chain(*scheduler_configs)
 
 
@@ -283,12 +253,14 @@ def custom_reduction_scheduler(fd, scheduler_config):
 
         # Modify original parameters
         if scheduler_config is not None:
-            schedule_params.break_point = scheduler_config.break_point
-            schedule_params.vectorization_factor = scheduler_config.vectorize_factor
-            schedule_params.unroll_factor_outer = scheduler_config.outer_unroll
-            schedule_params.unroll_factor_inner = scheduler_config.inner_unroll
-            schedule_params.lparams.bdimx = scheduler_config.bdim[0]
-            schedule_params.lparams.bdimy = scheduler_config.bdim[1]
+            # Unrolling/Vectorization factor for inner reduction dimension
+            schedule_params.unroll_factor_inner_reduction = (
+                scheduler_config.vectorize_factor
+            )
+            # Extra unroll on top of vectorization
+            schedule_params.unroll_factor_top_of_vectorization = (
+                scheduler_config.unroll_factor
+            )
 
         # Schedule fusion
         fd.sched.schedule()
