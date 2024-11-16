@@ -122,8 +122,6 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
           permute(output_permute, {{0, sharding_axis_after_permute}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
 
-      // Propagate shardings from input and manually apply sharding additions.
-      shardAllLike(input, {input_permute, output_permute, new_output});
       output_permute->axis(0)->parallelize(shard_added_id->getParallelType());
       new_output->axis(sharding_axis_after_permute)
           ->parallelize(shard_added_id->getParallelType());

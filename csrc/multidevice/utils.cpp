@@ -192,7 +192,12 @@ bool haveDifferentShardings(
         isParallelTypeDeviceDim(parallel_type)) {
       auto dependencies = IterVisitor::getInputsTo({c_id}, mapped_c_ids);
       if (countIntersection(dependencies, mapped_c_ids) > 0) {
-        NVF_ERROR(c_parallel_type_to_id.count(parallel_type) == 0);
+        NVF_ERROR(
+            c_parallel_type_to_id.count(parallel_type) == 0,
+            "Found multiple IterDomains with the same parallel type (",
+            parallel_type,
+            "): ",
+            consumer);
         c_parallel_type_to_id[parallel_type] = c_id;
       }
     }
