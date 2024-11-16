@@ -29,6 +29,8 @@ bool shouldReshardAfter(Expr* expr) {
 }
 
 void insertReshardingsBefore(Fusion* fusion) {
+  IdModel id_model(fusion, false, false, true);
+  id_model.buildPermissiveGraph();
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
@@ -41,7 +43,7 @@ void insertReshardingsBefore(Fusion* fusion) {
       for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
         for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
           NVF_CHECK(
-              !haveDifferentShardings(input, output),
+              !haveDifferentShardings(input, output, id_model),
               "Cannot handle resharding a multi-output expression ",
               expr->toString());
         }
@@ -56,7 +58,7 @@ void insertReshardingsBefore(Fusion* fusion) {
 
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
       }
     }
@@ -77,6 +79,9 @@ void insertReshardingsBefore(Fusion* fusion) {
 }
 
 void insertReshardingsAfter(Fusion* fusion) {
+  IdModel id_model(fusion, false, false, true);
+  id_model.buildPermissiveGraph();
+
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   // Iterate backwards over fusion expressions. Reshard after will
@@ -96,7 +101,7 @@ void insertReshardingsAfter(Fusion* fusion) {
 
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
       }
     }

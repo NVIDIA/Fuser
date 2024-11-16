@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -104,27 +105,15 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  const auto& logical_ids = TensorDomain::noReductions(tv->getLogicalDomain());
-  const auto& loop_ids = TensorDomain::noReductions(tv->getLoopDomain());
-  for (auto i : c10::irange(loop_ids.size())) {
-    if (!loop_ids[i]->isDeviceDim()) {
-      continue;
+  for (IterDomain* id : TensorDomain::noReductions(tv->getLoopDomain())) {
+    if (id->isDeviceDim()) {
+      // Only one axis can be sharded on DIDx.
+      NVF_ERROR(
+          !is_sharded,
+          "Multiple IterDomains parallelized on DIDx in TensorView ",
+          tv);
+      is_sharded = true;
     }
-
-    // Only one axis can be sharded on DIDx.
-    NVF_ERROR(
-        !is_sharded,
-        "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv);
-
-    // Currently do not support split/merge on a device dimension.
-    NVF_ERROR(
-        std::find(logical_ids.begin(), logical_ids.end(), loop_ids[i]) !=
-            logical_ids.end(),
-        "Cannot parallelize DIDx on a split/merge axis ",
-        loop_ids[i]);
-
-    is_sharded = true;
   }
   return is_sharded;
 }
@@ -136,40 +125,91 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
+namespace {
+int countIntersection(const std::vector<Val*>& a, const std::vector<Val*>& b) {
+  int count = 0;
+  for (auto id : a) {
+    if (std::find(b.begin(), b.end(), id) != b.end()) {
+      count++;
+    }
+  }
+  return count;
+}
+} // namespace
+
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer) {
+    const TensorView* consumer,
+    const IdModel& id_model) {
   // cpu scalars are not required to have a mesh
   if (producer->isCpuScalar() || consumer->isCpuScalar()) {
     return false;
   }
+
   // exit early in the unsharded case for performance
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
     return false;
   }
+
   // If device mesh are different, the Expr is resharding
-  if (!(producer->getDeviceMesh() == consumer->getDeviceMesh())) {
+  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
     return true;
   }
+
   // Create a map between producer's and consumer's IterDomains. We iterate
   // over producer's iterdomain and compare sharding type with consumer's
   // iterdomain
+  std::vector<Val*> mapped_p_ids;
+  mapped_p_ids.reserve(producer->getLogicalDomain().size());
+  std::vector<Val*> mapped_c_ids;
+  mapped_c_ids.reserve(consumer->getMaybeRootDomain().size());
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  for (auto p_id : producer->getLogicalDomain()) {
-    const auto i = p2c.find(p_id);
-    if (i == p2c.end()) {
-      // This happens e.g. when `p_id` is squeezed or is a product of a
-      // reduction. Even if `p_id` is parallelized on DID, the dimension is
-      // size-1 and doesn't trigger resharding.
-      continue;
+  for (IterDomain* p_id : producer->getLogicalDomain()) {
+    // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
+    // parallelized on DID, the squeezed dimension is size-1 and doesn't
+    // trigger resharding.
+    if (const auto i = p2c.find(p_id); i != p2c.end()) {
+      mapped_p_ids.push_back(p_id);
+      mapped_c_ids.push_back(i->second);
     }
+  }
 
-    auto c_id = i->second;
-    if (p_id->getParallelType() != c_id->getParallelType() &&
-        (p_id->isDeviceDim() || c_id->isDeviceDim())) {
-      // Mismatch found
+  std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id;
+  for (IterDomain* p_id : producer->getLoopDomain()) {
+    if (const ParallelType parallel_type = p_id->getParallelType();
+        isParallelTypeDeviceDim(parallel_type)) {
+      auto dependencies = IterVisitor::getInputsTo({p_id}, mapped_p_ids);
+      if (countIntersection(dependencies, mapped_p_ids) > 0) {
+        NVF_ERROR(p_parallel_type_to_id.count(parallel_type) == 0);
+        p_parallel_type_to_id[parallel_type] = p_id;
+      }
+    }
+  }
+  std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id;
+  for (IterDomain* c_id : consumer->getLoopDomain()) {
+    if (const ParallelType parallel_type = c_id->getParallelType();
+        isParallelTypeDeviceDim(parallel_type)) {
+      auto dependencies = IterVisitor::getInputsTo({c_id}, mapped_c_ids);
+      if (countIntersection(dependencies, mapped_c_ids) > 0) {
+        NVF_ERROR(c_parallel_type_to_id.count(parallel_type) == 0);
+        c_parallel_type_to_id[parallel_type] = c_id;
+      }
+    }
+  }
+
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  for (const auto parallel_type : kParallelTypeDIDs) {
+    if (p_parallel_type_to_id.count(parallel_type) !=
+        c_parallel_type_to_id.count(parallel_type)) {
       return true;
+    }
+    if (p_parallel_type_to_id.count(parallel_type)) {
+      IterDomain* p_id = p_parallel_type_to_id.at(parallel_type);
+      IterDomain* c_id = c_parallel_type_to_id.at(parallel_type);
+      if (!exact_graph.disjointValSets().strictAreMapped(p_id, c_id)) {
+        return true;
+      }
     }
   }
   return false;
@@ -180,12 +220,14 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
+  IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
+  id_model.buildPermissiveGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, id_model)) {
         return true;
       }
     }
