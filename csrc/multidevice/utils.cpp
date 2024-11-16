@@ -220,6 +220,7 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
   id_model.buildPermissiveGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
