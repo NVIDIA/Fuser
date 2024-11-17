@@ -864,13 +864,13 @@ void ComputeAtMap::allocateIndexVariables() {
             concrete_loop_id)) {
       // Allocate index variable for each stage of the circular buffered loop.
       circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
-          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
-              {{CircularBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Index)}}));
+          std::make_unique<CircularBufferIndices>();
+      for (auto i :
+           c10::irange(static_cast<int>(CircularBufferLoopStage::NumStages))) {
+        auto stage = static_cast<CircularBufferLoopStage>(i);
+        circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
+            ->emplace_back(stage, IrBuilder::create<Val>(DataType::Index));
+      }
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.
