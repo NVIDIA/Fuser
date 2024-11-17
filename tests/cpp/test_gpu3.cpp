@@ -9021,6 +9021,68 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
   ASSERT_TRUE(tidx_dim != nullptr);
 }
 
+
+using NVFuserTestParaBool = NVFuserFixtureParamTest<bool>;
+TEST_P(NVFuserTestParaBool, FusionCpAsyncRace) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int m = 64, n = 96;
+
+  // Use the parameterized value for use_async
+  const bool use_async = GetParam();
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // copy tv0 to shared memory tv2
+  auto tv2 = set(tv0);
+  tv2->setMemoryType(MemoryType::Shared);
+  if (use_async) {
+    tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+    tv2->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+  }
+
+  // copy tv1 to shared memory tv3
+  auto tv3 = set(tv1);
+  tv3->setMemoryType(MemoryType::Shared);
+  if (use_async) {
+    tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+    tv3->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified); 
+  }
+
+  auto tv4 = broadcast(tv3, {true, false});
+  auto tv5 = add(tv2, tv4);
+  fusion.addOutput(tv5);
+
+  //[I0, I1] --> [I0/2, 2, 96]
+  for (auto tv : {tv0, tv2, tv4, tv5}) {
+    tv->split(0, 2);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);    
+    tv->axis(-2)->parallelize(ParallelType::TIDy);    
+  }  
+  //[I1]
+  for (auto tv : {tv1, tv3}) {
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+  at::Tensor t1 = at::randn({n}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    NVFuserTestParaBool,
+    ::testing::Values(true, false));
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
