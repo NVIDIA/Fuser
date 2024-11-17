@@ -869,7 +869,7 @@ void ComputeAtMap::allocateIndexVariables() {
            c10::irange(static_cast<int>(CircularBufferLoopStage::NumStages))) {
         auto stage = static_cast<CircularBufferLoopStage>(i);
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
-            ->emplace_back(stage, IrBuilder::create<Val>(DataType::Index));
+            ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
       }
     } else {
       // Everything now should be serial concrete loops,
