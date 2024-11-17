@@ -876,6 +876,9 @@ PredicateElimination::PredicateElimination(Fusion* fusion) {
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
+  if (expr->isA<MmaOp>()) {
+    return false;
+  }
   return PredicateChcker::needsPredicate(expr, *this);
 }
 
