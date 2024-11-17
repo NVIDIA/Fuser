@@ -450,8 +450,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       cpasync_wait_before_.pop_front();
       auto last_writes = last_cpasync_writes_.front();
       last_cpasync_writes_.pop_front();
-
       auto sync_expr = IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync);
+      std::cout << "insert CpAsync sync expr " << expr->toString() << std::endl;
       insertSyncExpr(last_writes, expr, sync_expr, nullptr);
     }
 
@@ -475,7 +475,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       } else {
         sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
       }
-
+      std::cout << "insert sync_threads expr " << expr->toString() << std::endl;
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
     }
   }
@@ -649,16 +649,24 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         gmem.clear();
       }
 
+      std::cout << "\nexpr " << expr->toString() << std::endl;
       auto last_smem_writes = isModifiedSharedMemory(smem, expr->inputs());
       auto last_async_smem_writes =
           isModifiedSharedMemory(smem_async, expr->inputs(), false);
-
+      for(auto expr : last_async_smem_writes){
+        std::cout << "last_smem_writes " << expr->toString() << std::endl;
+      }
+      for(auto expr : last_async_smem_writes){
+        std::cout << "last_async_smem_writes " << expr->toString() << std::endl;
+      }
       // Keep track of async smem writes before the current
       //  expr, following largely the same logic as block sync.
       if (!last_async_smem_writes.empty()) {
         cpasync_wait_before_.push_back(expr);
+        std::cout << "cpasync_wait_before_ " << expr->toString() << std::endl;
         std::unordered_set<Expr*> async_smem_writes;
         for (auto it : smem_async) {
+          std::cout << "last_cpasync_writes_ " << it.second->toString() << std::endl;
           async_smem_writes.insert(it.second);
         }
         last_cpasync_writes_.push_back(async_smem_writes);
@@ -674,6 +682,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         bitmap.set(ParallelType::TIDy);
         bitmap.set(ParallelType::TIDz);
         sync_before_.emplace_back(expr, bitmap);
+        std::cout << "sync_before_ " << expr->toString() << std::endl;
 
         // Before clearing `smem`, put all the currently pending smem writes
         //  in last_writes_. This will make sure all the smem writes will
@@ -687,11 +696,13 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                   ->syncMap()
                   ->needsRawSync(it.first->as<TensorView>())
                   .hasTID()) {
+            std::cout << "last_writes_ " << it.second->toString() << std::endl;
             smem_writes.insert(it.second);
           }
         }
         last_writes_.push_back(smem_writes);
         smem.clear();
+        std::cout << "smem.clear()" << std::endl;
       }
 
       for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -703,9 +714,12 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
              tv->circularBufferPrefetchDistance() == 0)) {
           smem[tv] = expr;
 
+          std::cout << "add smem[tv]: " << tv->toString() << std::endl;
+
           // only keep track of async writes in smem_async
           if (ir_utils::isCpAsyncOp(expr)) {
             smem_async[tv] = expr;
+            std::cout << "add smem_async[tv]: " << tv->toString() << std::endl;
           }
         }
         if (tv->getMemoryType() == MemoryType::Global) {
