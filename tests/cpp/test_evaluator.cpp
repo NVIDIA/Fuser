@@ -814,4 +814,27 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
   checkIntValue(evaluator, logical_size_1, 4);
 }
 
+// Evaluate CPU scalar outputs.
+// nvFuser cannot produce CPU scalar tensors, and would produce a CUDA tensor
+// for the given example (Issue # 2853). Alternatively, we can use
+// ExpressionEvaluator in such cases.
+TEST_F(ExprEvalTest, CpuScalarOutputs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({}, DataType::Float);
+  tv0->setCpuScalar(true);
+  auto s0 = IrBuilder::create<Val>(7.0);
+  auto out = add(tv0, s0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCPU);
+  auto t0 = at::scalar_tensor({3.0}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, t0);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+  EXPECT_TRUE(out_tensor.is_cpu());
+  debug() << out_tensor << std::endl;
+}
+
 } // namespace nvfuser

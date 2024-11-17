@@ -72,7 +72,6 @@ class KernelExecutor : public ExecutorAbstract {
       int64_t group_id = 0)
       : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
 
-  // TODO: What rules should be in this check?
   static bool supported(Fusion* fusion);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
