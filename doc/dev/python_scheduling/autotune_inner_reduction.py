@@ -83,24 +83,70 @@ class ScriptConfiguration:
     empirical_hidden_sizes: [int]
 
 
+@dataclass
+class InnerReductionConfiguration:
+    vectorize_factor: int
+    unroll_factor: int
+    godim: int
+    grdim: int
+    bdimx: int
+    bdimy: int
+
+
+def ceil_div(a, b):
+    return int(math.ceil(a / b))
+
+
+assert torch.cuda.is_available()
+gpu_properties = torch.cuda.get_device_properties(device=0)
+
+
 # For reduction scheduler, we test the cartesian product of vectorization and
 # unroll factors.
-def generate_scheduler_configurations(num_dimensions):
-    def _named_product(**items):
-        scheduler_config = collections.namedtuple("Configuration", items.keys())
-        return itertools.starmap(scheduler_config, itertools.product(*items.values()))
+def generate_scheduler_configurations(input_shape):
+    threads_per_cta_options = [128, 256, 512, 1024]
+    vectorization_factor_options = [1, 2, 4, 8]
+    unroll_factor_options = list(range(1, 11))
+    warp_size = 32
 
-    # NOTE vectorize factor cannot be 1 because of the following error:
-    # Vectorized accesses cannot be inline with computation
+    num_iterations, num_reductions = input_shape
 
-    scheduler_configs = []
-    # 1D scheduler configurations
-    scheduler_config = _named_product(
-        vectorize_factor=[2, 4, 8],
-        unroll_factor=range(1, 10),
-    )
-    scheduler_configs.append(scheduler_config)
-    return itertools.chain(*scheduler_configs)
+    for threads_per_cta, vectorize_factor, unroll_factor in itertools.product(
+        threads_per_cta_options, vectorization_factor_options, unroll_factor_options
+    ):
+        config = InnerReductionConfiguration()
+        config.bdimx = max(warp_size, ceil_div(num_reductions, vectorize_factor))
+        config.bdimy = max(1, ceil_div(threads_per_cta, config.bdimx))
+        config.godim = ceil_div(num_iterations, config.bdimy * unroll_factor)
+
+        # number of reduction elements not handled by a CTA
+        remaining_reduction = ceil_div(
+            num_reductions, (config.bdimx * vectorize_factor)
+        )
+
+        if unroll_factor == 1 and remaining_reduction > 1:
+            # all remaining reduction goes to grdim
+            config.grdim = remaining_reduction
+            yield config
+
+            # round grdim nearest full wave
+            num_waves = max(
+                1,
+                ceil_div(
+                    config.grdim * config.godim, gpu_properties.multi_processor_count
+                ),
+            )
+            config.grdim = max(
+                1,
+                ceil_div(
+                    num_waves * gpu_properties.multi_processor_count, config.godim
+                ),
+            )
+            yield config
+        else:
+            # grid stride across reduction iterDomain is 1
+            config.grdim = 1
+            yield config
 
 
 def create_inputs(which_fusion, shape, tensor_datatype):
@@ -337,9 +383,7 @@ def collect_data(script_config):
             create_fusion_func(script_config.selected_fusion, inputs)(presched_fd)
 
         # unroll and vectorization configurations
-        for parameter_config in generate_scheduler_configurations(
-            script_config.num_dimensions
-        ):
+        for parameter_config in generate_scheduler_configurations(shape):
             perf_metric, _ = run_profile(
                 script_config.selected_fusion, presched_fd, inputs, parameter_config
             )
@@ -413,7 +457,7 @@ def test_model_rmse(clf, script_config, test_data):
     mismatch_configs = []
     for shape in test_shapes:
         estimate_config = find_best_parameters(
-            clf, shape, generate_scheduler_configurations(script_config.num_dimensions)
+            clf, shape, generate_scheduler_configurations(shape)
         )
         flattened_estimate_config = flatten_configuration(estimate_config)
 
@@ -478,7 +522,9 @@ def test_model(clf, script_config):
         estimate_config = find_best_parameters(
             clf,
             (script_config.empirical_batch_size, hidden_shape),
-            generate_scheduler_configurations(script_config.num_dimensions),
+            generate_scheduler_configurations(
+                (script_config.empirical_batch_size, hidden_shape)
+            ),
         )
 
         with FusionDefinition() as presched_fd:
