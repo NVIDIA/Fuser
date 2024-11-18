@@ -112,6 +112,10 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
                 prefetch_distance, DataType::Index));
         break;
       }
+      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::ComputeWarp: {
+        break;
+      }
       default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
