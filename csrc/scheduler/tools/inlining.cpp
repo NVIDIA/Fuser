@@ -193,35 +193,55 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    // Gather sets of loop broadcasts (broadcast domains that are not connected
-    // to the logical domain)
-    std::unordered_set<Val*> all_additional_ids{
-        producer->domain()->additionalIDs().begin(),
-        producer->domain()->additionalIDs().end()};
-    all_additional_ids.insert(
-        consumer->domain()->additionalIDs().begin(),
-        consumer->domain()->additionalIDs().end());
-    std::unordered_set<Val*> loop_broadcasts;
-    for (TensorView* tv : {producer, consumer}) {
+    // First we find the consumer root IDs that map to the producer
+    auto c2p =
+        PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
+    // Track the IDs involved in indexing in both producer and consumer
+    std::vector<Val*> consumer_root_indexing_ids;
+    std::vector<Val*> producer_logical_indexing_ids;
+    for (IterDomain* id : consumer->getMaybeRootDomain()) {
+      auto it = c2p.find(id);
+      if (it == c2p.end()) {
+        continue;
+      }
+      // These are the immediately mapped consumer root and producer logical
+      // IDs. This is a starting point for our later traversals, which will fill
+      // these sets out.
+      consumer_root_indexing_ids.push_back(it->first);
+      producer_logical_indexing_ids.push_back(it->second);
+    }
+
+    // Now traverse from the starting set (which, as noted above is a subset of
+    // either the producer logical or consumer root) to the target which is
+    // either the producer allocation domain or the consumer loop domain. These
+    // are the IDs that will actually affect indexing. Any other IDs can be
+    // skipped.
+    auto traverse = [](const std::vector<Val*>& start_domain,
+                       const std::vector<IterDomain*>& target_domain)
+        -> std::unordered_set<Val*> {
+      std::unordered_set<Val*> indexing_ids{
+          start_domain.begin(), start_domain.end()};
       for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
-               {tv->domain()->additionalIDs().begin(),
-                tv->domain()->additionalIDs().end()},
-               {tv->getLoopDomain().begin(), tv->getLoopDomain().end()},
+               start_domain,
+               {target_domain.begin(), target_domain.end()},
                /*require_all_to_visited=*/false)) {
         for (Val* v : expr->inputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v);
-              id && id->isBroadcast()) {
-            loop_broadcasts.insert(id);
+          if (auto* id = dynamic_cast<IterDomain*>(v)) {
+            indexing_ids.insert(id);
           }
         }
         for (Val* v : expr->outputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v);
-              id && id->isBroadcast()) {
-            loop_broadcasts.insert(id);
+          if (auto* id = dynamic_cast<IterDomain*>(v)) {
+            indexing_ids.insert(id);
           }
         }
       }
-    }
+      return indexing_ids;
+    };
+    std::unordered_set<Val*> producer_indexing_ids = traverse(
+        producer_logical_indexing_ids, producer->getMaybeAllocationDomain());
+    std::unordered_set<Val*> consumer_indexing_ids =
+        traverse(consumer_root_indexing_ids, consumer->getLoopDomain());
 
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
@@ -242,11 +262,27 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
 
       IterDomain* c_id = *consumer_it;
 
-      // If c_id or p_id are a "loop broadcast", then allow inlining past them.
-      // TODO: should we verify that any non-broadcast IDs in this case are not
-      // actually used in indexing?
-      if (loop_broadcasts.count(c_id) == 0 &&
-          loop_broadcasts.count(p_id) == 0 &&
+      // If either ID is involved in indexing then we need to make sure they're
+      // both mapped in the inlining graph or that this is a special case
+      // covered by isAllowedID.
+      //
+      // For example, an MmaOp with no broadcasts could contain the following:
+      //  tv0:
+      //    root/logical: [ iS0, iS1 ]
+      //    loop: [ iS0, bS7, iS1 ]
+      //  tv1:
+      //    root/logical: [ iS2, iS3 ]
+      //    loop: [ bS8, iS2, iS3 ]
+      //  tv2:
+      //    root/logical/loop: [ iS4, iS5, rS6 ]
+      //
+      //  iS4 maps to iS0 so when producer==tv0 we inline past iS0. When
+      //  producer==tv1, iS4 doesn't map to anything in tv1 and is not used for
+      //  indexing, and bS8 is also not used in indexing (it's a loop broadcast)
+      //  so we inline past the first ID in that case also. Similarly, we inline
+      //  past iS5, iS2, and bS7.
+      if (!(consumer_indexing_ids.count(c_id) == 0 &&
+            producer_indexing_ids.count(p_id) == 0) &&
           (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
            !isAllowedID(
                c_id,
