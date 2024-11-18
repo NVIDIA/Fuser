@@ -176,7 +176,6 @@ def generate_scheduler_configurations(input_shape):
     vectorization_factor_options = [1, 2, 4, 8]
     unroll_factor_options = list(range(1, 11))
     warp_size = 32
-    max_threads_per_cta = 1024
 
     num_iterations, num_reductions = input_shape
 
@@ -187,11 +186,11 @@ def generate_scheduler_configurations(input_shape):
             vectorize_factor=vectorize_factor, unroll_factor=unroll_factor
         )
         scheduler_config.bdimx = min(
-            max_threads_per_cta,
+            threads_per_cta,
             max(warp_size, ceil_div(num_reductions, scheduler_config.vectorize_factor)),
         )
         scheduler_config.bdimy = min(
-            max_threads_per_cta,
+            threads_per_cta,
             max(1, floor_div(threads_per_cta, scheduler_config.bdimx)),
         )
         scheduler_config.godim = ceil_div(
@@ -226,10 +225,10 @@ def generate_scheduler_configurations(input_shape):
             )
             yield scheduler_config
             """
-        else:
-            # grid stride across reduction iterDomain is 1
-            scheduler_config.grdim = 1
-            yield scheduler_config
+
+        # grid stride across reduction iterDomain is 1
+        scheduler_config.grdim = 1
+        yield scheduler_config
 
 
 def create_inputs(which_fusion, shape, tensor_datatype):
