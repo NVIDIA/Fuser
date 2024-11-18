@@ -80,7 +80,8 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
-  auto prefetch_distance = info.getPrefetchDistanceFor(for_loop->iter_domain());
+  auto prefetch_distance =
+      info.getCircularBufferOptionsFor(for_loop->iter_domain()).prefetch;
 
   return IrBuilder::create<Val>(prefetch_distance, DataType::Index);
 }
@@ -114,7 +115,7 @@ Val* getOffsetForCircularBufferTensor(
 
   const auto& opt =
       GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-          circular_buffer_loop_->iter_domain());
+          circular_buffer_loop->iter_domain());
 
   // If this appears as a consumer, it should be either prologue or
   // main. If it's producer, it should be main or epilogue
