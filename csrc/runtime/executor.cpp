@@ -244,48 +244,51 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
   return outputs;
 }
 
-bool KernelExecutor::supported(Fusion* fusion) {
-  FUSER_PERF_SCOPE("KernelExecutor::supported");
-
-  auto has_only_scalar_inputs = [](Expr* expr) -> bool {
-    return std::all_of(
-        expr->inputs().begin(), expr->inputs().end(), [](Val* inp) {
-          return !inp->isA<TensorView>();
-        });
-  };
-
-  auto has_atleast_one_cuda_input = [](Expr* expr) -> bool {
-    return std::any_of(
-        expr->inputs().begin(), expr->inputs().end(), [](Val* inp) {
-          return inp->isA<TensorView>() &&
-              !inp->as<TensorView>()->isCpuScalar();
-        });
-  };
-
-  // No exprs is present for trivial forwarding only segments
-  // In this case, no kernel is launched (no-op scheduler)
-  // CPU scalar tensors are forwarded as CPU scalar tensors.
-  if (fusion->exprs().size() == 0) {
-    return true;
+namespace {
+bool hasCpuScalarOutputs(Fusion* fusion) {
+  if (fusion->exprs().size() == 0){
+    return false;
   }
 
-  for (Expr* expr : fusion->exprs()) {
-    // Exprs can have the following combination of inputs:
-    // 1. expr->inputs() = {scalars}
-    // These are expressions like `full`, `uniform` that generate CUDA tensors
-    // but do not accept any fusion inputs.
-    // 2. expr->inputs() = {scalars, CPU scalar tensor}
-    // 3. expr->inputs() = {scalars, CPU scalar tensor, CUDA tensor}
-    // If the given fusion only has expressions of the second category,
-    // the fusion output is expected to be CPU scalar tensor, however nvFuser
-    // can only generate CUDA tensors. Raise an error in this case since nvFuser
-    // does not support this. Note: Alternatively, we can evaluate such fusions
-    // using ExpressionEvaluator
-    if (has_only_scalar_inputs(expr) || has_atleast_one_cuda_input(expr)) {
-      return true;
+  std::unordered_map<TensorView*, bool> tv_is_cpu_map;
+  for (Expr* expr : StmtSort::getExprs(fusion)) {
+    bool has_cpu_scalar_input = false;
+    bool has_cuda_input = false;
+    for (Val* inp : expr->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        if (inp_tv->isCpuScalar()) {
+          has_cpu_scalar_input = true;
+        } else {
+          has_cuda_input = true;
+          // Return early -- found atleast one CUDA input
+          break;
+        }
+      }
+    }
+    if (!has_cuda_input && has_cpu_scalar_input) {
+      // Expr is of the second category, and has all CPU scalar outputs
+      for (Val* out : expr->outputs()) {
+        if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+          tv_is_cpu_map[out_tv] = true;
+        }
+      }
     }
   }
-  return false;
+  
+  bool has_any_cpu_output = std::any_of(
+    fusion->outputs().begin(),
+    fusion->outputs().end(),
+    [&tv_is_cpu_map](Val* out){
+      return out->isA<TensorView>() && tv_is_cpu_map[out->as<TensorView>()]; 
+    }
+  );
+  return has_any_cpu_output;
+}
+} // namespace
+
+bool KernelExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("KernelExecutor::supported");
+  return !hasCpuScalarOutputs(fusion);
 }
 
 void KernelExecutor::compile(

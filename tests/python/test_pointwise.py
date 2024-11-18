@@ -339,7 +339,7 @@ def test_implicit_bcast_inplace():
 
 
 # Test that an error is raised if there are segments
-# with no CUDA tensor outputs.
+# with CPU outputs.
 # See https://github.com/NVIDIA/Fuser/issues/2853.
 def test_issue2853():
     inputs = [
