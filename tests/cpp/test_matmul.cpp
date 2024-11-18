@@ -3867,10 +3867,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   // NOTE: since in this case we do not have "proper" broadcast in the inputs,
   // we cannot simply propagate transforms to the operands. Instead, we
   // propagate forward to the outputs and manually schedule the smem operands.
-
-  // ComputeAtMap in this case finds bS15 and bS16. They are in the loop domain
-  // at this point
-
   scheduler_utils::BoundedDirectionalTransformPropagator::forward(
       tv2,
       -1,
