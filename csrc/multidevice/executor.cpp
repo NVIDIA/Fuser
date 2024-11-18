@@ -131,13 +131,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
           return isResharding(expr);
         });
-    if (!is_resharding) {
-      auto host_unit = IrBuilder::create<hir::HostUnit>(
-          staged_fusion->makeFusion(group).second);
-      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-          host_unit, clone(group->inputs()), clone(group->outputs()));
-      hic->pushBackTopLevelExprs(post_on_stream);
-    } else {
+    if (is_resharding) {
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
@@ -148,6 +142,12 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         hic->pushBackTopLevelExprs(communication);
         hic->pushBackTopLevelExprs(wait);
       }
+    } else {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
     }
   }
   for (auto input : staged_fusion->inputs()) {

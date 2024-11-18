@@ -449,6 +449,35 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
   }
 }
 
+// Check that mma op is not predicated.
+class PredicateChecker : public kir::IrVisitor {
+ public:
+  using kir::IrVisitor::handle;
+  bool found_mma = false;
+
+ private:
+  void handle(kir::Asm* asm_) final {
+#if IS_CPP20
+    if (!asm_->code().starts_with("mma") &&
+        !asm_->code().starts_with("wgmma")) {
+#else
+    if (asm_->code().substr(0, 3) != "mma" &&
+        asm_->code().substr(0, 5) != "wgmma") {
+#endif
+      return;
+    }
+    found_mma = true;
+    for (auto expr : scope_exprs_) {
+      NVF_CHECK(
+          !expr->isA<kir::IfThenElse>() ||
+              expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
+          "MmaOp should't be predicated!",
+          " Get predicate ",
+          expr->as<kir::IfThenElse>()->predicate()->toInlineString());
+    }
+  }
+};
+
 // Matmul test for Ampere MMA: checking CTA Swizzles
 TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
@@ -549,35 +578,9 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
       runtime = 0;
     }
 
-    // Check that mma op is not predicated. This is a regression test for
-    // https://github.com/NVIDIA/Fuser/issues/95
-    class PredicateChecker : public kir::IrVisitor {
-     public:
-      using kir::IrVisitor::handle;
-      bool found_mma = false;
-
-     private:
-      void handle(kir::Asm* asm_) final {
-#if IS_CPP20
-        if (!asm_->code().starts_with("mma")) {
-#else
-        if (asm_->code().substr(0, 3) != "mma") {
-#endif
-          return;
-        }
-        found_mma = true;
-        for (auto expr : scope_exprs_) {
-          NVF_CHECK(
-              !expr->isA<kir::IfThenElse>() ||
-                  expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
-              "MmaOp should't be predicated!",
-              " Get predicate ",
-              expr->as<kir::IfThenElse>()->predicate()->toInlineString());
-        }
-      }
-    } pred_checker;
-
+    // This is a regression test for https://github.com/NVIDIA/Fuser/issues/95
     GpuLower gpulw(&fusion);
+    PredicateChecker pred_checker;
     pred_checker.handle(gpulw.run()->topLevelExprs());
     ASSERT_TRUE(pred_checker.found_mma);
   };
@@ -3928,17 +3931,32 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
 
   inlineMost();
 
-  tv0c->circularBuffer(stages, prefetch);
-  tv1c->circularBuffer(stages, prefetch);
+  EXPECT_EQ(tv0c->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv1c->getComputeAtPosition(), 3);
 
-  auto inputs =
+  if (stages > 1) {
+    tv0c->circularBuffer(stages, prefetch);
+    tv1c->circularBuffer(stages, prefetch);
+  }
+
+  // Test that predicate elimination works when the MmaOp's operands have no
+  // logical broadcasts
+  GpuLower gpulw(&fusion);
+  kir::Kernel* kernel = gpulw.run();
+  PredicateChecker pred_checker;
+  pred_checker.handle(kernel->topLevelExprs());
+  ASSERT_TRUE(pred_checker.found_mma);
+
+  auto [A3d, B3d] =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  at::Tensor A = A3d.squeeze();
+  at::Tensor B = B3d.squeeze();
+  std::vector<c10::IValue> inputs{A, B};
 
   KernelExecutor ke;
-  ke.compile(
-      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.run({inputs.first, inputs.second});
-  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams);
+  auto cg_outputs = ke.run(inputs);
+  auto tref = atMatmul(A, B, layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
