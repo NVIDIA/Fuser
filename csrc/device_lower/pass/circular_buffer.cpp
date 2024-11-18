@@ -112,7 +112,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
                 prefetch_distance, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -204,7 +204,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         }
         break;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -563,7 +563,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         }
         break;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -579,7 +579,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       case CircularBufferLoopStage::Epilog: {
         return;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
     }
