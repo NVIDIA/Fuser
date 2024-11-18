@@ -175,7 +175,18 @@ struct CircularBufferOptions {
   bool isEnable() const {
     return stage > 1;
   }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return stage == other.stage && prefetch == other.prefetch;
+  }
 };
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferOptions& options) {
+  return os << "CircularBufferOptions{ stage=" << options.stage
+            << ", prefetch=" << options.prefetch << " }";
+}
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
@@ -512,6 +523,10 @@ class NVF_API TensorView : public Val {
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
     return circular_buffer_options_.isEnable();
+  }
+
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   // Returns the depth of circular buffering if applicable.

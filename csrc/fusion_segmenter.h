@@ -120,7 +120,7 @@ class SegmentedGroup {
   }
 
   //! Returns the exprs that make up this group
-  const auto& exprs() const {
+  const std::vector<Expr*>& exprs() const {
     return exprs_;
   }
 

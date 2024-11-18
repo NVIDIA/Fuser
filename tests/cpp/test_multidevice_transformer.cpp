@@ -352,17 +352,13 @@ std::vector<TensorView*> mha(
   auto dtype = w0->dtype();
 
   TensorView* linear0 = linear(x, w0, b0);
-  // Note: Remove linear0 and qkv[i] casts
-  // when https://github.com/NVIDIA/Fuser/issues/3194 is resolved
-  TensorView* linear0_temp = castOp(DataType::Float, linear0);
   // Forming the q,k,v vectors:
   TensorView* qkv_cat =
-      reshape(linear0_temp, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
+      reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
   for (auto i : c10::irange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
     qkv[i] = transpose(qkv[i], 2, 3);
-    qkv[i] = castOp(dtype, qkv[i]);
   }
   // SDPA
   SdpfaFwdResult sdpa = sdpfa_fwd(

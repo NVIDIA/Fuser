@@ -28,22 +28,22 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
-        "Non-tv op is not supported:",
+        "Non-tv op is not supported: ",
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
-        "Resharding operations can only have one output",
+        "Resharding operations can only have one output: ",
         expr->toString());
     NVF_ERROR(
         expr->inputs().size() == 1,
-        "Resharding operations can have only one input",
+        "Resharding operations can have only one input: ",
         expr->toString());
     auto* output = expr->outputs().at(0)->as<TensorView>();
     auto* input = expr->inputs().at(0)->as<TensorView>();
     auto [shard_additions, shard_deletions] = getShardingChanges(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
-        "Resharding expr can only support one axis:",
+        "Resharding expr can only support one axis: ",
         expr->toString())
 
     // For gather operations i.e. ID goes from sharded to unsharded

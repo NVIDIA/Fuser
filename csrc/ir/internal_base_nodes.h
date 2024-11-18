@@ -441,7 +441,8 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      std::vector<IterDomain*> additional_ids = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 

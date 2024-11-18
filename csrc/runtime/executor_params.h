@@ -131,8 +131,16 @@ class LaunchParams {
     assertValid();
   }
 
-  // Binds dim assocaited with p_type to val
+  // Binds dim associated with p_type to val.
+  // Checks if ParallelType already has been assigned a value.
   void bind(int64_t val, ParallelType p_type);
+
+  // The LaunchParams class can act as a scheduler parameter or an executor
+  // constraint. The bind function uses checkAndSet to enforce that the value
+  // for a ParallelType cannot be set multiple times. bindUnsafe allows setting
+  // value of ParallelType multiple times. It is used for when LaunchParams is
+  // a configuration parameter.
+  void bindUnsafe(int64_t val, ParallelType p_type);
 
   // Adjusted value based on get functions above for each value
   NVF_API int64_t getDim(ParallelType p_type) const;
