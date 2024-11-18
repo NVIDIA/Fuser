@@ -2633,7 +2633,9 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 } // namespace
 
 std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
-    getMaybeHeuristicParams(SchedulerRuntimeInfo& runtime_info) {
+    getMaybeHeuristicParams(
+        SchedulerRuntimeInfo& runtime_info,
+        bool skip_compile_time_checks) {
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeHeuristicParams");
   auto heuristic_data_cache =
       segmented_fusion_->getCachedHeuristicDataFor(this);
@@ -2641,7 +2643,8 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
           schedulerType(),
           runtime_info.fusion(),
           runtime_info,
-          heuristic_data_cache)) {
+          heuristic_data_cache,
+          skip_compile_time_checks)) {
     return std::nullopt;
   }
   return SchedulerEntry::makeSchedulerInstance(schedulerType())
