@@ -226,7 +226,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything. The pre-prologue and post-epilogue loops
-// are created separately by createCpAsyncBulkFixtures.
+// are created separately by the allocation insertion pass.
 //
 // Loop Structure Overview:
 // Pre-prologue loop:
@@ -308,7 +308,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //   }
 // }
 //
-class CloneTmaCircularBufferLoopAndInsertSync
+class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     : public CircularBufferLoopCloner {
  public:
   static ForLoop* clone(
@@ -316,14 +316,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
-    CloneTmaCircularBufferLoopAndInsertSync cloner(
+    ClonePipelinedTmaCircularBufferLoopAndInsertSync cloner(
         circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
 
  private:
-  CloneTmaCircularBufferLoopAndInsertSync(
+  ClonePipelinedTmaCircularBufferLoopAndInsertSync(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
@@ -333,10 +333,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
             circular_buffer_load_exprs,
             loop_type,
             exclude),
-        mbarriers_to_wait_(getAllMbarriersToWaitFor()),
         circular_buffer_load_tvs_(
             GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-                circular_buffer_loop_)) {}
+                circular_buffer_loop_)),
+        mbarriers_to_wait_(getAllMbarriersToWaitFor()) {}
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
@@ -431,7 +431,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         result, for_loop_stack_);
   }
 
-  // Current load stage (for main loop): (loop_index + (stages-1)) % stages
+  // Current load stage (for main loop): (loop_index + prefetch) % stages
   Val* currentLoadStage() const {
     NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
     int64_t stage_depth =
@@ -682,11 +682,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
   getAllMbarriersToWaitFor() {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
-    auto circular_buffer_tvs =
-        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-            circular_buffer_loop_);
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
-    for (auto tv : circular_buffer_tvs) {
+    for (auto tv : circular_buffer_load_tvs_) {
       LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       auto mbarrier_it = ldst_mbarrier_map.find(ldst);
       if (mbarrier_it == ldst_mbarrier_map.end()) {
@@ -824,6 +821,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
   }
 
  private:
+  // The circular buffered TVs for the loop being cloned
+  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
+
   // Mbarriers whose wait is not inserted to the loop yet, and its corresponding
   // wait expression. This map is initialized as:
   //   mbarrier1 -> nullptr
@@ -853,9 +853,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
   kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
-
-  // The circular buffered TVs for the loop being cloned
-  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
@@ -1057,16 +1054,18 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx and tma load operations
     if (hasPrefetch(circular_buffer_loop)) {
       // If there is no prefetch, then we don't need a prologue loop.
-      ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      ForLoop* prologue_loop =
+          ClonePipelinedTmaCircularBufferLoopAndInsertSync ::clone(
+              circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
       registerInsertBefore(circular_buffer_loop, prologue_loop);
     }
 
     // Main loop:
     //  - Launch and wait
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
-    ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Main);
+    ForLoop* main_loop =
+        ClonePipelinedTmaCircularBufferLoopAndInsertSync ::clone(
+            circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
 
     if (!hasPrefetch(circular_buffer_loop)) {
@@ -1074,19 +1073,21 @@ class CircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
-    // We can use exclude argument in CloneTmaCircularBufferLoopAndInsertSync
-    // clone to avoid duplicating allocations if main loop is trivial.
+    // We can use exclude argument in
+    // ClonePipelinedTmaCircularBufferLoopAndInsertSync clone to avoid
+    // duplicating allocations if main loop is trivial.
     std::unordered_set<Expr*> expressions_allocated_in_main_loop;
     getAllocInTrivialLoop(main_loop, expressions_allocated_in_main_loop);
 
     // Epilogue loop:
     //  - wait only
     //  - mbarrier_wait
-    ForLoop* epilogue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop,
-        loads,
-        CircularBufferLoopStage::Epilog,
-        expressions_allocated_in_main_loop);
+    ForLoop* epilogue_loop =
+        ClonePipelinedTmaCircularBufferLoopAndInsertSync ::clone(
+            circular_buffer_loop,
+            loads,
+            CircularBufferLoopStage::Epilog,
+            expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
   }
 
