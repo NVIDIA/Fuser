@@ -106,14 +106,16 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
   for (IterDomain* id : TensorDomain::noReductions(tv->getLoopDomain())) {
-    if (id->isDeviceDim()) {
-      // Only one axis can be sharded on DIDx.
-      NVF_ERROR(
-          !is_sharded,
-          "Multiple IterDomains parallelized on DIDx in TensorView ",
-          tv);
-      is_sharded = true;
+    if (!id->isDeviceDim()) {
+      continue;
     }
+
+    // Only one axis can be sharded on DIDx.
+    NVF_ERROR(
+        !is_sharded,
+        "Multiple IterDomains parallelized on DIDx in TensorView ",
+        tv);
+    is_sharded = true;
   }
   return is_sharded;
 }
@@ -179,7 +181,10 @@ bool haveDifferentShardings(
   for (IterDomain* p_id : producer->getLoopDomain()) {
     if (const ParallelType parallel_type = p_id->getParallelType();
         isParallelTypeDeviceDim(parallel_type)) {
-      auto dependencies = IterVisitor::getInputsTo({p_id}, mapped_p_ids);
+      auto dependencies = IterVisitor::getInputsTo(
+          {p_id},
+          {producer->getLogicalDomain().begin(),
+           producer->getLogicalDomain().end()});
       if (countIntersection(dependencies, mapped_p_ids) > 0) {
         NVF_ERROR(p_parallel_type_to_id.count(parallel_type) == 0);
         p_parallel_type_to_id[parallel_type] = p_id;
@@ -190,7 +195,10 @@ bool haveDifferentShardings(
   for (IterDomain* c_id : consumer->getLoopDomain()) {
     if (const ParallelType parallel_type = c_id->getParallelType();
         isParallelTypeDeviceDim(parallel_type)) {
-      auto dependencies = IterVisitor::getInputsTo({c_id}, mapped_c_ids);
+      auto dependencies = IterVisitor::getInputsTo(
+          {c_id},
+          {consumer->getMaybeRootDomain().begin(),
+           consumer->getMaybeRootDomain().end()});
       if (countIntersection(dependencies, mapped_c_ids) > 0) {
         NVF_ERROR(
             c_parallel_type_to_id.count(parallel_type) == 0,
