@@ -700,7 +700,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
             (!tv->isCircularBuffered() ||
-             tv->circularBufferPrefetchDistance() == 0)) {
+             tv->circularBufferOptions().prefetch == 0)) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async

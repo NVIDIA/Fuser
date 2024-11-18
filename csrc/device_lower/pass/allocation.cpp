@@ -422,7 +422,8 @@ class AllocationInserter : public kir::ExprMutator {
       }
       GpuLower::current()->circularBufferInfo().setOriginalAllocSize(
           info.buffer, original_alloc_size);
-      int64_t circular_buffer_stage = info.buffer->circularBufferDepth();
+      int64_t circular_buffer_stage =
+          info.buffer->circularBufferOptions().stage;
       alloc_dims.push_back(
           IrBuilder::create<Val>(circular_buffer_stage, DataType::Index));
     }
@@ -514,11 +515,11 @@ class AllocationInserter : public kir::ExprMutator {
 
       // Check that all circular buffer depth match
       if (out_tv->isCircularBuffered() && circular_buffer_depth == 1) {
-        circular_buffer_depth = out_tv->circularBufferDepth();
+        circular_buffer_depth = out_tv->circularBufferOptions().stage;
       }
       NVF_ERROR(
           circular_buffer_depth == 1 ||
-              circular_buffer_depth == out_tv->circularBufferDepth(),
+              circular_buffer_depth == out_tv->circularBufferOptions().stage,
           "Expected all output TensorViews for the same expression ",
           "to have the same circular_buffer_depth");
 
