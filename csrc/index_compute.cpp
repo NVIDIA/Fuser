@@ -2029,7 +2029,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
     const auto& opt =
         gpu_lower->circularBufferInfo().getCircularBufferOptionsFor(
             db_loop->iter_domain());
-    bool is_circular_buffer_loop = stage_depth > 2;
+    bool is_circular_buffer_loop = opt.stage > 2;
     bool is_prolog =
         db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 

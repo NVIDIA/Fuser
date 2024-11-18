@@ -974,7 +974,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
       const auto& opt =
           GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-              circular_buffer_loop_->iter_domain());
+              circular_buffer_loop->iter_domain());
       pending_ops = std::min(pending_ops, opt.stage - opt.prefetch - 1);
     }
     return pending_ops;
