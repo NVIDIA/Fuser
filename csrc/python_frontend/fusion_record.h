@@ -1539,11 +1539,27 @@ struct OutputRecord : RecordFunctor {
         auto tv_output = output->template as<TensorView>();
         if (!stride_order_.empty()) {
           size_t rank = stride_order_.size();
-          std::vector<IterDomain*> allocation_domain(rank);
-          for (auto i : c10::irange(rank)) {
-            allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
+
+          auto logical_domain = tv_output->getLogicalDomain();
+          auto logical_domain_no_red = TensorDomain::noReductions(logical_domain);
+          std::vector<IterDomain*> allocation_domain(logical_domain.size());
+          std::vector<IterDomain*> allocation_domain_no_red(rank);
+          
+          for (auto idx: c10::irange(rank)){
+            allocation_domain[rank - 1 - stride_order_[idx]] = logical_domain_no_red[idx];
           }
-          tv_output->setAllocationDomain(allocation_domain, true);
+          
+          auto idx_no_red = 0
+          for (idx: c10::irange(logical_domain.size()))
+            if (logical_domain.at(idx)->isReduction()){
+              allocation_domain[idx] = logical_domain[idx];
+            } else {
+              allocation_domain[idx] = allocation_domain_no_red[idx_no_red];
+              idx_no_red++;
+            }
+          }
+          auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, true);
+          tv_output->setAllocationDomain(allocation_domain, contiguity);
         }
         fd.addOutput(tv_output, args_.at(0).index);
       } else {
