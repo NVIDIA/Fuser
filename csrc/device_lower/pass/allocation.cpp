@@ -26,8 +26,10 @@ namespace {
 // used for mbarrier initialization and invalidation.
 ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
   int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+          .stage;
   return ir_utils::createRangeLoop(stage_depth);
 }
 
@@ -638,8 +640,10 @@ class AllocationInserter : public kir::ExprMutator {
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
       int64_t circular_buffer_depth =
-          GpuLower::current()->circularBufferInfo().getStageDepthFor(
-              fl->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(fl->iter_domain())
+              .stage;
 
       TensorView* mbarrier =
           TensorViewBuilder()

@@ -971,12 +971,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           "Only main circular buffer loop needs WAR async wait, ",
           "so the code should not reach here. Stage:",
           stage);
-      const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-      const auto prefetch_distance =
-          gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
-              circular_buffer_loop->iter_domain());
-      pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
+
+      const auto& opt =
+          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+              circular_buffer_loop_->iter_domain());
+      pending_ops = std::min(pending_ops, opt.stage - opt.prefetch - 1);
     }
     return pending_ops;
   }

@@ -81,26 +81,21 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         circular_buffer_loop_->iter_domain(), loop_type_);
     Val* start = circular_buffer_loop_->start();
     Val* stop = circular_buffer_loop_->stop();
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
-    int64_t prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
 
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         NVF_ERROR(start->isZeroInt());
-        stop = SimplifyingIrBuilder::create<Val>(
-            prefetch_distance, DataType::Index);
+        stop = SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index);
         break;
       }
       case CircularBufferLoopStage::Main: {
         if (requireEpilogue(circular_buffer_load_exprs_)) {
           stop = SimplifyingIrBuilder::subExpr(
               circular_buffer_loop_->stop(),
-              SimplifyingIrBuilder::create<Val>(
-                  prefetch_distance, DataType::Index));
+              SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         }
         break;
       }
@@ -108,8 +103,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
         start = SimplifyingIrBuilder::subExpr(
             circular_buffer_loop_->stop(),
-            SimplifyingIrBuilder::create<Val>(
-                prefetch_distance, DataType::Index));
+            SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
       default: {
@@ -127,7 +121,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
         loop_type_,
-        /*circular_buffer_loop_stage_depth=*/stage_depth);
+        /*circular_buffer_loop_stage_depth=*/opt.stage);
 
     handle(circular_buffer_loop_);
   }
@@ -422,8 +416,10 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // Current compute stage: loop_index % stages
   Val* currentComputeStage() const {
     int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
     Val* result = SimplifyingIrBuilder::modExpr(
         cloned_top_level_loop_->indexOrStartIfTrivial(),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
@@ -434,18 +430,16 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // Current load stage (for main loop): (loop_index + prefetch) % stages
   Val* currentLoadStage() const {
     NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
-    int64_t prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
 
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
         SimplifyingIrBuilder::addExpr(
             cloned_top_level_loop_->indexOrStartIfTrivial(),
-            IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
-        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+            IrBuilder::create<Val>(opt.prefetch, PrimDataType::Index)),
+        IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         current_load_stage, for_loop_stack_);
   }
@@ -460,8 +454,10 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // for reference.
   Val* currentParity() const {
     int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
 
     auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
     auto two = IrBuilder::create<Val>(2, DataType::UInt32);

@@ -1580,8 +1580,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
       const int64_t stage_depth =
-          gpu_lower->circularBufferInfo().getStageDepthFor(
-              db_loop->iter_domain());
+          gpu_lower->circularBufferInfo()
+              .getCircularBufferOptionsFor(db_loop->iter_domain())
+              .stage;
       auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
@@ -2023,8 +2024,10 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   if (consumer_tv->isCircularBuffered()) {
     auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
         consumer_tv, loops);
-    int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-        db_loop->iter_domain());
+    int64_t stage_depth =
+        gpu_lower->circularBufferInfo()
+            .getCircularBufferOptionsFor(db_loop->iter_domain())
+            .stage;
     int64_t prefetch_distance =
         gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
             db_loop->iter_domain());
