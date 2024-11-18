@@ -367,14 +367,14 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     rparams->grid_dim_iter_dom = ParallelType::BIDy;
     if (godim > scheduler_utils::y_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
-      gdimy = std::min(godim, scheduler_utils::y_grid_limit);
+      gdimy = scheduler_utils::y_grid_limit;
     }
 
   } else {
     rparams->grid_dim_iter_dom = ParallelType::BIDx;
-    gdimx = std::min(godim, scheduler_utils::x_grid_limit);
     if (godim > scheduler_utils::x_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
+      gdimx = scheduler_utils::x_grid_limit;
     }
   }
 
@@ -746,14 +746,14 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
     rparams->grid_dim_iter_dom = ParallelType::BIDy;
     if (godim > scheduler_utils::y_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
-      gdimy = std::min(godim, scheduler_utils::y_grid_limit);
+      gdimy = scheduler_utils::y_grid_limit;
     }
 
   } else {
     rparams->grid_dim_iter_dom = ParallelType::BIDx;
-    gdimx = std::min(godim, scheduler_utils::x_grid_limit);
     if (godim > scheduler_utils::x_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
+      gdimx = scheduler_utils::x_grid_limit;
     }
   }
 
