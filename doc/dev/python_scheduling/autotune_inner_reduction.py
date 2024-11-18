@@ -8,8 +8,8 @@ import itertools
 import math
 import collections
 import random
-from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType
-from dataclasses import dataclass
+from nvfuser import FusionCache, FusionDefinition, SchedulerType, DataType, ParallelType
+from dataclasses import dataclass, astuple
 from enum import Enum
 
 
@@ -73,7 +73,8 @@ class ScriptConfiguration:
     tensor_datatype: torch.dtype
 
     # We profile a range of input shapes with various configurations.
-    # This argument determines how much of the profiled data to keep as a test set.
+    # This argument determines how much of the profiled data to keep as a test
+    # set.
     test_data_percentage: [float]
 
     # The selected batch size for empirical and nvfuser comparison.
@@ -85,20 +86,81 @@ class ScriptConfiguration:
 
 @dataclass
 class InnerReductionConfiguration:
-    vectorize_factor: int
-    unroll_factor: int
-    godim: int
-    grdim: int
-    bdimx: int
-    bdimy: int
+    vectorize_factor: int = 1
+    unroll_factor: int = 1
+    godim: int = -1
+    grdim: int = -1
+    bdimx: int = -1
+    bdimy: int = -1
 
 
+# ==============================================================================
+
+
+# gpu device properties are defined globally
+assert torch.cuda.is_available()
+gpu_properties = torch.cuda.get_device_properties(device=0)
+
+
+# Returns the result of a/b rounded to the nearest integer in the direction of
+# positive infinity.
 def ceil_div(a, b):
     return int(math.ceil(a / b))
 
 
-assert torch.cuda.is_available()
-gpu_properties = torch.cuda.get_device_properties(device=0)
+def convert_to_inner_reduction_params(scheduler_config, reduction_params):
+    warp_size = 32
+    max_number_of_threads_cta = 1024
+    grid_x_limit = 2147483647
+    grid_y_limit = 65535
+
+    reduction_params.schedule_3D = False
+    reduction_params.fastest_dim = True
+    reduction_params.cross_block_inner_reduction = True
+    reduction_params.block_dim_inner_reduction = ParallelType.block_x
+    reduction_params.cross_grid_inner_reduction = scheduler_config.grdim > 1
+    reduction_params.multiple_reds_per_blk = scheduler_config.bdimy > 1
+    reduction_params.pad_inner_reduction_to_warp = (
+        scheduler_config.bdimx > warp_size
+    ) and (
+        (scheduler_config.bdimx * scheduler_config.bdimy) < max_number_of_threads_cta
+    )
+    reduction_params.unroll_factor_inner_reduction = scheduler_config.vectorize_factor
+    reduction_params.vectorize_inner_reduction = scheduler_config.vectorize_factor > 1
+
+    if scheduler_config.bdimy > 1:
+        reduction_params.block_dim_iter_dom = ParallelType.block_y
+
+    reduction_params.unroll_factor_iter_dom = scheduler_config.unroll_factor
+
+    gdimx = -1
+    gdimy = -1
+
+    if scheduler_config.grdim > 1:
+        reduction_params.grid_dim_inner_reduction = ParallelType.grid_x
+        reduction_params.grid_dim_iter_dom = ParallelType.grid_y
+
+        reduction_params.split_grid_dim_iter_dom_inner = True
+        gdimx = min(scheduler_config.grdim, grid_x_limit)
+        gdimy = min(scheduler_config.godim, grid_y_limit)
+        if scheduler_config.godim > grid_y_limit:
+            reduction_params.split_grid_dim_iter_dom_outer = True
+    else:
+        reduction_params.grid_dim_iter_dom = ParallelType.grid_x
+        gdimx = min(scheduler_config.godim, grid_x_limit)
+        if scheduler_config.godim > grid_x_limit:
+            reduction_params.split_grid_dim_inner_reduction = True
+
+    reduction_params.lparams.gdimx = gdimx
+    reduction_params.lparams.gdimy = gdimy
+
+    # Reset CTA dimensions to avoid failing LaunchParams::assertValid
+    reduction_params.lparams.bdimx = -1
+    reduction_params.lparams.bdimy = -1
+    reduction_params.lparams.bdimz = -1
+
+    reduction_params.lparams.bdimx = scheduler_config.bdimx
+    reduction_params.lparams.bdimy = scheduler_config.bdimy
 
 
 # For reduction scheduler, we test the cartesian product of vectorization and
@@ -108,45 +170,60 @@ def generate_scheduler_configurations(input_shape):
     vectorization_factor_options = [1, 2, 4, 8]
     unroll_factor_options = list(range(1, 11))
     warp_size = 32
+    max_threads_per_cta = 1024
 
     num_iterations, num_reductions = input_shape
 
     for threads_per_cta, vectorize_factor, unroll_factor in itertools.product(
         threads_per_cta_options, vectorization_factor_options, unroll_factor_options
     ):
-        config = InnerReductionConfiguration()
-        config.bdimx = max(warp_size, ceil_div(num_reductions, vectorize_factor))
-        config.bdimy = max(1, ceil_div(threads_per_cta, config.bdimx))
-        config.godim = ceil_div(num_iterations, config.bdimy * unroll_factor)
+        scheduler_config = InnerReductionConfiguration(
+            vectorize_factor=vectorize_factor, unroll_factor=unroll_factor
+        )
+        scheduler_config.bdimx = min(
+            max_threads_per_cta,
+            max(warp_size, ceil_div(num_reductions, scheduler_config.vectorize_factor)),
+        )
+        scheduler_config.bdimy = min(
+            max_threads_per_cta,
+            max(1, ceil_div(threads_per_cta, scheduler_config.bdimx)),
+        )
+        scheduler_config.godim = ceil_div(
+            num_iterations, scheduler_config.bdimy * scheduler_config.unroll_factor
+        )
 
         # number of reduction elements not handled by a CTA
         remaining_reduction = ceil_div(
-            num_reductions, (config.bdimx * vectorize_factor)
+            num_reductions, (scheduler_config.bdimx * scheduler_config.vectorize_factor)
         )
 
         if unroll_factor == 1 and remaining_reduction > 1:
             # all remaining reduction goes to grdim
-            config.grdim = remaining_reduction
-            yield config
+            scheduler_config.grdim = remaining_reduction
+            yield scheduler_config
 
+            """
             # round grdim nearest full wave
             num_waves = max(
                 1,
                 ceil_div(
-                    config.grdim * config.godim, gpu_properties.multi_processor_count
+                    scheduler_config.grdim * scheduler_config.godim,
+                    gpu_properties.multi_processor_count,
                 ),
             )
-            config.grdim = max(
+            scheduler_config.grdim = max(
                 1,
                 ceil_div(
-                    num_waves * gpu_properties.multi_processor_count, config.godim
+                    num_waves * gpu_properties.multi_processor_count,
+                    scheduler_config.godim,
                 ),
             )
-            yield config
+            yield scheduler_config
+            """
         else:
             # grid stride across reduction iterDomain is 1
-            config.grdim = 1
-            yield config
+            scheduler_config.grdim = 1
+            yield scheduler_config
 
 
 def create_inputs(which_fusion, shape, tensor_datatype):
@@ -295,18 +372,11 @@ def custom_reduction_scheduler(fd, scheduler_config):
         status, _ = fd.sched.can_schedule(SchedulerType.reduction)
         assert status
 
-        schedule_params = fd.sched.compute_reduction_heuristics()
+        reduction_params = fd.sched.compute_reduction_heuristics()
 
         # Modify original parameters
         if scheduler_config is not None:
-            # Unrolling/Vectorization factor for inner reduction dimension
-            schedule_params.unroll_factor_inner_reduction = (
-                scheduler_config.vectorize_factor
-            )
-            # Extra unroll on top of vectorization
-            schedule_params.unroll_factor_top_of_vectorization = (
-                scheduler_config.unroll_factor
-            )
+            convert_to_inner_reduction_params(scheduler_config, reduction_params)
 
         # Schedule fusion
         fd.sched.schedule()
@@ -345,24 +415,10 @@ def argmax(map_scheduler_config_to_perf):
 # find the best parameters
 def find_best_parameters(predictor, input_shape, scheduler_configurations):
     map_scheduler_config_to_performance = {
-        scheduler_config: predictor.predict(
-            [[*input_shape, *flatten_configuration(scheduler_config)]]
-        )
+        scheduler_config: predictor.predict([[*input_shape, astuple(scheduler_config)]])
         for scheduler_config in scheduler_configurations
     }
     return argmax(map_scheduler_config_to_performance)
-
-
-# Converted NamedTuple to a Tuple. It flattens nested tuples. The function is
-# used for compatibility with machine learning model.
-def flatten_configuration(scheduler_config):
-    new_scheduler_config = []
-    for item in scheduler_config:
-        if type(item) is tuple:
-            new_scheduler_config.extend(item)
-        else:
-            new_scheduler_config.append(item)
-    return tuple(new_scheduler_config)
 
 
 # Collect data for decision tree
@@ -387,7 +443,7 @@ def collect_data(script_config):
             perf_metric, _ = run_profile(
                 script_config.selected_fusion, presched_fd, inputs, parameter_config
             )
-            parameters.append((*shape, *flatten_configuration(parameter_config)))
+            parameters.append((*shape, astuple(parameter_config)))
             performance.append(perf_metric)
     return parameters, performance
 
@@ -459,9 +515,8 @@ def test_model_rmse(clf, script_config, test_data):
         estimate_config = find_best_parameters(
             clf, shape, generate_scheduler_configurations(shape)
         )
-        flattened_estimate_config = flatten_configuration(estimate_config)
 
-        match_config = flattened_estimate_config == best_test_scheduler_config[shape]
+        match_config = astuple(estimate_config) == best_test_scheduler_config[shape]
         if not match_config:
             mismatch_configs.append((shape, estimate_config))
 
@@ -583,7 +638,7 @@ def main():
         selected_fusion=FUSION.SUM,
         num_dimensions=2,
         outer_shapes=[16384],
-        inner_shapes=[128, 1024, 4096, 16384],
+        inner_shapes=[4096, 16384],
         tensor_datatype=torch.bfloat16,
         test_data_percentage=0.1,
         empirical_batch_size=16384,
