@@ -1037,8 +1037,10 @@ class CircularBufferInserter : private kir::ExprMutator {
 
   bool hasPrefetch(ForLoop* circular_buffer_loop) {
     int64_t prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-            circular_buffer_loop->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+            .prefetch;
     return prefetch_distance > 0;
   }
 
@@ -1115,9 +1117,11 @@ class CircularBufferInserter : private kir::ExprMutator {
       has_cpasync =
           std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp);
       if (prologue_loop != nullptr && has_cpasync) {
-        int64_t prefetch_distance =
-            GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-                circular_buffer_loop->iter_domain());
+        int64_t prefetch_distance = GpuLower::current()
+                                        ->circularBufferInfo()
+                                        .getCircularBufferOptionsFor(
+                                            circular_buffer_loop->iter_domain())
+                                        .prefetch;
         kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
             AsyncOpType::CpAsync, prefetch_distance - 1);
         prologue_loop->body().push_back(
@@ -1232,8 +1236,10 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  passes. Cleanups suggested in [Circular Buffer Sync]
     //  would resolve this dependency on pass ordering.
     int64_t prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-            main_loop->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(main_loop->iter_domain())
+            .prefetch;
     kir::AsyncCommit* cp_async_commit =
         IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
     kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(

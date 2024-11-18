@@ -1163,8 +1163,10 @@ indexMapFromTV(
 
     if (loop == circular_buffer_loop) {
       const int64_t prefetch_distance =
-          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-              loop->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(loop->iter_domain())
+              .prefetch;
       idx = SimplifyingIrBuilder::addExpr(
           idx,
           SimplifyingIrBuilder::create<Val>(
@@ -2024,12 +2026,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   if (consumer_tv->isCircularBuffered()) {
     auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
         consumer_tv, loops);
-    int64_t stage_depth =
-        gpu_lower->circularBufferInfo()
-            .getCircularBufferOptionsFor(db_loop->iter_domain())
-            .stage;
-    int64_t prefetch_distance =
-        gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+    const auto& opt =
+        gpu_lower->circularBufferInfo().getCircularBufferOptionsFor(
             db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
@@ -2061,8 +2059,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
             SimplifyingIrBuilder::addExpr(
                 loop_index,
                 SimplifyingIrBuilder::create<Val>(
-                    prefetch_distance, DataType::Index)),
-            SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+                    opt.prefetch, DataType::Index)),
+            SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
       }
 
       // Use the generated switching buffer index to access the buffer space.
