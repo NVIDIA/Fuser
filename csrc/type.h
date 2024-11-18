@@ -771,7 +771,7 @@ enum class CircularBufferLoopStage {
   Main,
   Epilog,
   LoadWarp,
-  ComputeWarp
+  ComputeWarp,
   EndOfStages, // A special placeholder used to iterate over all stages
   NotApplicable
 };
