@@ -381,6 +381,49 @@ TEST_F(ReshardingTest, Broadcast) {
   EXPECT_FALSE(isResharding(out->definition()));
 }
 
+TEST_F(ReshardingTest, ReshardingSqueeze) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t num_devices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({true, std::nullopt})
+                       .shape({-1, 1})
+                       .build();
+  in->setDeviceMesh(mesh);
+  TensorView* out = squeeze(in, {1});
+
+  in->merge(0);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(out->definition()));
+}
+
+TEST_F(ReshardingTest, NonreshardingSqueeze) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t num_devices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({true, std::nullopt})
+                       .shape({-1, 1})
+                       .build();
+  in->setDeviceMesh(mesh);
+  TensorView* out = squeeze(in, {1});
+
+  in->merge(0);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_FALSE(isResharding(out->definition()));
+}
+
 TEST_F(ReshardingTest, InsertResharding_Before) {
   Fusion fusion;
   FusionGuard fg(&fusion);
