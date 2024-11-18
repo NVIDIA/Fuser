@@ -865,8 +865,8 @@ void ComputeAtMap::allocateIndexVariables() {
       // Allocate index variable for each stage of the circular buffered loop.
       circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<CircularBufferIndices>();
-      for (auto i :
-           c10::irange(static_cast<int>(CircularBufferLoopStage::NumStages))) {
+      for (auto i : c10::irange(
+               static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
         auto stage = static_cast<CircularBufferLoopStage>(i);
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
             ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
