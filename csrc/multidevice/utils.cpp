@@ -127,18 +127,6 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-namespace {
-int countIntersection(const std::vector<Val*>& a, const std::vector<Val*>& b) {
-  int count = 0;
-  for (auto id : a) {
-    if (std::find(b.begin(), b.end(), id) != b.end()) {
-      count++;
-    }
-  }
-  return count;
-}
-} // namespace
-
 bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer,
@@ -158,56 +146,66 @@ bool haveDifferentShardings(
     return true;
   }
 
-  // Create a map between producer's and consumer's IterDomains. We iterate
-  // over producer's iterdomain and compare sharding type with consumer's
-  // iterdomain
-  std::vector<Val*> mapped_p_ids;
-  mapped_p_ids.reserve(producer->getLogicalDomain().size());
-  std::vector<Val*> mapped_c_ids;
-  mapped_c_ids.reserve(consumer->getMaybeRootDomain().size());
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
+  std::unordered_set<Val*> mapped_c_root_ids;
   for (IterDomain* p_id : producer->getLogicalDomain()) {
-    // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
-    // parallelized on DID, the squeezed dimension is size-1 and doesn't
-    // trigger resharding.
-    if (const auto i = p2c.find(p_id); i != p2c.end()) {
-      mapped_p_ids.push_back(p_id);
-      mapped_c_ids.push_back(i->second);
+    const auto i = p2c.find(p_id);
+    if (i == p2c.end()) {
+      // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
+      // parallelized on DID, the squeezed dimension is size-1 and doesn't
+      // trigger resharding.
+      continue;
     }
+    mapped_c_root_ids.insert(i->second);
   }
 
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id;
-  for (IterDomain* p_id : producer->getLoopDomain()) {
-    if (const ParallelType parallel_type = p_id->getParallelType();
-        isParallelTypeDeviceDim(parallel_type)) {
-      auto dependencies = IterVisitor::getInputsTo(
-          {p_id},
-          {producer->getLogicalDomain().begin(),
-           producer->getLogicalDomain().end()});
-      if (countIntersection(dependencies, mapped_p_ids) > 0) {
-        NVF_ERROR(p_parallel_type_to_id.count(parallel_type) == 0);
-        p_parallel_type_to_id[parallel_type] = p_id;
-      }
+  for (IterDomain* p_loop_id : producer->getLoopDomain()) {
+    const ParallelType parallel_type = p_loop_id->getParallelType();
+    if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    const auto dependencies = IterVisitor::getInputsTo(
+        {p_loop_id},
+        {producer->getLogicalDomain().begin(),
+         producer->getLogicalDomain().end()});
+    if (std::any_of(
+            dependencies.begin(), dependencies.end(), [&](Val* dependency) {
+              return p2c.count(dependency->as<IterDomain>()) > 0;
+            })) {
+      NVF_ERROR(
+          p_parallel_type_to_id.try_emplace(parallel_type, p_loop_id).second,
+          "Found multiple loop IterDomains with the same parallel type (",
+          parallel_type,
+          "): ",
+          producer);
     }
   }
+
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id;
-  for (IterDomain* c_id : consumer->getLoopDomain()) {
-    if (const ParallelType parallel_type = c_id->getParallelType();
-        isParallelTypeDeviceDim(parallel_type)) {
-      auto dependencies = IterVisitor::getInputsTo(
-          {c_id},
-          {consumer->getMaybeRootDomain().begin(),
-           consumer->getMaybeRootDomain().end()});
-      if (countIntersection(dependencies, mapped_c_ids) > 0) {
-        NVF_ERROR(
-            c_parallel_type_to_id.count(parallel_type) == 0,
-            "Found multiple IterDomains with the same parallel type (",
-            parallel_type,
-            "): ",
-            consumer);
-        c_parallel_type_to_id[parallel_type] = c_id;
-      }
+  for (IterDomain* c_loop_id : consumer->getLoopDomain()) {
+    const ParallelType parallel_type = c_loop_id->getParallelType();
+    if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    auto dependencies = IterVisitor::getInputsTo(
+        {c_loop_id},
+        {consumer->getMaybeRootDomain().begin(),
+         consumer->getMaybeRootDomain().end()});
+    if (std::any_of(
+            dependencies.begin(), dependencies.end(), [&](Val* dependency) {
+              return mapped_c_root_ids.count(dependency->as<IterDomain>()) > 0;
+            })) {
+      NVF_ERROR(
+          c_parallel_type_to_id.try_emplace(parallel_type, c_loop_id).second,
+          "Found multiple loop IterDomains with the same parallel type (",
+          parallel_type,
+          "): ",
+          consumer);
+      c_parallel_type_to_id[parallel_type] = c_loop_id;
     }
   }
 
