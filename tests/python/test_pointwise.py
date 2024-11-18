@@ -399,7 +399,29 @@ def test_input_forwarding_device():
         fusion_func(fd)
 
     out = fd.execute(inputs)
-    assert out[0].device == "cpu"
+    assert out[0].is_cpu
+
+# Test single segment with CPU and CUDA outputs
+def test_single_segment_multi_device():
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+        torch.tensor(3.0, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])
+        s0 = fd.define_scalar(3.0)
+        tv1 = fd.ops.add(tv0, s0)
+        tv2 = fd.from_pytorch(inputs[1])
+        tv3 = fd.ops.add(tv1, tv2)
+        fd.add_output(tv1)
+        fd.add_output(tv2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
+        _ = fd.execute(inputs)
     
     
     
