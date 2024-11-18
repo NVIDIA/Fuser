@@ -476,6 +476,17 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
       }
       std::cout << "insert sync_threads expr " << expr->toString() << std::endl;
+      for (auto last_write : last_writes) {
+        std::cout << "last write " << last_write->toString() << std::endl;
+      }
+      if (std::any_of(last_writes.begin(), last_writes.end(), [](Expr* e) {
+            return ir_utils::isCpAsyncOp(e);
+          })) {
+        std::cout << "found expr in last_writes" << std::endl;
+        auto async_sync_expr =
+            IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync);
+        insertSyncExpr(last_writes, expr, async_sync_expr, nullptr);
+      }
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
     }
   }
@@ -653,10 +664,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       auto last_smem_writes = isModifiedSharedMemory(smem, expr->inputs());
       auto last_async_smem_writes =
           isModifiedSharedMemory(smem_async, expr->inputs(), false);
-      for(auto expr : last_async_smem_writes){
+      for (auto expr : last_async_smem_writes) {
         std::cout << "last_smem_writes " << expr->toString() << std::endl;
       }
-      for(auto expr : last_async_smem_writes){
+      for (auto expr : last_async_smem_writes) {
         std::cout << "last_async_smem_writes " << expr->toString() << std::endl;
       }
       // Keep track of async smem writes before the current
@@ -666,11 +677,20 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         std::cout << "cpasync_wait_before_ " << expr->toString() << std::endl;
         std::unordered_set<Expr*> async_smem_writes;
         for (auto it : smem_async) {
-          std::cout << "last_cpasync_writes_ " << it.second->toString() << std::endl;
+          if (GpuLower::current()
+                  ->syncMap()
+                  ->needsRawSync(it.first->as<TensorView>())
+                  .hasTID()) {
+            std::cout << "dont erase smem_async, it needs raw sync "
+                      << it.second->toString() << std::endl;
+            continue;
+          }
+          std::cout << "please erase smem_async " << it.second->toString()
+                    << std::endl;
           async_smem_writes.insert(it.second);
+          smem_async.erase(it.first);
         }
         last_cpasync_writes_.push_back(async_smem_writes);
-        smem_async.clear();
       }
 
       if (!last_smem_writes.empty()) {
