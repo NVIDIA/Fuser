@@ -75,6 +75,33 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
   assertValid();
 }
 
+void LaunchParams::bindUnsafe(int64_t val, ParallelType p_type) {
+  switch (p_type) {
+    case ParallelType::TIDx:
+      bdimx_ = val;
+      break;
+    case ParallelType::BIDx:
+      gdimx_ = val;
+      break;
+    case ParallelType::TIDy:
+      bdimy_ = val;
+      break;
+    case ParallelType::BIDy:
+      gdimy_ = val;
+      break;
+    case ParallelType::TIDz:
+      bdimz_ = val;
+      break;
+    case ParallelType::BIDz:
+      gdimz_ = val;
+      break;
+    default:
+      NVF_THROW(
+          "Tried to bind invalid parallel type in launch config: ", p_type);
+  }
+  assertValid();
+}
+
 int64_t LaunchParams::getDim(ParallelType p_type) const {
   switch (p_type) {
     case ParallelType::TIDx:
