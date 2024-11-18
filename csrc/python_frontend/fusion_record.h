@@ -1546,11 +1546,11 @@ struct OutputRecord : RecordFunctor {
           std::vector<IterDomain*> allocation_domain_no_red(rank);
           
           for (auto idx: c10::irange(rank)){
-            allocation_domain[rank - 1 - stride_order_[idx]] = logical_domain_no_red[idx];
+            allocation_domain_no_red[rank - 1 - stride_order_[idx]] = logical_domain_no_red[idx];
           }
           
-          auto idx_no_red = 0
-          for (idx: c10::irange(logical_domain.size()))
+          auto idx_no_red = 0;
+          for (auto idx: c10::irange(logical_domain.size())) {
             if (logical_domain.at(idx)->isReduction()){
               allocation_domain[idx] = logical_domain[idx];
             } else {
