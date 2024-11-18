@@ -195,7 +195,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_cpu_scalars.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp

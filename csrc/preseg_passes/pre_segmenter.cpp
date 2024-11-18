@@ -20,7 +20,6 @@
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_pad.h>
 #include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/propagate_cpu_scalars.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
@@ -68,7 +67,6 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
-  OptimizationPass<PropagateCpuScalarsPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
