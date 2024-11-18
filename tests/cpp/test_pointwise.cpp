@@ -771,8 +771,6 @@ TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
     }
   }
   EXPECT_TRUE(found_vectorize);
-  fusion.printMath(0);
-  fusion.printTransforms();
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
