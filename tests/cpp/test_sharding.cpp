@@ -147,7 +147,8 @@ TEST_P(ShardingTest, ComputeIndex) {
   c->setDeviceMesh(mesh);
   d->setDeviceMesh(mesh);
   a->axis(2)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDx);
+  TensorDomain::noReductions(b->getLoopDomain())[1]->parallelize(
+      ParallelType::DIDx);
   c->axis(2)->parallelize(ParallelType::DIDx);
   d->axis(0)->parallelize(ParallelType::DIDx);
 

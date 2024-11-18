@@ -112,7 +112,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
                 prefetch_distance, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -204,7 +204,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         }
         break;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -226,7 +226,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything. The pre-prologue and post-epilogue loops
-// are created separately by createCpAsyncBulkFixtures.
+// are created separately by the allocation insertion pass.
 //
 // Loop Structure Overview:
 // Pre-prologue loop:
@@ -563,7 +563,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         }
         break;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -579,7 +579,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       case CircularBufferLoopStage::Epilog: {
         return;
       }
-      case CircularBufferLoopStage::NotApplicable: {
+      default: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
     }

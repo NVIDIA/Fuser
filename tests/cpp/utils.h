@@ -43,6 +43,10 @@ struct CGResultsPackage {
   std::unique_ptr<KernelExecutor> kernel_executor;
 };
 
+// Returns the only executor in the most recent runtime.
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache);
+
 // Grabs heuristics and schedules with the provided scheduler type, compiles and
 // runs with Fuion executor, returns a struct containing the outputs,
 // heuristic_params, and KernelExecutor. These structures are for convenience in

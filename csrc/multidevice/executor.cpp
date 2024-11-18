@@ -75,7 +75,7 @@ std::vector<at::Tensor> allocateOutputSpace(
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    hir::HostIrExecutorParams params)
+    hir::HostIrEvaluatorParams params)
     : comm_(comm), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
@@ -131,13 +131,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
           return isResharding(expr);
         });
-    if (!is_resharding) {
-      auto host_unit = IrBuilder::create<hir::HostUnit>(
-          staged_fusion->makeFusion(group).second);
-      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-          host_unit, clone(group->inputs()), clone(group->outputs()));
-      hic->pushBackTopLevelExprs(post_on_stream);
-    } else {
+    if (is_resharding) {
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
@@ -148,6 +142,12 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         hic->pushBackTopLevelExprs(communication);
         hic->pushBackTopLevelExprs(wait);
       }
+    } else {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
     }
   }
   for (auto input : staged_fusion->inputs()) {
@@ -157,9 +157,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     hic->addOutput(ir_cloner.clone(output));
   }
 
-  // Create the HostIrExecutor representing the host program
+  // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
-      std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, params);
+      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,

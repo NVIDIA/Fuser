@@ -354,22 +354,12 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 
 namespace {
 
-// Returns the only executor in the most recent runtime.
-const KernelExecutor& onlyExecutorInMostRecentRuntime(
-    const FusionExecutorCache& executor_cache) {
-  const std::vector<KernelExecutor>& executors =
-      executor_cache.getMostRecentKernelRuntime()->executors();
-  EXPECT_EQ(executors.size(), 1);
-  return executors.front();
-}
-
-bool storesToOutput(const KernelExecutor& executor, const int64_t out_index) {
+bool storesToOutput(const KernelExecutor* ke, const int64_t out_index) {
   // Get the variable name from the `kir::Kernel` not the input fusion, because
   // they are not always the same.
-  std::string var_name =
-      ir_utils::varName(executor.kernel()->outputs()[out_index]);
+  std::string var_name = ir_utils::varName(ke->kernel()->outputs()[out_index]);
   std::regex store_to_output(R"(\b)" + var_name + R"(\[)");
-  return std::regex_search(executor.kernelString(), store_to_output);
+  return std::regex_search(ke->kernelString(), store_to_output);
 }
 
 } // namespace
@@ -415,7 +405,8 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      const KernelExecutor& ke = runtime->executors().at(group->groupId());
+      const auto* ke =
+          runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
         if (storesToOutput(ke, i)) {
@@ -425,7 +416,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
       EXPECT_EQ(num_stores, 1)
           << "The generated CUDA kernel is expected to store data to one output:"
           << std::endl
-          << ke.kernelString();
+          << ke->kernelString();
     }
   }
 }
@@ -494,7 +485,8 @@ TEST_F(AliasTest, Issue1452) {
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      const KernelExecutor& ke = runtime->executors().at(group->groupId());
+      const auto& ke =
+          runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
         if (storesToOutput(ke, i)) {
@@ -504,7 +496,7 @@ TEST_F(AliasTest, Issue1452) {
       EXPECT_EQ(num_stores, 1)
           << "The generated CUDA kernel is expected to store data to one output:"
           << std::endl
-          << ke.kernelString();
+          << ke->kernelString();
     }
   }
 }
@@ -531,11 +523,11 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  const KernelExecutor& ke = onlyExecutorInMostRecentRuntime(executor_cache);
+  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   EXPECT_FALSE(storesToOutput(ke, /*out_index=*/0))
       << "The generated CUDA kernel shouldn't store data to output 0:"
       << std::endl
-      << ke.kernelString();
+      << ke->kernelString();
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -1228,11 +1220,12 @@ TEST_F(AliasTest, KernelExecutor) {
   // output on the host instead of launching a CUDA kernel.
   fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
 
-  KernelExecutor ke;
+  ExprEvalExecutor ee;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10, 10}, options);
-  ke.compile(&fusion, {in_tensor});
-  at::Tensor out_tensor = ke.run({in_tensor})[0];
+  ee.compile(&fusion);
+  auto args = KernelArgumentHolder::createKernelArgumentHolder({in_tensor});
+  at::Tensor out_tensor = ee.run(args)[0];
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
@@ -1541,6 +1534,87 @@ TEST_F(AliasTest, Issue2664) {
       out_tensors,
       {t1, t2},
       {aten_out},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(AliasTest, TrivialInplaceUpdateNoSegmentation) {
+  // testing a complete fusion
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = add(in, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(out);
+  // this is an inplace update and shouldn't be segmented into its own kernel by
+  // alias analysis
+  TensorView* update_input = set(out);
+  fusion->aliasOutputToInput(update_input, in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor original_tensor = in_tensor.clone();
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+
+  // Verify inplace update
+  EXPECT_TRUE(out_tensors[0].equal(in_tensor));
+  // Verify no segmentation
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  // Verify output values.
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {original_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
+  // testing a complete fusion
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({24});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* r_in = reshape(in, in_shape, out_shape);
+  TensorView* out = add(r_in, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(out);
+  // this is an inplace update and shouldn't be segmented into its own kernel by
+  // alias analysis
+  TensorView* r_out = reshape(out, out_shape, in_shape);
+  TensorView* update_input = set(r_out);
+  fusion->aliasOutputToInput(update_input, in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor original_tensor = in_tensor.clone();
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+
+  // Verify inplace update
+  EXPECT_TRUE(
+      out_tensors[0].as_strided({2, 3, 4}, {12, 4, 1}).equal(in_tensor));
+
+  // Verify no segmentation
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  // Verify output values.
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {original_tensor},
       __LINE__,
       __FILE__);
 }

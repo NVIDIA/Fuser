@@ -1152,14 +1152,14 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
 // multi-matmul refactor is finished.
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
-    const ValGraph& permissive_graph,
+    const ValGraph& graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
   for (size_t i : c10::irange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
-    const ValGroup& g = permissive_graph.toGroup(id);
+    const ValGroup& g = graph.toGroup(id);
     auto order_it = std::find(ordering.begin(), ordering.end(), g);
     NVF_ERROR(
         order_it != ordering.end(),
@@ -1173,8 +1173,8 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
 
   // Now merge dims that have the same role
   NVF_ERROR(tv->nDims() > 0);
-  const auto getRole = [&dim_roles, &permissive_graph](IterDomain* id) {
-    const ValGroup& g = permissive_graph.toGroup(id);
+  const auto getRole = [&dim_roles, &graph](IterDomain* id) {
+    const ValGroup& g = graph.toGroup(id);
     const auto it = dim_roles.find(g);
     NVF_ERROR(it != dim_roles.end());
     return it->second;
@@ -1302,10 +1302,9 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles) {
-  // Assumes the permissive graph has already been built, since we've been
+  // Assumes the Broadcast graph has already been built, since we've been
   // provided dim_roles
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   // Note: using DataWrapperOpt<MatmulDimRole> would be preferable here.
   // However, using DataWrapperOpt<MatmulDimRole>(std::move(dom)) leads to a
@@ -1314,11 +1313,11 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   // To avoid this complication I'm using an unwrapped variant for the lambda's
   // result type.
   using MatmulDimRoleOpt = std::variant<std::string, MatmulDimRole>;
-  const auto findInnerDim =
-      [&dim_roles, &permissive_graph](TensorView* tv) -> MatmulDimRoleOpt {
+  const auto findInnerDim = [&dim_roles,
+                             &graph](TensorView* tv) -> MatmulDimRoleOpt {
     IterDomain* inner_id =
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
-    const ValGroup& g = permissive_graph.toGroup(inner_id);
+    const ValGroup& g = graph.toGroup(inner_id);
     auto g_it = dim_roles.find(g);
     if (g_it == dim_roles.end()) {
       return "Inner domain of tensor was not mapped to a MatmulDimRole";
@@ -1362,10 +1361,9 @@ TensorRolesMapOpt getTensorRoles(
 
   TensorRolesMap tensor_roles;
 
-  // Assumes the permissive graph has already been built, since we've been
+  // Assumes the Broadcast graph has already been built, since we've been
   // provided dim_roles
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   struct DimPresence {
     bool m = false;
@@ -1374,13 +1372,13 @@ TensorRolesMapOpt getTensorRoles(
     bool unmapped = false;
   };
 
-  const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
+  const auto findDims = [&dim_roles, &graph](TensorView* tv) {
     DimPresence has;
     for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      const ValGroup& g = permissive_graph.toGroup(id);
+      const ValGroup& g = graph.toGroup(id);
       auto it = dim_roles.find(g);
       if (it == dim_roles.end()) {
         // tv has an unmapped non-broadcast and non-reduction dimension
@@ -1722,7 +1720,12 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   } else if (output->definition()->isA<ReductionOp>()) {
     Val* init = IrBuilder::create<Val>(0.0, output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
-    return IrBuilder::create<MmaOp>(output, A, B, init);
+    return IrBuilder::create<MmaOp>(
+        output,
+        A,
+        B,
+        init,
+        MmaOp::AxisMapping::trivialMapping(output->nDims()));
   }
 
   // This will hold the translated output from MatmulOp or LinearOp
@@ -1840,7 +1843,7 @@ namespace {
 // Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
 // mappings
 DimRolesMap matmulOrLinearOpDimRoles(
-    const ValGraph& permissive_graph,
+    const ValGraph& graph,
     const std::vector<IterDomain*>& out_logical,
     const std::vector<IterDomain*>& mapping_a,
     const std::vector<IterDomain*>& mapping_b) {
@@ -1849,7 +1852,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
   NVF_ERROR(mapping_a.size() == mapping_b.size());
   for (size_t i : c10::irange(out_logical.size())) {
     IterDomain* id_out = out_logical[i];
-    const ValGroup& g = permissive_graph.toGroup(id_out);
+    const ValGroup& g = graph.toGroup(id_out);
 
     if (id_out->isReduction()) {
       dim_roles[g] = MatmulDimRole::K;
@@ -1875,9 +1878,8 @@ DimRolesMap matmulOrLinearOpDimRoles(
 } // namespace
 
 DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
   // Batch. These are enumerated in the MatmulDimRole enum class. They are
@@ -1892,7 +1894,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   if (output->definition()->isA<MatmulOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     return matmulOrLinearOpDimRoles(
-        permissive_graph,
+        graph,
         out_logical,
         ops::mapMatmulOpIterDomains(
             A->getLogicalDomain(), 0, out_logical.size()),
@@ -1903,7 +1905,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     bool k_bcast = A->getLogicalDomain().back()->isBroadcast();
     return matmulOrLinearOpDimRoles(
-        permissive_graph,
+        graph,
         out_logical,
         ops::mapLinearOpIterDomains(
             A->getLogicalDomain(), 0, out_logical.size(), k_bcast),
@@ -1921,10 +1923,10 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   // group is present at all in the tv. The second records whether the value is
   // concrete (i.e. not reduction, broadcast, or device).
   std::unordered_map<ValGroup, std::pair<DimPresence, DimPresence>> flags;
-  const auto recordPresence = [&permissive_graph, &flags](
+  const auto recordPresence = [&graph, &flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getLogicalDomain()) {
-      const ValGroup& g = permissive_graph.toGroup(id);
+      const ValGroup& g = graph.toGroup(id);
       auto& [present_flags, concrete_flags] = flags[g];
       present_flags.set(tensor_num);
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
@@ -1965,7 +1967,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph) {
+    const ValGraph& graph) {
   VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
       other_dims, device_dims;
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
@@ -1989,7 +1991,7 @@ std::vector<ValGroup> canonicalDimOrdering(
         IterDomain* id = *id_it;
         if (id->isDeviceDim()) {
           // save device dim groups since they must be outermost
-          const ValGroup& g = permissive_graph.toGroup(id);
+          const ValGroup& g = graph.toGroup(id);
           device_dims.pushBack(g);
           continue;
         } else if (id->isBroadcast() || id->isReduction()) {
@@ -1997,7 +1999,7 @@ std::vector<ValGroup> canonicalDimOrdering(
           // their roles
           continue;
         }
-        const ValGroup& g = permissive_graph.toGroup(id);
+        const ValGroup& g = graph.toGroup(id);
         const auto it = dim_roles.find(g);
         if (it == dim_roles.end()) {
           other_dims.pushBack(g);

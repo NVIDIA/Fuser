@@ -767,12 +767,13 @@ enum class LoadStoreOpType {
 // Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
 enum class CircularBufferLoopStage {
-  NotApplicable,
-  Prolog,
+  Prolog = 0,
   Main,
   Epilog,
   LoadWarp,
   ComputeWarp
+  EndOfStages, // A special placeholder used to iterate over all stages
+  NotApplicable
 };
 
 //! Supported swizzle types,

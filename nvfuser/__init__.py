@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from typing import Callable, Optional, Union, List  # noqa: F401
+import warnings
 
 import torch
 
@@ -54,6 +55,48 @@ class FusionDefinition(_C._FusionDefinition):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
 
+    def segment(self, inputs):
+        """
+        Decompose this FusionDefinition into a sequence of segment
+        FusionDefinitions.
+
+        This function runs the nvfuser segmentation algorithm and translates the
+        segments into their corresponding FusionDefinitions.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Returns:
+            List[FusionDefinition]: The FusionDefinitions corresponding to the
+            sub-fusion segments of this FusionDefinition.
+        """
+        num_segments = self._setup_segmentation(inputs)
+        if num_segments == 1:
+            self._finalize_segmentation()
+            return []
+
+        # Track all segments for this FusionDefinition
+        self.segments = []
+
+        # Track map_segment_fid_to_original_fid for each segment
+        self.segment_index_space_maps = {}
+
+        # Track the last segment a value is used as an input
+        self.map_value_to_last_used_segment = {}
+
+        for idx in range(num_segments):
+            new_fd = FusionDefinition()
+            map_segment_fid_to_original_fid = self._build_segment(new_fd, idx)
+
+            for segment_input in new_fd.inputs():
+                original_input = map_segment_fid_to_original_fid[segment_input]
+                self.map_value_to_last_used_segment[original_input] = idx
+
+            self.segment_index_space_maps[new_fd] = map_segment_fid_to_original_fid
+            self.segments.append(new_fd)
+        self._finalize_segmentation()
+        return self.segments
+
     def __enter__(self):
         return self._setup_definition()
 
@@ -77,6 +120,8 @@ class FusionDefinition(_C._FusionDefinition):
         print_repro=False,
         profile=False,
         save_repro_inputs=False,
+        _enable_options: list[str] = [],
+        _disable_options: list[str] = [],
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -119,6 +164,11 @@ class FusionDefinition(_C._FusionDefinition):
             profile (bool): Captures a CUPTI based profile of a fusion.
             save_repro_inputs (bool): Saves the inputs for last_repro_script() to
                 provide a provide a reproduction script.
+            _enable_options/_disable_options (list): NVFUSER_ENABLE/DISABLE options to use.
+                This is an alternative to environment variables.
+                Note: Currently, we do not cache/store these options in the FusionCache which makes it
+                    plausible to reuse kernels when executing the same fusion definition with different sets of options.
+                    Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
 
         Returns:
             List[Tensor]
@@ -176,15 +226,23 @@ class FusionDefinition(_C._FusionDefinition):
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
         results = None
+
         try:
             if print_repro:
                 print(self.repro_script_for(inputs))
+            if len(_enable_options) or len(_disable_options):
+                warnings.warn(
+                    "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
+                )
+
             results = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
                 profile=profile,
+                _enable_options=_enable_options,
+                _disable_options=_disable_options,
             )
             return results
         except Exception as err:

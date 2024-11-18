@@ -693,6 +693,8 @@ class AllocationInserter : public kir::ExprMutator {
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
 
+      // Initialize and invalidate mbarriers that are used to notify that
+      // the load of the circular buffer is complete.
       auto mbarrier_init_filled =
           initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
       auto mbarrier_inval_filled =

@@ -6041,10 +6041,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
   // check thread_pred and write_stride
-  const auto& ke =
-      executor_cache.getMostRecentKernelRuntime()->executors().at(0);
-  auto kernel = ke.kernel();
-  const auto& thread_pred_map = ke.threadPredMap();
+  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+  auto kernel = ke->kernel();
+  const auto& thread_pred_map = ke->threadPredMap();
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
@@ -6097,10 +6096,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
     // check thread_pred and write_stride
-    const auto& ke =
-        executor_cache.getMostRecentKernelRuntime()->executors().at(0);
-    auto kernel = ke.kernel();
-    const auto& thread_pred_map = ke.threadPredMap();
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    auto kernel = ke->kernel();
+    const auto& thread_pred_map = ke->threadPredMap();
 
     for (const auto expr : kernel->exprs()) {
       auto tv = ir_utils::getTvOutput(expr);
@@ -7849,14 +7847,17 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
   // check segment and sliced tvs are not cached
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(kernel_runtime->isSegmented(), "segmentation didn't happen");
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   NVF_CHECK(num_segments == 3, "Expect 3 segments, got: ", num_segments);
-  for (const auto& ke : kernel_runtime->executors()) {
-    for (auto expr : ke.fusion()->exprs()) {
+  for (const auto& exec : kernel_runtime->executors()) {
+    if (!exec->isA<KernelExecutor>()) {
+      continue;
+    }
+    const auto* ke = exec->as<KernelExecutor>();
+    for (auto expr : ke->fusion()->exprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         NVF_CHECK(
@@ -8944,11 +8945,14 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
-  auto i0 = IrBuilder::create<Val>(DataType::Index);
-  fusion.addInput(i0);
 
-  auto tv2 = reshape(tv0, {i0});
-  auto tv3 = reshape(tv1, {i0});
+  auto tv2 = reshape(
+      tv0,
+      {mul(
+          mul(tv0->axis(0)->extent(), tv0->axis(1)->extent()),
+          tv0->axis(2)->extent())});
+  auto tv3 =
+      reshape(tv1, {mul(tv1->axis(0)->extent(), tv1->axis(1)->extent())});
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
@@ -8959,7 +8963,6 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   expr_eval.bind(tv0->axis(2)->extent(), 8L);
   expr_eval.bind(tv1->axis(0)->extent(), 8L);
   expr_eval.bind(tv1->axis(1)->extent(), 8L);
-  expr_eval.bind(i0, 64L);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);

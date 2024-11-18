@@ -23,8 +23,8 @@ struct Use {
   Expr* user;
 
   bool operator<(const Use& other) const {
-    return std::make_pair(use_of, user) <
-        std::make_pair(other.use_of, other.user);
+    return std::make_pair(use_of->name(), user->name()) <
+        std::make_pair(other.use_of->name(), other.user->name());
   }
 
   bool operator==(const Use& other) const {

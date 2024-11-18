@@ -27,7 +27,8 @@ static void setupFusion(Fusion* fusion) {
 
   TensorView* tvs[16];
   for (size_t i = 0; i < 16; i++) {
-    tvs[i] = makeContigTensor(2, DataType::Float);
+    tvs[i] = makeSymbolicTensor(2, DataType::Float);
+    tvs[i]->setContiguity({false, true});
     fusion->addInput(tvs[i]);
   }
 

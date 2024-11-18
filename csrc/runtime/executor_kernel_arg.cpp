@@ -372,4 +372,27 @@ std::vector<std::byte> getKernelArgument(
   return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
+int64_t computeBytes(const KernelArgumentHolder& args) {
+  int64_t num_bytes = 0;
+  // Figure how many bytes are inputs, outputs, and temporary buffers
+  for (auto i : c10::irange(args.size())) {
+    if (args[i]->is<at::Tensor>()) {
+      auto t = args[i]->as<at::Tensor>();
+      num_bytes += static_cast<int64_t>(t.storage().nbytes());
+    }
+  }
+  return num_bytes;
+}
+
+int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
+  int64_t num_bytes = 0;
+  for (auto i : c10::irange(outputs.size())) {
+    const auto& output = outputs.at(i);
+    // NOTE: this assumes that all output elements correspond to a single
+    // store
+    num_bytes += static_cast<int64_t>(output.storage().nbytes());
+  }
+  return num_bytes;
+}
+
 } // namespace nvfuser
