@@ -859,7 +859,5 @@ constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
 bool isVectorized(TensorView* tv);
 
 // Returns count of substring in CUDA kernel
-size_t subStringCountInCUDAKernel(
-    Fusion* fusion,
-    const std::string& substring);
+size_t subStringCountInCUDAKernel(Fusion* fusion, const std::string& substring);
 } // namespace nvfuser

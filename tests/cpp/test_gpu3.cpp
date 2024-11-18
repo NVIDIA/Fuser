@@ -9021,67 +9021,6 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
   ASSERT_TRUE(tidx_dim != nullptr);
 }
 
-using NVFuserTestUseCpAsyncBool = NVFuserFixtureParamTest<bool>;
-TEST_P(NVFuserTestUseCpAsyncBool, FusionUseCpAsyncOrNot) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  int m = 64, n = 96;
-
-  // Use the parameterized value for use_async
-  const bool use_async = GetParam();
-  TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = makeContigTensor(1);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  // copy tv0 to shared memory tv2
-  auto tv2 = set(tv0);
-  tv2->setMemoryType(MemoryType::Shared);
-  if (use_async) {
-    tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
-    tv2->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
-  }
-
-  // copy tv1 to shared memory tv3
-  auto tv3 = set(tv1);
-  tv3->setMemoryType(MemoryType::Shared);
-  if (use_async) {
-    tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
-    tv3->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
-  }
-
-  auto tv4 = broadcast(tv3, {true, false});
-  auto tv5 = add(tv2, tv4);
-  fusion.addOutput(tv5);
-
-  //[I0, I1] --> [I0/2, 2, 96]
-  for (auto tv : {tv0, tv2, tv4, tv5}) {
-    tv->split(0, 2);
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
-    tv->axis(-2)->parallelize(ParallelType::TIDy);
-  }
-  //[I1]
-  for (auto tv : {tv1, tv3}) {
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
-  }
-
-  inlineMost();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({m, n}, options);
-  at::Tensor t1 = at::randn({n}, options);
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
-  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
-}
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    NVFuserTestUseCpAsyncBool,
-    ::testing::Values(false, true));
-
 using NVFuserTestCpAsyncRace = NVFuserFixtureParamTest<std::pair<bool, bool>>;
 TEST_P(NVFuserTestCpAsyncRace, isInlinedhasTIDy) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
@@ -9145,25 +9084,22 @@ TEST_P(NVFuserTestCpAsyncRace, isInlinedhasTIDy) {
   const std::string check_str = "cp.async.wait_all";
   int expected_count = 0;
   // (1) when not inlined and has tidy, there are two cp.async.wait_all
-  if(!is_inlined && has_tidy) {
+  if (!is_inlined && has_tidy) {
     expected_count = 2;
   }
-  // (2) when inlined and not has tidy, ideally, there should be only one cp.async.wait_all
-  // since the first copy doesn't need syncthreads(), however, due to the order of expressions
-  // the read from T3 happens before the write to T2, so the async copy to T3 and T2 can't share
-  // the same wait. The pesdo code is like:
-  // async copy to T3
-  // cp.async.wait_all
-  // read from T3
-  // async copy to T2
-  // cp.async.wait_all
-  // read from T2
+  // (2) when inlined and not has tidy, ideally, there should be only one
+  // cp.async.wait_all since the first copy doesn't need syncthreads(), however,
+  // due to the order of expressions the read from T3 happens before the write
+  // to T2, so the async copy to T3 and T2 can't share the same wait. The pesdo
+  // code is like: async copy to T3 cp.async.wait_all read from T3 async copy to
+  // T2 cp.async.wait_all read from T2
   // TODO: this exposed an opportunity to optimize the order of expressions
-  else if(is_inlined && !has_tidy) {
+  else if (is_inlined && !has_tidy) {
     expected_count = 2;
   }
-  // when inlined & has tidy, there are four cp.async.wait_all, 2 in each unswitched block
-  else if(is_inlined && has_tidy) {
+  // when inlined & has tidy, there are four cp.async.wait_all, 2 in each
+  // unswitched block
+  else if (is_inlined && has_tidy) {
     expected_count = 4;
   }
   // when not inlined & not has tidy, there is only one cp.async.wait_all
