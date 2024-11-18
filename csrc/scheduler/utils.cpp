@@ -1225,7 +1225,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
         std::optional<std::vector<int64_t>> alloc_permutation =
             ir_utils::computePermutation(
                 tv->getLogicalDomain(), tv->getAllocationDomain());
-        if (!alloc_permutation.empty()) {
+        if (alloc_permutation.has_value()) {
           pad_out_tv->setAllocationDomain(
               ir_utils::applyPermutation(
                   pad_out_tv->getLogicalDomain(), alloc_permutation.value()),
