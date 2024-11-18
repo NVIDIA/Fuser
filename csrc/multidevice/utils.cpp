@@ -148,77 +148,75 @@ bool haveDifferentShardings(
 
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
+  std::unordered_set<Val*> mapped_p_logical_ids;
+  mapped_p_logical_ids.reserve(p2c.size());
   std::unordered_set<Val*> mapped_c_root_ids;
-  for (IterDomain* p_id : producer->getLogicalDomain()) {
-    const auto i = p2c.find(p_id);
+  mapped_c_root_ids.reserve(p2c.size());
+  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
+    const auto i = p2c.find(p_logical_id);
     if (i == p2c.end()) {
-      // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
-      // parallelized on DID, the squeezed dimension is size-1 and doesn't
-      // trigger resharding.
+      // This happens e.g. when `p_logical_id` is squeezed. Even if
+      // `p_logical_id` is parallelized on DID, the squeezed dimension is size-1
+      // and doesn't trigger resharding.
       continue;
     }
+    mapped_p_logical_ids.insert(p_logical_id);
     mapped_c_root_ids.insert(i->second);
   }
 
-  std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id;
-  for (IterDomain* p_loop_id : producer->getLoopDomain()) {
-    const ParallelType parallel_type = p_loop_id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
-      continue;
-    }
+  auto map_parallel_type_to_id = [](const std::vector<IterDomain*>& loop_domain)
+      -> std::unordered_map<ParallelType, IterDomain*> {
+    std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
+    parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+    for (IterDomain* loop_id : loop_domain) {
+      const ParallelType parallel_type = loop_id->getParallelType();
+      if (!isParallelTypeDeviceDim(parallel_type)) {
+        continue;
+      }
 
-    const auto dependencies = IterVisitor::getInputsTo(
-        {p_loop_id},
-        {producer->getLogicalDomain().begin(),
-         producer->getLogicalDomain().end()});
-    if (std::any_of(
-            dependencies.begin(), dependencies.end(), [&](Val* dependency) {
-              return p2c.count(dependency->as<IterDomain>()) > 0;
-            })) {
       NVF_ERROR(
-          p_parallel_type_to_id.try_emplace(parallel_type, p_loop_id).second,
+          parallel_type_to_id.try_emplace(parallel_type, loop_id).second,
           "Found multiple loop IterDomains with the same parallel type (",
           parallel_type,
           "): ",
-          producer);
+          toDelimitedString(loop_domain));
     }
-  }
+    return parallel_type_to_id;
+  };
+  std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
+      map_parallel_type_to_id(producer->getLoopDomain());
+  std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
+      map_parallel_type_to_id(consumer->getLoopDomain());
 
-  std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id;
-  for (IterDomain* c_loop_id : consumer->getLoopDomain()) {
-    const ParallelType parallel_type = c_loop_id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
-      continue;
-    }
-
-    auto dependencies = IterVisitor::getInputsTo(
-        {c_loop_id},
-        {consumer->getMaybeRootDomain().begin(),
-         consumer->getMaybeRootDomain().end()});
-    if (std::any_of(
-            dependencies.begin(), dependencies.end(), [&](Val* dependency) {
-              return mapped_c_root_ids.count(dependency->as<IterDomain>()) > 0;
-            })) {
-      NVF_ERROR(
-          c_parallel_type_to_id.try_emplace(parallel_type, c_loop_id).second,
-          "Found multiple loop IterDomains with the same parallel type (",
-          parallel_type,
-          "): ",
-          consumer);
-      c_parallel_type_to_id[parallel_type] = c_loop_id;
-    }
-  }
+  auto depends_on = [](IterDomain* id,
+                       const std::unordered_set<Val*>& dependencies) -> bool {
+    const auto inputs = IterVisitor::getInputsTo(
+        {id}, {dependencies.begin(), dependencies.end()});
+    return std::any_of(inputs.begin(), inputs.end(), [&](Val* input) -> bool {
+      return dependencies.count(input);
+    });
+  };
 
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
   for (const auto parallel_type : kParallelTypeDIDs) {
-    if (p_parallel_type_to_id.count(parallel_type) !=
-        c_parallel_type_to_id.count(parallel_type)) {
+    IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
+    if (p_loop_id != nullptr && !depends_on(p_loop_id, mapped_p_logical_ids)) {
+      p_loop_id = nullptr;
+    }
+
+    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
+    if (c_loop_id != nullptr && !depends_on(c_loop_id, mapped_c_root_ids)) {
+      c_loop_id = nullptr;
+    }
+
+    if ((p_loop_id == nullptr) != (c_loop_id == nullptr)) {
       return true;
     }
-    if (p_parallel_type_to_id.count(parallel_type)) {
-      IterDomain* p_id = p_parallel_type_to_id.at(parallel_type);
-      IterDomain* c_id = c_parallel_type_to_id.at(parallel_type);
-      if (!exact_graph.disjointValSets().strictAreMapped(p_id, c_id)) {
+
+    if (p_loop_id != nullptr) {
+      NVF_ERROR(c_loop_id != nullptr);
+      if (!exact_graph.disjointValSets().strictAreMapped(
+              p_loop_id, c_loop_id)) {
         return true;
       }
     }
