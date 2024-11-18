@@ -437,6 +437,4 @@ def test_stride_order_reduction_domain():
     rank = len(nvf_stride)
     for idx, axis in enumerate([0, 1, 2]):
         sorted_stride[rank - 1 - axis] = nvf_stride[idx]
-    rev_sorted = sorted(sorted_stride, reverse=True)
-    # self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
-    breakpoint()
+    assert sorted(sorted_stride, reverse=True) == sorted_stride
