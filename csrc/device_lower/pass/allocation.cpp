@@ -654,10 +654,8 @@ class AllocationInserter : public kir::ExprMutator {
 
       // Initialize and invalidate of mbarriers that are used to notify the
       // completion of loading of the circular buffer.
-      auto mbarrier_init_filled =
-          initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
-      auto mbarrier_inval_filled =
-          invalidateMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
+      auto mbarrier_init_filled = initializeMbarrier(fl, mbarrier);
+      auto mbarrier_inval_filled = invalidateMbarrier(fl, mbarrier);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
