@@ -1218,13 +1218,16 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
         cached_uses.push_back(use);
       } else {
         // propagate allocation domain on pad op
+        if (!use->as<PadOp>()->out()->isA<TensorView>()) {
+          continue;
+        }
         auto pad_out_tv = use->as<PadOp>()->out()->as<TensorView>();
         if (pad_out_tv->hasAllocation()) {
           continue;
         }
         std::optional<std::vector<int64_t>> alloc_permutation =
             ir_utils::computePermutation(
-                tv->getLogicalDomain(), tv->getAllocationDomain());
+                tv->getLogicalDomain(), tv->getMaybeAllocationDomain());
         if (alloc_permutation.has_value()) {
           pad_out_tv->setAllocationDomain(
               ir_utils::applyPermutation(
