@@ -84,7 +84,7 @@ class ScriptConfiguration:
     empirical_hidden_sizes: [int]
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class InnerReductionConfiguration:
     vectorize_factor: int = 1
     unroll_factor: int = 1
@@ -106,6 +106,12 @@ gpu_properties = torch.cuda.get_device_properties(device=0)
 # positive infinity.
 def ceil_div(a, b):
     return int(math.ceil(a / b))
+
+
+# Returns the result of a/b rounded to the nearest integer in the direction of
+# negative infinity.
+def floor_div(a, b):
+    return int(math.floor(a / b))
 
 
 def convert_to_inner_reduction_params(scheduler_config, reduction_params):
@@ -186,7 +192,7 @@ def generate_scheduler_configurations(input_shape):
         )
         scheduler_config.bdimy = min(
             max_threads_per_cta,
-            max(1, ceil_div(threads_per_cta, scheduler_config.bdimx)),
+            max(1, floor_div(threads_per_cta, scheduler_config.bdimx)),
         )
         scheduler_config.godim = ceil_div(
             num_iterations, scheduler_config.bdimy * scheduler_config.unroll_factor
@@ -415,7 +421,9 @@ def argmax(map_scheduler_config_to_perf):
 # find the best parameters
 def find_best_parameters(predictor, input_shape, scheduler_configurations):
     map_scheduler_config_to_performance = {
-        scheduler_config: predictor.predict([[*input_shape, astuple(scheduler_config)]])
+        scheduler_config: predictor.predict(
+            [[*input_shape, *astuple(scheduler_config)]]
+        )
         for scheduler_config in scheduler_configurations
     }
     return argmax(map_scheduler_config_to_performance)
@@ -443,7 +451,7 @@ def collect_data(script_config):
             perf_metric, _ = run_profile(
                 script_config.selected_fusion, presched_fd, inputs, parameter_config
             )
-            parameters.append((*shape, astuple(parameter_config)))
+            parameters.append((*shape, *astuple(parameter_config)))
             performance.append(perf_metric)
     return parameters, performance
 
@@ -638,7 +646,7 @@ def main():
         selected_fusion=FUSION.SUM,
         num_dimensions=2,
         outer_shapes=[16384],
-        inner_shapes=[4096, 16384],
+        inner_shapes=[128, 1024, 4096, 16384],
         tensor_datatype=torch.bfloat16,
         test_data_percentage=0.1,
         empirical_batch_size=16384,
