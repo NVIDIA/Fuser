@@ -721,12 +721,13 @@ ExpressionEvaluator bindInputs(
       std::stringstream ss;
       ss << "When trying to run the provided host program,"
          << " there was an error with the provided input " << i
-         << ". Provided input was:\n  ";
-      ss << PolymorphicValue_functions::toString(*args[i]);
-      ss << "\n  Fusion input is:\n  ";
-      ss << inputs[i]->toString();
-      ss << "\n  Expr eval provided the error:\n\"\"\"";
-      ss << e.msg() << "\"\"\"\n";
+         << ". Provided input was:" << std::endl;
+      indent(ss, 1) << PolymorphicValue_functions::toString(*args[i])
+                    << std::endl;
+      ss << "Fusion input was:" << std::endl;
+      indent(ss, 1) << inputs[i]->toString() << std::endl;
+      ss << "Expr eval provided the error:" << std::endl;
+      ss << "\"\"\"" << e.msg() << "\"\"\"" << std::endl;
       NVF_THROW(ss.str());
     }
   }
