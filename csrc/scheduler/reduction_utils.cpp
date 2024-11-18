@@ -297,8 +297,6 @@ TensorView* scheduleReductionTV(
     }
   }
 
-  std::cout << "Reduction TV: " << reduction_tv->toString() << std::endl;
-
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
 
   // In the case of outer grid persistence, make sure the vectorized
