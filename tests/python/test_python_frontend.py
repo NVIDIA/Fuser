@@ -1263,7 +1263,40 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with FusionDefinition() as fd:
             fusion_func(fd)
-        assert fd.segment(inputs) == 2
+
+        # create segments
+        segments = fd.segment(inputs)
+
+        # Each segment has a map from its segment index space to the original
+        # fusion's index space. The original fusion creates two segments.
+        # Check that segment maps match expected behavior.
+        assert len(fd.segment_index_space_maps) == 2
+
+        # First Segment:
+        # def nvfuser_fusion_id2(fd : FusionDefinition) -> None :
+        #    T0 = fd.define_tensor(shape=[-1, -1],
+        #                          contiguity=[True, True],
+        #                          dtype=DataType.Float,
+        #                          is_cpu=False)
+        #    T1 = fd.ops.sum(T0, dims=[1], keepdim=False, dtype=DataType.Float)
+        #    T2 = fd.ops.broadcast(T1, is_broadcast_dim=[False, True])
+        #    fd.add_output(T2)
+        #
+        assert fd.segment_index_space_maps[segments[0]] == {2: 2, 0: 0}
+
+        # Second Segment:
+        # def nvfuser_fusion_id3(fd : FusionDefinition) -> None :
+        #    T0 = fd.define_tensor(shape=[-1, -1],
+        #                          contiguity=[True, True],
+        #                          dtype=DataType.Float,
+        #                          is_cpu=False)
+        #    T1 = fd.define_tensor(shape=[-1, 1],
+        #                          contiguity=[True, None],
+        #                          dtype=DataType.Float,
+        #                          is_cpu=False)
+        #    T2 = fd.ops.add(T0, T1)
+        #    fd.add_output(T2)
+        assert fd.segment_index_space_maps[segments[1]] == {2: 3, 1: 2, 0: 1}
 
     def test_arithmetic_ops(self):
         inputs = [
