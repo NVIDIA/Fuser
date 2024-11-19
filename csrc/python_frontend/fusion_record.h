@@ -586,13 +586,11 @@ struct DimsOpRecord : RecordFunctor {
       auto arg =
           fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = set(arg);
-      int rank = static_cast<int>(dims_.size());
-      std::vector<IterDomain*> allocation_domain(rank);
-      for (int i : c10::irange(rank)) {
-        allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
-            output->axis(i);
-      }
-      output->setAllocationDomain(allocation_domain, true);
+      std::vector<IterDomain*> allocation_domain = ir_utils::strideOrderToAllocation(
+            output->getLogicalDomain(), dims_);
+      bool contiguity_value = isTrivialStrideOrder(dims_);
+      auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, contiguity_value);
+      output->setAllocationDomain(allocation_domain, contiguity);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
       NVF_THROW("op_type is not recognized by dims operator.");
@@ -1542,7 +1540,8 @@ struct OutputRecord : RecordFunctor {
           std::vector<IterDomain*> allocation_domain = ir_utils::strideOrderToAllocation(
             logical_domain, stride_order_
           );
-          auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, false);
+          bool contiguity_value = isTrivialStrideOrder(stride_order_);
+          auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, contiguity_value);
           tv_output->setAllocationDomain(allocation_domain, contiguity);
         }
         fd.addOutput(tv_output, args_.at(0).index);

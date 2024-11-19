@@ -35,6 +35,7 @@ from utils import (
     debug_serde,
     NVFuserTest,
     verify_stride_order,
+    is_trivial_stride_order
 )
 import pytest
 
@@ -1641,18 +1642,32 @@ class TestNvFuserFrontend(NVFuserTest):
     def test_output_stride_order_with_reduction(self):
         inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
 
-        for perm in itertools.permutations(range(3), 3):
+        for stride_order in itertools.permutations(range(3), 3):
 
-            def fusion_func(fd: FusionDefinition) -> None:
+            def fusion_add_output(fd: FusionDefinition) -> None:
                 T0 = fd.from_pytorch(inputs[0])
                 T1 = fd.ops.sum(T0, dims=[2])
-                fd.add_output(T1, stride_order=perm)
+                fd.add_output(T1, stride_order=stride_order)
 
             with FusionDefinition() as fd:
-                fusion_func(fd)
+                fusion_add_output(fd)
 
-            nvf_out = fd.execute(inputs)
-            verify_stride_order(nvf_out[0].stride(), perm)
+            out = fd.execute(inputs)[0]
+            verify_stride_order(out.stride(), stride_order)
+            self.assertEqual(out.is_contiguous(), is_trivial_stride_order(stride_order))
+            
+            def fusion_stride_order_op(fd: FusionDefinition) -> None:
+                T0 = fd.from_pytorch(inputs[0])
+                T1 = fd.ops.sum(T0, dims=[2])
+                T2 = fd.ops.stride_order(T1, stride_order)
+                fd.add_output(T2)
+
+            with FusionDefinition() as fd:
+                fusion_stride_order_op(fd)
+
+            out = fd.execute(inputs)[0]
+            verify_stride_order(out.stride(), stride_order) 
+            self.assertEqual(out.is_contiguous(), is_trivial_stride_order(stride_order))
 
     def test_expanded_bcast_tensor(self):
         inputs = [

@@ -613,4 +613,9 @@ void checkAllEqual(std::initializer_list<T> elements) {
   }
 }
 
+// Returns true if stride order is trivial.
+bool isTrivialStrideOrder(
+  const std::vector<int64_t>& stride_order
+);
+
 } // namespace nvfuser
