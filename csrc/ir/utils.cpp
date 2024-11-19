@@ -1311,16 +1311,19 @@ std::vector<IterDomain*> strideOrderToAllocation(
   // Verify that stride_order is valid.
   std::vector<int64_t> inc_vec(stride_order.size());
   std::iota(inc_vec.begin(), inc_vec.end(), 0);
-  NVF_CHECK(std::is_permutation(
-      stride_order.begin(), stride_order.end(), inc_vec.begin()),
-      "Stride order is not valid: ", toDelimitedString(stride_order));
+  NVF_CHECK(
+      std::is_permutation(
+          stride_order.begin(), stride_order.end(), inc_vec.begin()),
+      "Stride order is not valid: ",
+      toDelimitedString(stride_order));
 
-  if (isTrivialStrideOrder(stride_order)){
+  if (isTrivialStrideOrder(stride_order)) {
     // Allocation domain is same as logical domain
     return logical_domain;
   }
 
-  const auto& logical_domain_no_red = TensorDomain::noReductions(logical_domain);
+  const auto& logical_domain_no_red =
+      TensorDomain::noReductions(logical_domain);
   NVF_CHECK(stride_order.size() == logical_domain_no_red.size());
 
   auto rank = stride_order.size();
@@ -1330,7 +1333,7 @@ std::vector<IterDomain*> strideOrderToAllocation(
     allocation_domain_no_red[rank - 1 - stride_order[idx]] =
         logical_domain_no_red[idx];
   }
-  if (rank == logical_domain.size()){
+  if (rank == logical_domain.size()) {
     // No reduction axis is present, return early.
     return allocation_domain_no_red;
   }

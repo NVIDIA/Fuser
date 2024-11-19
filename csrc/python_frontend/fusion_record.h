@@ -586,10 +586,11 @@ struct DimsOpRecord : RecordFunctor {
       auto arg =
           fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = set(arg);
-      std::vector<IterDomain*> allocation_domain = ir_utils::strideOrderToAllocation(
-            output->getLogicalDomain(), dims_);
+      std::vector<IterDomain*> allocation_domain =
+          ir_utils::strideOrderToAllocation(output->getLogicalDomain(), dims_);
       bool contiguity_value = isTrivialStrideOrder(dims_);
-      auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, contiguity_value);
+      auto contiguity = TensorDomain::getContiguityFilledWith(
+          allocation_domain, contiguity_value);
       output->setAllocationDomain(allocation_domain, contiguity);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
@@ -1537,11 +1538,11 @@ struct OutputRecord : RecordFunctor {
         auto tv_output = output->template as<TensorView>();
         if (!stride_order_.empty()) {
           auto logical_domain = tv_output->getLogicalDomain();
-          std::vector<IterDomain*> allocation_domain = ir_utils::strideOrderToAllocation(
-            logical_domain, stride_order_
-          );
+          std::vector<IterDomain*> allocation_domain =
+              ir_utils::strideOrderToAllocation(logical_domain, stride_order_);
           bool contiguity_value = isTrivialStrideOrder(stride_order_);
-          auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, contiguity_value);
+          auto contiguity = TensorDomain::getContiguityFilledWith(
+              allocation_domain, contiguity_value);
           tv_output->setAllocationDomain(allocation_domain, contiguity);
         }
         fd.addOutput(tv_output, args_.at(0).index);

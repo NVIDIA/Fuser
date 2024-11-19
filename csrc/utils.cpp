@@ -191,9 +191,7 @@ size_t deviceAvailableSharedMemoryBytes() {
   return device_smem_limit - shared_memory_overhead;
 }
 
-bool isTrivialStrideOrder(
-  const std::vector<int64_t>& stride_order
-){
+bool isTrivialStrideOrder(const std::vector<int64_t>& stride_order) {
   std::vector<int64_t> dec_vec(stride_order.size());
   std::iota(dec_vec.begin(), dec_vec.end(), 0);
   std::reverse(dec_vec.begin(), dec_vec.end());

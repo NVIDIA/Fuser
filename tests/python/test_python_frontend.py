@@ -35,7 +35,7 @@ from utils import (
     debug_serde,
     NVFuserTest,
     verify_stride_order,
-    is_trivial_stride_order
+    is_trivial_stride_order,
 )
 import pytest
 
@@ -1655,7 +1655,7 @@ class TestNvFuserFrontend(NVFuserTest):
             out = fd.execute(inputs)[0]
             verify_stride_order(out.stride(), stride_order)
             self.assertEqual(out.is_contiguous(), is_trivial_stride_order(stride_order))
-            
+
             def fusion_stride_order_op(fd: FusionDefinition) -> None:
                 T0 = fd.from_pytorch(inputs[0])
                 T1 = fd.ops.sum(T0, dims=[2])
@@ -1666,7 +1666,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 fusion_stride_order_op(fd)
 
             out = fd.execute(inputs)[0]
-            verify_stride_order(out.stride(), stride_order) 
+            verify_stride_order(out.stride(), stride_order)
             self.assertEqual(out.is_contiguous(), is_trivial_stride_order(stride_order))
 
     def test_expanded_bcast_tensor(self):
