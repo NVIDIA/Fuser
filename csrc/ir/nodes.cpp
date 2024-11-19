@@ -30,6 +30,7 @@
 #include <numeric>
 #include <sstream>
 #include <string>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -4371,7 +4372,17 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
-  return {at::matmul(a, b)};
+  auto matmul_out = at::matmul(a, b);
+  if (out()->hasAllocation()){
+    auto matmul_sizes = matmul_out.sizes().vec();
+    auto strides = ir_utils::inferStrides(
+      out()->getLogicalDomain(),
+      out()->getMaybeAllocationDomain(),
+      matmul_sizes
+    );
+    matmul_out = at::as_strided(matmul_out, matmul_sizes, strides);
+  }
+  return {matmul_out};
 }
 
 LinearOp::LinearOp(

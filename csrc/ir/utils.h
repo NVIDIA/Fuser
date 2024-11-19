@@ -803,4 +803,8 @@ std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
 
+std::vector<int64_t> inferStrides(
+  const std::vector<IterDomain*>& logical_domain,
+  const std::vector<IterDomain*>& allocation_domain,
+  const std::vector<int64_t>& sizes);
 } // namespace nvfuser::ir_utils

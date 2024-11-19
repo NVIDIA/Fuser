@@ -1507,4 +1507,29 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
+std::vector<int64_t> inferStrides(
+  const std::vector<IterDomain*>& logical_domain,
+  const std::vector<IterDomain*>& allocation_domain,
+  const std::vector<int64_t>& sizes
+){
+    std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
+      TensorDomain::noReductions(logical_domain),
+      TensorDomain::noReductions(allocation_domain));
+    NVF_CHECK(out_order.has_value(), "Valid permute from logical to allocation domain was not found.");
+    
+    auto rank = sizes.size();
+    std::vector<int64_t> sorted_strides (rank);
+    auto permuted_sizes = ir_utils::applyPermutation(sizes, *out_order);
+    sorted_strides[rank - 1] = 1;
+    for (int64_t idx = rank - 2; idx >= 0; idx--){
+      sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];
+    }
+    // Rearrange the strides in correct order of allocation
+    std::vector<int64_t> strides (rank);
+    for (auto idx: c10::irange(rank)){
+      strides[out_order.value()[idx]] = sorted_strides[idx];
+    }
+    return strides;
+}
+
 } // namespace nvfuser::ir_utils

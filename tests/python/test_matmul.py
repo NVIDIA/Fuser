@@ -4,7 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from utils import NVFuserTest, is_pre_volta
+from utils import NVFuserTest, is_pre_volta, verify_stride_order
 from nvfuser import FusionDefinition, DataType
 import pytest
 from functools import partial
@@ -201,3 +201,21 @@ class TestMatmul(NVFuserTest):
         ]
         outputs, _ = self.exec_nvfuser(fusion_func, inputs)
         assert outputs[0].ndim == 3
+
+    def test_matmul_stride(self):
+        b, m, n, k = 3, 2, 5, 4
+        inputs = [
+            torch.randn(b, m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, n, device="cuda", dtype=torch.float16)
+        ]
+        def fusion_func(fd: FusionDefinition) -> None:
+            a = fd.from_pytorch(inputs[0])
+            b = fd.from_pytorch(inputs[1])
+            out = fd.ops.matmul(a, b)
+            fd.add_output(out, [1, 0, 2])
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        outputs = fd.execute(inputs)
+        print (outputs[0].stride())
+        print (outputs[0].shape)
+        verify_stride_order(outputs[0].stride(), [1, 0, 2])
