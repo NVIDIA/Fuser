@@ -1327,8 +1327,11 @@ class CircularBufferInserter : private kir::ExprMutator {
     for (auto tv : circular_buffer_tvs) {
       auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       NVF_ERROR(ldst != nullptr);
-      auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
-      mbarriers.pushBack(mbarrier);
+      auto it = GpuLower::current()->ldstMBarrierMap().find(ldst);
+      if (it == GpuLower::current()->ldstMBarrierMap().end()) {
+        continue;
+      }
+      mbarriers.pushBack(it->second);
     }
     auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
     for (auto mbarrier : mbarriers) {
