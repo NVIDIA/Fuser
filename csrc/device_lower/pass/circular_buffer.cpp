@@ -528,7 +528,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
                 SimplifyingIrBuilder::addExpr(
                     cloned_top_level_loop_->indexOrStartIfTrivial(),
                     opt.prefetch),
-                opt.depth),
+                opt.stage),
             2));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         stage_parity, for_loop_stack_);
