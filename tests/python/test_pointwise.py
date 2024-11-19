@@ -421,7 +421,7 @@ def test_single_segment_multi_device():
 
     with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
         _ = fd.execute(inputs)
-def test_stride_order_reduction_domain():
+def test_output_stride_order_with_reduction():
     inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.from_pytorch(inputs[0])

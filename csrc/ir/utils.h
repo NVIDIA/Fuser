@@ -733,4 +733,10 @@ TensorView* getTvOutput(const Expr*);
 // Returns the first input of Expr that is a TensorView
 TensorView* getTvInput(const Expr*);
 
+// Generates the allocation domain of the given logical domain based on the stride order.
+std::vector<IterDomain*> strideOrderToAllocation(
+  std::vector<IterDomain*> logical_domain,
+  std::vector<int64_t> stride_order
+);
+
 } // namespace nvfuser::ir_utils
