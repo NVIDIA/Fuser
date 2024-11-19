@@ -442,7 +442,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
   // Current compute stage: loop_index % stages
-  Val* currentStage() const {
+  Val* currentComputeStage() const {
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -1005,8 +1005,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-    kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentStage());
+    kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        all_mbarriers, currentComputeStage());
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
