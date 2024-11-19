@@ -1771,7 +1771,6 @@ Val* hardCodedIndexGenerationForStMatrix(
   auto cum_offset =
       IrBuilder::addExpr(threadIdx_y_offset, warp_box_tile_box_offset_sum);
 
-
   // Compute the offset of the thread inside the tile box.
   // Since each warp works on a tile box, and there are 128-threads
   // the effective tidx is threadIdx % 32
