@@ -1306,9 +1306,8 @@ TensorView* getTvInput(const Expr* expr) {
 }
 
 std::vector<IterDomain*> strideOrderToAllocation(
-  std::vector<IterDomain*> logical_domain,
-  std::vector<int64_t> stride_order
-){
+    std::vector<IterDomain*> logical_domain,
+    std::vector<int64_t> stride_order) {
   std::vector<int64_t> inc_vec(stride_order.size());
   std::iota(inc_vec.begin(), inc_vec.end(), 0);
   NVF_CHECK(std::is_permutation(
@@ -1321,15 +1320,16 @@ std::vector<IterDomain*> strideOrderToAllocation(
 
   std::vector<IterDomain*> allocation_domain(logical_domain.size());
   std::vector<IterDomain*> allocation_domain_no_red(rank);
-  
-  for (auto idx: c10::irange(rank)){
-    allocation_domain_no_red[rank - 1 - stride_order[idx]] = logical_domain_no_red[idx];
+
+  for (auto idx : c10::irange(rank)) {
+    allocation_domain_no_red[rank - 1 - stride_order[idx]] =
+        logical_domain_no_red[idx];
   }
-  
+
   // Keep the reduction axis in the allocation domain at the same position.
   auto idx_no_red = 0;
-  for (auto idx: c10::irange(logical_domain.size())) {
-    if (logical_domain.at(idx)->isReduction()){
+  for (auto idx : c10::irange(logical_domain.size())) {
+    if (logical_domain.at(idx)->isReduction()) {
       allocation_domain[idx] = logical_domain[idx];
     } else {
       allocation_domain[idx] = allocation_domain_no_red[idx_no_red];
