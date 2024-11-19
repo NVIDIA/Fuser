@@ -1005,7 +1005,7 @@ handle_war:
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
-        SimplifyingIrBuilder::addExpr(currentStage(), stage_depth));
+        SimplifyingIrBuilder::addExpr(currentLoadStage(), stage_depth));
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
