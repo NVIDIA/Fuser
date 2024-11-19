@@ -48,21 +48,16 @@ Val* commonOrConstExtent(
   return ca_map->getConcreteMappedID(id, IdMappingMode::ALMOSTEXACT)->extent();
 }
 
-} // namespace
-
-Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
-  return SimplifyingIrBuilder::eqExpr(
-      getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
-}
-
-void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  for (auto* pad_op : ir_utils::filterByType<PadOp>(exprs)) {
-    if (!pad_op->out()->isA<TensorView>()) {
+template <typename ArithOp>
+void retrieveResizeInArithOp(
+    const std::vector<Expr*>& exprs,
+    std::unordered_set<ArithOp*>& arith_op_set) {
+  for (auto* op : ir_utils::filterByType<PadOp>(exprs)) {
+    if (!op->out()->isA<TensorView>()) {
       continue;
     }
 
-    auto* out_tv = pad_op->out()->as<TensorView>();
+    auto* out_tv = op->out()->as<TensorView>();
 
     auto consumer_exprs = StmtSort::getExprsBetween(
         {out_tv->getMaybeRootDomain().begin(),
@@ -75,8 +70,20 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
     std::copy(
         resize_ops.begin(),
         resize_ops.end(),
-        std::inserter(resize_in_pad_, resize_in_pad_.end()));
+        std::inserter(arith_op_set, arith_op_set.end()));
   }
+}
+
+} // namespace
+
+Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
+  return SimplifyingIrBuilder::eqExpr(
+      getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
+}
+
+void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  retrieveResizeInArithOp(exprs, resize_in_pad_);
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
