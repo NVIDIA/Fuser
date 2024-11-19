@@ -501,6 +501,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Privatize all first
   // TODO: don't privatize if unique
+
+  std::unordered_map<TensorView*, TensorView*> tv_uses_to_privatize;
+
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
@@ -522,6 +525,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     auto all_output_dep_vals = DependencyCheck::getAllValsBetween(
         {private_copy}, {fusion->outputs().begin(), fusion->outputs().end()});
+
     for (auto output_dep_tv :
          ir_utils::filterByType<TensorView>(all_output_dep_vals)) {
       if (output_dep_tv == private_copy) {
@@ -544,7 +548,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
           continue;
         }
 
-        // Privatize this input too
+        // Privatize this input too but don't do this while looping
+        // over fusion->exprs()
+#if 0
         auto private_copy_of_input = RecomputeTv::recompute(input_of_def);
         auto updated_def = ir_utils::replaceValInExprInputs(
             def, input_of_def, private_copy_of_input);
@@ -552,8 +558,24 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
                   << private_copy_of_input->toString() << " in "
                   << updated_def->toString();
         def = updated_def;
+#endif
+        tv_uses_to_privatize.emplace(output_dep_tv, input_of_def);
       }
     }
+  }
+
+  for (const auto& [consumer, producer] : tv_uses_to_privatize) {
+    auto def = consumer->definition();
+    NVF_ERROR(
+        std::find(def->inputs().begin(), def->inputs().end(), producer) !=
+        def->inputs().end());
+
+    auto private_copy_of_producer = RecomputeTv::recompute(producer);
+    auto updated_def = ir_utils::replaceValInExprInputs(
+        def, producer, private_copy_of_producer);
+    std::cerr << "Privatized non-resized input: "
+              << private_copy_of_producer->toString() << " in "
+              << updated_def->toString();
   }
 
   fusion->printMath();
