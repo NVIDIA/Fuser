@@ -84,6 +84,7 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
 void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
   auto exprs = fusion->exprs();
   retrieveResizeInArithOp(exprs, resize_in_pad_);
+  retrieveResizeInArithOp(exprs, resize_in_slice_);
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
@@ -441,6 +442,18 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
         consumer_factor = comp(consumer_factor, resize_op->leftExpand());
         consumer_factor = comp(consumer_factor, resize_op->rightExpand());
         addProjectedExtent(id_to, consumer_factor);
+      }
+    } else if (resize_in_slice_.count(resize_op) != 0) {
+      // resize created by SliceOp.
+    
+      // project resize op to frontier.
+      frontier[pos] = id_to;
+      // clear left of resize, since those are no long contiguous.
+      frontier.erase(frontier.begin(), it);
+    
+      if (recording_) {
+        // we need to check slice offset at this point.
+        addProjectedExtent(id_to, getProjectedExtent(id_from));
       }
     } else {
       // unsupproted resize.
