@@ -255,6 +255,8 @@ class WarSyncInserter : private kir::ExprMutator {
     for (auto& entry : smem_allocations_) {
       if (entry.first->isCircularBuffered() &&
           entry.first->circularBufferOptions().usesMBarrierForWAR()) {
+        // If we are using mbarriers for WAR, we don't need to insert block
+        // syncs because the mbarriers will handle it.
         continue;
       }
       auto& alloc_stack = entry.second;
