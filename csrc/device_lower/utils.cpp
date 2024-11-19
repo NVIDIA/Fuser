@@ -2045,32 +2045,24 @@ getIndexIDs(
              /*require_all_to_visited=*/false)) {
       // If there are any indexing IDs in the inputs, count all outputs as
       // indexing IDs
+      const auto processExpr = [&indexing_ids](
+                                   const std::vector<Val*>& prev_vals,
+                                   const std::vector<Val*>& next_vals) {
+        if (std::any_of(prev_vals.begin(), prev_vals.end(), [&](Val* prev) {
+              auto* id = dynamic_cast<IterDomain*>(prev);
+              return id && indexing_ids.count(id) != 0;
+            })) {
+          for (Val* v : next_vals) {
+            if (auto* id = dynamic_cast<IterDomain*>(v)) {
+              indexing_ids.insert(id);
+            }
+          }
+        }
+      };
       if (dir == Direction::Forward) {
-        if (std::any_of(
-                expr->inputs().begin(), expr->inputs().end(), [&](Val* input) {
-                  auto* id = dynamic_cast<IterDomain*>(input);
-                  return id && indexing_ids.count(id) != 0;
-                })) {
-          for (Val* v : expr->outputs()) {
-            if (auto* id = dynamic_cast<IterDomain*>(v)) {
-              indexing_ids.insert(id);
-            }
-          }
-        }
+        processExpr(expr->inputs(), expr->outputs());
       } else if (dir == Direction::Backward) {
-        if (std::any_of(
-                expr->outputs().begin(),
-                expr->outputs().end(),
-                [&](Val* output) {
-                  auto* id = dynamic_cast<IterDomain*>(output);
-                  return id && indexing_ids.count(id) != 0;
-                })) {
-          for (Val* v : expr->inputs()) {
-            if (auto* id = dynamic_cast<IterDomain*>(v)) {
-              indexing_ids.insert(id);
-            }
-          }
-        }
+        processExpr(expr->outputs(), expr->inputs());
       } else {
         NVF_THROW("Found unexpected direction");
       }
