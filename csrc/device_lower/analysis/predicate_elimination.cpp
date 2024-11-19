@@ -183,8 +183,10 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       return true;
     }
 
+    auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
+        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+            .getReplay();
     [[maybe_unused]] const auto [producer_index_ids, consumer_index_ids] =
         lower_utils::getIndexIDs(producer, consumer, &c2p);
     ProducerConsumerPairAnalyzer analyzer(c2p, consumer_index_ids);
@@ -213,7 +215,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     if (!consumer_id->isBroadcast() &&
         index_ids_.find(consumer_id) == index_ids_.end()) {
       // TODO: Remove this line and the isBroadcast check in the condition above
-      NVF_THROW("FOUND UNEXPECTED PATH IN TEST");
+      NVF_THROW("FOUND UNEXPECTED PATH IN TEST ", consumer_id->toString());
       return false;
     }
     needs_predicate_ = false;
