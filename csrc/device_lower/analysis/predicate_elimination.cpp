@@ -217,10 +217,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     // Check that this consumer_id is actually involved in indexing the
     // producer. If it is not connected to the producer allocation domain in
     // the broadcast graph, then we can skip processing it.
-    if (!consumer_id->isBroadcast() &&
-        index_ids_.find(consumer_id) == index_ids_.end()) {
-      // TODO: Remove this line and the isBroadcast check in the condition above
-      NVF_THROW("FOUND UNEXPECTED PATH IN TEST ", consumer_id->toString());
+    if (index_ids_.find(consumer_id) == index_ids_.end()) {
       return false;
     }
     needs_predicate_ = false;
