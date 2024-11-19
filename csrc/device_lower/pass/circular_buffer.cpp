@@ -835,7 +835,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // of ldst -> wait or tv -> wait, because multiple buffers and TMA load
   // operations can share the same mbarrier. In this case, we only want to
   // create a single wait expression to wait for all of them.
-  std::unordered_map<TensorView*, kir::MBarrierWaitParity*> mbarriers_to_wait_;
+  std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
+      raw_mbarriers_to_wait_;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
