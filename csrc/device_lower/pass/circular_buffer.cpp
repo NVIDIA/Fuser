@@ -640,14 +640,14 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         // Short-circuit: skip expression if it is not circular buffer load
         // expression.
         if (!is_circular_buffer_load_expr) {
-          break;
+          goto handle_war;
         }
 
         // Short-circuit: There can be circular buffered loads without
         // cpAsyncBulk load expressions.
         if (!ir_utils::isCpAsyncBulkLoad(expr)) {
           for_loop_stack_.back()->body().push_back(expr);
-          break;
+          goto handle_war;
         }
         break;
       }
@@ -657,7 +657,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         // operation.
         if (!is_circular_buffer_load_expr || !ir_utils::isCpAsyncBulk(expr)) {
           for_loop_stack_.back()->body().push_back(expr);
-          break;
+          goto handle_war;
         }
         break;
       }
@@ -684,6 +684,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       }
     }
 
+handle_war:
     updateWarMbarrierUseMap(expr);
     insertMBarrierArriveAfterLastRead();
   }
