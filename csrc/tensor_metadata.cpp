@@ -272,6 +272,46 @@ void validateAllocationSizesAndStrides(
   }
 }
 
+// FIXME: strides are never changed
+std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
+    TensorView* tv,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides) {
+  std::vector<int64_t> unsharded_sizes = sizes.vec();
+  std::vector<int64_t> unsharded_strides = strides.vec();
+
+  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
+    const ParallelType parallel_type = alloc_id->getParallelType();
+    if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    const auto inputs = IterVisitor::getInputsTo(
+        {alloc_id},
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    if (inputs.empty()) {
+      // FIXME: is this even possible? Logical ought to dominate loop.
+      continue;
+    }
+    NVF_ERROR(inputs.size() == 1);
+
+    const auto iter = std::find(
+        tv->getLogicalDomain().begin(),
+        tv->getLogicalDomain().end(),
+        inputs[0]);
+    if (iter == tv->getLogicalDomain().end()) {
+      // FIXME: is this even possible? Logical ought to dominate loop.
+      continue;
+    }
+    const auto index = std::count_if(
+        tv->getLogicalDomain().begin(), iter, [](IterDomain* id) -> bool {
+          return !id->isReduction();
+        });
+    unsharded_sizes.at(index) *= tv->getDeviceMesh().size(parallel_type);
+  }
+
+  return {unsharded_sizes, unsharded_strides};
+}
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
@@ -282,11 +322,21 @@ inferAndValidateAllocationSizesAndStrides(
   const auto& logical = tv->getLogicalDomain();
   const auto& alloc = tv->getMaybeAllocationDomain();
 
+  std::vector<int64_t> logical_sizes;
+  std::vector<int64_t> logical_strides;
+  if (isSharded(tv)) {
+    std::tie(logical_sizes, logical_strides) =
+        unshardedSizesAndStrides(tv, tensor.sizes(), tensor.strides());
+  } else {
+    logical_sizes = tensor.sizes().vec();
+    logical_strides = tensor.strides().vec();
+  }
+
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
   for (IterDomain* id : TensorDomain::noReductions(logical)) {
-    active_ids[id] = {tensor.size(dim_index), tensor.stride(dim_index)};
+    active_ids[id] = {logical_sizes[dim_index], logical_strides[dim_index]};
     dim_index++;
   }
   NVF_ERROR(dim_index == tensor.dim());
@@ -296,50 +346,24 @@ inferAndValidateAllocationSizesAndStrides(
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
-  sizes.reserve(alloc.size());
-  strides.reserve(alloc.size());
+  std::vector<int64_t> allocation_sizes;
+  std::vector<int64_t> allocation_strides;
   for (IterDomain* id : TensorDomain::noReductions(alloc)) {
     if (id->isDeviceDim()) {
-      sizes.push_back(1);
+      allocation_sizes.push_back(1);
     } else {
-      sizes.push_back(active_ids.at(id).first);
+      allocation_sizes.push_back(active_ids.at(id).first);
     }
-    strides.push_back(active_ids.at(id).second);
+    allocation_strides.push_back(active_ids.at(id).second);
   }
 
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), sizes, strides);
+        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
   }
-  return {std::move(sizes), std::move(strides)};
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
-
-namespace {
-std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
-    TensorView* tv,
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef strides) {
-  std::vector<int64_t> unsharded_sizes(sizes.size());
-  std::vector<int64_t> unsharded_strides(strides.size());
-  for (const auto i : c10::irange(sizes.size())) {
-    IterDomain* id = tv->getLogicalDomain()[i];
-    if (id->isDeviceDim()) {
-      unsharded_sizes[i] = tv->getDeviceMesh().size(id->getParallelType());
-      // This probably doesn't matter in practice unless a kernel accidentally
-      // tries to access the data on another rank. To be safe, set the stride
-      // to zero, analogous to an expanded broadcast dimension.
-      unsharded_strides[i] = 0;
-    } else {
-      unsharded_sizes[i] = sizes[i];
-      unsharded_strides[i] = strides[i];
-    }
-  }
-  return {unsharded_sizes, unsharded_strides};
-}
-} // namespace
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
