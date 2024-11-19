@@ -51,8 +51,10 @@ Expr* initializeMbarrier(
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
   int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+          .stage;
 
   Val* mbarrier_index = wait_type == CircularBufferWaitType::Filled
       ? loop->index()
@@ -111,8 +113,10 @@ Expr* invalidateMbarrier(
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
   int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+          .stage;
 
   Val* mbarrier_index = wait_type == CircularBufferWaitType::Filled
       ? loop->index()
