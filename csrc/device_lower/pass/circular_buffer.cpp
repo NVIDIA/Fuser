@@ -461,16 +461,17 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
 
-    if (loop_type_ == CircularBufferLoopStage::Prolog) {
-      return cloned_top_level_loop_->indexOrStartIfTrivial();
+    if (loop_type_ == CircularBufferLoopStage::Main) {
+      auto current_load_stage = SimplifyingIrBuilder::modExpr(
+          SimplifyingIrBuilder::addExpr(
+              cloned_top_level_loop_->indexOrStartIfTrivial(),
+              IrBuilder::create<Val>(opt.prefetch, PrimDataType::Index)),
+          IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
+      return GpuLower::current()->commonScalarMap().hoistScalar(
+          current_load_stage, for_loop_stack_);
     }
-    auto current_load_stage = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::addExpr(
-            cloned_top_level_loop_->indexOrStartIfTrivial(),
-            IrBuilder::create<Val>(opt.prefetch, PrimDataType::Index)),
-        IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
-    return GpuLower::current()->commonScalarMap().hoistScalar(
-        current_load_stage, for_loop_stack_);
+    NVF_ERROR(loop_type_ != CircularBufferLoopStage::Epilog);
+    return cloned_top_level_loop_->indexOrStartIfTrivial();
   }
 
   // Next load stage (for main loop): (loop_index + prefetch + 1) % stages
@@ -685,7 +686,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       }
     }
 
-handle_war:
+  handle_war:
     updateWarMbarrierUseMap(expr);
     insertMBarrierArriveAfterLastRead();
   }
