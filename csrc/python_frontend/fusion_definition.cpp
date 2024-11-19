@@ -696,6 +696,16 @@ int64_t FusionDefinition::setupSegmentation(
       preschedFusion(), map_value_to_fid_, inputs);
 }
 
+std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
+    FusionDefinition& segment_fd,
+    int64_t segment_id) {
+  NVF_CHECK(id().has_value(), "FusionDefinition does not exist!");
+  NVF_CHECK(
+      segmentation_state_ != nullptr,
+      "Run setupSegmentation first before trying to build segments!");
+  return segmentation_state_->buildSegment(segment_fd, segment_id);
+}
+
 void FusionDefinition::finalizeSegmentation() {
   // Destroy SegmentedState
   segmentation_state_.reset();

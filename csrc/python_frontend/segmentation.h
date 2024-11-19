@@ -170,20 +170,38 @@ class SegmentationState {
   // Details:
   //  1) Clone preschedFusion CPP Fusion.
   //  2) Concretize fusion using input arguments.
-  //  3) Given the map_value_to_original_fid, the IRCloner returned by
-  //     Fusion::copy, AND symbolic_to_concrete map returned by concretization
-  //     pass, create a mapping from cloned Vals to original fusion state
-  //     indices
-  //  4) Get extents for cloned fusion
-  //  5) Create SchedulerRuntimeInfo
+  //  3) Given the map_presched_value_to_original_python_index, the IRCloner
+  //  returned by Fusion::copy, AND symbolic_to_concrete map returned by
+  //  concretization pass, create a mapping from cloned Vals to original fusion
+  //  state indices.
+  //  4) Get extents for cloned fusion.
+  //  5) Create SchedulerRuntimeInfo.
   //  6) Run segmentation algorithm using cloned fusion, input arguments, and
   //  scheduler runtime information.
   //  7) Get sequential order of fusion segments using prepareGroupOrder.
   //  8) Return the number of segments created by segmentation algorithm.
   int64_t setupSegmentation(
       Fusion* fusion,
-      const std::unordered_map<const Val*, int64_t>& map_value_to_original_fid,
+      const std::unordered_map<const Val*, int64_t>&
+          map_presched_value_to_original_python_index,
       const at::ArrayRef<c10::IValue>& inputs);
+
+  // Given an empty FusionDefinition and a segment id, buildSegment creates the
+  // CPP Fusion, translates it to the python FusionDefinition, then returns a
+  // mapping from segment fusion state indices to the original fusion state
+  // indices.
+  //
+  // The mapping is constructed from the segment's python definition ->
+  // segment's CPP Fusion -> original's CPP Fusion -> original's python
+  // definition.
+  //
+  // NOTE: Sometimes the python definition requires the extents from the
+  // original fusion's input tensors as extra arguments. Therefore, the input
+  // arguments for the python definition and the CPP Fusion may not exactly
+  // match.
+  NVF_API std::unordered_map<int64_t, int64_t> buildSegment(
+      FusionDefinition& segment_fd,
+      int64_t segment_id);
 
  private:
   // prepareGroupOrder is similar to prepareRuntimeOrder. It generates the
@@ -206,7 +224,7 @@ class SegmentationState {
 
  private:
   // Clone of original fusion for segmentation
-  std::unique_ptr<Fusion> cloned_fusion_ = nullptr;
+  std::unique_ptr<Fusion> cloned_original_fusion_ = nullptr;
 
   // This FusionDefinition may require multiple kernels if it cannot be handled
   // by a single heuristic scheduler. SegmentedFusion takes a fusion and runs
@@ -216,12 +234,13 @@ class SegmentationState {
   // Pre-determined order to run the segmented groups
   std::vector<SegmentedGroup*> group_run_order_;
 
-  // Create copy of fusion for segmentation algorithm. IrCloner is a map
-  // between values in original and cloned fusions.
-  std::unordered_map<const Val*, int64_t> map_cloned_value_to_fid_;
+  // Map values from cloned, concretized fusion to the indices of the original
+  // python definition.
+  std::unordered_map<const Val*, int64_t>
+      map_cloned_concretized_value_to_original_python_index_;
 
   // Extents for TensorView input arguments for cloned Fusion
-  std::vector<Val*> cloned_extents_;
+  std::vector<Val*> cloned_original_extents_;
 };
 
 } // namespace nvfuser::python_frontend

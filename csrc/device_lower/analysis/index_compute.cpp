@@ -150,8 +150,10 @@ IndexingParameters getLinearIndexParameters(
                 loop_id, IdMappingMode::EXACT);
 
         auto prefetch_distance =
-            GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-                loop->iter_domain());
+            GpuLower::current()
+                ->circularBufferInfo()
+                .getCircularBufferOptionsFor(loop->iter_domain())
+                .prefetch;
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
@@ -419,7 +421,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       auto prefetch_distance =
           (int64_t)GpuLower::current()
               ->circularBufferInfo()
-              .getPrefetchDistanceFor(db_loop->iter_domain());
+              .getCircularBufferOptionsFor(db_loop->iter_domain())
+              .prefetch;
       bool is_same =
           (rotated_loops.count(db_loop)
                ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(

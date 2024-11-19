@@ -244,6 +244,52 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
   return outputs;
 }
 
+namespace {
+bool hasCpuScalarOutputs(Fusion* fusion) {
+  if (fusion->exprs().empty()) {
+    return false;
+  }
+
+  std::unordered_map<TensorView*, bool> tv_is_cpu_map;
+  for (Expr* expr : StmtSort::getExprs(fusion)) {
+    bool has_cpu_scalar_input = false;
+    bool has_cuda_input = false;
+    for (Val* inp : expr->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        if (inp_tv->isCpuScalar()) {
+          has_cpu_scalar_input = true;
+        } else {
+          has_cuda_input = true;
+          // Return early -- found atleast one CUDA input
+          break;
+        }
+      }
+    }
+    if (!has_cuda_input && has_cpu_scalar_input) {
+      // Expr is of the second category, and has all CPU scalar outputs
+      for (Val* out : expr->outputs()) {
+        if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+          tv_is_cpu_map[out_tv] = true;
+        }
+      }
+    }
+  }
+
+  bool has_any_cpu_output = std::any_of(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      [&tv_is_cpu_map](Val* out) {
+        return out->isA<TensorView>() && tv_is_cpu_map[out->as<TensorView>()];
+      });
+  return has_any_cpu_output;
+}
+} // namespace
+
+bool KernelExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("KernelExecutor::supported");
+  return !hasCpuScalarOutputs(fusion);
+}
+
 void KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
