@@ -1542,7 +1542,7 @@ struct OutputRecord : RecordFunctor {
           std::vector<IterDomain*> allocation_domain = ir_utils::strideOrderToAllocation(
             logical_domain, stride_order_
           );
-          auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, true);
+          auto contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, false);
           tv_output->setAllocationDomain(allocation_domain, contiguity);
         }
         fd.addOutput(tv_output, args_.at(0).index);
