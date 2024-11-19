@@ -185,8 +185,13 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+        BestEffortReplay::replayPasC(
+            producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
+    for (auto [c, p] : pairwise_map.mapConsumerToProducer()) {
+      // replayPasC skips mapping after the compute at position
+      c2p[c] = p;
+    }
     [[maybe_unused]] const auto [producer_index_ids, consumer_index_ids] =
         lower_utils::getIndexIDs(producer, consumer, &c2p);
     ProducerConsumerPairAnalyzer analyzer(c2p, consumer_index_ids);
