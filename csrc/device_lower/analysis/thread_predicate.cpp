@@ -10,14 +10,10 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
-#include <id_model/id_model.h>
-#include <id_model/indexing_traversal.h>
-#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
-#include <val_graph_visitor.h>
 
 #include <c10/util/irange.h>
 #include <algorithm>
@@ -28,7 +24,7 @@ namespace {
 
 Val* getPredicatePerParallelType(
     ParallelType pt,
-    const ThreadPredicateInfo& pred_info) {
+    const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
 
   // If pt is not used or is proven to be one, no need to predicate.
@@ -68,7 +64,7 @@ Val* getPredicatePerParallelType(
 } // namespace
 
 Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
-    const ThreadPredicateInfo& pred_info,
+    const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
       (pred_info.limited_types | pred_info.redundant_types) & mask;
@@ -187,7 +183,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
 // global memory.
 ParallelTypeBitmap getReductionPredicateForUnusedParallelTypes(
     const TensorView* tv,
-    const ThreadPredicateInfo& pred_info) {
+    const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto tv_def = tv->definition();
   if (!(tv_def && ir_utils::isReductionOp(tv_def) &&
         tv->getMemoryType() == MemoryType::Global)) {
@@ -755,7 +751,26 @@ void ThreadPredicateMap::populateRedundantUseMap(Fusion* fusion) {
   }
 }
 
-ThreadPredicateInfo ThreadPredicateMap::getPredicateInfo(
+ThreadPredicateMap::const_iterator ThreadPredicateMap::find(
+    const TensorView* tv) const {
+  return thread_predicates_.find(tv);
+}
+
+ThreadPredicateMap::const_iterator ThreadPredicateMap::end() const {
+  return thread_predicates_.end();
+}
+
+const ThreadPredicateMap::PredicateInfo& ThreadPredicateMap::at(
+    const TensorView* tv) const {
+  return thread_predicates_.at(tv);
+}
+
+ThreadPredicateMap::PredicateInfo& ThreadPredicateMap::at(
+    const TensorView* tv) {
+  return thread_predicates_.at(tv);
+}
+
+ThreadPredicateMap::PredicateInfo ThreadPredicateMap::getPredicateInfo(
     const TensorView* tv) const {
   auto pred_info = thread_predicates_.at(tv);
   // Do not predicate a paralell type if it is a parallel bcast domain
@@ -781,10 +796,10 @@ bool ThreadPredicateMap::update(
 
 bool ThreadPredicateMap::update(
     const TensorView* tv,
-    const ThreadPredicateInfo& pred_info) {
+    const PredicateInfo& pred_info) {
   auto existing_mapping_it = thread_predicates_.find(tv);
   if (existing_mapping_it != end()) {
-    ThreadPredicateInfo& existing_info = existing_mapping_it->second;
+    PredicateInfo& existing_info = existing_mapping_it->second;
     if (existing_info == pred_info) {
       return false;
     } else {
@@ -866,19 +881,11 @@ void ThreadPredicateMap::markAsUpdated(const TensorView* tv) {
 void ThreadPredicateMap::print() const {
   debug() << "\nThreadPredicateMap\n";
   debug() << "--------------------------------\n";
-  if (thread_predicates_.empty()) {
-    return;
-  }
-  Fusion* fusion = thread_predicates_.begin()->first->fusion();
-  for (const auto& tv : fusion->allTvs()) {
-    const auto& info = at(tv);
-    std::stringstream ss;
-    ss << "T" << tv->name()
-       << " limited types: " << info.limited_types.toString()
-       << ", redundant types: " << info.redundant_types.toString()
-       << ", redundant use types: " << info.redundant_use_types.toString();
-    ss << "\n";
-    debug() << ss.str();
+  for (const auto& kv : thread_predicates_) {
+    debug() << "T" << kv.first->name();
+    debug() << " {" << kv.second.limited_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
   }
   debug() << "--------------------------------\n\n";
 }

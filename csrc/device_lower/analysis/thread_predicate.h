@@ -17,45 +17,9 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace nvfuser {
-
-//! Thread predicate information for each tensor
-struct ThreadPredicateInfo {
-  // Parallel types where only one thread/block is valid.
-  ParallelTypeBitmap limited_types;
-  // Parallel types where only one thread/block is enough.
-  ParallelTypeBitmap redundant_types;
-
-  // when a loop domain of a Tensor stored in global memory
-  // is merged from concretized broadcast logical domain, the broadcasted
-  // logical domains should be skipped when writing to global memory.
-  // broadcast_ld_indices_map maps a parallel type to a list of indices
-  // of the broadcasted logical domains. The write to global memory is needed
-  // only when the index equals to 0.
-  std::unordered_map<ParallelType, std::vector<Val*>> broadcast_ld_indices_map;
-
-  // Tracking use chain of redundant writes:
-  //  [Redundant use chain]
-  //  a parallel type is a `redundant_consumer_type` only
-  //    if all of its propagation use chains terminate with
-  //    a redundant write of this type.
-  //  A propagation use chain is currently either a reg-to-reg
-  //   chain for a shared mem tv, or a reg/smem-to-reg/smem chain
-  //   for a global tv.
-  // This is complementary information to `redundant_types`.
-  //  If a tensor view is redundantly written and not redundantly
-  //  used by all consumers, see FusionRedundantPredSync3,
-  //  a RAW sync will need to be inserted before reading
-  //  this redundantly written tensor.
-  ParallelTypeBitmap redundant_use_types;
-
-  bool operator==(const ThreadPredicateInfo& other) const {
-    return limited_types == other.limited_types &&
-        redundant_types == other.redundant_types &&
-        redundant_use_types == other.redundant_use_types;
-  }
-};
 
 //! Maps TensorViews to a { ParallelTypeBitmap, SourceMap } pair
 //!
@@ -78,6 +42,50 @@ struct ThreadPredicateInfo {
 //! tensor.
 class ThreadPredicateMap {
  public:
+  using SourceMap =
+      std::unordered_map<ParallelType, std::unordered_set<const TensorView*>>;
+
+  //! Thread predicate information for each tensor
+  struct PredicateInfo {
+    // Parallel types where only one thread/block is valid.
+    ParallelTypeBitmap limited_types;
+    // Parallel types where only one thread/block is enough.
+    ParallelTypeBitmap redundant_types;
+
+    // when a loop domain of a Tensor stored in global memory
+    // is merged from concretized broadcast logical domain, the broadcasted
+    // logical domains should be skipped when writing to global memory.
+    // broadcast_ld_indices_map maps a parallel type to a list of indices
+    // of the broadcasted logical domains. The write to global memory is needed
+    // only when the index equals to 0.
+    std::unordered_map<ParallelType, std::vector<Val*>>
+        broadcast_ld_indices_map;
+
+    // Tracking use chain of redundant writes:
+    //  [Redundant use chain]
+    //  a parallel type is a `redundant_consumer_type` only
+    //    if all of its propagation use chains terminate with
+    //    a redundant write of this type.
+    //  A propagation use chain is currently either a reg-to-reg
+    //   chain for a shared mem tv, or a reg/smem-to-reg/smem chain
+    //   for a global tv.
+    // This is complementary information to `redundant_types`.
+    //  If a tensor view is redundantly written and not redundantly
+    //  used by all consumers, see FusionRedundantPredSync3,
+    //  a RAW sync will need to be inserted before reading
+    //  this redundantly written tensor.
+    ParallelTypeBitmap redundant_use_types;
+    bool operator==(const PredicateInfo& other) const {
+      return limited_types == other.limited_types &&
+          redundant_types == other.redundant_types &&
+          redundant_use_types == other.redundant_use_types;
+    }
+  };
+
+  using MapType = std::unordered_map<const TensorView*, PredicateInfo>;
+
+  using const_iterator = MapType::const_iterator;
+
   //! Build a map from each tensor to PredicateInfo.
   void build(Fusion* fusion);
 
@@ -86,7 +94,7 @@ class ThreadPredicateMap {
   //! corresponding parallel type since it must join the broadcast
   //! operation although the valid input is only available at one of
   //! the threads/blocks.
-  NVF_API ThreadPredicateInfo getPredicateInfo(const TensorView* tv) const;
+  NVF_API PredicateInfo getPredicateInfo(const TensorView* tv) const;
 
   //! Returns a flag set that indicates which parallel types should be
   //! predicated.
@@ -112,7 +120,7 @@ class ThreadPredicateMap {
 
   //! Generate a Bool value from PredicateInfo.
   static Val* getPredicateFromPredicateInfo(
-      const ThreadPredicateInfo& pred_info,
+      const ThreadPredicateMap::PredicateInfo& pred_info,
       const ParallelTypeBitmap& mask);
 
   //! Get the redundant use types of the given expr, see [Redundant use chain]
@@ -122,24 +130,11 @@ class ThreadPredicateMap {
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(const Expr*);
   void avoidConcretizedBroadcastRedundantWrite(const TensorView* out_tv);
+  const_iterator find(const TensorView* tv) const;
+  const_iterator end() const;
 
-  void trackSqueezedSlice(const Expr*);
-
-  auto find(const TensorView* tv) const {
-    return thread_predicates_.find(tv);
-  }
-
-  auto end() const {
-    return thread_predicates_.end();
-  }
-
-  const ThreadPredicateInfo& at(const TensorView* tv) const {
-    return thread_predicates_.at(tv);
-  }
-
-  ThreadPredicateInfo& at(const TensorView* tv) {
-    return thread_predicates_.at(tv);
-  }
+  const PredicateInfo& at(const TensorView* tv) const;
+  PredicateInfo& at(const TensorView* tv);
 
   //! Update a mapping
   bool update(
@@ -148,14 +143,14 @@ class ThreadPredicateMap {
       const ParallelTypeBitmap& redundant_types);
 
   //! Update a mapping
-  bool update(const TensorView* tv, const ThreadPredicateInfo& pred_and_src);
+  bool update(const TensorView* tv, const PredicateInfo& pred_and_src);
 
   //! Backward populate redundant use chain info once the redundant
   //!  parallel writes have been identified.
   void populateRedundantUseMap(Fusion* fusion);
 
  private:
-  std::unordered_map<const TensorView*, ThreadPredicateInfo> thread_predicates_;
+  MapType thread_predicates_;
   //! Keep track of updated tensors that need predicates to be computed
   std::unordered_set<const TensorView*> updated_tvs_;
 };

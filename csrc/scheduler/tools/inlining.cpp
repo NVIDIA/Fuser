@@ -193,7 +193,6 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    std::cerr << "New path\n";
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
@@ -212,16 +211,6 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       }
 
       IterDomain* c_id = *consumer_it;
-      if (producer->name() == 1) {
-        std::cerr << "Checking " << p_id->toString() << " and "
-                  << c_id->toString() << "\n";
-        std::cerr <<
-            inliningGraph().disjointValSets().strictAreMapped(p_id, c_id)
-                << "\n";
-        std::cerr << !isAllowedID(
-                         c_id, consumer, best_effort, true, false, true)
-                  << "\n";
-      }
       if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
           !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
         return producer_pos;
@@ -238,16 +227,10 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
-  bool debug = tv->name() == 1;
-  if (debug) {
-    std::cerr << "getMaxPosAll: " << tv->toString() << "\n";
-  }
   auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
-  if (debug) std::cerr << "Max pos: " << max_pos << "\n";
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
     max_pos = std::min<size_t>(
         max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
-    if (debug) std::cerr << "Max pos with consumer: " << max_pos << ", " << consumer_tv->toString() << "\n";    
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {
