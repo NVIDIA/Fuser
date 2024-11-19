@@ -559,7 +559,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
   // TODO: comment
-  void updateRawMbarrierToWaitMap(Expr* expr) {
+  void updateWarMbarrierToWaitMap(Expr* expr) {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
