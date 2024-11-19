@@ -2004,6 +2004,90 @@ std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
   return sync_exprs;
 }
 
+std::pair<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>>
+getIndexIDs(
+    TensorView* producer,
+    TensorView* consumer,
+    const std::unordered_map<IterDomain*, IterDomain*>* c2p) {
+  // First we find the consumer root IDs that map to the producer
+  std::unordered_map<IterDomain*, IterDomain*> c2p_tmp;
+  if (c2p == nullptr) {
+    auto c2p_tmp =
+        PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
+    c2p = &c2p_tmp;
+  }
+  // Track the IDs involved in indexing in both producer and consumer
+  std::unordered_set<IterDomain*> consumer_indexing_ids;
+  std::unordered_set<IterDomain*> producer_indexing_ids;
+  for (IterDomain* id : consumer->getMaybeRootDomain()) {
+    auto it = c2p->find(id);
+    if (it == c2p->end()) {
+      continue;
+    }
+    // These are the immediately mapped consumer root and producer logical
+    // IDs. This is a starting point for our later traversals, which will fill
+    // these sets out.
+    consumer_indexing_ids.insert(it->first);
+    producer_indexing_ids.insert(it->second);
+  }
+
+  // Now traverse from the starting set (which, as noted above is a subset of
+  // either the producer logical or consumer root) to the target which is
+  // either the producer allocation domain or the consumer loop domain. These
+  // are the IDs that will actually affect indexing. Any other IDs can be
+  // skipped.
+  auto traverse = [](std::unordered_set<IterDomain*>& indexing_ids,
+                     const std::vector<IterDomain*>& start_domain,
+                     const std::vector<IterDomain*>& target_domain) {
+    for (auto [expr, dir] : IRBFS::getExprsBetween(
+             {start_domain.begin(), start_domain.end()},
+             {target_domain.begin(), target_domain.end()},
+             /*require_all_to_visited=*/false)) {
+      // If there are any indexing IDs in the inputs, count all outputs as
+      // indexing IDs
+      if (dir == Direction::Forward) {
+        if (std::any_of(
+                expr->inputs().begin(), expr->inputs().end(), [&](Val* input) {
+                  auto* id = dynamic_cast<IterDomain*>(input);
+                  return id && indexing_ids.count(id) != 0;
+                })) {
+          for (Val* v : expr->outputs()) {
+            if (auto* id = dynamic_cast<IterDomain*>(v)) {
+              indexing_ids.insert(id);
+            }
+          }
+        }
+      } else if (dir == Direction::Backward) {
+        if (std::any_of(
+                expr->outputs().begin(),
+                expr->outputs().end(),
+                [&](Val* output) {
+                  auto* id = dynamic_cast<IterDomain*>(output);
+                  return id && indexing_ids.count(id) != 0;
+                })) {
+          for (Val* v : expr->inputs()) {
+            if (auto* id = dynamic_cast<IterDomain*>(v)) {
+              indexing_ids.insert(id);
+            }
+          }
+        }
+      } else {
+        NVF_THROW("Found unexpected direction");
+      }
+    }
+  };
+  traverse(
+      producer_indexing_ids,
+      /*start_domain=*/producer->getLogicalDomain(),
+      /*target_domain=*/producer->getMaybeAllocationDomain());
+  traverse(
+      consumer_indexing_ids,
+      /*start_domain=*/consumer->getMaybeRootDomain(),
+      /*target_domain=*/consumer->getLoopDomain());
+
+  return {producer_indexing_ids, consumer_indexing_ids};
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
