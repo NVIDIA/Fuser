@@ -201,3 +201,30 @@ class TestMatmul(NVFuserTest):
         ]
         outputs, _ = self.exec_nvfuser(fusion_func, inputs)
         assert outputs[0].ndim == 3
+
+    def test_matmul_output_stride_order(self):
+        inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
+        
+        b, m, n, k = 2, 24, 16, 8
+        inputs = [
+            torch.randn(b, m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, n, device="cuda", dtype=torch.float16),
+        ]
+        
+        def fusion_func(fd: FusionDefinition) -> None:
+            a = fd.from_pytorch(inputs[0])
+            b = fd.from_pytorch(inputs[1])
+            out = fd.ops.matmul(a, b)
+            fd.add_output(out, [1, 0, 2]) 
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+            
+        nvf_out = fd.execute(inputs)
+        
+        nvf_stride = nvf_out[0].stride()
+        sorted_stride = list(nvf_stride)
+        rank = len(nvf_stride)
+        for idx, axis in enumerate([0, 1, 2]):
+            sorted_stride[rank - 1 - axis] = nvf_stride[idx]
+        assert sorted(sorted_stride, reverse=True) == sorted_stride
