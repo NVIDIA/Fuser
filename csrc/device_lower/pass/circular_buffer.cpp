@@ -461,6 +461,9 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
 
+    if (loop_type_ == CircularBufferLoopStage::Prolog) {
+      return cloned_top_level_loop_->indexOrStartIfTrivial();
+    }
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
         SimplifyingIrBuilder::addExpr(
             cloned_top_level_loop_->indexOrStartIfTrivial(),
