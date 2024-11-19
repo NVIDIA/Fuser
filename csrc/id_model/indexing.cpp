@@ -1068,39 +1068,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::vector<IterDomain*>& predicate_ids = getPredicateDomains(
       tv, expr, getLoopIds(expr, id_model_), traversalGraph());
 
-  auto predicate_and_singular_ids = predicate_ids;
-
-  const ThreadPredicateInfo& thread_pred_info =
-      GpuLower::current()->threadPredMap().getPredicateInfo(tv);
-  for (const auto& singular_id_info : thread_pred_info.singular_ids) {
-    if (!getenv("SKIP_SINGULAR")) {
-      auto singular_id = singular_id_info.id;
-      // Why thread_pred_info doesn't also have the corresponding ID
-      // of this tensor itself? Due to the resize war of the indexing
-      // traversal, need the ID of this tensor itself
-      IterDomain* own_id = nullptr;
-      for (const auto id : tv->domain()->allIDs()) {
-        if (id_model_.idGraph(IdMappingMode::EXACT)
-                .disjointValSets()
-                .strictAreMapped(id, singular_id)) {
-          own_id = id;
-          break;
-        }
-      }
-      if (own_id == nullptr) {
-        std::cerr << "Corresponding ID not found for "
-                  << singular_id->toString() << ", tensor: " << tv->toString()
-                  << "\n";
-      } else {
-        std::cerr << "Adding singular predicate ID: " << own_id->toString()
-                  << "\n";
-        predicate_and_singular_ids.push_back(own_id);
-      }
-    }
-  }
-
-  const IndexingInfo& index_info =
-      computeIndex(expr, predicate_and_singular_ids, for_loops);
+  const IndexingInfo& index_info = computeIndex(expr, predicate_ids, for_loops);
 
   const auto& index_map = index_info.index_map;
 
@@ -1284,35 +1252,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       }
 
       info_vec.emplace_back(info);
-    }
-  }
-
-  if (!getenv("SKIP_SINGULAR")) {
-    std::cerr << "Singular predicate for " << tv->toString() << "\n";
-    for (const auto& singular_id_info : thread_pred_info.singular_ids) {
-      const auto& id_group = traversalGraph().toGroup(singular_id_info.id);
-      auto index_map_it = index_map.find(id_group);
-      if (index_map_it == index_map.end()) {
-        // Not found. It should be fine. It must be that squeezed
-        // slices are not propagated.
-        std::cerr << "Could not find an index for a singular id: "
-                  << singular_id_info.id->toString() << "\n";
-        continue;
-      }
-
-      Val* idx = index_map_it->second;
-      Val* replaced_idx =
-          ir_utils::replaceValRecursively(idx, replacement_map_start);
-
-      PredicateInfo pred_info;
-      pred_info.start_offset_ = zero_val;
-      pred_info.start_predicate_ = SimplifyingIrBuilder::eqExpr(
-          replaced_idx, replaced_idx->fusion()->zeroVal());
-      std::cerr << "Singular predicate: "
-                << pred_info.start_predicate_->toInlineString()
-                << ", id: " << singular_id_info.id->toString() << "\n";
-      pred_info.stop_predicate_ = replaced_idx->fusion()->trueVal();
-      info_vec.emplace_back(pred_info);
     }
   }
 

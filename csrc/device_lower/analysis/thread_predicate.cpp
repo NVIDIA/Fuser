@@ -340,137 +340,6 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
 }
 
 namespace {
-std::vector<IterDomain*> getUsedLoopIds(
-    TensorView* tv,
-    IterDomain* singular_id) {
-  const auto& id_model = GpuLower::current()->idModel();
-  const auto& index_graph =
-      id_model.idGraph(TensorIndexer::traversalGraphType());
-  ValGroups loop_groups;
-  for (const auto loop_id : tv->getLoopDomain()) {
-    loop_groups.pushBack(
-        index_graph.toGroup(getLoopPromotion(loop_id, id_model)));
-  }
-
-  ValGroups singular_group;
-  singular_group.pushBack(index_graph.toGroup(singular_id));
-
-  auto expr_path = IndexingTraversal::getExprsBetween(
-      tv->definition(), index_graph, loop_groups, singular_group);
-
-  auto expr_path_inputs = getInputsOfExprPath(index_graph, expr_path);
-
-  std::vector<IterDomain*> used_loop_ids;
-  for (const auto loop_id : tv->getLoopDomain()) {
-    const auto& loop_group =
-        index_graph.toGroup(getLoopPromotion(loop_id, id_model));
-    if (expr_path_inputs.has(loop_group)) {
-      used_loop_ids.push_back(loop_id);
-    }
-  }
-
-  return used_loop_ids;
-}
-} // namespace
-
-void ThreadPredicateMap::trackSqueezedSlice(const Expr* expr) {
-  // IdModel is required.
-  if (!GpuLower::current()->hasIdModel()) {
-    // This isn't correct.
-    // TODO: Always enable IdModel by default
-    return;
-  }
-
-  const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
-
-  // Propagate all input singular domains
-  std::vector<SingularIdInfo> singular_ids;
-  std::unordered_map<IterDomain*, SingularIdInfo> info_map;
-  std::vector<IterDomain*> singular_id_order;
-
-  for (const auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    const auto& inp_singular_ids = at(input).singular_ids;
-    for (const auto& info : inp_singular_ids) {
-      if (auto it = info_map.find(info.id); it != info_map.end()) {
-        // If the same ID is detecte, they should represent the same
-        // singular ID
-        NVF_ERROR(it->second == info, "Invalid singular id info");
-      } else {
-        singular_ids.push_back(info);
-        info_map.emplace(info.id, info);
-        singular_id_order.push_back(info.id);
-      }
-    }
-  }
-
-  // Add a new singular domain if this is a squeeze op of a slice output
-  if (auto squeeze = dynamic_cast<const SqueezeOp*>(expr)) {
-    auto inp_tv = squeeze->in()->as<TensorView>();
-    for (const auto i : c10::irange(inp_tv->getLogicalDomain().size())) {
-      if (!squeeze->isSqueezeDim(i)) {
-        continue;
-      }
-
-      auto squeezed_id = inp_tv->getLogicalDomain().at(i);
-      NVF_CHECK(squeezed_id->isBroadcast());
-      const ValGroup& squeezed_vg = exact_graph.toGroup(squeezed_id);
-
-      std::cerr << "Squeezed: " << squeezed_id->toString() << "\n";
-
-      // To find if this broadcast ID is produced by a resize,
-      // traverse the graph backward and find if a resize expr is
-      // reaceable.
-      auto all_exprs = ValGraphBFS::getExprsBetween(
-          exact_graph,
-          {squeezed_vg},
-          exact_graph.disjointValSets().disjointSets(),
-          /*require_all_to_visited=*/false,
-          Direction::Backward);
-      if (std::none_of(
-              all_exprs.begin(),
-              all_exprs.end(),
-              [](const auto& path_component) {
-                Expr* expr = path_component.first->front();
-                return expr->isA<Resize>();
-              })) {
-        continue;
-      }
-
-      std::cerr << "Squeezed slice detected: " << squeezed_id->toString()
-                << "\n";
-      // This should be a new singular ID
-      NVF_ERROR(
-          info_map.find(squeezed_id) == info_map.end(),
-          "ID is already a singular ID. ",
-          squeezed_id->toString());
-
-      // used_loop_ids is not used and the singular id may not be used
-      // in the loop domain after all transformations
-      // auto used_loop_ids = getUsedLoopIds(inp_tv, squeezed_id);
-      std::vector<IterDomain*> used_loop_ids;
-      SingularIdInfo info{squeezed_id, used_loop_ids};
-      singular_ids.emplace_back(info);
-      info_map.emplace(squeezed_id, info);
-      singular_id_order.push_back(squeezed_id);
-    }
-  }
-
-  std::vector<SingularIdInfo> ordered_info;
-  ordered_info.reserve(singular_id_order.size());
-  for (IterDomain* ordered_singular_id : singular_id_order) {
-    ordered_info.emplace_back(info_map.at(ordered_singular_id));
-  }
-
-  // Propagate the singular domains to all output tensors
-  for (const auto output :
-       ir_utils::filterByType<TensorView>(expr->outputs())) {
-    ThreadPredicateInfo& output_info = at(output);
-    output_info.singular_ids = ordered_info;
-  }
-}
-
-namespace {
 
 //! A simple backward data flow pass:
 //!  This pass propagates information backward to annotate "redundant use
@@ -866,7 +735,6 @@ void ThreadPredicateMap::build(Fusion* fusion) {
   }
   for (auto expr : fusion->exprs()) {
     updateBitSet(expr);
-    trackSqueezedSlice(expr);
   }
 
   for (auto tv : fusion->allTvs()) {
@@ -1008,12 +876,7 @@ void ThreadPredicateMap::print() const {
     ss << "T" << tv->name()
        << " limited types: " << info.limited_types.toString()
        << ", redundant types: " << info.redundant_types.toString()
-       << ", redundant use types: " << info.redundant_use_types.toString()
-       << ", singular ids:";
-    for (const auto& info : info.singular_ids) {
-      ss << " {" << info.id->toString() << ": "
-         << toDelimitedString(info.used_loop_ids) << "}";
-    }
+       << ", redundant use types: " << info.redundant_use_types.toString();
     ss << "\n";
     debug() << ss.str();
   }
