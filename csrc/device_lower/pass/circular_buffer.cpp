@@ -360,7 +360,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     // that the `cloned_loop` is the loop containing the first read of a
     // circular buffered TensorView. We need to insert that wait expression
     // before `cloned_loop`.
-    if (onlyOneSerialForLoopOnStack()) {
+    if (for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
         auto wait = it->second;
@@ -402,15 +403,6 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         addTmaLoadBlock(cloned_loop);
       }
     }
-  }
-
-  // Check if there is only one serial for-loop in the stack
-  bool onlyOneSerialForLoopOnStack() const {
-    return std::count_if(
-               for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-                 return fl->iter_domain()->getParallelType() ==
-                     ParallelType::Serial;
-               }) == 1;
   }
 
   // Current compute stage: loop_index % stages
@@ -512,7 +504,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       if (wait == nullptr) {
         wait = createMbarrierWait(ldst);
       }
-      if (onlyOneSerialForLoopOnStack()) {
+      if (for_loop_stack_.size() == 1) {
+        NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         for_loop_stack_.back()->body().push_back(wait_it->second);
         mbarriers_to_wait_.erase(wait_it);
       }
@@ -619,7 +612,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
-    if (onlyOneSerialForLoopOnStack()) {
+    if (for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
       return addTmaLoadBlock(new_ldst);
     }
 
@@ -663,7 +657,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp
-    if (onlyOneSerialForLoopOnStack()) {
+    if (for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
       return addTmaLoadBlock(ldst);
     }
 
