@@ -2812,8 +2812,8 @@ TEST_P(StMatrixTest, Regular) {
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-      tv1->getLoopDomain());
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv1->getLoopDomain());
   tv1->setLoopDomain(s.as<IterDomain*>());
   tv1->setAllocationDomain(s.as<IterDomain*>(), true);
 
@@ -2832,7 +2832,6 @@ TEST_P(StMatrixTest, Regular) {
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
-
 
 std::string testNameStMatrixTest(
     const testing::TestParamInfo<StMatrixTestParams>& info) {

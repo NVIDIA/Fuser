@@ -1635,8 +1635,8 @@ namespace {
 // Now tile_box_id_m =  tile_box_id % tile_boxes_in_warp_group_box_m
 // tile_box_id_n = tile_box_id / tile_boxes_in_warp_group_box_m
 // tile_box_offset_m = tile_box_id_m * tile_m(16) * N * 2 (half)
-// tile_box_offset_n = tile_box_id_m * tile_n (16) * N * 2 (half)
-// tile_box_offset = tile_box_offet_m + tile_box_offset_m
+// tile_box_offset_n = tile_box_id_n * tile_n (16) * N * 2 (half)
+// tile_box_offset = tile_box_offet_m + tile_box_offset_n
 
 // Inside the tile box [16, 16], we can think of it as 4 8x8 tiles
 // *****************
