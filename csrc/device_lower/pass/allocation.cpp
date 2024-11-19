@@ -671,14 +671,8 @@ class AllocationInserter : public kir::ExprMutator {
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
-      int64_t circular_buffer_depth =
-          GpuLower::current()
-              ->circularBufferInfo()
-              .getCircularBufferOptionsFor(fl->iter_domain())
-              .stage;
-
-      const auto& circular_buffer_type =
-          GpuLower::current()->circularBufferInfo().getCircularBufferingTypeFor(
+      const auto& opt =
+          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               fl->iter_domain());
 
       // For pipelined circular buffering, we have use one mbarrier per stage
@@ -687,10 +681,9 @@ class AllocationInserter : public kir::ExprMutator {
       // completion of TMA load (to avoid RAW harzard) and the finish of using
       // of the buffer so that it is ready to be loaded again (to avoid WAR
       // harzard).
-      int64_t num_mbarriers =
-          std::holds_alternative<WarpSpecialized>(circular_buffer_type)
-          ? circular_buffer_depth * 2
-          : circular_buffer_depth;
+      int64_t num_mbarriers = std::holds_alternative<WarpSpecialized>(opt.type)
+          ? opt.stage * 2
+          : opt.stage;
 
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{num_mbarriers})
