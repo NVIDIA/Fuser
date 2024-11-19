@@ -960,6 +960,10 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
             .stage;
 
     // Get mbarrier for this circular buffer stage.
+    std::cout << "map:" << std::endl;
+    for (auto& it : GpuLower::current()->ldstMBarrierMap()) {
+      std::cout << it.first->toString() << " -> " << it.second->toString() << std::endl;
+    }
     std::cout << "ldst: " << ldst->toString() << std::endl;
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
