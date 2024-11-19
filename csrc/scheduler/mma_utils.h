@@ -249,8 +249,10 @@ class MmaSwizzler {
 //! marked parallel type bulk.
 void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
 
-
-void scheduleStMatrixForMmaOutput(TensorView* tv, int64_t tile_m, int64_t tile_n);
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n);
 
 void checkDimSize(
     TensorView* tv,
