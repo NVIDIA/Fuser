@@ -470,7 +470,6 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       return GpuLower::current()->commonScalarMap().hoistScalar(
           current_load_stage, for_loop_stack_);
     }
-    NVF_ERROR(loop_type_ != CircularBufferLoopStage::Epilog);
     return cloned_top_level_loop_->indexOrStartIfTrivial();
   }
 
