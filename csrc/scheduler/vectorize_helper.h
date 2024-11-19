@@ -314,6 +314,8 @@ class NVF_API ContiguousInnerDimensionsMapper
 
   //! stores all Resize* op that's added from PadOp*
   std::unordered_set<Resize*> resize_in_pad_;
+  //! stores all Resize* op that's added from SliceOp*
+  std::unordered_set<Resize*> resize_in_slice_;
 };
 
 // logical_reorder_map is provided to assume reference_tv will be reordered per
