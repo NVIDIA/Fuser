@@ -516,6 +516,26 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         stage_parity, for_loop_stack_);
   }
 
+  Val* currentLoadParity() const {
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            circular_buffer_loop_->iter_domain());
+
+    auto depth = IrBuilder::create<Val>(opt.stage, DataType::UInt32);
+    auto two = IrBuilder::create<Val>(2, DataType::UInt32);
+    Val* stage_parity = IrBuilder::maybeCastExpr(
+        DataType::UInt32,
+        SimplifyingIrBuilder::modExpr(
+            SimplifyingIrBuilder::divExpr(
+                SimplifyingIrBuilder::addExpr(
+                    cloned_top_level_loop_->indexOrStartIfTrivial(),
+                    opt.prefetch),
+                depth),
+            two));
+    return GpuLower::current()->commonScalarMap().hoistScalar(
+        stage_parity, for_loop_stack_);
+  }
+
   // Check if the given expr is the first read of a circular buffered
   // TensorView. If so, create the mbarrier::wait expression for the
   // corresponding buffer. And if the given expr is on the top-level of the
@@ -1010,7 +1030,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
-            stage_mbarrier, currentParity());
+            stage_mbarrier, currentLoadParity());
     return mbarrier_wait;
   }
 
