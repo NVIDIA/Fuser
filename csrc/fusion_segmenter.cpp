@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <sstream>
+
 #include <debug.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -20,9 +23,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
-#include <algorithm>
-
-#include <sstream>
+#include <transform_iter.h>
 
 namespace nvfuser {
 
@@ -1860,34 +1861,33 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    NVF_ERROR(new_logical_domain.size() == tv->domain()->contiguity().size());
     TensorDomain* new_td = nullptr;
-
     if (tv->domain()->hasAllocation()) {
       // we need to reorder the logical domain into allocation domain
       // consistently with the mapping from the old TensorView logical domain to
       // its allocation domain
-      const auto& alloc = tv->getAllocationDomain();
-      NVF_ERROR(
-          alloc.size() == logical.size(),
-          "size between logical and alloc doesn't match");
-      const auto rank = alloc.size();
-      std::vector<int64_t> stride_order(rank, -1);
-      for (auto i : c10::irange(rank)) {
-        bool found_match = false;
-        for (auto j : c10::irange(rank)) {
-          if (alloc[i] == logical[j]) {
-            stride_order[j] = static_cast<int64_t>(rank - 1 - i);
-            found_match = true;
-            break;
-          }
-        }
-        NVF_ERROR(
-            found_match,
-            "cannot match IterDomain between allocation domain to logical domain");
+      std::unordered_map<IterDomain*, IterDomain*> old_to_new;
+      for (const auto i : c10::irange(logical.size())) {
+        old_to_new.emplace(logical[i], new_logical_domain[i]);
+      }
+      // for (IterDomain* root_id : tv->getRootDomain()) {
+      //   old_to_new.emplace(root_id, nullptr);
+      // }
+
+      ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
+      replay.setErrorOnFailure(false);
+      // Should we setReplayRFactor?
+      std::vector<IterDomain*> new_alloc;
+      new_alloc.reserve(tv->getAllocationDomain().size());
+      for (IterDomain* alloc_id : tv->getAllocationDomain()) {
+        new_alloc.push_back(replay.getReplay().at(alloc_id));
       }
       new_td = IrBuilder::create<TensorDomain>(
-          new_logical_domain, stride_order, tv->domain()->contiguity());
+          /*root_domain=*/std::vector<IterDomain*>(),
+          new_logical_domain,
+          new_alloc,
+          /*loop_domain=*/new_logical_domain,
+          tv->domain()->contiguity());
     } else {
       new_td = IrBuilder::create<TensorDomain>(
           new_logical_domain, tv->domain()->contiguity());

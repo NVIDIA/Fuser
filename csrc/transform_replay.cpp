@@ -757,19 +757,19 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
-    auto replay_CasP = BestEffortReplay(
-        new_IDs,
-        producer->getLoopDomain(),
+    std::vector<IterDomain*> producer_allocation =
+        TensorDomain::noReductions(producer->getAllocationDomain());
+    ReplayTransformations replay_CasP(
+        producer_allocation,
         logical_map.mapProducerToConsumer(producer->domain(), replayed));
     const auto& p2c_map = replay_CasP.getReplay();
 
-    auto producer_rank = producer->getAllocationDomain().size();
     std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(producer_rank);
+    new_allocation_domain.reserve(producer_allocation.size());
     std::vector<std::optional<bool>> new_contiguity;
-    new_contiguity.reserve(producer_rank);
+    new_contiguity.reserve(producer_allocation.size());
 
-    for (auto i : c10::irange(producer_rank)) {
+    for (auto i : c10::irange(producer->getAllocationDomain().size())) {
       IterDomain* id = producer->getAllocationDomain()[i];
       // We won't find reduction IterDomains in the map. See
       // AllocationDomainTest.CacheBefore.
