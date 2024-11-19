@@ -840,7 +840,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(exprs.size() == 1);
     auto ldst = dynamic_cast<LoadStoreOp*>(exprs.front());
     NVF_ERROR(ldst != nullptr);
-    auto wait = createMbarrierWaitForWar(ldst->out()->definition());
+    auto wait =
+        createMbarrierWaitForWar(ldst->out()->definition()->as<LoadStoreOp>());
     if_expr->thenBody().push_back(wait);
 
     // Arrive expect tx for RAW
@@ -939,8 +940,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-    kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
-        all_mbarriers, currentStage());
+    kir::TensorIndex* stage_mbarrier =
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentStage());
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
@@ -962,7 +963,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     // Get mbarrier for this circular buffer stage.
     std::cout << "map:" << std::endl;
     for (auto& it : GpuLower::current()->ldstMBarrierMap()) {
-      std::cout << it.first->toString() << " -> " << it.second->toString() << std::endl;
+      std::cout << it.first->toString() << " -> " << it.second->toString()
+                << std::endl;
     }
     std::cout << "ldst: " << ldst->toString() << std::endl;
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
