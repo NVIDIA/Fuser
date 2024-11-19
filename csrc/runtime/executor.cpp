@@ -246,7 +246,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
 
 namespace {
 bool hasCpuScalarOutputs(Fusion* fusion) {
-  if (fusion->exprs().size() == 0){
+  if (fusion->exprs().empty()) {
     return false;
   }
 
@@ -274,14 +274,13 @@ bool hasCpuScalarOutputs(Fusion* fusion) {
       }
     }
   }
-  
+
   bool has_any_cpu_output = std::any_of(
-    fusion->outputs().begin(),
-    fusion->outputs().end(),
-    [&tv_is_cpu_map](Val* out){
-      return out->isA<TensorView>() && tv_is_cpu_map[out->as<TensorView>()]; 
-    }
-  );
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      [&tv_is_cpu_map](Val* out) {
+        return out->isA<TensorView>() && tv_is_cpu_map[out->as<TensorView>()];
+      });
   return has_any_cpu_output;
 }
 } // namespace
