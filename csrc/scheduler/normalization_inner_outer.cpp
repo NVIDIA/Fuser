@@ -186,7 +186,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
-    const int64_t total_reduction_numel,
     const int64_t vectorize_factor,
     const int64_t threads_per_block_min,
     const int64_t threads_per_block_max) {
@@ -263,11 +262,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   std::unordered_map<TensorView*, std::pair<int64_t, int64_t>>
       required_size_regs_smem_map;
   int64_t total_smem_buffer_size = 0;
-  int64_t total_regs_buffer_size = 0;
   for (auto buffer : buffers) {
     int64_t buffer_size_regs = scheduler_utils::getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
-    total_regs_buffer_size += buffer_size_regs;
     int64_t buffer_size_smem = roundUpSharedMemory(
         buffer_size_regs,
         dataTypeSize(buffer->getDataType().value()),
@@ -282,19 +279,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.smem_buffer_size = total_smem_buffer_size;
   buffer_params.regs_buffer_size =
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
-
-  // when total_reduction_numel <= 1024, scheduler may use multiple reductions
-  // per block with bdimy > 1, this leads to race condition in shared memory
-  // when using async copy. Adding `cp.async.wait_all`after the 1st async copy
-  // can avoid the race, but needs to figure out the root cause before we can
-  // safely use it. So, here we put all buffers in registers.
-  if (total_reduction_numel <= 1024L) {
-    buffer_params.regs_buffer_size += total_regs_buffer_size;
-    buffer_params.smem_buffer_size = 0;
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
-
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
     buffer_params.smem_persistent_buffers = buffers;
@@ -680,17 +664,12 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
-    iop.gdimy =
-        getGdimy(iop.inner_vect, threads_per_block_mrpb, iop.inner_batch);
+    iop.gdimy = getGdimy(iop.inner_vect, iop.bdimx, iop.inner_batch);
 
     // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
-    // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
-    // cover what is left in both the outer_dim and inner_dim. However, it
-    // should not exceed the limitation set by threads_per_block_mrpb.
-    int64_t bdimy_tmp = std::max(
-        ceilDiv(outer_dim_numel, iop.gdimy),
-        ceilDiv(inner_dim_numel, iop.vectorization_factor_outer * iop.gdimy));
-    iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
+    // bdimy, gdimy (in previous step).
+    // WAR for https://github.com/NVIDIA/Fuser/issues/3428
+    iop.bdimy = 1;
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
     iop.warps_per_sm = ceilDiv(iop.bdimx * iop.bdimy, dev_prop->warpSize) *
@@ -858,7 +837,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       runtime_info,
       data_cache,
       reduction_tvs,
-      properties.total_reduction_numel,
       hp.vectorize_factor,
       hp.threads_per_block_min,
       hp.threads_per_block_max);
@@ -1388,7 +1366,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       runtime_info,
       data_cache,
       reduction_tvs,
-      properties.total_reduction_numel,
       hp.vectorize_factor,
       hp.threads_per_block_min,
       hp.threads_per_block_max);
