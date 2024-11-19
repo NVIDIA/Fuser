@@ -455,10 +455,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         result, for_loop_stack_);
   }
 
-  // Current load stage (for main loop): (loop_index + prefetch) % stages
+  // Current load stage: (loop_index + prefetch) % stages
   Val* currentLoadStage() const {
-    NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
-
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
