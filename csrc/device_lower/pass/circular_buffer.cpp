@@ -1746,13 +1746,10 @@ class CircularBufferInserter : private kir::ExprMutator {
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
-    ParallelType warp_specialize_on =
-        std::get<WarpSpecialized>(GpuLower::current()
-                                      ->circularBufferInfo()
-                                      .getCircularBufferOptionsFor(
-                                          circular_buffer_loop->iter_domain())
-                                      .type)
-            .on;
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            circular_buffer_loop->iter_domain());
+    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
 
     kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
@@ -1769,9 +1766,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
     // Prefetch:
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
     auto circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
             circular_buffer_loop->iter_domain());
