@@ -1227,7 +1227,7 @@ class CircularBufferInserter : private kir::ExprMutator {
   //     ...
   //   }
   // where mbarrierX[stage + i] is the X-th WAR mbarrier for stage i.
-  ForLoop* createArrivesForWar() {
+  ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
@@ -1258,7 +1258,7 @@ class CircularBufferInserter : private kir::ExprMutator {
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // Set up mbarriers for WAR synchronization.
-    auto prefetch_loop = createArrivesForWar();
+    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
     registerInsertBefore(circular_buffer_loop, prefetch_loop);
 
     // Prologue loop:
