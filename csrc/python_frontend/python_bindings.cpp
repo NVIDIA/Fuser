@@ -565,6 +565,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
   launch_parameters.def(
       py::init<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>());
+  launch_parameters.def(
+      "__repr__", [](const LaunchParams& self) { return self.toString(); });
   launch_parameters.def_property(
       "bdimx",
       [](LaunchParams& self) { return self.bdimx(); },
@@ -596,7 +598,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
         self.bindUnsafe(val, ParallelType::BIDy);
       });
   launch_parameters.def_property(
-      "gdimy",
+      "gdimz",
       [](LaunchParams& self) { return self.gdimz(); },
       [](LaunchParams& self, int64_t val) {
         self.bindUnsafe(val, ParallelType::BIDz);
