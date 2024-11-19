@@ -565,6 +565,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // cloned loop, create an mbarrier::arrive expression and insert it after the
   // given expr.
   void insertMBarrierArriveAfterLastRead(Expr* expr) {
+    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
     // remove expr from mbarriers_to_uses_
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto tv : input_tvs) {
