@@ -365,13 +365,13 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     if (loop_type_ == CircularBufferLoopStage::Main &&
         for_loop_stack_.size() == 1) {
       NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-      for (auto it = mbarriers_to_uses_.begin();
-           it != mbarriers_to_uses_.end();) {
+      for (auto it = war_mbarriers_to_uses_.begin();
+           it != war_mbarriers_to_uses_.end();) {
         auto& uses = it->second;
         if (uses.empty()) {
           auto arrive = createMbarrierArriveForWar(it->first);
           for_loop_stack_.back()->body().push_back(arrive);
-          it = mbarriers_to_uses_.erase(it);
+          it = war_mbarriers_to_uses_.erase(it);
         } else {
           ++it;
         }
