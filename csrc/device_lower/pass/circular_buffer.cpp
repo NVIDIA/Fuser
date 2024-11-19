@@ -1225,9 +1225,47 @@ class CircularBufferInserter : private kir::ExprMutator {
     return prefetch_distance > 0;
   }
 
+  // Create something like below:
+  //   for (int i = 0; i < prefetch + 1; ++i) {
+  //     mbarrier::arrive(mbarrier0[stage + i]]);
+  //     mbarrier::arrive(mbarrier1[stage + i]);
+  //     ...
+  //   }
+  // where mbarrierX[stage + i] is the X-th WAR mbarrier for stage i.
+  ForLoop* createArrivesForWar() {
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            circular_buffer_loop->iter_domain());
+    auto circular_buffer_tvs =
+        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
+            circular_buffer_loop->iter_domain());
+    VectorOfUniqueEntries<TensorView*> mbarriers;
+    for (auto tv : circular_buffer_tvs) {
+      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      NVF_ERROR(ldst != nullptr);
+      auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+      mbarriers.pushBack(mbarrier);
+    }
+    auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
+    for (auto mbarrier : mbarriers) {
+      auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
+          mbarrier,
+          SimplifyingIrBuilder::addExpr(
+              prefetch_loop->indexOrStartIfTrivial(), opt.stage));
+      auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
+          /*state=*/nullptr, mbarrier_to_arrive);
+      prefetch_loop->body().push_back(prefetch);
+    }
+    return fetch_loop;
+  }
+
   void insertTma(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
+    // Set up mbarriers for WAR synchronization.
+    auto prefetch_loop = createArrivesForWar();
+    registerInsertBefore(circular_buffer_loop, prefetch_loop);
+
     // Prologue loop:
     //  - launch only
     //  - arrive_expect_tx and tma load operations
