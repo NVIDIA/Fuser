@@ -1076,8 +1076,10 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   // Current stage: loop_index % stages
   Val* currentStage() const {
     int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
     Val* result = SimplifyingIrBuilder::modExpr(
         cloned_top_level_loop_->indexOrStartIfTrivial(),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
@@ -1088,18 +1090,14 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   // Current empty stage (for compute warp): (loop_index + prefetch) % stages
   Val* currentEmptyStage() const {
     NVF_ERROR(loop_type_ == CircularBufferLoopStage::ComputeWarp);
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
-    int64_t prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
 
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
         SimplifyingIrBuilder::addExpr(
-            cloned_top_level_loop_->indexOrStartIfTrivial(),
-            prefetch_distance + 1),
-        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+            cloned_top_level_loop_->indexOrStartIfTrivial(), opt.prefetch + 1),
+        IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         current_load_stage, for_loop_stack_);
   }
@@ -1114,8 +1112,10 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   // for reference.
   Val* currentParity() const {
     int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
 
     auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
     auto two = IrBuilder::create<Val>(2, DataType::UInt32);
@@ -1472,8 +1472,10 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
   kir::MBarrierArrive* createMbarrierArrive(TensorView* all_mbarriers) {
     // Get mbarrier for this circular buffer stage.
     auto stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
 
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
@@ -1490,8 +1492,10 @@ class CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(ldst != nullptr);
 
     auto stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
@@ -1762,11 +1766,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
     // Prefetch:
-    auto prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-            circular_buffer_loop->iter_domain());
-    auto stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
     auto circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
@@ -1779,11 +1780,11 @@ class CircularBufferInserter : private kir::ExprMutator {
       mbarriers.pushBack(mbarrier);
     }
     for (auto mbarrier : mbarriers) {
-      auto prefetch_loop = ir_utils::createRangeLoop(prefetch_distance + 1);
+      auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
       auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
           mbarrier,
           SimplifyingIrBuilder::addExpr(
-              prefetch_loop->indexOrStartIfTrivial(), stage_depth));
+              prefetch_loop->indexOrStartIfTrivial(), opt.stage));
       auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
           /*state=*/nullptr, mbarrier_to_arrive);
       prefetch_loop->body().push_back(prefetch);
