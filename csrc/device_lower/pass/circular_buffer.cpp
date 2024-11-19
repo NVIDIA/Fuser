@@ -523,15 +523,18 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     auto depth = IrBuilder::create<Val>(opt.stage, DataType::Index);
     auto two = IrBuilder::create<Val>(2, DataType::Index);
+    Val* current_load_index = nullptr;
+    if (loop_type_ == CircularBufferLoopStage::Main) {
+      current_load_index = SimplifyingIrBuilder::addExpr(
+          cloned_top_level_loop_->indexOrStartIfTrivial(),
+          IrBuilder::create<Val>(opt.prefetch, DataType::Index));
+    } else {
+      current_load_index = cloned_top_level_loop_->indexOrStartIfTrivial();
+    }
     Val* stage_parity = IrBuilder::maybeCastExpr(
         DataType::UInt32,
         SimplifyingIrBuilder::modExpr(
-            SimplifyingIrBuilder::divExpr(
-                SimplifyingIrBuilder::addExpr(
-                    cloned_top_level_loop_->indexOrStartIfTrivial(),
-                    opt.prefetch),
-                depth),
-            two));
+            SimplifyingIrBuilder::divExpr(current_load_index, depth), two));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         stage_parity, for_loop_stack_);
   }
