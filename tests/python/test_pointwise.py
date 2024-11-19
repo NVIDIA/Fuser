@@ -4,7 +4,8 @@
 import torch
 from nvfuser import FusionDefinition, DataType
 import pytest
-
+from utils import verify_stride_order
+import itertools
 
 def test_issue_2395():
     def create_fusion(fd: FusionDefinition) -> None:
@@ -336,7 +337,7 @@ def test_implicit_bcast_inplace():
 
     torch.testing.assert_close(ref_out[0], out[0])
     torch.testing.assert_close(ref_out[1], inputs[0])
-
+     
 
 # Test that an error is raised if there are segments
 # with CPU outputs.
@@ -421,19 +422,3 @@ def test_single_segment_multi_device():
 
     with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
         _ = fd.execute(inputs)
-def test_output_stride_order_with_reduction():
-    inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
-    def fusion_func(fd: FusionDefinition) -> None:
-        T0 = fd.from_pytorch(inputs[0])
-        T1 = fd.ops.sum(T0, dims=[2])
-        fd.add_output(T1, stride_order=[0, 1, 2])
-    with FusionDefinition() as fd:
-        fusion_func(fd)
-    nvf_out = fd.execute(inputs)
-    
-    nvf_stride = nvf_out[0].stride()
-    sorted_stride = list(nvf_stride)
-    rank = len(nvf_stride)
-    for idx, axis in enumerate([0, 1, 2]):
-        sorted_stride[rank - 1 - axis] = nvf_stride[idx]
-    assert sorted(sorted_stride, reverse=True) == sorted_stride

@@ -34,6 +34,7 @@ from utils import (
     is_pre_hopper,
     debug_serde,
     NVFuserTest,
+    verify_stride_order
 )
 import pytest
 
@@ -1619,13 +1620,9 @@ class TestNvFuserFrontend(NVFuserTest):
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
             self.assertEqual(eager_out, nvf_out[0])
-
+            
             nvf_stride = nvf_out[0].stride()
-            sorted_stride = list(nvf_stride)
-            rank = len(nvf_stride)
-            for idx, axis in enumerate(perm):
-                sorted_stride[rank - 1 - axis] = nvf_stride[idx]
-            self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
+            verify_stride_order(nvf_stride, perm)
 
             # testing stride_order in set
             def fusion_set_func(fd: FusionDefinition):
@@ -1639,12 +1636,24 @@ class TestNvFuserFrontend(NVFuserTest):
             self.assertEqual(eager_out, nvf_out[0])
 
             nvf_stride = nvf_out[0].stride()
-            sorted_stride = list(nvf_stride)
-            rank = len(nvf_stride)
-            for idx, axis in enumerate(perm):
-                sorted_stride[rank - 1 - axis] = nvf_stride[idx]
-            self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
+            verify_stride_order(nvf_stride, perm)
 
+    def test_output_stride_order_with_reduction(self):
+        inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
+        
+        for perm in itertools.permutations(range(3), 3):
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.from_pytorch(inputs[0])
+                T1 = fd.ops.sum(T0, dims=[2])
+                fd.add_output(T1, stride_order=perm)
+                
+            with FusionDefinition() as fd:
+                fusion_func(fd)
+                
+            nvf_out = fd.execute(inputs)
+            verify_stride_order(nvf_out[0].stride(), perm)
+   
+   
     def test_expanded_bcast_tensor(self):
         inputs = [
             torch.tensor(1.5, device="cuda"),
