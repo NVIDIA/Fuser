@@ -243,21 +243,6 @@ const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
   return maybe_depth_it->second;
 }
 
-int64_t CircularBufferInfo::getStageDepthFor(
-    IterDomain* circular_buffer_axis) const {
-  return getCircularBufferOptionsFor(circular_buffer_axis).stage;
-}
-
-int64_t CircularBufferInfo::getPrefetchDistanceFor(
-    IterDomain* circular_buffer_axis) const {
-  return getCircularBufferOptionsFor(circular_buffer_axis).prefetch;
-}
-
-const CircularBufferingType& CircularBufferInfo::getCircularBufferingTypeFor(
-    IterDomain* circular_buffer_axis) const {
-  return getCircularBufferOptionsFor(circular_buffer_axis).type;
-}
-
 ForLoop* CircularBufferInfo::getCircularBufferLoop(
     IterDomain* axis,
     const std::vector<ForLoop*>& loops,

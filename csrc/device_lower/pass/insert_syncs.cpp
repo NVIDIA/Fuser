@@ -702,7 +702,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
             (!tv->isCircularBuffered() ||
-             tv->circularBufferPrefetchDistance() == 0)) {
+             tv->circularBufferOptions().prefetch == 0)) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async
@@ -974,12 +974,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           "Only main circular buffer loop needs WAR async wait, ",
           "so the code should not reach here. Stage:",
           stage);
-      const int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-      const int64_t prefetch_distance =
-          gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+
+      const auto& opt =
+          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               circular_buffer_loop->iter_domain());
-      pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
+      pending_ops = std::min(pending_ops, opt.stage - opt.prefetch - 1);
     }
     NVF_ERROR(pending_ops != std::numeric_limits<int64_t>::max());
     return pending_ops;

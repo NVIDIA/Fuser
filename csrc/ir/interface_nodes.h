@@ -615,20 +615,6 @@ class NVF_API TensorView : public Val {
     return circular_buffer_options_;
   }
 
-  // Returns the depth of circular buffering if applicable.
-  int64_t circularBufferDepth() const {
-    return circular_buffer_options_.stage;
-  }
-
-  // Returns the prefetch of circular buffering if applicable.
-  int64_t circularBufferPrefetchDistance() const {
-    return circular_buffer_options_.prefetch;
-  }
-
-  CircularBufferingType circularBufferingType() const {
-    return circular_buffer_options_.type;
-  }
-
   //! Transforms the innermost iterdomains according to the given mma swizzle,
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
