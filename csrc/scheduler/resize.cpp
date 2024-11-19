@@ -624,13 +624,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     std::cerr << "Tvs to schedule: " << toDelimitedString(tvs_to_schedule)
               << "\n";
 
-#if 1
     ref_tv->flatten();
     ref_tv->split(0, 128);
     ref_tv->split(0, 1 << 14);
     ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
-#endif
+
     std::cerr << "Scheduled reference:\n";
     ref_tv->printTransforms();
 

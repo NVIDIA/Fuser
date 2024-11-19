@@ -101,11 +101,8 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
 
 class LoopDomainScheduler {
  public:
-  LoopDomainScheduler(
-      std::vector<IterDomain*> ref_loop_dom,
-      bool enable_resize_war = true)
-      : ref_loop_dom_(std::move(ref_loop_dom)),
-        enable_resize_war_(enable_resize_war) {
+  LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
+      : ref_loop_dom_(std::move(ref_loop_dom)) {
     NVF_ERROR(!ref_loop_dom_.empty());
 #if 0
     // For now, ref must not be a broadcast domain
@@ -159,10 +156,6 @@ class LoopDomainScheduler {
       TensorView* tv,
       bool require_all_visited = true) const;
 
-  std::optional<ValGraphBFS::ExprPath> getReplayPathForResize(
-      TensorView* tv,
-      bool require_all_visited = true) const;
-
   // Replay an ExprGroup with given lists of input and output
   // groups. NOte that inputs and outputs are based on a given
   // direction. If it's Backward, the given inputs are used as the
@@ -198,7 +191,6 @@ class LoopDomainScheduler {
 
  private:
   std::vector<IterDomain*> ref_loop_dom_;
-  bool enable_resize_war_ = true;
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
@@ -221,11 +213,25 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
     return;
   }
 
+  auto tv_loop_groups = graph().toGroups(tv->getLoopDomain());
+
   bool resize_war = false;
-  std::optional<ValGraphBFS::ExprPath> resize_path_from_ref;
-  if (enable_resize_war_) {
-    resize_path_from_ref = getReplayPathForResize(tv);
-    resize_war = resize_path_from_ref.has_value();
+  ValGraphBFS::ExprPath resize_path_from_ref = ValGraphBFS::getExprsBetween(
+      graph(),
+      ref_id_groups_,
+      tv_loop_groups,
+      /*require_all_to_visited=*/false,
+      Direction::Backward);
+  auto unreachable_groups = ValGraphBFS::getUnreachableValsFrom(
+      graph(), ref_id_groups_, tv_loop_groups, resize_path_from_ref);
+  if (unreachable_groups.empty() ||
+      std::all_of(
+          unreachable_groups.begin(),
+          unreachable_groups.end(),
+          [&](const ValGroup& unreachable_group) {
+            return unreachable_group->front()->as<IterDomain>()->isBroadcast();
+          })) {
+    resize_war = true;
   }
 
   // All of the existing IDs are reused as much as possible to
@@ -274,7 +280,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   }
 
   const auto path_from_ref =
-      resize_war ? resize_path_from_ref.value() : getReplayPath(tv);
+      resize_war ? resize_path_from_ref : getReplayPath(tv);
   const ExprGroups all_existing_expr_groups =
       resize_war ? ExprGroups{} : graph().toGroups(tv->domain()->allExprs());
 
@@ -496,113 +502,16 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   return ref_to_loop;
 }
 
-// WAR for resize
-std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
-    getReplayPathForResize(TensorView* tv, bool require_all_visited) const {
-  std::cerr << "getReplayPathForResize for " << tv->toString() << "\n";
-
-  // This WAR only works when ref is logical
-  ValGroups ref_groups;
-  ValGraphBFS::ExprPath root_to_logial_resize_exprs;
-  // ValGraphBFS::ExprPath path_to_parents;
-  for (const auto& ref_loop_id : ref_loop_dom_) {
-    const auto def = dynamic_cast<Resize*>(ref_loop_id->definition());
-    if (def != nullptr) {
-      ref_groups.pushBack(graph().toGroup(def->in()));
-      root_to_logial_resize_exprs.emplace_back(
-          graph().toGroup(def), Direction::Backward);
-    } else {
-      ref_groups.pushBack(graph().toGroup(ref_loop_id));
-    }
-  }
-
-  // TODO: Should broadcast be ignored? If not all required to be
-  // visited, it shouldn't matter
-  ValGroups tv_loop_domains = graph().toGroups(
-      require_all_visited ? TensorDomain::noBroadcasts(tv->getLoopDomain())
-                          : tv->getLoopDomain());
-
-  ValGraphBFS::ExprPath path = ValGraphBFS::getExprsBetween(
-      graph(),
-      ref_groups,
-      tv_loop_domains,
-      /*require_all_to_visited=*/false,
-      Direction::Backward);
-
-  std::cerr << "Ref groups: " << nvfuser::toString(ref_groups) << "\n";
-
-  std::cerr << "Path from parent\n";
-  for (const auto& [eg, dir] : path) {
-    std::cerr << "dir: " << dir << ": " << eg->front()->toString();
-  }
-
-  const auto path_vals = getValsOfExprPath(graph(), path);
-
-  bool all_ref_used = std::all_of(
-      ref_groups.begin(), ref_groups.end(), [&](const ValGroup& ref_group) {
-        return path_vals.has(ref_group) || tv_loop_domains.has(ref_group);
-      });
-
-  bool all_target_reached = std::all_of(
-      tv_loop_domains.begin(),
-      tv_loop_domains.end(),
-      [&](const ValGroup& tv_taget_domain) {
-        return path_vals.has(tv_taget_domain) ||
-            ref_groups.has(tv_taget_domain);
-      });
-
-  bool valid = false;
-  if (all_target_reached) {
-    valid = true;
-  } else if (all_ref_used) {
-    if (require_all_visited) {
-      for (const auto& id : tv_loop_domains) {
-        if (!path_vals.has(id) && !ref_groups.has(id)) {
-          std::cerr << "Not reached: " << id->toString() << "\n";
-        }
-      }
-    }
-    if (require_all_visited) {
-      valid = false;
-    }
-  } else {
-    valid = false;
-  }
-
-  if (!valid) {
-    std::cerr << "Not using getReplayPathForResize due to: " << all_ref_used
-              << " and " << all_target_reached << "\n";
-    return std::nullopt;
-  }
-
-  ValGraphBFS::ExprPath ref_to_target;
-  ref_to_target.insert(
-      ref_to_target.end(),
-      root_to_logial_resize_exprs.begin(),
-      root_to_logial_resize_exprs.end());
-  ref_to_target.insert(ref_to_target.end(), path.begin(), path.end());
-
-  // Valid path found. Append with upward_path
-  std::cerr << "Resize WAR: taking a backward path for " << tv->toString()
-            << "\n";
-  for (const auto& [eg, dir] : ref_to_target) {
-    std::cerr << eg->front()->toString();
-  }
-
-  return ref_to_target;
-}
-
 } // namespace
 
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom,
-    bool enable_resize_war) {
+    const std::vector<IterDomain*>& ref_loop_dom) {
   if (tvs.empty()) {
     return;
   }
 
-  LoopDomainScheduler scheduler(ref_loop_dom, enable_resize_war);
+  LoopDomainScheduler scheduler(ref_loop_dom);
 
   for (auto tv : tvs) {
     // Loop domain of fusion inputs should have no meaning

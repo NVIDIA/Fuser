@@ -164,7 +164,7 @@ void propagateResizeTensorOpToInputs(Expr* resize_op) {
             << producer_tv->toString() << "\n";
 
   scheduler_tools::scheduleLoopDomainsLike(
-      tvs_to_schedule, producer_tv->getLoopDomain(), false);
+      tvs_to_schedule, producer_tv->getLoopDomain());
 
   for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
     auto out_logical_id = consumer_tv->getLogicalDomain().at(i);
