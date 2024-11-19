@@ -566,7 +566,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // given expr.
   void insertMBarrierArriveAfterLastRead(Expr* expr) {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
-    // remove expr from mbarriers_to_uses_
+    // remove expr from war_mbarriers_to_uses_
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto tv : input_tvs) {
       if (circular_buffer_load_tvs_.count(tv) == 0) {
@@ -578,8 +578,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         continue;
       }
       auto mbarrier = mbarrier_it->second;
-      auto use_it = mbarriers_to_uses_.find(mbarrier);
-      if (use_it == mbarriers_to_uses_.end()) {
+      auto use_it = war_mbarriers_to_uses_.find(mbarrier);
+      if (use_it == war_mbarriers_to_uses_.end()) {
         continue;
       }
       auto& uses = use_it->second;
