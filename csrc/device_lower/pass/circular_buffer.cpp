@@ -443,7 +443,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     return cloned_top_level_loop_->indexOrStartIfTrivial();
   }
 
-  // Current load stage: (loop_index + prefetch) % stages
+  // Current load stage: currentLoadIndex() % stages
   Val* currentLoadStage() const {
     int64_t stage =
         GpuLower::current()
