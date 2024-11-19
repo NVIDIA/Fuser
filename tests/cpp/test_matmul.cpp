@@ -3802,7 +3802,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 }
 
 // Test scheduling a Hopper matmul where the operands are 2D
-TEST_F(HopperMatmulTest, DISABLED_HSH_NT_128BSwizzle_NoBroadcasts) {
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
