@@ -43,9 +43,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     if (tv->isCircularBuffered() &&
-        std::holds_alternative<WarpSpecialized>(tv->circularBufferingType())) {
+        std::holds_alternative<WarpSpecialized>(
+            tv->circularBufferOptions().type)) {
       const auto& warp_specialized =
-          std::get<WarpSpecialized>(tv->circularBufferingType());
+          std::get<WarpSpecialized>(tv->circularBufferOptions().type);
       // TODO: why I am getting DIDx here? Something is wrong.
       // warp_specialized_types.pushBack(warp_specialized.on);
       warp_specialized_types.pushBack(ParallelType::TIDy);
