@@ -840,7 +840,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(exprs.size() == 1);
     auto ldst = dynamic_cast<LoadStoreOp*>(exprs.front());
     NVF_ERROR(ldst != nullptr);
-    auto wait = createMbarrierWaitForWar(ldst);
+    auto wait = createMbarrierWaitForWar(ldst->out()->definition());
     if_expr->thenBody().push_back(wait);
 
     // Arrive expect tx for RAW
