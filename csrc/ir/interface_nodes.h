@@ -176,6 +176,10 @@ struct CircularBufferOptions {
     return stage > 1;
   }
 
+  bool usesMBarrierForWAR() const {
+    return true;
+  }
+
   bool operator==(const CircularBufferOptions& other) const {
     return stage == other.stage && prefetch == other.prefetch;
   }
