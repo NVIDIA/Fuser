@@ -719,7 +719,11 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   //
   // Where mbarrier are shared memory arrays bound to the LoadStoreOp
   void handleMainLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
+    NVF_ERROR(expr != nullptr);
+
+    if (!expr->isA<LoadStoreOp>()) {
+      return;
+    }
 
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
@@ -961,12 +965,6 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
             .stage;
 
     // Get mbarrier for this circular buffer stage.
-    std::cout << "map:" << std::endl;
-    for (auto& it : GpuLower::current()->ldstMBarrierMap()) {
-      std::cout << it.first->toString() << " -> " << it.second->toString()
-                << std::endl;
-    }
-    std::cout << "ldst: " << ldst->toString() << std::endl;
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
