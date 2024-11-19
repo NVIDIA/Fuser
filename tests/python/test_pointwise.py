@@ -4,8 +4,7 @@
 import torch
 from nvfuser import FusionDefinition, DataType
 import pytest
-from utils import verify_stride_order
-import itertools
+
 
 def test_issue_2395():
     def create_fusion(fd: FusionDefinition) -> None:
@@ -337,7 +336,6 @@ def test_implicit_bcast_inplace():
 
     torch.testing.assert_close(ref_out[0], out[0])
     torch.testing.assert_close(ref_out[1], inputs[0])
-     
 
 # Test that an error is raised if there are segments
 # with CPU outputs.

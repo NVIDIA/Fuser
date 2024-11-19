@@ -201,4 +201,3 @@ class TestMatmul(NVFuserTest):
         ]
         outputs, _ = self.exec_nvfuser(fusion_func, inputs)
         assert outputs[0].ndim == 3
-        
