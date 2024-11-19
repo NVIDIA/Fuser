@@ -79,8 +79,8 @@ Expr* initializeMbarrier(
     num_of_arrives =
         IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
   } else {
-    // TODO: calculate this
-    num_of_arrives = IrBuilder::create<Val>(128 * 2, DataType::UInt32);
+    num_of_arrives =
+        GpuLower::current()->parallelDimensionMap().getNumThreadsEachBlock();
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
@@ -725,10 +725,10 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertAfter(fl, mbarrier_inval_filled, current_scope);
 
       if (opt.usesMBarrierForWAR()) {
-        auto mbarrier_init_finish_read =
-            initializeMbarrier(fl, mbarrier, CircularBufferWaitType::FinishRead);
-        auto mbarrier_inval_finish_read =
-            invalidateMbarrier(fl, mbarrier, CircularBufferWaitType::FinishRead);
+        auto mbarrier_init_finish_read = initializeMbarrier(
+            fl, mbarrier, CircularBufferWaitType::FinishRead);
+        auto mbarrier_inval_finish_read = invalidateMbarrier(
+            fl, mbarrier, CircularBufferWaitType::FinishRead);
         registerInsertBefore(fl, mbarrier_init_finish_read, current_scope);
         registerInsertAfter(fl, mbarrier_inval_finish_read, current_scope);
       }
