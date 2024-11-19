@@ -79,8 +79,9 @@ Expr* initializeMbarrier(
     num_of_arrives =
         IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
   } else {
-    num_of_arrives =
-        GpuLower::current()->parallelDimensionMap().getNumThreadsEachBlock();
+    num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
+        DataType::UInt32,
+        GpuLower::current()->parallelDimensionMap().getNumThreadsEachBlock());
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
