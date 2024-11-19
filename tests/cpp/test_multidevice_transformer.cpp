@@ -272,7 +272,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   return tensors;
 }
 
-struct MLPResult {
+struct MlpResult {
   TensorView* linear0;
   TensorView* gelu;
   TensorView* matmul1;
@@ -280,7 +280,7 @@ struct MLPResult {
   TensorView* output;
 };
 
-MLPResult mlp(
+MlpResult mlp(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
@@ -341,7 +341,7 @@ MLPResult mlp(
   return {linear0, gelu, matmul1, linear1, dropout_result};
 }
 
-struct MHAResult {
+struct MhaResult {
   TensorView* linear0;
   TensorView* sdpa;
   TensorView* matmul1;
@@ -349,7 +349,7 @@ struct MHAResult {
   TensorView* output;
 };
 
-MHAResult mha(
+MhaResult mha(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
