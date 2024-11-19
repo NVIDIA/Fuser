@@ -657,7 +657,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   if (inner_dim_numel <= 1024) {
     rparams->multiple_reds_per_blk = true;
     rparams->tidx_for_outer_reduction = true;
-    constexpr int64_t threads_per_block_mrpb = 512;
 
     // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
     // inner_batch(reuse), bdimx
