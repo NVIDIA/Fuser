@@ -33,6 +33,10 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
             << "\n";
 
   const auto exprs = fusion->exprs();
+
+  std::unordered_map<TensorView*, std::unordered_set<IterDomain*>>
+      propagated_squeezed_slices;
+
   for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
     auto slice = dynamic_cast<SliceOp*>(*it);
     if (slice == nullptr) {
@@ -91,12 +95,32 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
                 << " of " << slice->toString();
       std::cerr << "To tensors: " << toDelimitedString(tvs_to_schedule) << "\n";
       for (auto tv : tvs_to_schedule) {
+        // Skip if already inserted
+        bool already_done = false;
+        const auto& squeezed_slices = propagated_squeezed_slices[tv];
+        for (const auto& id : squeezed_slices) {
+          if (graph.disjointValSets().strictAreMapped(id, logical_id)) {
+            already_done = true;
+            break;
+          }
+        }
+        if (already_done) {
+          // std::cerr << "Already inserted: " << logical_id->toString() <<
+          // "\n";
+          continue;
+        }
+        // Unlikely but this could happen
+        if (!squeezed_slices.empty()) {
+          std::cerr << "Adding multiple squeezed slices to " << tv->toString()
+                    << "\n";
+        }
         tv->broadcast(-1);
         auto inserted_broadcast = tv->getLoopDomain().back();
-        std::cerr << "New inserted broadcast: "
-                  << inserted_broadcast->toString() << ", "
-                  << logical_id->toString() << "\n";
+        std::cerr << "New inserted broadcast for " << tv->toString() << ": "
+                  << inserted_broadcast->toString()
+                  << ", original: " << logical_id->toString() << "\n";
         tv->fusion()->registerExactMapping(logical_id, inserted_broadcast);
+        propagated_squeezed_slices[tv].emplace(logical_id);
       }
     }
   }

@@ -67,8 +67,9 @@ INSTANTIATE_TEST_SUITE_P(
         RopeConfig{32, 128, 32, 128, 2, 4096}, // Llama2-7b-hf
         RopeConfig{32, 128, 8, 128, 2, 8192}, // Llama3-8B
         RopeConfig{8, 128, 8, 128, 2, 8192},
-        RopeConfig{4, 16, 4, 16, 2, 8}), // Small test
-                                         // config
+        RopeConfig{4, 16, 4, 16, 2, 8}, // Small test config
+        RopeConfig{8, 16, 4, 16, 2, 8} // Small test config
+        ),
     [](const testing::TestParamInfo<RopeConfig>& info) {
       return info.param.toCompactString();
     });

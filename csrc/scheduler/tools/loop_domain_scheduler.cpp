@@ -529,9 +529,11 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
       /*require_all_to_visited=*/false,
       Direction::Backward);
 
+  std::cerr << "Ref groups: " << nvfuser::toString(ref_groups) << "\n";
+
   std::cerr << "Path from parent\n";
   for (const auto& [eg, dir] : path) {
-    std::cerr << eg->front()->toString();
+    std::cerr << "dir: " << dir << ": " << eg->front()->toString();
   }
 
   const auto path_vals = getValsOfExprPath(graph(), path);
@@ -560,8 +562,9 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
         }
       }
     }
-    NVF_ERROR(!require_all_visited);
-    valid = true;
+    if (require_all_visited) {
+      valid = false;
+    }
   } else {
     valid = false;
   }
