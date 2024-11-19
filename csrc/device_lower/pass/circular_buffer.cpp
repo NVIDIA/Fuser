@@ -419,10 +419,15 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         result, for_loop_stack_);
   }
 
+  // Current compute index: loop_index
   Val* currentComputeIndex() const {
     return cloned_top_level_loop_->indexOrStartIfTrivial();
   }
 
+  // Current load index:
+  // - loop_index + prefetch for main loop
+  // - loop_index for prologue
+  // - N/A for epilogue
   Val* currentLoadIndex() const {
     int64_t prefetch =
         GpuLower::current()
