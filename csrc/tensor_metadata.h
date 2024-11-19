@@ -100,6 +100,10 @@ struct TensorMetaData : public Struct {
   }
 };
 
+std::vector<int64_t> inferStrides(
+  TensorView* tv,
+  const std::vector<int64_t>& sizes);
+
 // Given an ATen tensor, whose sizes and strides are w.r.t to the logical domain
 // of its corresponding TensorView, compute the sizes and strides of the tensor
 // with respect to its allocation domain.

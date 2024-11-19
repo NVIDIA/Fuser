@@ -205,17 +205,18 @@ class TestMatmul(NVFuserTest):
     def test_matmul_stride(self):
         b, m, n, k = 3, 2, 5, 4
         inputs = [
-            torch.randn(b, m, k, device="cuda", dtype=torch.float16),
+            torch.randn(b, b, m, k, device="cuda", dtype=torch.float16),
             torch.randn(k, n, device="cuda", dtype=torch.float16)
         ]
-        def fusion_func(fd: FusionDefinition) -> None:
-            a = fd.from_pytorch(inputs[0])
-            b = fd.from_pytorch(inputs[1])
-            out = fd.ops.matmul(a, b)
-            fd.add_output(out, [1, 0, 2])
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-        outputs = fd.execute(inputs)
-        print (outputs[0].stride())
-        print (outputs[0].shape)
-        verify_stride_order(outputs[0].stride(), [1, 0, 2])
+        for perm in itertools.permutations(range(4), 4):
+            def fusion_func(fd: FusionDefinition) -> None:
+                a = fd.from_pytorch(inputs[0])
+                b = fd.from_pytorch(inputs[1])
+                out = fd.ops.matmul(a, b)
+                fd.add_output(out, stride_order=perm)
+            with FusionDefinition() as fd:
+                fusion_func(fd)
+            out = fd.execute(inputs)
+            verify_stride_order(out[0].stride(), perm)
+            # Verify that setting the stride order does not change the logical shape
+            self.assertEqual(out[0].shape, torch.Size([b, b, m, n]))
