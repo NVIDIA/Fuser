@@ -441,8 +441,10 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // Current load stage: (loop_index + prefetch) % stages
   Val* currentLoadStage() const {
     int64_t stage =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop_->iter_domain());
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
         currentLoadIndex(), IrBuilder::create<Val>(stage, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
