@@ -1724,8 +1724,10 @@ class CircularBufferInserter : private kir::ExprMutator {
         it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
 
     bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
-        GpuLower::current()->circularBufferInfo().getCircularBufferingTypeFor(
-            loop->iter_domain()));
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(loop->iter_domain())
+            .type);
     if (use_warp_specialization) {
       NVF_ERROR(
           std::all_of(
@@ -1747,8 +1749,9 @@ class CircularBufferInserter : private kir::ExprMutator {
     ParallelType warp_specialize_on =
         std::get<WarpSpecialized>(GpuLower::current()
                                       ->circularBufferInfo()
-                                      .getCircularBufferingTypeFor(
-                                          circular_buffer_loop->iter_domain()))
+                                      .getCircularBufferOptionsFor(
+                                          circular_buffer_loop->iter_domain())
+                                      .type)
             .on;
 
     kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
