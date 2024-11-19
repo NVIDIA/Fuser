@@ -1251,7 +1251,7 @@ class CircularBufferInserter : private kir::ExprMutator {
           /*state=*/nullptr, mbarrier_to_arrive);
       prefetch_loop->body().push_back(prefetch);
     }
-    return fetch_loop;
+    return prefetch_loop;
   }
 
   void insertTma(
