@@ -517,6 +517,14 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
               group_to_run, fusion_to_run_info);
     } else {
       // Try to get scheduler entry
+      // NOTE: we are able to skip compile time checks here since the fusion
+      // has already been segmented. During segmentation, each segment must
+      // pass both canScheduleCompileTime and canScheduleRuntime for the
+      // scheduler that accepts the segment. Since we might have different
+      // runtime info than was used during segmentation, we cannot skip
+      // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
+      // skip it here to avoid performing expensive fusion traversals on the
+      // dynamic shape path.
       auto maybe_heuristic_params = group_to_run->getMaybeHeuristicParams(
           fusion_to_run_info, /*skip_compile_time_checks=*/true);
       // If unavailable, then return std::nullopt
