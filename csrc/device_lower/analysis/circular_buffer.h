@@ -66,11 +66,9 @@ class CircularBufferInfo {
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
 
-  //! Get the number of circular buffer stages and the prefetch distance for the
-  //! given axis. The number of stages will be 2 in the case of double buffer
-  //! loop.
-  int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
-  int64_t getPrefetchDistanceFor(IterDomain* circular_buffered_id) const;
+  //! Get the circular buffer options for the given axis.
+  const CircularBufferOptions& getCircularBufferOptionsFor(
+      IterDomain* circular_buffered_id) const;
 
   std::string toString() const;
 
@@ -79,15 +77,13 @@ class CircularBufferInfo {
 
   TvInfo& getTvInfo(const TensorView* tv);
 
-  //! Set the number of circular buffer stages and the prefetch distance for the
-  //! given circular_buffered_id. Current code generation only supports one
-  //! stage depth and prefetch distance per loop disjoint set, so this function
-  //! will throw an error if trying to set different stage numbers to
-  //! iterdomains that are loop mapped.
-  void setStageDepthAndPrefetchDistance(
+  //! Set the number of circular buffer options for the given
+  //! circular_buffered_id. Current code generation only supports one option per
+  //! loop disjoint set, so this function will throw an error if trying to set
+  //! different options to iterdomains that are loop mapped.
+  void setCircularBufferOptions(
       IterDomain* circular_buffered_id,
-      int64_t stage_depth,
-      int64_t prefetch_distance);
+      const CircularBufferOptions& opt);
 
  private:
   //! Keeps track of information for lowering circular buffered tensors
