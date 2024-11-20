@@ -23,7 +23,6 @@
 #include <ops/all_ops.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/utils.h>
 
 #include <algorithm>

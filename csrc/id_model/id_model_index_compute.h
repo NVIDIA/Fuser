@@ -62,14 +62,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   void setIndex(IterDomain* id, Val* idx) {
-    const auto& id_group = toGroup(id);
-    if (index_map_.count(id_group)) {
-      std::cerr << "Updating idx for " << id->toString() << " with "
-                << idx->toInlineString() << "\n";
-      index_map_[id_group] = idx;
-    } else {
-      index_map_.emplace(toGroup(id), idx);
-    }
+    // May overwrite index. When the graph is cyclic due to, e.g.,
+    // resize, the index obtained by traversing most through the
+    // indexing path should be used (see also PR #3454)
+    index_map_[toGroup(id)] = idx;
   }
 
   const ValGroup& toGroup(IterDomain* id) const {
