@@ -623,7 +623,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       if (circular_buffer_load_tvs_.count(tv) == 0) {
         continue;
       }
-      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      auto ldst = dynamic_cast<LoadStoreOp*>(expr);
       auto mbarrier_it = ldst_mbarrier_map.find(ldst);
       // short-circuit: Failed to find mbarrier for given TMA load. This could
       // happen when a TV is circular buffered, but not using TMA to load.
