@@ -2012,7 +2012,7 @@ getIndexIDs(
   // First we find the consumer root IDs that map to the producer
   std::unordered_map<IterDomain*, IterDomain*> c2p_tmp;
   if (c2p == nullptr) {
-    auto c2p_tmp =
+    c2p_tmp =
         PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
     c2p = &c2p_tmp;
   }
