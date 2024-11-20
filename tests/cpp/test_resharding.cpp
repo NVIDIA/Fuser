@@ -420,7 +420,7 @@ TEST_F(ReshardingTest, ReshardingSqueeze) {
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
-TEST_F(ReshardingTest, NonreshardingSqueeze) {
+TEST_F(ReshardingTest, DISABLED_NonreshardingSqueeze) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

@@ -53,7 +53,7 @@ void insertReshardingsBefore(Fusion* fusion) {
 
     std::unordered_set<TensorView*> inputs;
     IdModel id_model({expr}, {}, false, false);
-    id_model.buildPermissiveGraph();
+    id_model.buildBroadcastGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
@@ -95,7 +95,7 @@ void insertReshardingsAfter(Fusion* fusion) {
 
     std::unordered_set<TensorView*> inputs;
     IdModel id_model({expr}, {}, false, false);
-    id_model.buildPermissiveGraph();
+    id_model.buildBroadcastGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);

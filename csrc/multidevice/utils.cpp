@@ -198,7 +198,7 @@ bool haveDifferentShardings(
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       map_parallel_type_to_id(consumer->getLoopDomain(), mapped_c_root_ids);
 
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::BROADCAST);
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
@@ -226,7 +226,7 @@ bool isResharding(const Expr* expr) {
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
-  id_model.buildPermissiveGraph();
+  id_model.buildBroadcastGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
