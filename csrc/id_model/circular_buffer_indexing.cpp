@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/circular_buffer_indexing.h>
 #include <id_model/indexing_utils.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
