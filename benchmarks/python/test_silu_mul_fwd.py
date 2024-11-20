@@ -7,7 +7,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-from torch_ops import silu_mul
+from .torch_ops import silu_mul
 
 def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
     T0 = fd.define_tensor(

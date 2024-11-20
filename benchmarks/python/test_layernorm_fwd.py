@@ -8,7 +8,7 @@ from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-from torch_ops import layernorm
+from .torch_ops import layernorm
 
 def layernorm_fwd_fusion(
     fd: FusionDefinition,

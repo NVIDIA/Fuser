@@ -12,7 +12,7 @@ def dropout_layernorm(inputs: list):
 
 def dropout_rmsnorm(inputs: list):
     inp1, inp2, weights, dropout_p = inputs
-    x = in2 + F.dropout(inp1, p=dropout_p)
+    x = inp2 + F.dropout(inp1, p=dropout_p)
     output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
     return output
 
@@ -30,7 +30,7 @@ def huggingface_attn(inputs: list):
     return output
 
 def layernorm(inputs: list):
-    inp, weight, bias = inputs
+    inp, weights, bias = inputs
     return F.layer_norm(
         inp,
         inp.shape[1:],
@@ -52,7 +52,7 @@ def nanogpt_attn(inputs: list):
 def rmsnorm(inputs: list):
     inp, weights = inputs
     squared_mean = (inp**2).mean(1, keepdim=True)
-    rms_eps = torch.sqrt(squared_mean + eps)
+    rms_eps = torch.sqrt(squared_mean + 1e-5)
     output = weights * (inp / rms_eps)
     return output
 

@@ -8,7 +8,7 @@ from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-from torch_ops import softmax
+from .torch_ops import softmax
 
 def softmax_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, reduction_axis: int
@@ -95,7 +95,7 @@ def test_softmax_fwd_baseline_benchmark(
     benchmark_fn = with_executor(executor, softmax)
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [inputs, reduction_axis],
         iobytes=softmax_fwd_iobytes(size, dtype),
     )

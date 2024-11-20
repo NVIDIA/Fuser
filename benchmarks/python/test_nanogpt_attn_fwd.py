@@ -7,7 +7,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
-from torch_ops import nanogpt_attn
+from .torch_ops import nanogpt_attn
 
 # Fusion from nanogpt attention module
 # The nvFuser defintion only includes the non-matmul computation (masked_fill + softmax + dropout)
