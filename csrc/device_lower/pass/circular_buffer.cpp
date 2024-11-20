@@ -370,7 +370,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
            it != war_mbarriers_to_uses_.end();) {
         auto& uses = it->second;
         if (uses.empty()) {
-          auto arrive = createMbarrierArriveForWar(it->first);
+          auto arrive = createWarMbarrierArrive(it->first);
           for_loop_stack_.back()->body().push_back(arrive);
           it = war_mbarriers_to_uses_.erase(it);
         } else {
@@ -634,7 +634,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       }
       auto& wait = wait_it->second;
       if (wait == nullptr) {
-        wait = createMbarrierWaitForWar(ldst);
+        wait = createWarMbarrierWait(ldst);
       }
     }
   }
@@ -994,7 +994,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     return mbarrier_arrive_tx;
   }
 
-  kir::MBarrierArrive* createMbarrierArriveForWar(TensorView* all_mbarriers) {
+  kir::MBarrierArrive* createWarMbarrierArrive(TensorView* all_mbarriers) {
     // Get mbarrier for this circular buffer stage.
     auto stage_depth =
         GpuLower::current()
@@ -1029,7 +1029,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // This function creates kir::MBarrierWaitParity for given LoadStoreOp and
   // circular buffer stage for waiting WAR.
-  kir::MBarrierWaitParity* createMbarrierWaitForWar(LoadStoreOp* ldst) {
+  kir::MBarrierWaitParity* createWarMbarrierWait(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
 
     auto stage_depth =
