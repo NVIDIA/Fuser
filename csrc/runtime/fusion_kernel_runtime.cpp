@@ -525,8 +525,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
       // skip it here to avoid performing expensive fusion traversals on the
       // dynamic shape path.
-      auto maybe_heuristic_params = group_to_run->getMaybeHeuristicParams(
-          fusion_to_run_info, /*skip_compile_time_checks=*/true);
+      auto maybe_heuristic_params =
+          group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
       // If unavailable, then return std::nullopt
       if (!maybe_heuristic_params.has_value()) {
         return std::nullopt;

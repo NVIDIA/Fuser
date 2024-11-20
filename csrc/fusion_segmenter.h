@@ -154,8 +154,7 @@ class SegmentedGroup {
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
   std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
-      SchedulerRuntimeInfo& runtime_info,
-      bool skip_compile_time_checks = false);
+      SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
   bool isFusionInputGroup() const;
