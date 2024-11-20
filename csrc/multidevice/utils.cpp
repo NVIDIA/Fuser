@@ -128,6 +128,13 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
+// Collect device-parallel IterDomains in `loop_domain` if they depend on any
+// of `dependencies`. `dependencies` is used to reduce false positives.
+// `dependencies` contains all IterDomains in either producer's logical or
+// consumer's root that are mapped by PairwiseLogicalDomainMap. To compute
+// isResharding, we only consider loop IterDomains that depend on these mapped
+// IterDomains. For example, reduction IterDomains or squeezed IterDomains are
+// not mapped, and therefore won't affect the result of isResharding.
 std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
     const std::vector<IterDomain*>& loop_domain,
     const std::unordered_set<Val*>& dependencies) {
