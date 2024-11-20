@@ -291,6 +291,24 @@ TEST_F(ReshardingTest, Add_InputsParallelizedDifferently) {
   EXPECT_TRUE(isResharding(z->definition()));
 }
 
+TEST_F(ReshardingTest, Add_Broadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(2);
+  x->setDeviceMesh({0, 1});
+  TensorView* y = makeContigTensor(1);
+  y->setDeviceMesh({0, 1});
+  y = broadcast(y, {true, false});
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_FALSE(isResharding(z->definition()));
+}
+
 TEST_F(ReshardingTest, Allgather) {
   Fusion fusion;
   FusionGuard fg(&fusion);
