@@ -826,8 +826,10 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs = IRBFS::getExprsBetween(
-      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
+  auto exprs =
+      IRBFS::getExprsBetween(
+          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
+          .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
@@ -1262,6 +1264,45 @@ int64_t getOperationCount(Val* val) {
   }
 
   return num_ops;
+}
+
+ForLoop* createRangeLoop(int64_t size) {
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/FusionGuard::getCurFusion()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  return loop;
+}
+
+TensorView* getTvOutput(const Expr* expr) {
+  for (auto out : expr->outputs()) {
+    if (auto tv = getTv(out)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+TensorView* getTvInput(const Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    if (auto tv = getTv(inp)) {
+      return tv;
+    }
+  }
+  return nullptr;
 }
 
 } // namespace nvfuser::ir_utils
