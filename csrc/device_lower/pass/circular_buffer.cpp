@@ -419,19 +419,39 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         result, for_loop_stack_);
   }
 
-  // Current load stage (for main loop): (loop_index + prefetch) % stages
+  // Current compute index: loop_index
+  Val* currentComputeIndex() const {
+    return cloned_top_level_loop_->indexOrStartIfTrivial();
+  }
+
+  // Current load index:
+  // - loop_index + prefetch for main loop
+  // - loop_index for prologue
+  // - N/A for epilogue
+  Val* currentLoadIndex() const {
+    int64_t prefetch =
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .prefetch;
+    if (loop_type_ == CircularBufferLoopStage::Main) {
+      auto current_load_index = SimplifyingIrBuilder::addExpr(
+          cloned_top_level_loop_->indexOrStartIfTrivial(), prefetch);
+      return GpuLower::current()->commonScalarMap().hoistScalar(
+          current_load_index, for_loop_stack_);
+    }
+    return cloned_top_level_loop_->indexOrStartIfTrivial();
+  }
+
+  // Current load stage: currentLoadIndex() % stages
   Val* currentLoadStage() const {
-    NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
-
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop_->iter_domain());
-
+    int64_t stage =
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+            .stage;
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::addExpr(
-            cloned_top_level_loop_->indexOrStartIfTrivial(),
-            IrBuilder::create<Val>(opt.prefetch, PrimDataType::Index)),
-        IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
+        currentLoadIndex(), IrBuilder::create<Val>(stage, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         current_load_stage, for_loop_stack_);
   }
@@ -595,8 +615,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     // There should be a single mbarrier_arrive_tx_ for all ldst in current
     // stage.
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-    mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
-        ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+    mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
 
     // Clone LoadStoreOp and map it to mbarrier alloc
     Expr* new_ldst =
@@ -646,8 +665,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     // expression. A mbarrier_arrive_tx_ for another cpAsyncBulk load expression
     // should not be active.
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-    mbarrier_arrive_tx_ =
-        createMbarrierArriveExpectTx(ldst, currentLoadStage());
+    mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
 
     // Register mbarrier object to be used with LoadStoreOp
     //  from main loop
@@ -772,19 +790,14 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // Example:
   //   mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
   //   getSizeOfTmaLoad(ldst));
-  kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
-      LoadStoreOp* ldst,
-      Val* loop_index) {
+  kir::MBarrierArriveExpectTx* createRawMbarrierArriveExpectTx(
+      LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
-    NVF_ERROR(loop_index != nullptr);
-
-    loop_index = GpuLower::current()->commonScalarMap().hoistScalar(
-        loop_index, for_loop_stack_);
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentLoadStage());
 
     Val* tx_count = GpuLower::current()->commonScalarMap().hoistScalar(
         getSizeOfTmaLoad(ldst), for_loop_stack_);
