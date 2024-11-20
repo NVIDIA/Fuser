@@ -8,7 +8,7 @@ from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES, DEFAULT_EXECUTORS
 
 
 def get_n_groups(C):
@@ -128,7 +128,7 @@ def test_groupnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [x, weight, bias])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_groupnorm_fwd_baseline_benchmark(
