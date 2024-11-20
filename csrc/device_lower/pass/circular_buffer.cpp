@@ -473,8 +473,15 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     return cloned_top_level_loop_->indexOrStartIfTrivial();
   }
 
-  // Next load stage (for main loop): (loop_index + prefetch + 1) % stages
-  Val* nextLoadStage() const {
+  // The stage of the completion that we are waiting for in the current
+  // iteration of the circular buffer loop.
+  // Recall that both the load and compute are pipelined. At each iteration,
+  // we load `prefetch` stages ahead of the current compute stage. In order
+  // to pipeline the compute as deep as possible, we only wait for the buffer
+  // that the next iteration will write to become empty. That is, there are
+  // `stages - prefetch - 1` pending computations, and we wait for stage
+  //   (loop_index + prefetch + 1) % stages
+  Val* currentCompletionStage() const {
     NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
@@ -991,7 +998,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
-        SimplifyingIrBuilder::addExpr(nextLoadStage(), stage_depth));
+        SimplifyingIrBuilder::addExpr(currentCompletionStage(), stage_depth));
     kir::MBarrierArrive* mbarrier_arrive =
         IrBuilder::create<kir::MBarrierArrive>(
             /*state=*/nullptr, stage_mbarrier);
