@@ -11,7 +11,7 @@ from .core import (
     with_executor,
 )
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES, DEFAULT_EXECUTORS
 from .torch_ops import dropout_rmsnorm
 
 
@@ -141,7 +141,7 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [input1, input2, weights])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_rmsnorm_fwd_baseline_benchmark(

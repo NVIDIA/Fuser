@@ -4,7 +4,7 @@
 import pytest
 from .core import BENCHMARK_CONFIG
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
-
+from .global_params import DEFAULT_EXECUTORS
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -104,20 +104,18 @@ def pytest_collection_modifyitems(session, config, items):
 
     from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
-    executors = ["eager", "torchcompile", "thunder"]
-
     def get_test_executor(item) -> str | None:
         if hasattr(item, "callspec") and "executor" in item.callspec.params:
             test_executor = item.callspec.params["executor"]
             assert (
-                test_executor in executors
+                test_executor in DEFAULT_EXECUTORS
             ), f"Expected executor to be one of 'eager', 'torchcompile', 'thunder', found {test_executor}."
             return test_executor
         return None
 
     executors_to_skip = []
 
-    for executor in executors:
+    for executor in DEFAULT_EXECUTORS:
         if not config.getoption(f"--benchmark-{executor}"):
             executors_to_skip.append(executor)
 

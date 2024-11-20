@@ -6,7 +6,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES
+from .global_params import generate_input_sizes, FLOAT_DTYPES, DEFAULT_EXECUTORS
 import numpy as np
 from .torch_ops import softmax
 
@@ -92,7 +92,7 @@ def test_softmax_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
