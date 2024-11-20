@@ -415,9 +415,10 @@ class VectorizeValidator : public OptInDispatch {
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
     auto expr_path = ValGraphBFS::getExprsBetween(
-        graph,
-        graph.toGroups(tv->getMaybeAllocationDomain()),
-        graph.toGroups(std::vector<Val*>{v_id}));
+                         graph,
+                         graph.toGroups(tv->getMaybeAllocationDomain()),
+                         graph.toGroups(std::vector<Val*>{v_id}))
+                         .first;
     expr_path = reverse(expr_path);
 
     ValGroup cur_group = graph.toGroup(v_id);
