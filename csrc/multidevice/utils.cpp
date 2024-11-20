@@ -136,21 +136,12 @@ namespace {
 // IterDomains. For example, reduction IterDomains or squeezed IterDomains are
 // not mapped, and therefore won't affect the result of isResharding.
 std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
-    const std::vector<IterDomain*>& loop_domain,
-    const std::unordered_set<Val*>& dependencies) {
+    const std::vector<IterDomain*>& loop_domain) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
   parallel_type_to_id.reserve(kParallelTypeDIDs.size());
   for (IterDomain* loop_id : loop_domain) {
     const ParallelType parallel_type = loop_id->getParallelType();
     if (!isParallelTypeDeviceDim(parallel_type)) {
-      continue;
-    }
-
-    const auto inputs = IterVisitor::getInputsTo(
-        {loop_id}, {dependencies.begin(), dependencies.end()});
-    if (std::none_of(inputs.begin(), inputs.end(), [&](Val* input) -> bool {
-          return dependencies.count(input);
-        })) {
       continue;
     }
 
@@ -163,6 +154,30 @@ std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
   }
   return parallel_type_to_id;
 }
+
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain) {
+  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+      {loop_id}, {target_domain.begin(), target_domain.end()});
+
+  std::vector<IterDomain*> inputs_as_iter_domains;
+  inputs_as_iter_domains.reserve(inputs_as_vals.size());
+  std::transform(
+      inputs_as_vals.begin(),
+      inputs_as_vals.end(),
+      std::back_inserter(inputs_as_iter_domains),
+      [](Val* val) { return val->as<IterDomain>(); });
+  return inputs_as_iter_domains;
+}
+
+bool overlaps(
+    const std::vector<IterDomain*>& a,
+    const std::unordered_set<IterDomain*>& b) {
+  return std::any_of(
+      a.begin(), a.end(), [&](IterDomain* id) { return b.count(id); });
+}
+
 } // namespace
 
 bool haveDifferentShardings(
@@ -186,9 +201,9 @@ bool haveDifferentShardings(
 
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  std::unordered_set<Val*> mapped_p_logical_ids;
+  std::unordered_set<IterDomain*> mapped_p_logical_ids;
   mapped_p_logical_ids.reserve(p2c.size());
-  std::unordered_set<Val*> mapped_c_root_ids;
+  std::unordered_set<IterDomain*> mapped_c_root_ids;
   mapped_c_root_ids.reserve(p2c.size());
   for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
     const auto i = p2c.find(p_logical_id);
@@ -203,29 +218,51 @@ bool haveDifferentShardings(
   }
 
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapParallelTypeToId(producer->getLoopDomain(), mapped_p_logical_ids);
+      mapParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapParallelTypeToId(consumer->getLoopDomain(), mapped_c_root_ids);
+      mapParallelTypeToId(consumer->getLoopDomain());
 
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::ALMOSTEXACT);
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    if ((p_loop_id == nullptr) != (c_loop_id == nullptr)) {
-      return true;
+    if (p_loop_id != nullptr) {
+      auto p_inputs =
+          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
+      if (!overlaps(p_inputs, mapped_p_logical_ids)) {
+        p_loop_id = nullptr;
+      }
     }
 
-    if (p_loop_id != nullptr) {
-      NVF_ERROR(c_loop_id != nullptr);
-      if (p_loop_id->isBroadcast() || c_loop_id->isBroadcast()) {
-        continue;
-      }
-      if (!exact_graph.disjointValSets().strictAreMapped(
-              p_loop_id, c_loop_id)) {
-        return true;
+    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
+    if (c_loop_id != nullptr) {
+      auto c_inputs =
+          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
+      if (!overlaps(c_inputs, mapped_c_root_ids)) {
+        c_loop_id = nullptr;
       }
     }
+
+    auto is_mapped_in_id_model =
+        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
+      if (a == nullptr && b == nullptr) {
+        return true;
+      }
+
+      if (a == nullptr || b == nullptr) {
+        return false;
+      }
+
+      if (a->isBroadcast() || b->isBroadcast()) {
+        return true;
+      }
+      const ValGraph& val_graph = id_model.idGraph(IdMappingMode::ALMOSTEXACT);
+      return val_graph.disjointValSets().strictAreMapped(a, b);
+    };
+
+    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
+      return true;
+    }
   }
+
   return false;
 }
 

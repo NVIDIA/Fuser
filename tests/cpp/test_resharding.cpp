@@ -315,6 +315,25 @@ TEST_F(ReshardingTest, Matmul_NoResharding) {
   EXPECT_FALSE(isResharding(z->definition()));
 }
 
+TEST_F(ReshardingTest, Matmul_Resharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(2); // [iM, iK]
+  TensorView* y = makeContigTensor(2); // [iK, iN]
+  TensorView* z = matmul(x, y); // [iM, iN, rk]
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  y->axis(1)->parallelize(ParallelType::DIDx);
+  z->axis(0)->parallelize(ParallelType::DIDx);
+
+  // iN is sharded in y but not in z.
+  EXPECT_TRUE(isResharding(z->definition()));
+}
+
 TEST_F(ReshardingTest, Allgather) {
   Fusion fusion;
   FusionGuard fg(&fusion);
