@@ -206,14 +206,12 @@ bool haveDifferentShardings(
       return true;
     }
 
-    if (p_loop_id == nullptr) {
-      NVF_ERROR(c_loop_id == nullptr);
-      continue;
-    }
-
-    // FIXME: can strictAreMapped take null?
-    if (!exact_graph.disjointValSets().strictAreMapped(p_loop_id, c_loop_id)) {
-      return true;
+    if (p_loop_id != nullptr) {
+      NVF_ERROR(c_loop_id != nullptr);
+      if (!exact_graph.disjointValSets().strictAreMapped(
+              p_loop_id, c_loop_id)) {
+        return true;
+      }
     }
   }
   return false;
