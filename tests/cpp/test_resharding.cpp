@@ -410,7 +410,7 @@ TEST_F(ReshardingTest, ReshardingSqueeze) {
 
 // IdMappingMode::BROADCAST can't map i0*b1 and i0. IdMappingMode::ALMOSTEXACT
 // can but would fail on ReshardingTest.Add_Broadcast.
-TEST_F(ReshardingTest, DISABLED_NonreshardingSqueeze) {
+TEST_F(ReshardingTest, NonreshardingSqueeze) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
