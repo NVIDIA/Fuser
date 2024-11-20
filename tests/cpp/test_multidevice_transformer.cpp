@@ -886,6 +886,9 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
   }
+  if (D == 1) {
+    GTEST_SKIP() << "Requires >1 devices, D=" << D;
+  }
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1124,6 +1127,9 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
+  }
+  if (D == 1) {
+    GTEST_SKIP() << "Requires >1 devices, D=" << D;
   }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
