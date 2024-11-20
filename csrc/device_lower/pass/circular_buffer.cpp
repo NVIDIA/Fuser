@@ -528,33 +528,35 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
   // The mbarrier_parity for the current circular buffer stage is:
-  //   (loop_index / stage_depth) % 2
-  // We have an mbarrier for each circular buffer stage, so loop_index /
-  // stage_depth is loop_index_per_stage. The valid values of phaseParity
-  // operand are 0 and 1, so we take the modulo of loop_index_per_stage with a
-  // divisor of 2. See:
+  //   (currentComputeIndex() / stage_depth) % 2
+  // We have an mbarrier for each circular buffer stage, so
+  // currentComputeIndex() / stage_depth is compute_index_per_stage. The valid
+  // values of phaseParity operand are 0 and 1, so we take the modulo of
+  // compute_index_per_stage with a divisor of 2. See:
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
   // for reference.
-  Val* currentParity() const {
+  Val* currentRawParity() const {
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
             .stage;
 
-    auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
-    auto two = IrBuilder::create<Val>(2, DataType::UInt32);
-    Val* stage_parity = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::divExpr(
-            IrBuilder::maybeCastExpr(
-                DataType::UInt32,
-                cloned_top_level_loop_->indexOrStartIfTrivial()),
+    auto depth = IrBuilder::create<Val>(stage_depth, DataType::Index);
+    auto two = IrBuilder::create<Val>(2, DataType::Index);
+    Val* stage_parity = IrBuilder::maybeCastExpr(
+        DataType::UInt32,
+        SimplifyingIrBuilder::modExpr(
+            SimplifyingIrBuilder::divExpr(
+                currentComputeIndex(),
             depth),
-        two);
+        two));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         stage_parity, for_loop_stack_);
   }
 
+  // The parity used for waiting for the WAR mbarrier:
+  //   (currentLoadIndex() / stage_depth) % 2
   Val* currentLoadParity() const {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
@@ -562,18 +564,10 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     auto depth = IrBuilder::create<Val>(opt.stage, DataType::Index);
     auto two = IrBuilder::create<Val>(2, DataType::Index);
-    Val* current_load_index = nullptr;
-    if (loop_type_ == CircularBufferLoopStage::Main) {
-      current_load_index = SimplifyingIrBuilder::addExpr(
-          cloned_top_level_loop_->indexOrStartIfTrivial(),
-          IrBuilder::create<Val>(opt.prefetch, DataType::Index));
-    } else {
-      current_load_index = cloned_top_level_loop_->indexOrStartIfTrivial();
-    }
     Val* stage_parity = IrBuilder::maybeCastExpr(
         DataType::UInt32,
         SimplifyingIrBuilder::modExpr(
-            SimplifyingIrBuilder::divExpr(current_load_index, depth), two));
+            SimplifyingIrBuilder::divExpr(currentLoadIndex(), depth), two));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         stage_parity, for_loop_stack_);
   }
@@ -1036,7 +1030,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
-            stage_mbarrier, currentParity());
+            stage_mbarrier, currentRawParity());
     return mbarrier_wait;
   }
 
