@@ -800,11 +800,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   //
   // Where mbarrier are shared memory arrays bound to the LoadStoreOp
   void handleMainLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr);
-
-    if (!expr->isA<LoadStoreOp>()) {
-      return;
-    }
+    NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
 
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
