@@ -51,21 +51,19 @@ Val* commonOrConstExtent(
 template <typename ArithOp>
 void retrieveResizeInArithOp(
     const std::vector<Expr*>& exprs,
-    std::unordered_set<ArithOp*>& arith_op_set) {
-  for (auto* op : ir_utils::filterByType<PadOp>(exprs)) {
-    if (!op->out()->isA<TensorView>()) {
+    std::unordered_set<Resize*>& arith_op_set) {
+  for (auto* op : ir_utils::filterByType<ArithOp>(exprs)) {
+    if (!op->out()->template isA<TensorView>()) {
       continue;
     }
 
-    auto* out_tv = op->out()->as<TensorView>();
+    auto* out_tv = op->out()->template as<TensorView>();
 
     auto consumer_exprs = StmtSort::getExprsBetween(
         {out_tv->getMaybeRootDomain().begin(),
          out_tv->getMaybeRootDomain().end()},
         {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
 
-    // NOTE: if we can assume that PadOp is always on inputs, then we can skip
-    // to innermost resize instead.
     auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
     std::copy(
         resize_ops.begin(),
@@ -83,8 +81,8 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
 
 void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
   auto exprs = fusion->exprs();
-  retrieveResizeInArithOp(exprs, resize_in_pad_);
-  retrieveResizeInArithOp(exprs, resize_in_slice_);
+  retrieveResizeInArithOp<PadOp>(exprs, resize_in_pad_);
+  retrieveResizeInArithOp<SliceOp>(exprs, resize_in_slice_);
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
