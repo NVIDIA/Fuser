@@ -226,6 +226,9 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
   void handle(IterDomain* consumer_id) override {
+    if (index_ids_.find(consumer_id) == index_ids_.end()) {
+      return;
+    }
     // The traversal should have ended if needs_predicate_ was true
     NVF_ERROR(!needs_predicate_);
 
