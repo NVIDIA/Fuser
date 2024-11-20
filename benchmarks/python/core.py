@@ -55,7 +55,7 @@ def with_executor(executor: str, fwd_fn: Callable) -> Callable:
         return torch.compile(fwd_fn)
     if executor == 'thunder':
         return thunder.jit(
-            fwd_dn, nv_enable_bookend=False, executors=[nvfuserex]
+            fwd_fn, nv_enable_bookend=False, executors=[nvfuserex]
         )            
 
 def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
