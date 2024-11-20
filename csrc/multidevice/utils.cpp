@@ -127,6 +127,37 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
+namespace {
+std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
+    const std::vector<IterDomain*>& loop_domain,
+    const std::unordered_set<Val*>& dependencies) {
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
+  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+  for (IterDomain* loop_id : loop_domain) {
+    const ParallelType parallel_type = loop_id->getParallelType();
+    if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    const auto inputs = IterVisitor::getInputsTo(
+        {loop_id}, {dependencies.begin(), dependencies.end()});
+    if (std::none_of(inputs.begin(), inputs.end(), [&](Val* input) -> bool {
+          return dependencies.count(input);
+        })) {
+      continue;
+    }
+
+    NVF_ERROR(
+        parallel_type_to_id.try_emplace(parallel_type, loop_id).second,
+        "Found multiple loop IterDomains with the same parallel type (",
+        parallel_type,
+        "): ",
+        toDelimitedString(loop_domain));
+  }
+  return parallel_type_to_id;
+}
+} // namespace
+
 bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer,
@@ -164,39 +195,10 @@ bool haveDifferentShardings(
     mapped_c_root_ids.insert(i->second);
   }
 
-  auto map_parallel_type_to_id =
-      [](const std::vector<IterDomain*>& loop_domain,
-         const std::unordered_set<Val*>& dependencies)
-      -> std::unordered_map<ParallelType, IterDomain*> {
-    std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
-    parallel_type_to_id.reserve(kParallelTypeDIDs.size());
-    for (IterDomain* loop_id : loop_domain) {
-      const ParallelType parallel_type = loop_id->getParallelType();
-      if (!isParallelTypeDeviceDim(parallel_type)) {
-        continue;
-      }
-
-      const auto inputs = IterVisitor::getInputsTo(
-          {loop_id}, {dependencies.begin(), dependencies.end()});
-      if (std::none_of(inputs.begin(), inputs.end(), [&](Val* input) -> bool {
-            return dependencies.count(input);
-          })) {
-        continue;
-      }
-
-      NVF_ERROR(
-          parallel_type_to_id.try_emplace(parallel_type, loop_id).second,
-          "Found multiple loop IterDomains with the same parallel type (",
-          parallel_type,
-          "): ",
-          toDelimitedString(loop_domain));
-    }
-    return parallel_type_to_id;
-  };
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      map_parallel_type_to_id(producer->getLoopDomain(), mapped_p_logical_ids);
+      mapParallelTypeToId(producer->getLoopDomain(), mapped_p_logical_ids);
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      map_parallel_type_to_id(consumer->getLoopDomain(), mapped_c_root_ids);
+      mapParallelTypeToId(consumer->getLoopDomain(), mapped_c_root_ids);
 
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::BROADCAST);
   for (const auto parallel_type : kParallelTypeDIDs) {
