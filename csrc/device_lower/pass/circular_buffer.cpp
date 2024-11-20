@@ -547,10 +547,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     Val* stage_parity = IrBuilder::maybeCastExpr(
         DataType::UInt32,
         SimplifyingIrBuilder::modExpr(
-            SimplifyingIrBuilder::divExpr(
-                currentComputeIndex(),
-            depth),
-        two));
+            SimplifyingIrBuilder::divExpr(currentComputeIndex(), depth), two));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         stage_parity, for_loop_stack_);
   }
@@ -613,15 +610,16 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     }
   }
 
-  // TODO: comment
+  // Check if the given expr is the load of a circular buffered TensorView. If
+  // so, create the mbarrier::wait expression for the corresponding buffer and
+  // update war_mbarriers_to_wait_.
   void updateWarMbarrierToWaitMap(Expr* expr) {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      // short-circuit: The TensorView input for current expression is not
-      // defined by a circular buffered TMA load. So it is unrelated here.
-      // Here, we are only interested in inserting mbarrier::wait for the
-      // circular buffered TMA loads.
+      // short-circuit: The current expression is not a circular buffer load, so
+      // it is unrelated here. Here, we are only interested in inserting
+      // mbarrier::wait for the circular buffered TMA loads.
       if (circular_buffer_load_tvs_.count(tv) == 0) {
         continue;
       }
