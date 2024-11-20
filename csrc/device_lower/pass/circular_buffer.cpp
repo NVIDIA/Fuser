@@ -554,7 +554,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // The parity used for waiting for the WAR mbarrier:
   //   (currentLoadIndex() / stage_depth) % 2
-  Val* currentLoadParity() const {
+  Val* currentWarParity() const {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -1051,7 +1051,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
-            stage_mbarrier, currentLoadParity());
+            stage_mbarrier, currentWarParity());
     return mbarrier_wait;
   }
 
