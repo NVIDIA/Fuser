@@ -588,9 +588,8 @@ struct DimsOpRecord : RecordFunctor {
       auto output = set(arg);
       std::vector<IterDomain*> allocation_domain =
           ir_utils::strideOrderToAllocation(output->getLogicalDomain(), dims_);
-      bool contiguity_value = isTrivialStrideOrder(dims_);
       auto contiguity = TensorDomain::getContiguityFilledWith(
-          allocation_domain, contiguity_value);
+          allocation_domain, true);
       output->setAllocationDomain(allocation_domain, contiguity);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
@@ -1540,9 +1539,8 @@ struct OutputRecord : RecordFunctor {
           auto logical_domain = tv_output->getLogicalDomain();
           std::vector<IterDomain*> allocation_domain =
               ir_utils::strideOrderToAllocation(logical_domain, stride_order_);
-          bool contiguity_value = isTrivialStrideOrder(stride_order_);
           auto contiguity = TensorDomain::getContiguityFilledWith(
-              allocation_domain, contiguity_value);
+              allocation_domain, true);
           tv_output->setAllocationDomain(allocation_domain, contiguity);
         }
         fd.addOutput(tv_output, args_.at(0).index);

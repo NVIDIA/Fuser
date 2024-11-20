@@ -210,10 +210,6 @@ def verify_stride_order(output_strides, stride_order):
     assert sorted(sorted_stride, reverse=True) == sorted_stride
 
 
-def is_trivial_stride_order(stride_order) -> bool:
-    return list(stride_order) == sorted(stride_order, reverse=True)
-
-
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results

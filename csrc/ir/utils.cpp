@@ -1317,11 +1317,6 @@ std::vector<IterDomain*> strideOrderToAllocation(
       "Stride order is not valid: ",
       toDelimitedString(stride_order));
 
-  if (isTrivialStrideOrder(stride_order)) {
-    // Allocation domain is same as logical domain
-    return logical_domain;
-  }
-
   const auto& logical_domain_no_red =
       TensorDomain::noReductions(logical_domain);
   NVF_CHECK(stride_order.size() == logical_domain_no_red.size());
