@@ -2040,9 +2040,10 @@ getIndexIDs(
                      const std::vector<IterDomain*>& start_domain,
                      const std::vector<IterDomain*>& target_domain) {
     for (auto [expr, dir] : IRBFS::getExprsBetween(
-             {start_domain.begin(), start_domain.end()},
-             {target_domain.begin(), target_domain.end()},
-             /*require_all_to_visited=*/false)) {
+                                {start_domain.begin(), start_domain.end()},
+                                {target_domain.begin(), target_domain.end()},
+                                /*require_all_to_visited=*/false)
+                                .first) {
       // If there are any indexing IDs in the inputs, count all outputs as
       // indexing IDs
       const auto processExpr = [&indexing_ids](
