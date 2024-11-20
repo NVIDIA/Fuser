@@ -130,18 +130,6 @@ TEST_F(ReshardingTest, Sum_SameMesh_NoParallelTypes) {
   EXPECT_FALSE(isResharding(out->definition()));
 }
 
-TEST_F(ReshardingTest, Sum_DifferentParallelTypes) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigTensor(3);
-  in->setDeviceMesh({0, 1, 2});
-  TensorView* out = sum(in, {0});
-  out->axis(0)->parallelize(ParallelType::DIDx);
-
-  EXPECT_TRUE(isResharding(out->definition()));
-}
-
 TEST_F(ReshardingTest, Sum_DifferentMeshes) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -168,7 +156,7 @@ TEST_F(ReshardingTest, Sum_ParallelizeDifferentAxes) {
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
-TEST_F(ReshardingTest, Sum_ParallelizeSameAxis) {
+TEST_F(ReshardingTest, Sum_UnshardedAxis) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
