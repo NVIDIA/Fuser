@@ -363,19 +363,30 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // insert a mbarrier::arrive to signal that we have done with the reading
   // of the buffer and it is ready to be loaded with new data.
   void insertMBarrierArriveAfterLastRead() {
-    if (loop_type_ == CircularBufferLoopStage::Main &&
-        for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-      for (auto it = war_mbarriers_to_uses_.begin();
-           it != war_mbarriers_to_uses_.end();) {
-        auto& uses = it->second;
-        if (uses.empty()) {
-          auto arrive = createWarMbarrierArrive(it->first);
-          for_loop_stack_.back()->body().push_back(arrive);
-          it = war_mbarriers_to_uses_.erase(it);
-        } else {
-          ++it;
-        }
+    if (!GpuLower::current()
+             ->circularBufferInfo()
+             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+             .usesMBarrierForWAR()) {
+      return;
+    }
+    // Only insert arrive on the top-level loop
+    if (for_loop_stack_.size() != 1) {
+      return;
+    }
+    NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
+    // WAR arrive only exists in the main loop
+    if (loop_type_ != CircularBufferLoopStage::Main) {
+      return;
+    }
+    for (auto it = war_mbarriers_to_uses_.begin();
+         it != war_mbarriers_to_uses_.end();) {
+      auto& uses = it->second;
+      if (uses.empty()) {
+        auto arrive = createWarMbarrierArrive(it->first);
+        for_loop_stack_.back()->body().push_back(arrive);
+        it = war_mbarriers_to_uses_.erase(it);
+      } else {
+        ++it;
       }
     }
   }
@@ -392,9 +403,11 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // For 4, there is nothing interesting, we just naively add the cloned loop
   // to the parent loop body.
   //
-  // For 1, we delagate to addTmaLoadBlock, who is responsible for adding the
-  // cloned loop containing TMA to the parent loop body, and the necessary
-  // mbarrier::arriveExpectTx expressions.
+  // For 1, we delagate to addTmaLoadBlock, who is responsible for: i) adding
+  // mbarrier::waitParity to avoid WAR harzard, ii) adding the cloned loop
+  // containing TMA to the parent loop body, and iii) add the necessary
+  // mbarrier::arriveExpectTx expressions to signal that TMA has been issued,
+  // and loading in progress.
   //
   // For 2, besides inserting the cloned loop to the parent loop body, we also
   // insert mbarrier::waitParity expressions before the cloned loop to wait for
