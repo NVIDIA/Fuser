@@ -4,7 +4,7 @@
 import pytest
 from .core import BENCHMARK_CONFIG
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
-
+from .global_params import DEFAULT_EXECUTORS
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -122,7 +122,7 @@ def pytest_collection_modifyitems(session, config, items):
 
     executors_to_skip = []
 
-    for executor in executors:
+    for executor in DEFAULT_EXECUTORS:
         if not config.getoption(f"--benchmark-{executor}"):
             executors_to_skip.append(executor)
 

@@ -12,7 +12,7 @@ from .core import (
     with_executor,
 )
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES, DEFAULT_EXECUTORS
 from .torch_ops import dropout_layernorm
 
 
@@ -191,7 +191,7 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
         )
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_layernorm_bwd_baseline_benchmark(
