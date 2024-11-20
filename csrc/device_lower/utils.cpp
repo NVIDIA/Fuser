@@ -280,24 +280,6 @@ std::vector<TensorView*> getTvs(const std::vector<Val*>& vals) {
   return tvs;
 }
 
-TensorView* getTvOutput(const Expr* expr) {
-  for (auto out : expr->outputs()) {
-    if (auto tv = getTv(out)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
-TensorView* getTvInput(const Expr* expr) {
-  for (auto inp : expr->inputs()) {
-    if (auto tv = getTv(inp)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
 bool isScalarOp(const Expr* expr) {
   for (auto out : expr->outputs()) {
     if (!out->isScalar()) {
@@ -1923,7 +1905,7 @@ Val* proveLinearAndGetStride(
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g}).first;
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();
@@ -2012,7 +1994,7 @@ getIndexIDs(
   // First we find the consumer root IDs that map to the producer
   std::unordered_map<IterDomain*, IterDomain*> c2p_tmp;
   if (c2p == nullptr) {
-    auto c2p_tmp =
+    c2p_tmp =
         PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
     c2p = &c2p_tmp;
   }
@@ -2040,9 +2022,10 @@ getIndexIDs(
                      const std::vector<IterDomain*>& start_domain,
                      const std::vector<IterDomain*>& target_domain) {
     for (auto [expr, dir] : IRBFS::getExprsBetween(
-             {start_domain.begin(), start_domain.end()},
-             {target_domain.begin(), target_domain.end()},
-             /*require_all_to_visited=*/false)) {
+                                {start_domain.begin(), start_domain.end()},
+                                {target_domain.begin(), target_domain.end()},
+                                /*require_all_to_visited=*/false)
+                                .first) {
       // If there are any indexing IDs in the inputs, count all outputs as
       // indexing IDs
       const auto processExpr = [&indexing_ids](
