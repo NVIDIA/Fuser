@@ -297,6 +297,24 @@ TEST_F(ReshardingTest, Add_Broadcast) {
   EXPECT_FALSE(isResharding(z->definition()));
 }
 
+TEST_F(ReshardingTest, Matmul_NoResharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(2);
+  TensorView* y = makeContigTensor(2);
+  TensorView* z = matmul(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  for (auto* tv : {x, z}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_FALSE(isResharding(z->definition()));
+}
+
 TEST_F(ReshardingTest, Allgather) {
   Fusion fusion;
   FusionGuard fg(&fusion);
