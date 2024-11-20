@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
@@ -121,14 +121,11 @@ def test_gelu_bwd_reduction_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
 
-    benchmark_fn = {
-        "eager": gelu_bwd_reduction_torch,
-        "torchcompile": torch.compile(gelu_bwd_reduction_torch),
-    }
+    benchmark_fn = with_executor(executor, gelu_bwd_reduction_torch)
 
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [eager_output, grads, inputs, reduction_axis],
         iobytes=gelu_bwd_reduction_iobytes(size, dtype, reduction_axis),
     )
