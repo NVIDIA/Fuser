@@ -345,8 +345,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         auto wait = it->second;
         // short-circuit: wait expression does not exist yet for mbarrier.
         // This means: the mbarrier is used by the circular buffer for loop
-        // to wait for its loads. However, we have not encountered the first read of
-        // the circular buffer yet, so no need to wait right now.
+        // to wait for its loads. However, we have not encountered the first
+        // read of the circular buffer yet, so no need to wait right now.
         if (wait == nullptr) {
           ++it;
           continue;
