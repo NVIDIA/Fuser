@@ -4,10 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from torch_ops import nanogpt_attn
 
 # Fusion from nanogpt attention module
 # The nvFuser defintion only includes the non-matmul computation (masked_fill + softmax + dropout)
@@ -66,17 +66,6 @@ def nanogpt_attn_fwd_fusion(
     fd.add_output(T53)
     fd.add_output(T43)
     fd.add_output(T11)
-
-
-def nanogpt_attn_fwd(inputs: list):
-    # Reference implementation from Thunder: https://github.com/Lightning-AI/lightning-thunder/blob/d3da8517bff02a913fd149b4d6559f6b5a4c6c7f/thunder/tests/nanogpt_model.py#L102-L106
-    input, bias, size, dropout_p = inputs
-    batch_size, seq_len, nh, n_embd = size
-    hs = n_embd // nh
-    attn = input / (hs**0.5)
-    attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    return torch.nn.functional.dropout(attn, p=dropout_p)
 
 
 def nanogpt_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
@@ -155,15 +144,12 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
         1, 1, seq_len, seq_len
     )
 
-    benchmark_fn = {
-        "eager": nanogpt_attn_fwd,
-        "torchcompile": torch.compile(nanogpt_attn_fwd),
-    }
+    benchmark_fn = with_executor(executor, nanogpt_attn)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [inputs, bias, size, dropout_p],
         iobytes=nanogpt_attn_fwd_iobytes(size, dtype),
     )

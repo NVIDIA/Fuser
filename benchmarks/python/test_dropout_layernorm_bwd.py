@@ -9,10 +9,11 @@ from .core import (
     clear_dynamo_cache,
     unary_bwd_torch,
     compute_total_iobytes,
+    with_executor
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from torch_ops import dropout_layernorm
 
 def dropout_layernorm_bwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float
@@ -208,20 +209,10 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    def dropout_layernorm_fwd():
-        return torch.nn.functional.layer_norm(
-            input2 + torch.nn.functional.dropout(input1, p=dropout_p),
-            normalized_shape=input1.shape[1:],
-            weight=weights,
-            bias=bias,
-        )
-
     # Compile the fwd fn for torchcompile
-    fwd_fn = {
-        "eager": dropout_layernorm_fwd,
-        "torchcompile": torch.compile(dropout_layernorm_fwd),
-    }
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, dropout_layernorm)
+    fwd_inputs = [input1, input2, weights, bias, dropout_p]
+    outputs = fwd_fn(fwd_inputs)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

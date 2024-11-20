@@ -8,10 +8,11 @@ from .core import (
     run_benchmark,
     clear_dynamo_cache,
     compute_total_iobytes,
+    with_executor
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from torch_ops import dropout_layernorm
 
 def dropout_layernorm_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float, eps: float = 1e-5
@@ -71,17 +72,6 @@ def dropout_layernorm_fwd_fusion(
     fd.add_output(T18)
     fd.add_output(T29)
     fd.add_output(T10)
-
-
-def dropout_layernorm_fwd(
-    inputs: list,
-):  # [in_tensor1, in_tensor2, weights, bias, dropout_p]
-    return torch.nn.functional.layer_norm(
-        inputs[1] + torch.nn.functional.dropout(inputs[0], p=inputs[-1]),
-        normalized_shape=inputs[0].shape[1:],
-        weight=inputs[2],
-        bias=inputs[3],
-    )
 
 
 def dropout_layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
@@ -181,15 +171,12 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
         dropout_p,
     ]
 
-    benchmark_fn = {
-        "eager": dropout_layernorm_fwd,
-        "torchcompile": torch.compile(dropout_layernorm_fwd),
-    }
+    benchmark_fn = with_executor(executor, dropout_layernorm)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         inputs,
         iobytes=dropout_layernorm_fwd_iobytes(size, dtype),
     )

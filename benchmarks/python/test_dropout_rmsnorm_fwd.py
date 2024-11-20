@@ -8,10 +8,11 @@ from .core import (
     run_benchmark,
     clear_dynamo_cache,
     compute_total_iobytes,
+    with_executor
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from torch_ops import dropout_rmsnorm
 
 def dropout_rmsnorm_fwd_fusion(
     fd: FusionDefinition,
@@ -78,12 +79,6 @@ def dropout_rmsnorm_fwd_fusion(
     fd.add_output(T42)
     fd.add_output(T9)
     fd.add_output(T28)
-
-
-def dropout_rmsnorm_fwd(inputs: list):
-    input1, input2, weights, dropout_p = inputs
-    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
-    return weights * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
 
 
 def dropout_rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
@@ -165,15 +160,12 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
         dropout_p,
     ]
 
-    benchmark_fn = {
-        "eager": dropout_rmsnorm_fwd,
-        "torchcompile": torch.compile(dropout_rmsnorm_fwd),
-    }
-
+    benchmark_fn = with_executor(executor, dropout_rmsnorm)
+    
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         inputs,
         iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype),
     )

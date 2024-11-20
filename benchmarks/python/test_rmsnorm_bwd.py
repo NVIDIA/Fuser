@@ -4,11 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-
+from torch_ops import rmsnorm
 
 def rmsnorm_bwd_fusion(
     fd: FusionDefinition,
@@ -127,15 +127,10 @@ def test_rmsnorm_bwd_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    def rmsnorm_fwd():
-        squared_mean = (inputs**2).mean(1, keepdim=True)
-        rms_eps = torch.sqrt(squared_mean + 1e-5)
-        output = weights * (inputs / rms_eps)
-        return output
-
     # Compile the fwd fn for torchcompile
-    fwd_fn = {"eager": rmsnorm_fwd, "torchcompile": torch.compile(rmsnorm_fwd)}
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, rmsnorm)
+    fwd_inputs = [inputs, weights]
+    outputs = fwd_fn(fwd_inputs)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

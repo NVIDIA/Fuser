@@ -4,10 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from torch_ops import gelu
 
 def gelu_fwd_fusion(
     fd: FusionDefinition,
@@ -39,10 +39,6 @@ def gelu_fwd_fusion(
     if dtype in PROMOTE_DTYPES:
         T10 = fd.ops.cast(T10, dtype=dtype)
     fd.add_output(T10)
-
-
-def gelu_fwd_fn(inputs: list):  # [in_tensor, bias]
-    return torch.nn.functional.gelu(inputs[0] + inputs[1], approximate="tanh")
 
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
@@ -83,10 +79,7 @@ def test_gelu_fwd_baseline_benchmark(
         torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
     ]
 
-    benchmark_fn = {
-        "eager": gelu_fwd_fn,
-        "torchcompile": torch.compile(gelu_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, gelu)
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
-    run_benchmark(benchmark, benchmark_fn[executor], inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)

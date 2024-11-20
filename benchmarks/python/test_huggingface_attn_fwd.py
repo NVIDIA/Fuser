@@ -7,7 +7,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from torch_ops import huggingface_attn_fwd
 
 # Fusion from huggingface attention implementation.
 # The nvFuser defintion only includes the non-matmul computation (add + reshape + softmax + dropout)
@@ -153,15 +153,12 @@ def test_huggingface_attn_fwd_baseline_benchmark(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
 
-    benchmark_fn = {
-        "eager": huggingface_attn_fwd,
-        "torchcompile": torch.compile(huggingface_attn_fwd),
-    }
+    benchmark_fn = with_executor(executor, huggingface_attn_fwd)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
-        [attention_mask, inputs, size, dropout_p],
+        benchmark_fn,
+        [inputs, attention_mask, size, dropout_p],
         iobytes=huggingface_attn_fwd_iobytes(size, dtype),
     )
