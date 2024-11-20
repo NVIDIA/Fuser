@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -193,55 +194,8 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    // First we find the consumer root IDs that map to the producer
-    auto c2p =
-        PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
-    // Track the IDs involved in indexing in both producer and consumer
-    std::vector<Val*> consumer_root_indexing_ids;
-    std::vector<Val*> producer_logical_indexing_ids;
-    for (IterDomain* id : consumer->getMaybeRootDomain()) {
-      auto it = c2p.find(id);
-      if (it == c2p.end()) {
-        continue;
-      }
-      // These are the immediately mapped consumer root and producer logical
-      // IDs. This is a starting point for our later traversals, which will fill
-      // these sets out.
-      consumer_root_indexing_ids.push_back(it->first);
-      producer_logical_indexing_ids.push_back(it->second);
-    }
-
-    // Now traverse from the starting set (which, as noted above is a subset of
-    // either the producer logical or consumer root) to the target which is
-    // either the producer allocation domain or the consumer loop domain. These
-    // are the IDs that will actually affect indexing. Any other IDs can be
-    // skipped.
-    auto traverse = [](const std::vector<Val*>& start_domain,
-                       const std::vector<IterDomain*>& target_domain)
-        -> std::unordered_set<Val*> {
-      std::unordered_set<Val*> indexing_ids{
-          start_domain.begin(), start_domain.end()};
-      for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
-               start_domain,
-               {target_domain.begin(), target_domain.end()},
-               /*require_all_to_visited=*/false)) {
-        for (Val* v : expr->inputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v)) {
-            indexing_ids.insert(id);
-          }
-        }
-        for (Val* v : expr->outputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v)) {
-            indexing_ids.insert(id);
-          }
-        }
-      }
-      return indexing_ids;
-    };
-    std::unordered_set<Val*> producer_indexing_ids = traverse(
-        producer_logical_indexing_ids, producer->getMaybeAllocationDomain());
-    std::unordered_set<Val*> consumer_indexing_ids =
-        traverse(consumer_root_indexing_ids, consumer->getLoopDomain());
+    const auto [producer_indexing_ids, consumer_indexing_ids] =
+        lower_utils::getIndexIDs(producer, consumer);
 
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
