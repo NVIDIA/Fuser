@@ -23,6 +23,7 @@
 #include <ops/all_ops.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/utils.h>
 
 #include <algorithm>
@@ -5271,6 +5272,155 @@ TEST_F(IndexingTest, Issue3299) {
   auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, IndexPropagationWithAlmostExactMapping) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+
+  // Slicing the outer dimension to size 1
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()}});
+
+  fusion.addOutput(tv1);
+
+  tv1->merge(0, 1);
+  tv1->split(0, 3);
+
+  fusion.print();
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, ResizeRotation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto zero = fusion.zeroVal();
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+
+  // left half
+  auto tv1 = slice(tv0, {{zero, IrBuilder::create<Val>(i0 / 2)}});
+  // right half
+  auto tv2 = slice(
+      tv0, {{IrBuilder::create<Val>(i0 / 2), IrBuilder::create<Val>(i0)}});
+
+  // Rotation
+  auto tv3 = cat({tv2, tv1}, 0);
+
+  auto tv4 = add(tv0, tv3);
+
+  fusion.addOutput(tv4);
+
+  // Some of the scheduling tools such as scheduleLoopDomain are
+  // supposed to take care of the following transformations
+  // automatically, however, it needs a workaround for the cyclic
+  // graph pattern. For now, they are manually scheduled.
+
+  // tv1
+  {
+    auto tv1_padded = tv3->definition()->input(1)->as<TensorView>();
+    auto tv1_pad_resize = dynamic_cast<Resize*>(
+        tv1_padded->getLogicalDomain().at(0)->definition());
+    ASSERT_NE(tv1_pad_resize, nullptr);
+    auto loop_domain = tv1->getLogicalDomain();
+    auto padded_id = IterDomain::resize(
+        loop_domain[0],
+        tv1_pad_resize->leftExpand(),
+        tv1_pad_resize->rightExpand());
+    loop_domain[0] = padded_id;
+    tv1->setLoopDomain(loop_domain);
+  }
+
+  // tv2
+  {
+    auto tv2_padded = tv3->definition()->input(0)->as<TensorView>();
+    auto tv2_pad_resize = dynamic_cast<Resize*>(
+        tv2_padded->getLogicalDomain().at(0)->definition());
+    ASSERT_NE(tv2_pad_resize, nullptr);
+    auto loop_domain = tv2->getLogicalDomain();
+    auto padded_id = IterDomain::resize(
+        loop_domain[0],
+        tv2_pad_resize->leftExpand(),
+        tv2_pad_resize->rightExpand());
+    loop_domain[0] = padded_id;
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, Rotation) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+
+  // Slicing the outer dimension to size 1
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()}});
+
+  fusion.addOutput(tv1);
+
+  tv1->merge(0, 1);
+  tv1->split(0, 3);
+
+  fusion.print();
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

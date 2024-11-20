@@ -62,7 +62,14 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
+    const auto& id_group = toGroup(id);
+    if (index_map_.count(id_group)) {
+      std::cerr << "Updating idx for " << id->toString() << " with "
+                << idx->toInlineString() << "\n";
+      index_map_[id_group] = idx;
+    } else {
+      index_map_.emplace(toGroup(id), idx);
+    }
   }
 
   const ValGroup& toGroup(IterDomain* id) const {
