@@ -40,7 +40,7 @@ class IndexingTraversal : public ValGraphBFS {
         {from_groups.vector().begin(), from_groups.vector().end()},
         {to_groups.vector().begin(), to_groups.vector().end()});
     traversal.traverse();
-    return traversal.getShortestExprPath();
+    return traversal.getShortestExprPath().first;
   }
 
   using ValGraphBFS::isVisited;

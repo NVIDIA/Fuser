@@ -330,7 +330,32 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         circular_buffer_load_tvs_(
             GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
                 circular_buffer_loop_)),
-        mbarriers_to_wait_(getAllMbarriersToWaitFor()) {}
+        raw_mbarriers_to_wait_(getAllMbarriersToWait()) {}
+
+  // If any of the mbarrier wait expressions in raw_mbarriers_to_wait_ is not
+  // nullptr, this indicates that we are about to insert the reading of the
+  // circular buffer tensor into the cloned loop. Before doing that, we need to
+  // insert mbarrier::waitParity expressions to wait for the completion of the
+  // load of the circular buffer tensor.
+  void insertMBarrierWaitBeforeFirstRead() {
+    if (for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
+      for (auto it = raw_mbarriers_to_wait_.begin();
+           it != raw_mbarriers_to_wait_.end();) {
+        auto wait = it->second;
+        // short-circuit: wait expression does not exist yet for mbarrier.
+        // This means: the mbarrier is used by the circular buffer for loop
+        // to wait for its loads. However, we have not encountered the first
+        // read of the circular buffer yet, so no need to wait right now.
+        if (wait == nullptr) {
+          ++it;
+          continue;
+        }
+        for_loop_stack_.back()->body().push_back(wait);
+        it = raw_mbarriers_to_wait_.erase(it);
+      }
+    }
+  }
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
@@ -356,27 +381,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       return;
     }
 
-    // If any of the mbarrier wait expressions is not nullptr, this indicates
-    // that the `cloned_loop` is the loop containing the first read of a
-    // circular buffered TensorView. We need to insert that wait expression
-    // before `cloned_loop`.
-    if (for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-      for (auto it = mbarriers_to_wait_.begin();
-           it != mbarriers_to_wait_.end();) {
-        auto wait = it->second;
-        // short-circuit: wait expression does not exist yet for mbarrier.
-        // This means: the mbarrier is used by the circular buffer loop for
-        // waiting for its loads, but we have not encountered the first read of
-        // the circular buffer yet, so no need to wait right now.
-        if (wait == nullptr) {
-          ++it;
-          continue;
-        }
-        for_loop_stack_.back()->body().push_back(wait);
-        it = mbarriers_to_wait_.erase(it);
-      }
-    }
+    insertMBarrierWaitBeforeFirstRead();
 
     if (!cloned_loop->body().empty()) {
       // mbarrier_arrive_tx_ is active when we encounter a cpAsyncBulk load
@@ -486,10 +491,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // Check if the given expr is the first read of a circular buffered
   // TensorView. If so, create the mbarrier::wait expression for the
-  // corresponding buffer. And if the given expr is on the top-level of the
-  // cloned loop, insert the newly created mbarrier::wait expression before the
-  // given expr.
-  void insertMBarrierWaitBeforeFirstRead(Expr* expr) {
+  // corresponding buffer and update raw_mbarriers_to_wait_.
+  void updateRawMbarrierToWaitMap(Expr* expr) {
     if (loop_type_ == CircularBufferLoopStage::Prolog) {
       // If we are in the prologue loop, we won't clone expr, so we don't need
       // to insert mbarrier::wait.
@@ -514,20 +517,15 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         continue;
       }
       auto mbarrier = mbarrier_it->second;
-      auto wait_it = mbarriers_to_wait_.find(mbarrier);
-      // short-circuit: mbarrier does not exist in mbarriers_to_wait_, so its
-      // corresponding wait expression was already inserted.
-      if (wait_it == mbarriers_to_wait_.end()) {
+      auto wait_it = raw_mbarriers_to_wait_.find(mbarrier);
+      // short-circuit: mbarrier does not exist in raw_mbarriers_to_wait_, so
+      // its corresponding wait expression was already inserted.
+      if (wait_it == raw_mbarriers_to_wait_.end()) {
         continue;
       }
       auto& wait = wait_it->second;
       if (wait == nullptr) {
-        wait = createMbarrierWait(ldst);
-      }
-      if (for_loop_stack_.size() == 1) {
-        NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-        for_loop_stack_.back()->body().push_back(wait_it->second);
-        mbarriers_to_wait_.erase(wait_it);
+        wait = createMbarrierWaitForRaw(ldst);
       }
     }
   }
@@ -543,7 +541,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
           return out_tv == circular_buffer_tv;
         });
 
-    insertMBarrierWaitBeforeFirstRead(expr);
+    updateRawMbarrierToWaitMap(expr);
+    insertMBarrierWaitBeforeFirstRead();
 
     // Handle Short-Circuit conditions
     switch (loop_type_) {
@@ -689,7 +688,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // in the given loop, create a placeholder (nullptr) for mbarrier_wait
   // expressions
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
-  getAllMbarriersToWaitFor() {
+  getAllMbarriersToWait() {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
     for (auto tv : circular_buffer_load_tvs_) {
@@ -809,8 +808,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
   // This function creates kir::MBarrierWaitParity for given LoadStoreOp and
-  // circular buffer stage.
-  kir::MBarrierWaitParity* createMbarrierWait(LoadStoreOp* ldst) {
+  // circular buffer stage for waiting RAW.
+  kir::MBarrierWaitParity* createMbarrierWaitForRaw(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
 
     // Get mbarrier for this circular buffer stage.
@@ -849,7 +848,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // of ldst -> wait or tv -> wait, because multiple buffers and TMA load
   // operations can share the same mbarrier. In this case, we only want to
   // create a single wait expression to wait for all of them.
-  std::unordered_map<TensorView*, kir::MBarrierWaitParity*> mbarriers_to_wait_;
+  std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
+      raw_mbarriers_to_wait_;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
