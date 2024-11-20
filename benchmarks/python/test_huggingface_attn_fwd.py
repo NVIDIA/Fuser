@@ -4,10 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
-from torch_ops import huggingface_attn_fwd
+from torch_ops import huggingface_attn
 
 # Fusion from huggingface attention implementation.
 # The nvFuser defintion only includes the non-matmul computation (add + reshape + softmax + dropout)
