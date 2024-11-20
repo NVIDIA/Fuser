@@ -687,9 +687,9 @@ class AllocationInserter : public kir::ExprMutator {
               fl->iter_domain());
 
       // We use mbarrier[0:stage] for RAW, that is, to wait for the completion
-      // of the TMA load of the circular buffer tensor, and mbarrier[stage:2*stage]
-      // for WAR, that is, to wait for the completion of the reading of the
-      // circular buffer tensor.
+      // of the TMA load of the circular buffer tensor, and
+      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
+      // the reading of the circular buffer tensor.
       int64_t num_mbarriers =
           opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
 
