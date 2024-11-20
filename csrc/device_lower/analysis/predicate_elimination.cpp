@@ -185,40 +185,16 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+        BestEffortReplay::replayPasC(
+            producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
-
-    // Find all IterDomains involved in index expressions
-    // TODO: do we need to find logical IDs in producer that are involved in
-    // its allocation domain too?
-    std::vector<Val*> mapped_root_vals, loop_vals;
-    for (IterDomain* id : consumer->getRootDomain()) {
-      if (c2p.find(id) != c2p.end()) {
-        mapped_root_vals.push_back(id);
-      }
+    for (auto [c, p] : pairwise_map.mapConsumerToProducer()) {
+      // replayPasC skips mapping after the compute at position
+      c2p[c] = p;
     }
-    for (IterDomain* id : consumer->getLoopDomain()) {
-      loop_vals.push_back(id);
-    }
-
-    // Collect all IterDomains along path instead of Exprs
-    std::unordered_set<IterDomain*> index_ids;
-    for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
-             mapped_root_vals,
-             loop_vals,
-             /*require_all_to_visited=*/false)) {
-      for (Val* v : expr->inputs()) {
-        if (auto* id = dynamic_cast<IterDomain*>(v)) {
-          index_ids.insert(id);
-        }
-      }
-      for (Val* v : expr->outputs()) {
-        if (auto* id = dynamic_cast<IterDomain*>(v)) {
-          index_ids.insert(id);
-        }
-      }
-    }
-    ProducerConsumerPairAnalyzer analyzer(c2p, index_ids);
+    [[maybe_unused]] const auto [producer_index_ids, consumer_index_ids] =
+        lower_utils::getIndexIDs(producer, consumer, &c2p);
+    ProducerConsumerPairAnalyzer analyzer(c2p, consumer_index_ids);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -238,7 +214,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   // Returns true if no out-of-bound accesses could occur with a
   // producer
   bool needsPredicate(IterDomain* consumer_id) {
-    // TODO: check that this consumer_id is actually involved in indexing the
+    // Check that this consumer_id is actually involved in indexing the
     // producer. If it is not connected to the producer allocation domain in
     // the broadcast graph, then we can skip processing it.
     if (index_ids_.find(consumer_id) == index_ids_.end()) {
