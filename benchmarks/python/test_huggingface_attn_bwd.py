@@ -108,7 +108,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [grads, attn, dropout_mask])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_huggingface_attn_bwd_baseline_benchmark(

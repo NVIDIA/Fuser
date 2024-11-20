@@ -126,7 +126,7 @@ def test_groupnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [x, weight, bias])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_groupnorm_fwd_baseline_benchmark(

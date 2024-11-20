@@ -127,7 +127,7 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, bias])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_fwd_baseline_benchmark(
