@@ -4,11 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-
+from torch_ops import silu_mul
 
 def silu_mul_bwd_fusion(fd: FusionDefinition, dtype: DataType):
     T0 = fd.define_tensor(
@@ -94,12 +94,11 @@ def test_silu_mul_bwd_baseline_benchmark(
     y = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
 
-    def silu_mul_fwd():
-        return torch.nn.functional.silu(x) * y
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = {"eager": silu_mul_fwd, "torchcompile": torch.compile(silu_mul_fwd)}
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, scale_bias_relu)
+    fwd_inputs = [inputs, scale, bias]
+    outputs = fwd_fn(fwd_inputs)
 
     run_benchmark(
         benchmark,

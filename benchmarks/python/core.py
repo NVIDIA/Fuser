@@ -10,6 +10,9 @@ import numpy as np
 from nvfuser import FusionDefinition, FusionCache
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
+import thunder
+from thunder.executors.nvfuserex import nvfuserex
+
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -43,6 +46,16 @@ def clear_dynamo_cache() -> None:
 def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
 
+def with_executor(executor: str, fwd_fn: Callable) -> Callable:
+    assert executor in ["eager", "torchcompile", "thunder"]
+    if executor == 'eager':
+        return fwd_fn
+    if executor == 'torchcompile':
+        return torch.compile(fwd_fn)
+    if executor == 'thunder':
+        return thunder.jit(
+            fwd_dn, nv_enable_bookend=False, executors=[nvfuserex]
+        )            
 
 def compute_total_iobytes(
     tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]

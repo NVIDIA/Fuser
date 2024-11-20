@@ -4,11 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-
+from torch_ops import softmax
 
 def softmax_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, reduction_axis: int
@@ -46,10 +46,6 @@ def softmax_fwd_fusion(
     if dtype in PROMOTE_DTYPES:
         T27 = fd.ops.cast(T27, dtype=dtype)
     fd.add_output(T27)
-
-
-def softmax_fwd_fn(inputs: list):  # [in_tensor, reduction_axis]
-    return torch.nn.functional.softmax(inputs[0], inputs[1])
 
 
 def softmax_fwd_iobytes(size: tuple, dtype: torch.dtype):
@@ -94,15 +90,12 @@ def test_softmax_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    input = torch.randn(size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype)
 
-    benchmark_fn = {
-        "eager": softmax_fwd_fn,
-        "torchcompile": torch.compile(softmax_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, softmax)
     run_benchmark(
         benchmark,
         benchmark_fn[executor],
-        [input, reduction_axis],
+        [inputs, reduction_axis],
         iobytes=softmax_fwd_iobytes(size, dtype),
     )
