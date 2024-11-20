@@ -5,7 +5,7 @@ from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
-from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache
+from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache, with_executor
 import numpy as np
 
 
@@ -453,12 +453,12 @@ def norm_fwd_baseline_benchmark(
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
-    benchmark_fn = {"eager": norm_fwd_fn, "torchcompile": torch.compile(norm_fwd_fn)}
+    benchmark_fn = with_executor(executor, norm_fwd_fn)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [inputs, weight, bias, running_mean, running_var],
         iobytes=norm_fwd_iobytes(size, dtype, norm),
     )
@@ -493,8 +493,9 @@ def norm_bwd_baseline_benchmark(
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = {"eager": norm_fwd_fn, "torchcompile": torch.compile(norm_fwd_fn)}
-    outputs = fwd_fn[executor]([inputs, weight, bias, running_mean, running_var])
+    fwd_fn = with_executor(executor, norm_fwd_fn)
+    fwd_inputs = [inputs, weight, bias, running_mean, running_var]
+    outputs = fwd_fn(fwd_inputs)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

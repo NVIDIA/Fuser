@@ -5,7 +5,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -84,13 +84,10 @@ def test_reduction_epilogue_baseline_benchmark(
     epilogue = torch.randn(size[reduction_axis - 1], device="cuda", dtype=dtype)
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
 
-    benchmark_fn = {
-        "eager": reduction_epilogue_fwd_fn,
-        "torchcompile": torch.compile(reduction_epilogue_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, reduction_epilogue_fwd_fn)
 
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [x, epilogue, reduction_axis],
     )
