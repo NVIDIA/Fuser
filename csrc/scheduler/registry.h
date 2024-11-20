@@ -83,7 +83,8 @@ bool canSchedule(
     SchedulerType sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr,
+    bool skip_compile_time_checks = false);
 
 //! Fusion segmenter facing API,
 //!   returns a schedule that applies in the given fusion, returns

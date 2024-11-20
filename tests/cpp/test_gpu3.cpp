@@ -6506,7 +6506,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
           {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
           false)
-          .empty());
+          .first.empty());
 
   // This ordering should find two exprs (i.e., the merge and the split).
   EXPECT_EQ(
@@ -6514,7 +6514,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
           {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
           false)
-          .size(),
+          .first.size(),
       2);
 
   std::unordered_set<IterDomain*> tv2_all_ids_ref;
@@ -6579,13 +6579,16 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs2) {
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
           {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
           false)
-          .empty());
+          .first.empty());
 
   // From the initial loop to the current loop should find the split expr
-  auto exprs_between = IRBFS::getExprsBetween(
-      {tv2->getInitialLoopDomain().begin(), tv2->getInitialLoopDomain().end()},
-      {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
-      false);
+  auto exprs_between =
+      IRBFS::getExprsBetween(
+          {tv2->getInitialLoopDomain().begin(),
+           tv2->getInitialLoopDomain().end()},
+          {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
+          false)
+          .first;
   EXPECT_EQ(exprs_between.size(), 1);
   EXPECT_EQ(exprs_between.front().first, tv2_split);
 

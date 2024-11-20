@@ -249,8 +249,10 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       return nullptr;
     } else {
       auto prefetch_distance =
-          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-              fl->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(fl->iter_domain())
+              .prefetch;
       return SimplifyingIrBuilder::addExpr(
           original_index,
           SimplifyingIrBuilder::create<Val>(

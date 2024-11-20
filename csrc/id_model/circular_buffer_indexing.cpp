@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/circular_buffer_indexing.h>
 #include <id_model/indexing_utils.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
@@ -80,7 +81,8 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
-  auto prefetch_distance = info.getPrefetchDistanceFor(for_loop->iter_domain());
+  auto prefetch_distance =
+      info.getCircularBufferOptionsFor(for_loop->iter_domain()).prefetch;
 
   return IrBuilder::create<Val>(prefetch_distance, DataType::Index);
 }
@@ -112,10 +114,8 @@ Val* getOffsetForCircularBufferTensor(
 
   auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
 
-  const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-      circular_buffer_loop->iter_domain());
-  const auto prefetch_distance =
-      gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+  const auto& opt =
+      GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
           circular_buffer_loop->iter_domain());
 
   // If this appears as a consumer, it should be either prologue or
@@ -137,14 +137,13 @@ Val* getOffsetForCircularBufferTensor(
   if (as_consumer && is_main) {
     offset = SimplifyingIrBuilder::addExpr(
         offset,
-        SimplifyingIrBuilder::create<Val>(prefetch_distance, DataType::Index));
+        SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
   }
 
   // Add "offset % num_stages", except when it's in prologue
   if (!is_prolog) {
     offset = SimplifyingIrBuilder::modExpr(
-        offset,
-        SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+        offset, SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
   }
 
   auto original_alloc_size =

@@ -41,6 +41,8 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
+  Val* getNumThreadsEachBlock() const;
+
  private:
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.

@@ -280,24 +280,6 @@ std::vector<TensorView*> getTvs(const std::vector<Val*>& vals) {
   return tvs;
 }
 
-TensorView* getTvOutput(const Expr* expr) {
-  for (auto out : expr->outputs()) {
-    if (auto tv = getTv(out)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
-TensorView* getTvInput(const Expr* expr) {
-  for (auto inp : expr->inputs()) {
-    if (auto tv = getTv(inp)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
 bool isScalarOp(const Expr* expr) {
   for (auto out : expr->outputs()) {
     if (!out->isScalar()) {
@@ -1923,7 +1905,7 @@ Val* proveLinearAndGetStride(
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g}).first;
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();

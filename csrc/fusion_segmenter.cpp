@@ -2641,7 +2641,8 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
           schedulerType(),
           runtime_info.fusion(),
           runtime_info,
-          heuristic_data_cache)) {
+          heuristic_data_cache,
+          /*skip_compile_time_checks=*/true)) {
     return std::nullopt;
   }
   return SchedulerEntry::makeSchedulerInstance(schedulerType())

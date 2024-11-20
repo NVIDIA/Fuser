@@ -70,13 +70,6 @@ class CircularBufferInfo {
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
 
-  //! Get the stage depth for the given axis. The number of stages will be 2 in
-  //! the case of double buffer loop
-  int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
-
-  //! Get the prefetch distance for the given axis.
-  int64_t getPrefetchDistanceFor(IterDomain* circular_buffered_id) const;
-
   std::string toString() const;
 
  private:

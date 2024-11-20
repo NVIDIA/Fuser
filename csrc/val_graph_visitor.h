@@ -199,7 +199,7 @@ class ValGraphBFS : public BFS<
   // Find the shortest path from the from_groups_ to to_groups_ on a
   // given graph. Dependency between vals and exprs must be satisfied.
   // It is an error if no valid path is found.
-  static ExprPath getExprsBetween(
+  static std::pair<ExprPath, bool> getExprsBetween(
       const ValGraph& graph,
       std::vector<NodeType> from,
       std::vector<NodeType> to,
@@ -214,7 +214,7 @@ class ValGraphBFS : public BFS<
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
-  static ExprPath getExprsBetween(
+  static std::pair<ExprPath, bool> getExprsBetween(
       const ValGraph& graph,
       const ValGroups& from,
       const ValGroups& to,

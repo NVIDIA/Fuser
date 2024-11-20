@@ -673,12 +673,12 @@ void validateCircularBuffering(
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
     NVF_ERROR(
-        runtime_axis_size >= cb_tv->circularBufferDepth(),
+        runtime_axis_size >= cb_tv->circularBufferOptions().stage,
         "This kernel fails to fill the circular buffer pipeline at runtime. ",
         "The extent of the circular buffer axis is ",
         runtime_axis_size,
         " while ",
-        cb_tv->circularBufferDepth(),
+        cb_tv->circularBufferOptions().stage,
         " is the number of stages in the circular buffer.");
   }
 }
