@@ -530,15 +530,15 @@ TEST_P(ReshardingTest, Insert) {
       [mesh0,
        mesh1,
        mesh2,
-       is_tv0_tv3_tv5_sharded,
+       is_tv0_tv5_sharded,
        is_tv1_tv4_sharded,
        is_tv2_sharded] = GetParam();
-  int sharded_axis = 1;
+  constexpr int64_t kShardedAxis = 1;
 
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
   TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
-  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv3 = sum(tv2, {kShardedAxis});
   TensorView* tv4 = broadcast(tv3, {false, true, false});
   TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
 
@@ -552,17 +552,17 @@ TEST_P(ReshardingTest, Insert) {
   fusion_->addOutput(tv1);
   fusion_->addOutput(tv5);
 
-  if (is_tv0_tv3_tv5_sharded) {
-    tv0->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-    tv3->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-    tv5->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+  if (is_tv0_tv5_sharded) {
+    tv0->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
+    // tv3->axis(kShardedAxis) is a reduction, so don't shard it.
+    tv5->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
   }
   if (is_tv1_tv4_sharded) {
-    tv1->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-    tv4->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+    tv1->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
+    tv4->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
   }
   if (is_tv2_sharded) {
-    tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+    tv2->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
   }
 
   preseg_passes::OptimizationPass<
