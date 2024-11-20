@@ -12,7 +12,7 @@ from .core import (
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-from torch_ops import dropout_rmsnorm
+from .torch_ops import dropout_rmsnorm
 
 def dropout_rmsnorm_fwd_fusion(
     fd: FusionDefinition,

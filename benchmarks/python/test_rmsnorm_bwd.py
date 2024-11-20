@@ -8,7 +8,7 @@ from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_execu
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-from torch_ops import rmsnorm
+from .torch_ops import rmsnorm
 
 def rmsnorm_bwd_fusion(
     fd: FusionDefinition,
