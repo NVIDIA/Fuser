@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <id_model/indexing_traversal.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 

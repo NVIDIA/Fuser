@@ -567,9 +567,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // Check if the given expr is the first read of a circular buffered
   // TensorView. If so, create the mbarrier::wait expression for the
-  // corresponding buffer. And if the given expr is on the top-level of the
-  // cloned loop, insert the newly created mbarrier::wait expression before the
-  // given expr.
+  // corresponding buffer and update raw_mbarriers_to_wait_.
   void updateRawMbarrierToWaitMap(Expr* expr) {
     if (loop_type_ == CircularBufferLoopStage::Prolog) {
       // If we are in the prologue loop, we won't clone expr, so we don't need
