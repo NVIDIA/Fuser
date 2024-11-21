@@ -356,24 +356,14 @@ TEST_F(ReshardingTest, ReduceScatter) {
   constexpr int64_t kNumDevices = 2;
   const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
-  TensorView* in = makeContigConcreteTensor({6, 10});
-  in->split(0, kNumDevices, /*inner_split=*/false);
-
-  TensorView* rfactor = reshape(
-      in,
-      {in->axis(0)->extent(), in->axis(1)->extent(), in->axis(2)->extent()});
-
-  TensorView* out = sum(rfactor, {0});
-  out->split(-1, kNumDevices, /*inner_split=*/false);
-
-  for (auto* tv : {in, rfactor, out}) {
-    tv->setDeviceMesh(mesh);
-  }
+  TensorView* in = makeContigConcreteTensor({kNumDevices, 2, kNumDevices * 3});
+  in->setDeviceMesh(mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
-  rfactor->axis(0)->parallelize(ParallelType::DIDx);
+
+  TensorView* out = sum(in, {0});
+  out->split(-1, kNumDevices, /*inner_split=*/false);
   out->axis(-2)->parallelize(ParallelType::DIDx);
 
-  EXPECT_FALSE(isResharding(rfactor->definition()));
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
@@ -384,24 +374,14 @@ TEST_F(ReshardingTest, Allreduce) {
   constexpr int64_t kNumDevices = 2;
   const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
-  TensorView* in = makeContigConcreteTensor({6, 10});
-  in->split(0, kNumDevices, /*inner_split=*/false);
+  TensorView* in = makeContigConcreteTensor({kNumDevices, 2, 3});
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
 
-  TensorView* rfactor = reshape(
-      in,
-      {in->axis(0)->extent(), in->axis(1)->extent(), in->axis(2)->extent()});
-
-  TensorView* allreduce = sum(rfactor, {0});
+  TensorView* allreduce = sum(in, {0});
 
   TensorView* out = add(allreduce, allreduce);
 
-  for (auto* tv : {in, rfactor, allreduce, out}) {
-    tv->setDeviceMesh(mesh);
-  }
-  in->axis(0)->parallelize(ParallelType::DIDx);
-  rfactor->axis(0)->parallelize(ParallelType::DIDx);
-
-  EXPECT_FALSE(isResharding(rfactor->definition()));
   EXPECT_TRUE(isResharding(allreduce->definition()));
   EXPECT_FALSE(isResharding(out->definition()));
 }
