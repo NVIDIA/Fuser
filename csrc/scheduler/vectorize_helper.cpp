@@ -490,8 +490,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
                   SimplifyingIrBuilder::whereExpr(
                       SimplifyingIrBuilder::ltExpr(
                           extent, extent->container()->zeroVal()),
-                      extent, 
-                      SimplifyingIrBuilder::negExpr(extent)));
+                      extent,
+                      SimplifyingIrBuilder::negExpr(extent))));
         };
         projected_extent = comp(projected_extent, resize_op->leftExpand());
         addProjectedExtent(id_to, projected_extent);
