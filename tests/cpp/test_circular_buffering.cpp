@@ -1815,6 +1815,7 @@ std::string tmaName(
      << std::to_string(std::get<2>(info.param)) << "_N_"
      << std::to_string(std::get<3>(info.param)) << "_"
      << std::get<4>(info.param);
+  return ss.str();
 }
 
 INSTANTIATE_TEST_SUITE_P(
