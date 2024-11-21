@@ -1423,11 +1423,11 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Concrete) {
 
   TensorView* in = makeContigConcreteTensor({6});
   TensorView* out = set(in);
-  in->split(0, 2);
-  in->setAllocationDomain(in->getLoopDomain(), true);
-
   fusion->addInput(in);
   fusion->addOutput(out);
+
+  in->split(0, 2);
+  in->setAllocationDomain(in->getLoopDomain(), true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
@@ -1448,11 +1448,11 @@ TEST_F(AllocationDomainTest, DISABLED_InputAllocationIsSplit_Symbolic) {
 
   TensorView* in = makeContigTensor(1);
   TensorView* out = set(in);
-  in->split(0, 2);
-  in->setAllocationDomain(in->getLoopDomain(), true);
-
   fusion->addInput(in);
   fusion->addOutput(out);
+
+  in->split(0, 2);
+  in->setAllocationDomain(in->getLoopDomain(), true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);

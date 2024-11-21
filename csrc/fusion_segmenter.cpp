@@ -1877,9 +1877,9 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       // tries to look for root IDs in the map, which shouldn't exist because
       // the whole purpose of this function is to remove the root domain.
       replay.setErrorOnFailure(false);
-      // Should we replay.setReplayRFactor(true)? I guess the logical domain
-      // shouldn't be rfactor any more because it becomes the root, but maybe
-      // other IterDomains should inherit rfactor?
+      // We don't need replay.setReplayRFactor(true). The new root is the same
+      // as the new logical so there aren't any expressions between them.
+
       std::vector<IterDomain*> new_alloc;
       new_alloc.reserve(tv->getAllocationDomain().size());
       for (IterDomain* alloc_id : tv->getAllocationDomain()) {
