@@ -424,20 +424,28 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
   TensorView* in = TensorViewBuilder()
                        .dtype(DataType::Float)
                        .contiguity({std::nullopt, true})
-                       .shape({3, -1})
+                       .shape({num_devices * 3, -1})
                        .expanded({true, false})
                        .build();
   in->setDeviceMesh(mesh);
-  if (parallelizes_broadcast) {
-    in->axis(0)->parallelize(ParallelType::DIDx);
-  }
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
+  if (parallelizes_broadcast) {
+    for (auto* tv : {in, out}) {
+      tv->split(0, num_devices, /*inner_split=*/false);
+      tv->axis(0)->parallelize(ParallelType::DIDx);
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+    }
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn({8}, options).as_strided({3, 8}, {0, 1});
+  at::Tensor in_tensor =
+      at::randn({8}, options)
+          .as_strided(
+              {parallelizes_broadcast ? 3 : num_devices * 3, 8}, {0, 1});
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);

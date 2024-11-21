@@ -193,8 +193,7 @@ void ExpressionEvaluator::bindTensorDomain(
   for (auto i : c10::irange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
-      // DIDs are ignored for broadcast.
-      bind_(logical_domain[i]->extent(), 1, evaluate_validate);
+      bind_(id->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
@@ -211,10 +210,10 @@ void ExpressionEvaluator::bindTensorDomain(
             t.stride(i),
             " in dimension ",
             i);
-        bind_(logical_domain[i]->expandedExtent(), sizes[i], evaluate_validate);
+        bind_(id->expandedExtent(), sizes[i], evaluate_validate);
       }
     } else {
-      bind_(logical_domain[i]->extent(), sizes[i], evaluate_validate);
+      bind_(id->extent(), sizes[i], evaluate_validate);
     }
   }
 }
