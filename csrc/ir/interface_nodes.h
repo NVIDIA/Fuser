@@ -169,7 +169,8 @@ class TVDomainGuard;
 
 struct Pipelined {
   bool uses_mbarrier_for_war = false;
-  explicit Pipelined(bool uses_mbarrier_for_war) : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  explicit Pipelined(bool uses_mbarrier_for_war)
+      : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
   Pipelined() = default;
 };
 
@@ -182,7 +183,9 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 
 using CircularBufferType = std::variant<Pipelined>;
 
-inline std::ostream& operator<<(std::ostream& os, const CircularBufferType& type) {
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferType& type) {
   return std::visit(
       [&os](const auto& t) -> std::ostream& { return os << t; }, type);
 }
