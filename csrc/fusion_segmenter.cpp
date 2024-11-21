@@ -1884,6 +1884,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       new_alloc.reserve(tv->getAllocationDomain().size());
       for (IterDomain* alloc_id : tv->getAllocationDomain()) {
         IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
+        // FIXME: should this be taken care of by ReplayTransformations?
         new_alloc_id->parallelize(alloc_id->getParallelType());
         new_alloc.push_back(new_alloc_id);
       }
