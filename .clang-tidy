@@ -26,6 +26,7 @@ cppcoreguidelines-*,
 -cppcoreguidelines-pro-type-vararg,
 -cppcoreguidelines-special-member-functions,
 -cppcoreguidelines-non-private-member-variables-in-classes,
+-cppcoreguidelines-avoid-goto
 -facebook-hte-RelativeInclude,
 hicpp-exception-baseclass,
 misc-unused-alias-decls,
