@@ -426,18 +426,14 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
         // id_from or id_to makes a difference.
         auto projected_extent = getProjectedExtent(id_from);
         auto pad_extent = SimplifyingIrBuilder::addExpr(
-              resize_op->leftExpand(),
-              resize_op->leftExpand())
+            resize_op->leftExpand(), resize_op->leftExpand());
         if (p2c) {
-          projected_extent = SimplifyingIrBuilder::addExpr(
-            projected_extent , 
-            pad_extent
-);
-} else {
-          projected_extent = SimplifyingIrBuilder::subExpr(
-            projected_extent , 
-            pad_extent
-}
+          projected_extent =
+              SimplifyingIrBuilder::addExpr(projected_extent, pad_extent);
+        } else {
+          projected_extent =
+              SimplifyingIrBuilder::subExpr(projected_extent, pad_extent);
+        }
         auto comp = [](Val* factor, Val* extent) {
           return SimplifyingIrBuilder::whereExpr(
               SimplifyingIrBuilder::eqExpr(
@@ -456,11 +452,12 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       }
     } else if (resize_in_slice_.count(resize_op) != 0) {
       // resize created by SliceOp.
-      // TODO: merge this with handling of resize in pad, this would also enable supporting negative resize extent in pad.
-
+      // TODO: merge this with handling of resize in pad, this would also enable
+      // supporting negative resize extent in pad.
 
       // NOTE: in terms of offset:
-      //   1. slice on non-contiguous dimensions doesn't matter, since we check their strides for alignment requirements anyway.
+      //   1. slice on non-contiguous dimensions doesn't matter, since we check
+      //   their strides for alignment requirements anyway.
       //   2. slice on contiguous dimensions:
       //      2.1 for non innermost slice, does it matter?
       //      2.2 for innermost slice
@@ -473,14 +470,13 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       if (recording_) {
         // we need to check slice offset at this point.
         auto projected_extent = getProjectedExtent(id_from);
-        // NOTE: projected extent to input of slice shouldn't compensate the resize extent, since we are not accessing those region in the kernel.
+        // NOTE: projected extent to input of slice shouldn't compensate the
+        // resize extent, since we are not accessing those region in the kernel.
         if (p2c) {
           projected_extent = SimplifyingIrBuilder::addExpr(
-            projected_extent, 
-SimplifyingIrBuilder::addExpr(
-              resize_op->leftExpand(),
-              resize_op->leftExpand())
-);
+              projected_extent,
+              SimplifyingIrBuilder::addExpr(
+                  resize_op->leftExpand(), resize_op->leftExpand()));
         }
         auto comp = [](Val* factor, Val* extent) {
           return SimplifyingIrBuilder::whereExpr(

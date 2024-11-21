@@ -2352,8 +2352,8 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Val>(1L),
-        IrBuilder::create<Val>(N + 1L),
+      {{IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(N),
         IrBuilder::create<Val>(1L)}});
 
   auto tv3 = add(tv2, tv1);
