@@ -334,6 +334,13 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         war_mbarriers_to_uses_(getAllWarMbarriersToUses()),
         war_mbarriers_to_wait_(getAllMbarriersToWait()) {}
 
+  bool usesMBarrierForWAR() const {
+    return GpuLower::current()
+        ->circularBufferInfo()
+        .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
+        .usesMBarrierForWAR();
+  }
+
   // If any of the mbarrier wait expressions in raw_mbarriers_to_wait_ is not
   // nullptr, this indicates that we are about to insert the reading of the
   // circular buffer tensor into the cloned loop. Before doing that, we need to
@@ -363,10 +370,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // insert a mbarrier::arrive to signal that we have done with the reading
   // of the buffer and it is ready to be loaded with new data.
   void insertMBarrierArriveAfterLastRead() {
-    if (!GpuLower::current()
-             ->circularBufferInfo()
-             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
-             .usesMBarrierForWAR()) {
+    if (!usesMBarrierForWAR()) {
       return;
     }
     // Only insert arrive on the top-level loop
@@ -614,6 +618,9 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // so, create the mbarrier::wait expression for the corresponding buffer and
   // update war_mbarriers_to_wait_.
   void updateWarMbarrierToWaitMap(Expr* expr) {
+    if (!usesMBarrierForWAR()) {
+      return;
+    }
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -644,12 +651,13 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     }
   }
 
-  // Check if the given expr is the last read of a circular buffered
-  // TensorView. If so, create the mbarrier::arrive expression for the
-  // corresponding buffer. And if the given expr is on the top-level of the
-  // cloned loop, create an mbarrier::arrive expression and insert it after the
-  // given expr.
+  // Check if the given expr is a read of a circular buffered TensorView. If so,
+  // update war_mbarriers_to_uses_.
   void updateWarMbarrierUseMap(Expr* expr) {
+    if (!usesMBarrierForWAR()) {
+      return;
+    }
+
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
     // remove expr from war_mbarriers_to_uses_
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
