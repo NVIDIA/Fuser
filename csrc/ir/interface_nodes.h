@@ -169,6 +169,8 @@ class TVDomainGuard;
 
 struct Pipelined {
   bool uses_mbarrier_for_war = false;
+  explicit Pipelined(bool uses_mbarrier_for_war) : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  Pipelined() = default;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
