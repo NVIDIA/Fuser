@@ -1438,6 +1438,10 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Concrete) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+// The test fails as is. The symbolic IterDomains in loop/allocation are not
+// concretized. I tried to change DynamicTransformConcretizer::mutate to grab
+// all expressions between root and allocation but still couldn't get it to
+// work.
 TEST_F(AllocationDomainTest, DISABLED_InputAllocationIsSplit_Symbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

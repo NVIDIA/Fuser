@@ -1870,13 +1870,16 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       for (const auto i : c10::irange(logical.size())) {
         old_to_new.emplace(logical[i], new_logical_domain[i]);
       }
-      // for (IterDomain* root_id : tv->getRootDomain()) {
-      //   old_to_new.emplace(root_id, nullptr);
-      // }
 
       ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
+      // Without this,
+      // https://github.com/NVIDIA/Fuser/blob/e613929a6c21b3095c8817b01b8f177096a26e60/csrc/transform_iter.cpp#L299
+      // tries to look for root IDs in the map, which shouldn't exist because
+      // the whole purpose of this function is to remove the root domain.
       replay.setErrorOnFailure(false);
-      // Should we setReplayRFactor?
+      // Should we replay.setReplayRFactor(true)? I guess the logical domain
+      // shouldn't be rfactor any more because it becomes the root, but maybe
+      // other IterDomains should inherit rfactor?
       std::vector<IterDomain*> new_alloc;
       new_alloc.reserve(tv->getAllocationDomain().size());
       for (IterDomain* alloc_id : tv->getAllocationDomain()) {
