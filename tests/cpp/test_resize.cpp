@@ -2283,7 +2283,9 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({t0, 10}); },
+      [&]() {
+        executor_cache.runFusionWithInputs({t0, 10});
+      },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
@@ -2652,7 +2654,7 @@ TEST_F(ResizeTest, SliceAndReshape2) {
 }
 
 // Trivial case of slice vectorization. Just slicing a fusion input
-TEST_F(ResizeTest, Slice1DVectorizeManual1) {
+TEST_F(ResizeTest, Slice1DVectorize) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -2670,24 +2672,22 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
         sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
   fusion.addOutput(tv1);
 
-  tv1->split(0, 4);
-  tv1->split(0, 128);
-
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  tv1->axis(1)->parallelize(ParallelType::TIDx);
-  tv1->axis(2)->parallelize(ParallelType::Vectorize);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.run(aten_inputs);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  // check vectorization
+  ASSERT_EQ(pparams->vectorization_factor, 4)
+      << "Unexpected factor of vectorization";
+  EXPECT_THAT(
+      tv1->getLoopDomain(),
+      Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
+      << "Failed to vectorize: " << tv1;
 
-  auto ref =
-      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
-  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced twice. Both should be vectorizable.
@@ -3467,14 +3467,12 @@ TEST_F(ResizeTest, PadVectorization) {
   ASSERT_EQ(pparams->vectorization_factor, 4)
       << "Unexpected factor of vectorization";
 
-  // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
+  // Make sure tv1/tv2 are vectorized, i.e., at least one loop IterDomain is
+  // vectorized.
   EXPECT_THAT(
       tv1->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
-
-  // Make sure tv2 should be vectorized, i.e., at least one loop IterDomain is
-  // vectorized.
   EXPECT_THAT(
       tv2->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
