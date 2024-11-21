@@ -424,7 +424,20 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
         // output. Hence we do GCD among padded extent as well as extent of the
         // id_from. Note since we are taking the GCD here, I don't think using
         // id_from or id_to makes a difference.
-        auto consumer_factor = getProjectedExtent(id_from);
+        auto projected_extent = getProjectedExtent(id_from);
+        auto pad_extent = SimplifyingIrBuilder::addExpr(
+              resize_op->leftExpand(),
+              resize_op->leftExpand())
+        if (p2c) {
+          projected_extent = SimplifyingIrBuilder::addExpr(
+            projected_extent , 
+            pad_extent
+);
+} else {
+          projected_extent = SimplifyingIrBuilder::subExpr(
+            projected_extent , 
+            pad_extent
+}
         auto comp = [](Val* factor, Val* extent) {
           return SimplifyingIrBuilder::whereExpr(
               SimplifyingIrBuilder::eqExpr(
@@ -437,12 +450,20 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
                   SimplifyingIrBuilder::maxExpr(
                       extent->container()->oneVal(), extent)));
         };
-        consumer_factor = comp(consumer_factor, resize_op->leftExpand());
-        consumer_factor = comp(consumer_factor, resize_op->rightExpand());
-        addProjectedExtent(id_to, consumer_factor);
+        projected_extent = comp(projected_extent, resize_op->leftExpand());
+        projected_extent = comp(projected_extent, resize_op->rightExpand());
+        addProjectedExtent(id_to, projected_extent);
       }
     } else if (resize_in_slice_.count(resize_op) != 0) {
       // resize created by SliceOp.
+      // TODO: merge this with handling of resize in pad, this would also enable supporting negative resize extent in pad.
+
+
+      // NOTE: in terms of offset:
+      //   1. slice on non-contiguous dimensions doesn't matter, since we check their strides for alignment requirements anyway.
+      //   2. slice on contiguous dimensions:
+      //      2.1 for non innermost slice, does it matter?
+      //      2.2 for innermost slice
 
       // project resize op to frontier.
       frontier[pos] = id_to;
@@ -451,7 +472,33 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
       if (recording_) {
         // we need to check slice offset at this point.
-        addProjectedExtent(id_to, getProjectedExtent(id_from));
+        auto projected_extent = getProjectedExtent(id_from);
+        // NOTE: projected extent to input of slice shouldn't compensate the resize extent, since we are not accessing those region in the kernel.
+        if (p2c) {
+          projected_extent = SimplifyingIrBuilder::addExpr(
+            projected_extent, 
+SimplifyingIrBuilder::addExpr(
+              resize_op->leftExpand(),
+              resize_op->leftExpand())
+);
+        }
+        auto comp = [](Val* factor, Val* extent) {
+          return SimplifyingIrBuilder::whereExpr(
+              SimplifyingIrBuilder::eqExpr(
+                  extent, extent->container()->zeroVal()),
+              factor,
+              // for extent < 0, we'll take max(1, extent). Because of the gcd,
+              // This is effectively excluding the resize id from vectorization.
+              SimplifyingIrBuilder::gcdExpr(
+                  factor,
+                  SimplifyingIrBuilder::whereExpr(
+                      SimplifyingIrBuilder::ltExpr(
+                          extent, extent->container()->zeroVal()),
+                      extent, 
+                      SimplifyingIrBuilder::negExpr(extent)));
+        };
+        projected_extent = comp(projected_extent, resize_op->leftExpand());
+        addProjectedExtent(id_to, projected_extent);
       }
     } else {
       // unsupproted resize.
