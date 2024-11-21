@@ -131,11 +131,13 @@ class LoopDomainScheduler {
         ir_utils::getSqueezedSlices(ref_loop_dom_.front()->fusion());
 
     for (auto squeezed_slice : squeezed_slices_) {
-      auto path = ValGraphBFS::getExprsBetween(
-          graph(),
-          ref_id_groups_,
-          graph().toGroups(std::vector<IterDomain*>{squeezed_slice}),
-          /*require_all_to_visited=*/false);
+      auto path =
+          ValGraphBFS::getExprsBetween(
+              graph(),
+              ref_id_groups_,
+              graph().toGroups(std::vector<IterDomain*>{squeezed_slice}),
+              /*require_all_to_visited=*/false)
+              .first;
       squeezed_slice_paths_.emplace(squeezed_slice, path);
     }
   }
@@ -216,12 +218,14 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   auto tv_loop_groups = graph().toGroups(tv->getLoopDomain());
 
   bool resize_war = false;
-  ValGraphBFS::ExprPath resize_path_from_ref = ValGraphBFS::getExprsBetween(
-      graph(),
-      ref_id_groups_,
-      tv_loop_groups,
-      /*require_all_to_visited=*/false,
-      Direction::Backward);
+  ValGraphBFS::ExprPath resize_path_from_ref =
+      ValGraphBFS::getExprsBetween(
+          graph(),
+          ref_id_groups_,
+          tv_loop_groups,
+          /*require_all_to_visited=*/false,
+          Direction::Backward)
+          .first;
   auto unreachable_groups = ValGraphBFS::getUnreachableValsFrom(
       graph(), ref_id_groups_, tv_loop_groups, resize_path_from_ref);
   if (unreachable_groups.empty() ||
@@ -410,20 +414,23 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
           })) {
     std::cerr << "Backward only path\n";
     return ValGraphBFS::getExprsBetween(
-        graph(),
-        ref_id_groups_,
-        tv_loop_domains,
-        /*require_all_to_visited=*/true,
-        Direction::Backward);
+               graph(),
+               ref_id_groups_,
+               tv_loop_domains,
+               /*require_all_to_visited=*/true,
+               Direction::Backward)
+        .first;
   }
 
   // Find the forward path from the ancestors to the target tensor
-  auto forward_path_to_root = ValGraphBFS::getExprsBetween(
-      graph(),
-      all_ancestors_of_ref_,
-      tv_root_domains,
-      /*require_all_to_visited=*/require_all_visited,
-      Direction::Forward);
+  auto forward_path_to_root =
+      ValGraphBFS::getExprsBetween(
+          graph(),
+          all_ancestors_of_ref_,
+          tv_root_domains,
+          /*require_all_to_visited=*/require_all_visited,
+          Direction::Forward)
+          .first;
 
   std::cerr << "Forward path to root\n";
   for (const auto& [eg, dir] : forward_path_to_root) {
@@ -441,11 +448,12 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
             << ", loop: " << nvfuser::toString(tv_loop_domains) << "\n";
 
   auto root_to_loop = ValGraphBFS::getExprsBetween(
-      graph(),
-      outputs_of_forward_path,
-      tv_loop_domains,
-      /*require_all_to_visited=*/require_all_visited,
-      Direction::Forward);
+                          graph(),
+                          outputs_of_forward_path,
+                          tv_loop_domains,
+                          /*require_all_to_visited=*/require_all_visited,
+                          Direction::Forward)
+                          .first;
 
   std::cerr << "Root to loop\n";
   for (const auto& [eg, dir] : root_to_loop) {
@@ -472,11 +480,12 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
             << nvfuser::toString(inputs_of_forward_path) << "\n";
 
   auto backward_path_from_ref = ValGraphBFS::getExprsBetween(
-      graph(),
-      ref_id_groups_,
-      inputs_of_forward_path,
-      /*require_all_to_visited=*/true,
-      Direction::Backward);
+                                    graph(),
+                                    ref_id_groups_,
+                                    inputs_of_forward_path,
+                                    /*require_all_to_visited=*/true,
+                                    Direction::Backward)
+                                    .first;
 
   std::cerr << "Backward path from ref\n";
   for (const auto& [eg, dir] : backward_path_from_ref) {

@@ -422,10 +422,12 @@ class VectorizeValidator : public OptInDispatch {
               << ", "
               << nvfuser::toString(graph.toGroups(std::vector<Val*>{v_id}))
               << "\n";
+    // Why did I change this?
     auto expr_path = ValGraphBFS::getExprsBetween(
-        graph,
-        graph.toGroups(tv->getLoopDomain()),
-        graph.toGroups(tv->getMaybeAllocationDomain()));
+                         graph,
+                         graph.toGroups(tv->getLoopDomain()),
+                         graph.toGroups(tv->getMaybeAllocationDomain()))
+                         .first;
 
     ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
@@ -570,9 +572,13 @@ class VectorizeValidator : public OptInDispatch {
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
-    if (!is_ldmatrix_trans) {
+    if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
+      // We don't think allocation domain of consumer is used in allocation. We
+      // skip it in validation here. Note that this assert was hit for
+      // vectorized pad, because we do not propagate allocation domain for
+      // PadOp. See: https://github.com/NVIDIA/Fuser/pull/3439
       NVF_CHECK(
           last_alloc_dim == vec_alloc_id,
           "Vectorized dim for ",

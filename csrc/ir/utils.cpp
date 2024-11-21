@@ -828,8 +828,10 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs = IRBFS::getExprsBetween(
-      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
+  auto exprs =
+      IRBFS::getExprsBetween(
+          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
+          .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
@@ -1302,6 +1304,24 @@ ForLoop* createRangeLoop(int64_t size) {
       /*circular_buffer_loop_stage_depth=*/0);
 
   return loop;
+}
+
+TensorView* getTvOutput(const Expr* expr) {
+  for (auto out : expr->outputs()) {
+    if (auto tv = getTv(out)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+TensorView* getTvInput(const Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    if (auto tv = getTv(inp)) {
+      return tv;
+    }
+  }
+  return nullptr;
 }
 
 std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {

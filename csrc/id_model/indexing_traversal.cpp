@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/id_model.h>
 #include <id_model/indexing_traversal.h>
+#include <ir/utils.h>
 
 #include <fstream>
 
@@ -74,7 +75,7 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
       {to_groups.vector().begin(), to_groups.vector().end()},
       /*require_all_to_visited=*/false);
   first_traversal.traverse();
-  auto first_path = first_traversal.getShortestExprPath();
+  auto first_path = first_traversal.getShortestExprPath().first;
   auto unreachable_to_groups = ValGraphBFS::getUnreachableValsFrom(
       graph, from_groups, to_groups, first_path);
   if (unreachable_to_groups.empty()) {
@@ -101,7 +102,7 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
       {unreachable_to_groups.begin(), unreachable_to_groups.end()},
       /*require_all_to_visited=*/true);
   second_traversal.traverse();
-  auto second_path = second_traversal.getShortestExprPath();
+  auto second_path = second_traversal.getShortestExprPath().first;
   first_path.insert(first_path.end(), second_path.begin(), second_path.end());
 
   return first_path;
@@ -177,7 +178,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   // WAR. This isn't ideal, but the WAR itself isn't ideal either...
   traversal.require_all_to_visited_ = false;
   traversal.traverse();
-  auto path = traversal.getShortestExprPath();
+  auto path = traversal.getShortestExprPath().first;
   auto path_outputs = getOutputsOfExprPath(local_graph, path);
   if (std::any_of(
           to_groups.begin(), to_groups.end(), [&](const ValGroup& to_group) {

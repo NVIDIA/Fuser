@@ -2317,11 +2317,13 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
       const auto consumer_loop_groups =
           exact_graph.toGroups(consumer->getLoopDomain());
       for (auto producer : producers) {
-        auto producer_consumer_exprs = ValGraphBFS::getExprsBetween(
-            exact_graph,
-            exact_graph.toGroups(producer->getLoopDomain()),
-            consumer_loop_groups,
-            /*require_all_to_visited=*/false);
+        auto producer_consumer_exprs =
+            ValGraphBFS::getExprsBetween(
+                exact_graph,
+                exact_graph.toGroups(producer->getLoopDomain()),
+                consumer_loop_groups,
+                /*require_all_to_visited=*/false)
+                .first;
         if (std::any_of(
                 producer_consumer_exprs.begin(),
                 producer_consumer_exprs.end(),
@@ -2722,10 +2724,11 @@ ValGroups getIterationDomainsOrderedLike(
     const ValGroups& domains_to_reorder,
     const ValGroups& reference) {
   const auto path_from_ref = ValGraphBFS::getExprsBetween(
-      graph,
-      reference,
-      domains_to_reorder,
-      /*require_all_to_visited=*/false);
+                                 graph,
+                                 reference,
+                                 domains_to_reorder,
+                                 /*require_all_to_visited=*/false)
+                                 .first;
 
   std::deque<ValGroup> ordered_domains{reference.begin(), reference.end()};
 

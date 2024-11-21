@@ -214,9 +214,10 @@ class BFS {
     }
   }
 
-  // Find the shortest path from the from_ to to_. This
+  // Find the shortest path from the from_ to to_. A boolean value
+  // indicating if all nodes are visited is also returned. This
   // must be only used once traversal is completed.
-  virtual ExprPath getShortestExprPath() {
+  virtual std::pair<ExprPath, bool> getShortestExprPath() {
     NVF_ERROR(
         !require_all_to_visited_ || allToNodesVisited(),
         "Traveral is either not done or failed");
@@ -331,7 +332,7 @@ class BFS {
     VectorOfUniqueEntries<std::pair<ExprT, Direction>> unique_path(
         path.rbegin(), path.rend());
 
-    return unique_path.vector();
+    return std::make_pair(unique_path.vector(), allToNodesVisited());
   }
 
   // Check if a node is ready to visit. If yes, return the direction

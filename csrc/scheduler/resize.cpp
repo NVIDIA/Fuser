@@ -269,10 +269,11 @@ getReferenceTensors(Fusion* fusion) {
                 << out_tv_j->toString() << ": " << same_loop_domain << "\n";
       if (!same_loop_domain) {
         auto path_from_i_to_j = ValGraphBFS::getExprsBetween(
-            broadcast_graph,
-            out_tv_i_loop_groups,
-            out_tv_j_loop_groups,
-            /*require_all_to_visited=*/false);
+                                    broadcast_graph,
+                                    out_tv_i_loop_groups,
+                                    out_tv_j_loop_groups,
+                                    /*require_all_to_visited=*/false)
+                                    .first;
         if (!ValGraphBFS::getUnreachableValsFrom(
                  broadcast_graph,
                  out_tv_i_loop_groups,
