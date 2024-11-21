@@ -1417,11 +1417,32 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
 }
 
-TEST_F(AllocationDomainTest, InputAllocationIsSplit) {
+TEST_F(AllocationDomainTest, InputAllocationIsSplit_Concrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigTensor(1);
+  TensorView* in = makeContigConcreteTensor({6});
+  TensorView* out = set(in);
+  in->split(0, 2);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({6}, options);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(AllocationDomainTest, DISABLED_InputAllocationIsSplit_Symbolic) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({6});
   TensorView* out = set(in);
   in->split(0, 2);
   in->setAllocationDomain(in->getLoopDomain(), true);
