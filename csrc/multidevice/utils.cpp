@@ -128,13 +128,8 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
-// Collect device-parallel IterDomains in `loop_domain` if they depend on any
-// of `dependencies`. `dependencies` is used to reduce false positives.
-// `dependencies` contains all IterDomains in either producer's logical or
-// consumer's root that are mapped by PairwiseLogicalDomainMap. To compute
-// isResharding, we only consider loop IterDomains that depend on these mapped
-// IterDomains. For example, reduction IterDomains or squeezed IterDomains are
-// not mapped, and therefore won't affect the result of isResharding.
+// Collect device-parallel IterDomains in `loop_domain` and return them as a
+// ParallelType-to-IterDomain map.
 std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
     const std::vector<IterDomain*>& loop_domain) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
@@ -199,6 +194,30 @@ bool haveDifferentShardings(
     return true;
   }
 
+  // The rest of this function tries to do the following: for each pair of
+  // logical-domain-mapped IterDomains (i.e. those mapped by
+  // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
+  // returns true. For example,
+  //
+  //   a: iDIDx{M}, iK
+  //   b: iK, iDIDy{N}
+  //   c = matmul(a, b): iDIDx{M}, iDIDy{N}
+  //
+  // haveDifferentShardings(a, c) only cares about iM, which is
+  // logical-domain-mapped, but not iK or iN, which are not
+  // logical-domain-mapped.
+  //
+  // One challenge is that DID parallelization doesn't always
+  // happen on the root/logical IterDomains. For example, a root/logical
+  // IterDomain may be outer-split by the number of devices, and only the outer
+  // split gets parallelized on DID.
+  //
+  //   logical: iM
+  //   loop: iDIDx{D}, iM/D
+  //
+  // Therefore, we collect all the loop IterDomains that depend on the
+  // logical-domain-mapped IterDomains, and check if they are DID-parallelized
+  // consistently.
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   std::unordered_set<IterDomain*> mapped_p_logical_ids;
@@ -217,6 +236,17 @@ bool haveDifferentShardings(
     mapped_c_root_ids.insert(i->second);
   }
 
+  // In practice, only loop IterDomains can be parallelized, and no two loop
+  // IterDomains in a TensorView can have the same parallel type. Therefore, we
+  // do the check in reverse order for efficiency and simplicity:
+  // 1. For each DID parallel type, find the loop IterDomain in producer and the
+  // one in consumer that have the type.
+  // 2. Find what IterDomains they come from in producer's logical or
+  // consumer's root domain. If that input IterDomain is not
+  // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
+  // parallelized but just not a concern for this producer-consumer pair.
+  // 3. Check if the two loop IterDomains are almost-exactly mapped in the
+  // IdModel.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
@@ -251,9 +281,15 @@ bool haveDifferentShardings(
         return false;
       }
 
+      // Going between bDID{1} and iDID{N} doesn't trigger resharding, but would
+      // be flagged by ALMOSTEXACT as a false positive. We could use BROADCAST
+      // but it wouldn't be able to map iDID{N}*b{1} and iDID{N}. See
+      // https://github.com/NVIDIA/Fuser/pull/3421#discussion_r1849665430 for
+      // the recommendation to use ALMOSTEXACT and special-case broadcasts.
       if (a->isBroadcast() || b->isBroadcast()) {
         return true;
       }
+
       const ValGraph& val_graph = id_model.idGraph(IdMappingMode::ALMOSTEXACT);
       return val_graph.disjointValSets().strictAreMapped(a, b);
     };
