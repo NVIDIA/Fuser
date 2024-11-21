@@ -727,7 +727,7 @@ ExpressionEvaluator bindInputs(
       ss << "Fusion input was:" << std::endl;
       indent(ss, 1) << inputs[i]->toString() << std::endl;
       ss << "Expr eval provided the error:" << std::endl;
-      ss << "\"\"\"" << e.msg() << "\"\"\"" << std::endl;
+      ss << R"(""")" << e.msg() << R"(""")" << std::endl;
       NVF_THROW(ss.str());
     }
   }
