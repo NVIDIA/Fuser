@@ -2361,7 +2361,7 @@ TEST_F(ResizeTest, SliceVectorization) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(N + 1, options);
+  at::Tensor t0 = at::randn(N + 7, options);
   at::Tensor t1 = at::randn(N, options);
 
   std::vector<c10::IValue> inputs = {t0, t1};
