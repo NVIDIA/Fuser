@@ -1384,17 +1384,20 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
 }
 
 TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
                  .shape({-1, 1, -1})
                  .contiguity({true, std::nullopt, true})
                  .build();
   auto tv1 = sum(tv0, {2});
+
   tv1->setAllocationDomain(
       {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
       {std::nullopt, std::nullopt, true});
+
   // copy entries from old domain for validation later
   std::vector<IterDomain*> logical_copy = tv1->getLogicalDomain();
   std::vector<IterDomain*> alloc_copy = tv1->getAllocationDomain();
@@ -1412,6 +1415,27 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       tv1->getAllocationDomain(), ElementsAre(alloc_copy[0], alloc_copy[2]));
   EXPECT_THAT(
       tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
+}
+
+TEST_F(AllocationDomainTest, InputAllocationIsSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = set(in);
+  in->split(0, 2);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({6}, options);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
