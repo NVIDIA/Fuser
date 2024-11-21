@@ -338,12 +338,12 @@ TEST_F(ReshardingTest, Allgather) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t num_devices = 2;
+  constexpr int64_t kNumDevices = 2;
   TensorView* in = makeContigTensor(2);
-  in->setDeviceMesh(DeviceMesh::createForNumDevices(num_devices));
+  in->setDeviceMesh(DeviceMesh::createForNumDevices(kNumDevices));
   TensorView* out = set(in);
 
-  in->split(0, num_devices, /*inner_split=*/false);
+  in->split(0, kNumDevices, /*inner_split=*/false);
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   EXPECT_TRUE(isResharding(out->definition()));
@@ -353,18 +353,18 @@ TEST_F(ReshardingTest, ReduceScatter) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t num_devices = 2;
-  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
   TensorView* in = makeContigConcreteTensor({6, 10});
-  in->split(0, num_devices, /*inner_split=*/false);
+  in->split(0, kNumDevices, /*inner_split=*/false);
 
   TensorView* rfactor = reshape(
       in,
       {in->axis(0)->extent(), in->axis(1)->extent(), in->axis(2)->extent()});
 
   TensorView* out = sum(rfactor, {0});
-  out->split(-1, num_devices, /*inner_split=*/false);
+  out->split(-1, kNumDevices, /*inner_split=*/false);
 
   for (auto* tv : {in, rfactor, out}) {
     tv->setDeviceMesh(mesh);
@@ -381,11 +381,11 @@ TEST_F(ReshardingTest, Allreduce) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t num_devices = 2;
-  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
   TensorView* in = makeContigConcreteTensor({6, 10});
-  in->split(0, num_devices, /*inner_split=*/false);
+  in->split(0, kNumDevices, /*inner_split=*/false);
 
   TensorView* rfactor = reshape(
       in,
@@ -410,8 +410,8 @@ TEST_F(ReshardingTest, Broadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t num_devices = 2;
-  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
   TensorView* in = makeContigTensor(2);
   TensorView* out = broadcast(in, {true, false, false});
@@ -428,8 +428,8 @@ TEST_F(ReshardingTest, ReshardingSqueeze) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t num_devices = 2;
-  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
   TensorView* in = TensorViewBuilder()
                        .dtype(DataType::Float)
@@ -451,8 +451,8 @@ TEST_F(ReshardingTest, NonreshardingSqueeze) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t num_devices = 2;
-  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
 
   TensorView* in = TensorViewBuilder()
                        .dtype(DataType::Float)
