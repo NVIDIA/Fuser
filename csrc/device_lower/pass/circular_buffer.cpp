@@ -1378,14 +1378,18 @@ class CircularBufferInserter : private kir::ExprMutator {
     return prefetch_loop;
   }
 
+  static bool usesMBarrierForWAR(ForLoop* circular_buffer_loop) {
+    return GpuLower::current()
+        ->circularBufferInfo()
+        .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+        .usesMBarrierForWAR();
+  }
+
   void insertTma(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // Arrive on the WAR mbarriers to let the prefetching start.
-    if (GpuLower::current()
-            ->circularBufferInfo()
-            .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
-            .usesMBarrierForWAR()) {
+    if (usesMBarrierForWAR(circular_buffer_loop)) {
       auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
       registerInsertBefore(circular_buffer_loop, prefetch_loop);
     }
@@ -1433,6 +1437,9 @@ class CircularBufferInserter : private kir::ExprMutator {
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
+    NVF_ERROR(
+        !usesMBarrierForWAR(circular_buffer_loop),
+        "Circular buffer loop with WAR mbarrier is only supported for TMA");
     ForLoop* prologue_loop = nullptr;
     if (hasPrefetch(circular_buffer_loop)) {
       // If there is no prefetch, then we don't need a prologue loop.

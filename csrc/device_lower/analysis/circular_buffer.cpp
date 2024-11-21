@@ -118,13 +118,6 @@ void validateCircularBufferedTensor(const TensorView* tv) {
       "computeWith is not supported with circular buffering: ",
       tv->toString());
 
-  if (tv->circularBufferOptions().usesMBarrierForWAR()) {
-    NVF_ERROR(
-        ir_utils::isCpAsyncBulkLoad(def),
-        "Using mbarrier for WAR is only supported with TMA load, but get ",
-        def->toString());
-  }
-
   // Require the producer tensor to have been computed entirely for
   // the circular-buffering loop. Otherwise, the producer itself would
   // also need to be circular-bufferred.
