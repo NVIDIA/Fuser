@@ -227,9 +227,9 @@ bool haveDifferentShardings(
   for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
     const auto i = p2c.find(p_logical_id);
     if (i == p2c.end()) {
-      // This happens e.g. when `p_logical_id` is squeezed. Even if
-      // `p_logical_id` is parallelized on DID, the squeezed dimension is size-1
-      // and doesn't trigger resharding.
+      // This happens e.g. when `p_logical_id` is squeezed or is a product of a
+      // reduction. Even if `p_logical_id` is parallelized on DID, the
+      // dimension is size-1 and doesn't trigger resharding.
       continue;
     }
     mapped_p_logical_ids.insert(p_logical_id);
