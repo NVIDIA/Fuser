@@ -171,14 +171,14 @@ struct Pipelined {
   bool uses_mbarrier_for_war = false;
 };
 
-std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
   return os << "Pipelined{ uses_mbarrier_for_war="
             << pipelined.uses_mbarrier_for_war << " }";
 }
 
 using CircularBufferType = std::variant<Pipelined>;
 
-std::ostream& operator<<(std::ostream& os, const CircularBufferType& type) {
+inline std::ostream& operator<<(std::ostream& os, const CircularBufferType& type) {
   return std::visit(
       [&os](const auto& t) -> std::ostream& { return os << t; }, type);
 }
