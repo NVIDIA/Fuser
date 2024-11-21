@@ -2981,8 +2981,6 @@ TEST_F(ResizeTest, Slice3DVectorize1) {
   auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
-  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   // we have contiguous 2*3, so we should still be able to vectorize by 2?!
   ASSERT_EQ(pparams->vectorization_factor, 2)
