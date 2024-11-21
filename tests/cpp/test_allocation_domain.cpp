@@ -1446,7 +1446,7 @@ TEST_F(AllocationDomainTest, DISABLED_InputAllocationIsSplit_Symbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigConcreteTensor({6});
+  TensorView* in = makeContigTensor(1);
   TensorView* out = set(in);
   in->split(0, 2);
   in->setAllocationDomain(in->getLoopDomain(), true);
