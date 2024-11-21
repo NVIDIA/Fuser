@@ -85,17 +85,22 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
       from_groups.pushBack(local_graph.toGroup(from_id));
       continue;
     }
+    bool found = false;
     const auto& global_group = graph.toGroup(from_id);
     for (const auto& vg : local_graph.disjointValSets().disjointSets()) {
       if (global_group->has(vg->front())) {
         from_groups.pushBack(vg);
+        found = true;
         break;
       }
     }
-    // if found is false, this from_id isn't found in the local
-    // graph. That may not matter for indexing. As long as all the
-    // index IDs are reached, whether certain loop IDs are used or not
-    // shoudn't matter.
+    // If not found, it should mean it's promoted to some IDs of
+    // further consumer tensors. This WAR does not work then. We could
+    // simply fall back to the default ValGraph-based path, but that
+    // might hit the resize indexing issue (#3455). For now, this is
+    // considered an error.
+    NVF_ERROR(
+        found, "Indexing path for resize not found: ", from_id->toString());
   }
 
   // Similarly, to_ids may not be IDs found in any of the producer and
@@ -118,33 +123,25 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
         break;
       }
     }
-    if (!found) {
-      return std::nullopt;
-    }
+    NVF_ERROR(found, "Indexing path for resize not found: ", to_id->toString());
   }
 
-  // Local graph may not have all info necessary for
-  // indexing. If traversal fails, just giving up taking this
-  // WAR. This isn't ideal, but the WAR itself isn't ideal either...
   IndexingTraversal traversal(
       expr,
       local_graph,
       {from_groups.vector().begin(), from_groups.vector().end()},
       {to_groups.vector().begin(), to_groups.vector().end()},
-      /*require_all_to_visited=*/false);
+      /*require_all_to_visited=*/true);
   traversal.traverse();
   auto [path, all_visited] = traversal.getShortestExprPath();
-  if (!all_visited) {
-    return std::nullopt;
-  }
 
   for (const auto& [g, d] : path) {
     if (g->front()->isA<Resize>()) {
-      // found
       return path;
     }
   }
 
+  // If resize doesn't appear, the default path should work fine.
   return std::nullopt;
 }
 
