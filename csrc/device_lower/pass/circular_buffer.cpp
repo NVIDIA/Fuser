@@ -929,14 +929,16 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     kir::IfThenElse* if_expr = getElectSyncIfThenElse();
 
     // Wait for WAR
-    for (auto it = war_mbarriers_to_wait_.begin();
-         it != war_mbarriers_to_wait_.end();) {
-      auto wait = it->second;
-      if (wait != nullptr) {
-        if_expr->thenBody().push_back(wait);
-        it = war_mbarriers_to_wait_.erase(it);
-      } else {
-        ++it;
+    if (usesMBarrierForWAR()) {
+      for (auto it = war_mbarriers_to_wait_.begin();
+           it != war_mbarriers_to_wait_.end();) {
+        auto wait = it->second;
+        if (wait != nullptr) {
+          if_expr->thenBody().push_back(wait);
+          it = war_mbarriers_to_wait_.erase(it);
+        } else {
+          ++it;
+        }
       }
     }
 
@@ -1342,6 +1344,10 @@ class CircularBufferInserter : private kir::ExprMutator {
   //     ...
   //   }
   // where mbarrierX[stage + i] is the X-th WAR mbarrier for stage i.
+  //
+  // This is needed because we prefetch data in circular buffering, and we
+  // need to make sure the initial prefetches are not blocked by the
+  // non-existing WAR harzards.
   ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
@@ -1375,7 +1381,7 @@ class CircularBufferInserter : private kir::ExprMutator {
   void insertTma(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
-    // Set up mbarriers for WAR synchronization.
+    // Arrive on the WAR mbarriers to let the prefetching start.
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
     registerInsertBefore(circular_buffer_loop, prefetch_loop);
 
