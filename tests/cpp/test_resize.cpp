@@ -2345,15 +2345,15 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   constexpr int N = 1024 * 1024 * 64;
 
-  auto tv0 = makeContigConcreteTensor({N + 1});
+  auto tv0 = makeContigConcreteTensor({N + 7});
   fusion.addInput(tv0);
   auto tv1 = makeContigConcreteTensor({N});
   fusion.addInput(tv1);
 
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0L),
-        IrBuilder::create<Val>(N),
+      {{IrBuilder::create<Val>(4L),
+        IrBuilder::create<Val>(N + 4L),
         IrBuilder::create<Val>(1L)}});
 
   auto tv3 = add(tv2, tv1);
