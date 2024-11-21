@@ -167,7 +167,26 @@ class TVDomainGuard;
 // redundant. We can remove them to further optimize the performance, but
 // we decide to keep them for simplicity.
 
+struct Pipelined {
+  bool uses_mbarrier_for_war = false;
+};
+
+std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+  return os << "Pipelined{ uses_mbarrier_for_war="
+            << pipelined.uses_mbarrier_for_war << " }";
+}
+
+using CircularBufferType = std::variant<Pipelined>;
+
+std::ostream& operator<<(std::ostream& os, const CircularBufferType& type) {
+  return std::visit([&os](const auto& t) { return os << t; }, type);
+}
+
 struct CircularBufferOptions {
+  CircularBufferType type =
+      Pipelined(false); // Type of circular buffer. Currently supports:
+                        // - pipelined using syncthreads for WAR hazards
+                        // - pipelined using mbarrier for WAR hazards.
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
@@ -177,6 +196,8 @@ struct CircularBufferOptions {
   }
 
   bool usesMBarrierForWAR() const {
+    return std::holds_alternative<Pipelined>(type) &&
+        std::get<Pipelined>(type).uses_mbarrier_for_war;
     return false;
   }
 
@@ -189,7 +210,8 @@ inline std::ostream& operator<<(
     std::ostream& os,
     const CircularBufferOptions& options) {
   return os << "CircularBufferOptions{ stage=" << options.stage
-            << ", prefetch=" << options.prefetch << " }";
+            << ", prefetch=" << options.prefetch << ", type=" << options.type
+            << " }";
 }
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
@@ -522,7 +544,10 @@ class NVF_API TensorView : public Val {
 
   // Apply circular buffering transformation. Negative prefetch_distance
   // means "all but", for example, -1 means number_of_stages - 1.
-  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance = -1);
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
