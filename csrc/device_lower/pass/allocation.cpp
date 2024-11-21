@@ -26,27 +26,11 @@ namespace {
 // used for mbarrier initialization and invalidation.
 ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
   int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-
-  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
-  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-
-  ForLoop* loop = IrBuilder::create<ForLoop>(
-      loop_domain_builder.build(),
-      loop_index,
-      loop_start,
-      loop_stop,
-      /*step=*/GpuLower::current()->kernel()->oneVal(),
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-
-  return loop;
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+          .stage;
+  return ir_utils::createRangeLoop(stage_depth);
 }
 
 // This helper function initializes mbarrier for all circular buffer stage.
@@ -438,7 +422,8 @@ class AllocationInserter : public kir::ExprMutator {
       }
       GpuLower::current()->circularBufferInfo().setOriginalAllocSize(
           info.buffer, original_alloc_size);
-      int64_t circular_buffer_stage = info.buffer->circularBufferDepth();
+      int64_t circular_buffer_stage =
+          info.buffer->circularBufferOptions().stage;
       alloc_dims.push_back(
           IrBuilder::create<Val>(circular_buffer_stage, DataType::Index));
     }
@@ -530,11 +515,11 @@ class AllocationInserter : public kir::ExprMutator {
 
       // Check that all circular buffer depth match
       if (out_tv->isCircularBuffered() && circular_buffer_depth == 1) {
-        circular_buffer_depth = out_tv->circularBufferDepth();
+        circular_buffer_depth = out_tv->circularBufferOptions().stage;
       }
       NVF_ERROR(
           circular_buffer_depth == 1 ||
-              circular_buffer_depth == out_tv->circularBufferDepth(),
+              circular_buffer_depth == out_tv->circularBufferOptions().stage,
           "Expected all output TensorViews for the same expression ",
           "to have the same circular_buffer_depth");
 
@@ -656,8 +641,10 @@ class AllocationInserter : public kir::ExprMutator {
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
       int64_t circular_buffer_depth =
-          GpuLower::current()->circularBufferInfo().getStageDepthFor(
-              fl->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(fl->iter_domain())
+              .stage;
 
       TensorView* mbarrier =
           TensorViewBuilder()
@@ -670,8 +657,10 @@ class AllocationInserter : public kir::ExprMutator {
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
 
-      auto mbarrier_init = initializeMbarrier(fl, mbarrier);
-      auto mbarrier_inval = invalidateMbarrier(fl, mbarrier);
+      // Initialize and invalidate mbarriers that are used to notify that
+      // the load of the circular buffer is complete.
+      auto mbarrier_init_filled = initializeMbarrier(fl, mbarrier);
+      auto mbarrier_inval_filled = invalidateMbarrier(fl, mbarrier);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -695,9 +684,9 @@ class AllocationInserter : public kir::ExprMutator {
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init, current_scope);
+      registerInsertBefore(fl, mbarrier_init_filled, current_scope);
+      registerInsertAfter(fl, mbarrier_inval_filled, current_scope);
       registerInsertBefore(fl, sync, current_scope);
-      registerInsertAfter(fl, mbarrier_inval, current_scope);
 
       for (auto tv : circular_buffer_tvs) {
         // short-circuit: circular buffered tv is not defined with TMA load.

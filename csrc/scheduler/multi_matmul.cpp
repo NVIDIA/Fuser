@@ -77,10 +77,10 @@ void MultipleMatmulScheduler::countDims() {
 void MultipleMatmulScheduler::updateIdModel() {
   // Build new IdModel
   IdModel new_id_model(fusion_, /*build_graphs=*/false);
-  new_id_model.buildPermissiveGraph();
+  new_id_model.buildBroadcastGraph();
 
-  // Get new permissive graph
-  ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+  // Get new broadcast graph
+  ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::BROADCAST);
 
   if (!id_roles_.empty()) {
     // Update id_roles_ to have keys corresponding to ValGroups in the new
@@ -93,7 +93,7 @@ void MultipleMatmulScheduler::updateIdModel() {
     id_roles_ = new_id_roles;
   }
 
-  graph_ = &new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+  graph_ = &new_id_model.idGraph(IdMappingMode::BROADCAST);
 
   // Set id_model_ after we are done using the old one
   id_model_ = std::move(new_id_model);

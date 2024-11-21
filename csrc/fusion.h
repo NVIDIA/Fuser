@@ -506,7 +506,4 @@ void Fusion::manage(std::string key, T data) {
   });
 }
 
-// Returns true if all fusion outputs are expression evaluated.
-bool isExpressionEvaluated(Fusion* fusion);
-
 } // namespace nvfuser

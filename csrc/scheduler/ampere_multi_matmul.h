@@ -128,7 +128,7 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // existing LoadStoreOp present. Please note that for the second LoadStore
   // we don't propagate the allocation domain, since the scheduler sets the
   // allocation domain in the registers.
-  void addSetsForCacheReads(
+  void cacheOperandsToRegisters(
       const std::vector<TensorView*>& tv_smems,
       std::vector<TensorView*>& tv_rs);
 
@@ -140,7 +140,7 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
-  //! This calls orig->cacheAfter() and also updates the permissive graph to
+  //! This calls orig->cacheAfter() and also updates the broadcast graph to
   //! reflect the new IterDomain mappings
   TensorView* cacheAfter(
       TensorView* orig,

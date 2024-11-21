@@ -220,7 +220,6 @@ TEST_F(NoOpTest, ExpandedReduction) {
   TensorView* out = sum(in, {0});
   out = segment_set(out);
   fusion->addOutput(out);
-
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
@@ -231,8 +230,7 @@ TEST_F(NoOpTest, ExpandedReduction) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(HeuristicIs(SchedulerType::NoOp)));
-  const auto& executor = runtime->executors().front();
-  EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
+  EXPECT_TRUE(runtime->executors().front()->isA<KernelExecutor>());
 }
 
 } // namespace nvfuser

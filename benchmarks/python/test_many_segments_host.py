@@ -30,11 +30,13 @@ def test_many_segment_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    inputs = [torch.randn(16, 16, device="cuda", dtype=torch.float) for _ in range(2)]
+    inputs = [torch.randn(5, 5, device="cuda", dtype=torch.float) for _ in range(2)]
 
     # Generate multiple inputs to measure dynamic shape overhead.
     if host_bench_mode == "dynamic":
-        input_sizes = [4, 8, 16, 32, 64, 128]
+        # Note: Using these sizes to allow kernel reuse in dynamic.
+        # Using sizes = [4, 8, 16, 32, 64, 128] led to heuristic mismatch and kernel recompilation.
+        input_sizes = [5, 7, 9, 11]
         # Generate matrices of size x size dimensions
         inputs = [
             [

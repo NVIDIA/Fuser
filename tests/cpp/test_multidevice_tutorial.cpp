@@ -645,7 +645,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 // The HostIr component is comprised of three parts:
 // - Host IRs: each IR represents an elementary host operation
 // - HostIrContainer: represents the host program
-// - HostIrExecutor: executes a HostIrContainer
+// - HostIrEvaluator: evaluates a HostIrContainer
 
 // The host program is typically generated automatically during lowering. This
 // is what is done at the instantiation of MultiDeviceExecutor, and what gets
@@ -728,7 +728,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
       at::randn({16, 32}, at::TensorOptions().device(communicator_->device()));
 
   // Let us now execute the Host program.
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
   auto outputs = hie.runWithInput({{input, aten_input}});
 
   // validate the result
@@ -855,7 +855,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
       at::randn({16, 32}, at::TensorOptions().device(communicator_->device()));
 
   // Let us now execute the Host program.
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
   auto outputs = hie.runWithInput({{tv0, aten_tv0}});
 
   // validate the result
@@ -958,7 +958,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
 
   // Let us now execute the Host program. When multidevice is requested, we
   // need to pass a pointer to a Communicator
-  HostIrExecutor hie(std::move(hic), communicator_);
+  HostIrEvaluator hie(std::move(hic), communicator_);
   auto outputs =
       hie.runWithInput({{tva, aten_tva}, {tvb, aten_tvb}, {tvd, aten_tvd}});
 
@@ -1112,7 +1112,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // Let us now execute the Host program. We indicate to use FusionExecutorCache
   // to execute the fusions -- this way, we don't need to recompile at each
   // iteration.
-  HostIrExecutor hie(
+  HostIrEvaluator hie(
       std::move(hic),
       /*communicator=*/nullptr,
       {.use_fusion_executor_cache = true});

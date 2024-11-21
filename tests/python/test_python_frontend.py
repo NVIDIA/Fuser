@@ -1244,6 +1244,60 @@ class TestNvFuserFrontend(NVFuserTest):
         for torch_dtype in list_of_dtype:
             test_dtype(torch_dtype)
 
+    def test_segmentation_reduction_pointwise_epilogue(self):
+        inputs = [
+            torch.randn(2, 32, device="cuda", dtype=torch.float32),
+            torch.randn(2, 128, device="cuda", dtype=torch.float32),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.sum(t0, [-1], True, torch_dtype_to_nvfuser_dtype(torch.float32))
+            t3 = fd.ops.add(t1, t2)
+            fd.add_output(t3)
+
+        nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.sum(inputs[0], dim=-1, keepdim=True) + inputs[1]
+        self.assertEqual(eager_out, nvf_out1[0])
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # create segments
+        segments = fd.segment(inputs)
+
+        # Each segment has a map from its segment index space to the original
+        # fusion's index space. The original fusion creates two segments.
+        # Check that segment maps match expected behavior.
+        assert len(fd.segment_index_space_maps) == 2
+
+        # First Segment:
+        # def nvfuser_fusion_id2(fd : FusionDefinition) -> None :
+        #    T0 = fd.define_tensor(shape=[-1, -1],
+        #                          contiguity=[True, True],
+        #                          dtype=DataType.Float,
+        #                          is_cpu=False)
+        #    T1 = fd.ops.sum(T0, dims=[1], keepdim=False, dtype=DataType.Float)
+        #    T2 = fd.ops.broadcast(T1, is_broadcast_dim=[False, True])
+        #    fd.add_output(T2)
+        #
+        assert fd.segment_index_space_maps[segments[0]] == {2: 2, 0: 0}
+
+        # Second Segment:
+        # def nvfuser_fusion_id3(fd : FusionDefinition) -> None :
+        #    T0 = fd.define_tensor(shape=[-1, -1],
+        #                          contiguity=[True, True],
+        #                          dtype=DataType.Float,
+        #                          is_cpu=False)
+        #    T1 = fd.define_tensor(shape=[-1, 1],
+        #                          contiguity=[True, None],
+        #                          dtype=DataType.Float,
+        #                          is_cpu=False)
+        #    T2 = fd.ops.add(T0, T1)
+        #    fd.add_output(T2)
+        assert fd.segment_index_space_maps[segments[1]] == {2: 3, 1: 2, 0: 1}
+
     def test_arithmetic_ops(self):
         inputs = [
             torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
@@ -3881,7 +3935,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(T88)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
     @pytest.mark.skipif(
@@ -3927,7 +3981,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T101 = fd.ops.cat([T7, T100], dim=-1)
             fd.add_output(T101)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
     @pytest.mark.skipif(
@@ -4709,3 +4763,44 @@ fd.execute(inputs)
             fd.add_output(T223)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_enable_disable_options(self):
+        m = 24
+        n = 16
+        k = 8
+        inps = [
+            torch.randn(m, k, device="cuda", dtype=torch.float),
+            torch.randn(k, n, device="cuda", dtype=torch.float),
+        ]
+
+        def fusion_func(fd: FusionDefinition, inps) -> None:
+            t0 = fd.from_pytorch(inps[0])
+            t1 = fd.from_pytorch(inps[1])
+            t2 = fd.ops.matmul(t0, t1)
+            fd.add_output(t2)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd, inps=inps)
+
+        # By default, matmul will be be run through expr_eval scheduler.
+        # Through setting the enable and disable options as below,
+        # we can execute it through matmul scheduler. The above fusion will not
+        # be accepted by the matmul scheduler since the outputs are of type Float and raises a RuntimeError.
+        # Note: We use this error-based test since for compatible dtypes (float16/bfloat16),
+        # the matmul scheduler ran into a scheduling error on H100. This test might be more robust against
+        # changes in matmul scheduler in the interim.
+
+        self.assertRaisesRegex(
+            RuntimeError,
+            "Can not find a scheduler to schedule fusion segment",
+            self.exec_nvfuser,
+            partial(fusion_func, inps=inps),
+            inps,
+            _enable_options=["fuse_matmul"],
+            _disable_options=["matmul_expr_eval"],
+            skip_serde_check=True,
+        )
+
+        # Serializing error test cases corrupts the serialized binary causing subsequent tests to fail.
+        # Reset the fusion cache to avoid this.
+        FusionCache.reset()

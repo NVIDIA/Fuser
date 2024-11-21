@@ -849,7 +849,7 @@ TEST_F(IndexingTest, Reshape) {
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
           return std::string(
-              "( ( ( ( ( i118 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i119 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i120 ) ) / 25 ) * ( ceilDiv(100, 4) ) ) + ( ( ( i118 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i119 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i120 ) ) % 25 ) )");
+              "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
         }
         default:
           return std::string();
@@ -1027,9 +1027,9 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({1, 4});
+  auto tv0 = makeContigConcreteTensor({1, -1});
   fusion.addInput(tv0);
-  auto tv1 = makeContigConcreteTensor({3, 4});
+  auto tv1 = makeContigConcreteTensor({-1, -1});
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
@@ -1507,11 +1507,8 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       // id8 is mapped with id15, which should also be mapped with
       // id18
       IterDomain* id20 = tv2->axis(2);
-      Val* id19_idx = divExpr(id8_idx, id20->extent());
       Val* id20_idx = modExpr(id8_idx, id20->extent());
-      Val* tv2_producer_idx =
-          addExpr(mulExpr(id19_idx, id20->extent()), id20_idx);
-      return tv2_producer_idx;
+      return id20_idx;
     }
   };
 
@@ -2150,6 +2147,11 @@ TEST_F(IndexingTest, DoubleBuffering6) {
           CircularBufferLoopStage::NotApplicable) {
         return nullptr;
       }
+
+      // This loop is double buffered. Since the loop originally has
+      // just a trip count of 2, the double-buffered main loop has a
+      // trip count of 1. Thus, this loop is always trivial
+      loop_indices.at(1) = tv->fusion()->zeroVal();
 
       switch (tv->name()) {
         case 1: {
@@ -3252,7 +3254,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
                     addExpr(
                         mulExpr(circular_buffer_index, createInt(4)),
                         addExpr(
-                            mulExpr(
+                            IrBuilder::mulExpr(
                                 subExpr(tv->axis(2)->extent(), one),
                                 tv->axis(3)->extent()),
                             one)),
@@ -3277,13 +3279,14 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
         stop_idx = addExpr(
             mulExpr(loop_indices.at(0), createInt(256)),
             addExpr(
+
                 mulExpr(
                     addExpr(
                         mulExpr(
                             addExpr(circular_buffer_index, createInt(3)),
                             createInt(4)),
                         addExpr(
-                            mulExpr(
+                            IrBuilder::mulExpr(
                                 subExpr(tv->axis(2)->extent(), one),
                                 tv->axis(3)->extent()),
                             one)),
@@ -3813,7 +3816,8 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
           IrBuilder::mulExpr(zero, tv->axis(2)->extent()), loop_indices.at(2));
 
       Val* second_split_stop_idx = addExpr(
-          mulExpr(subExpr(tv->axis(1)->extent(), one), tv->axis(2)->extent()),
+          IrBuilder::mulExpr(
+              subExpr(tv->axis(1)->extent(), one), tv->axis(2)->extent()),
           loop_indices.at(2));
 
       Val* logical_start_idx = addExpr(
@@ -4020,7 +4024,7 @@ TEST_F(
 
       // ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x
       Val* second_split_stop_idx = addExpr(
-          mulExpr(
+          IrBuilder::mulExpr(
               addExpr(
                   subExpr(tv->axis(2)->extent(), one), createInt(increment)),
               tv->axis(3)->extent()),
@@ -5030,7 +5034,7 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
             geExpr(i, zero),
             ltExpr(
                 i,
-                IrBuilder::mulExpr(
+                mulExpr(
                     tv->getLogicalDomain().at(0)->extent(),
                     IrBuilder::mulExpr(
                         tv->getLogicalDomain().at(1)->extent(),
@@ -5040,7 +5044,7 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
 
         auto i0_ext = tv->getLogicalDomain().at(0)->extent();
         auto i1_ext = tv->getLogicalDomain().at(1)->extent();
-        auto five_i1 = IrBuilder::mulExpr(createInt(5), i1_ext);
+        auto five_i1 = mulExpr(createInt(5), i1_ext);
         auto i0 = addExpr(
             mulExpr(divExpr(i, five_i1), createInt(5)),
             divExpr(modExpr(i, five_i1), i1_ext));
@@ -5165,6 +5169,108 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
       lower.passes().end(),
       {"validate_per_dim_indices", validate_per_dim_indices});
   lower.run();
+}
+
+// Repro of issue #3374
+// (https://github.com/NVIDIA/Fuser/issues/3374). Previously failed
+// with an error message of:
+// Couldn't find allocation mapping for T14_l_float[ iblockIdx.x269{(
+// ceilDiv(2, blockDim.x) )}, ithreadIdx.x270{blockDim.x}, iS278{(
+// ceilDiv(( ceilDiv(( ceilDiv(( ceilDiv(32768, blockDim.y) ), 8) ),
+// 1) ), gridDim.y) )}, iblockIdx.y277{gridDim.y},
+// ithreadIdx.y272{blockDim.y}, iUS276{1}, iUR274{8} ] ca_pos( 6 )
+// dim: 1 id: iS57{2}
+TEST_F(IndexingTest, Issue3374) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{28, 32768, 2};
+  std::vector<int64_t> shape2{32768, 2};
+  std::vector<int64_t> shape3{28, 32768, 1};
+  std::vector<int64_t> shape4{32768, 56};
+
+  auto tv0 =
+      TensorViewBuilder().shape(shape1).contiguity({true, false, true}).build();
+  fusion.addInput(tv0);
+  auto tv1 = TensorViewBuilder().shape(shape2).contiguity({true, true}).build();
+  fusion.addInput(tv1);
+  auto tv2 = TensorViewBuilder()
+                 .shape(shape3)
+                 .contiguity({true, false, std::nullopt})
+                 .build();
+  fusion.addInput(tv2);
+  auto tv3 = TensorViewBuilder()
+                 .shape(shape3)
+                 .contiguity({true, false, std::nullopt})
+                 .build();
+  fusion.addInput(tv3);
+
+  auto tv4 = pad(tv2, {fusion.oneVal(), fusion.zeroVal()});
+  auto tv5 = pad(tv3, {fusion.zeroVal(), fusion.oneVal()});
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = broadcast(tv1, {true, false, false});
+  auto tv8 = mul(tv7, tv0);
+  auto tv9 = add(tv6, tv8);
+  auto tv10 = permute(tv9, {1, 0, 2});
+  std::vector<Val*> reshape_shape;
+  std::transform(
+      shape4.begin(),
+      shape4.end(),
+      std::back_inserter(reshape_shape),
+      [](int64_t s) { return IrBuilder::create<Val>(s, DataType::Index); });
+  auto tv11 = reshape(tv10, reshape_shape);
+  auto tv12 = sum(tv11, {0});
+  fusion.addOutput(tv12);
+  fusion.addOutput(tv11);
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  auto t2 = at::randn(shape3, options);
+  auto t3 = at::randn(shape3, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2, t3};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repro of issue #3299
+TEST_F(IndexingTest, Issue3299) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128000, 1024};
+  std::vector<int64_t> shape2{128000, 8, 128};
+  std::vector<int64_t> shape3{8, 4, 128000, 128};
+  std::vector<int64_t> shape4{32, 128000, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, shape1, shape2);
+  auto tv2 = permute(tv1, {1, 0, 2});
+  auto tv3 = broadcast(tv2, {false, true, false, false});
+  auto tv4 = expand(
+      tv3,
+      {IrBuilder::create<Val>(shape3[0], DataType::Index),
+       IrBuilder::create<Val>(shape3[1], DataType::Index),
+       IrBuilder::create<Val>(shape3[2], DataType::Index),
+       IrBuilder::create<Val>(shape3[3], DataType::Index)});
+  auto tv5 = reshape(tv4, shape3, shape4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

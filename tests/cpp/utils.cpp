@@ -17,6 +17,15 @@
 
 namespace nvfuser {
 
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache) {
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
+  NVF_CHECK(executors.size() == 1);
+  NVF_CHECK(executors.front()->isA<KernelExecutor>());
+  return executors.front()->as<KernelExecutor>();
+}
+
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,

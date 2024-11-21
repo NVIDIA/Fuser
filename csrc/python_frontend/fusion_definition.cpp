@@ -9,6 +9,7 @@
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <options.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -337,7 +338,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
-    bool profile) const {
+    bool profile,
+    std::vector<std::string> _enable_options,
+    std::vector<std::string> _disable_options) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -349,6 +352,21 @@ std::vector<at::Tensor> FusionDefinition::execute(
   std::vector<at::Tensor> outputs;
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
+
+  EnableOptionsGuard enable_opt_guard;
+  for (const auto& _enable_option : _enable_options) {
+    std::optional<EnableOption> opt = stringToEnableOption(_enable_option);
+    NVF_CHECK(opt.has_value(), "Unrecognized enable_option: ", _enable_option);
+    EnableOptionsGuard::getCurOptions().set(opt.value());
+  }
+
+  DisableOptionsGuard disable_opt_guard;
+  for (const auto& _disable_option : _disable_options) {
+    std::optional<DisableOption> opt = stringToDisableOption(_disable_option);
+    NVF_CHECK(
+        opt.has_value(), "Unrecognized disable_option: ", _disable_option);
+    DisableOptionsGuard::getCurOptions().set(opt.value());
   }
 
   if (!override_user_schedule) {
@@ -371,10 +389,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
         // Manual schedule
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compile(
-              user_sched.scheduled_fusion.get(),
-              inputs,
-              user_sched.fusion_id_,
-              user_sched.device_id_);
+              user_sched.scheduled_fusion.get(), inputs);
         }
         outputs = user_sched.executor->run(inputs);
       } else {
@@ -387,9 +402,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
                   inputs, getCommonDeviceCUDA(inputs)),
               user_sched.heuristic_params->lparams,
               user_sched.heuristic_params->cparams,
-              user_sched.heuristic_params->scheduler_type,
-              user_sched.fusion_id_,
-              user_sched.device_id_);
+              user_sched.heuristic_params->scheduler_type);
         }
         outputs = user_sched.executor->run(
             inputs,
@@ -671,6 +684,31 @@ std::vector<Tensor> FusionDefinition::tensors() {
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const at::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
+}
+
+int64_t FusionDefinition::setupSegmentation(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      segmentation_state_ == nullptr, "SegmentationState already exists!");
+  segmentation_state_ = std::make_unique<SegmentationState>();
+  return segmentation_state_->setupSegmentation(
+      preschedFusion(), map_value_to_fid_, inputs);
+}
+
+std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
+    FusionDefinition& segment_fd,
+    int64_t segment_id) {
+  NVF_CHECK(id().has_value(), "FusionDefinition does not exist!");
+  NVF_CHECK(
+      segmentation_state_ != nullptr,
+      "Run setupSegmentation first before trying to build segments!");
+  return segmentation_state_->buildSegment(segment_fd, segment_id);
+}
+
+void FusionDefinition::finalizeSegmentation() {
+  // Destroy SegmentedState
+  segmentation_state_.reset();
 }
 
 } // namespace nvfuser::python_frontend

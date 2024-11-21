@@ -1832,7 +1832,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGroup inner = alloc_domain.back();
 
   auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain);
+      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain).first;
   while (!exprs.empty()) {
     auto [expr, direction] = exprs.back();
     exprs.pop_back();
@@ -2087,8 +2087,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   }
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
-  auto mma_indexed =
-      IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
+  auto mma_indexed = IrBuilder::create<MmaOp>(
+      out, a, b, mma->init(), mma->axisMapping(), mma->macro());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
 }

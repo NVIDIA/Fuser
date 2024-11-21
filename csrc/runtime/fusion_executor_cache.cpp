@@ -172,31 +172,44 @@ std::string FusionExecutorCache::getCode(
   NVF_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
 
   bool first_kernel = true;
-  for (const auto& exec : kernel_runtime->executors()) {
-    if (first_kernel) {
-      first_kernel = false;
-    } else {
-      kernel_code += "\n";
+  for (const auto& ea : kernel_runtime->executors()) {
+    if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
+      if (first_kernel) {
+        first_kernel = false;
+      } else {
+        kernel_code += "\n";
+      }
+      kernel_code += ke->kernelString();
     }
-    kernel_code += exec.kernelString();
   }
 
   if (intrinsic_code) {
     const auto& execs = kernel_runtime->executors();
-    const KernelExecutor& ke = execs[0];
-    auto index_type = ke.kernel()->indexType();
+    const KernelExecutor* first_ke = nullptr;
+    auto first_index_type = PrimDataType::Null;
     // Make sure all the segment index types match. All segments currently
-    // use the same index type but this code change in the future.
-    for (const auto& exec : execs) {
-      NVF_CHECK(
-          index_type == exec.kernel()->indexType(),
-          "Index Type mismatch between Segment Executors: ",
-          index_type,
-          " ",
-          exec.kernel()->indexType());
+    // use the same index type but this could change in the future.
+    for (const auto& ea : execs) {
+      if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
+        if (first_ke == nullptr) {
+          first_ke = ke;
+        }
+        auto cur_index_type = ke->kernel()->indexType();
+        if (first_index_type == PrimDataType::Null) {
+          first_index_type = cur_index_type;
+        }
+        NVF_CHECK(
+            first_index_type == cur_index_type,
+            "Index Type mismatch between Segment Executors: ",
+            first_index_type,
+            " ",
+            cur_index_type);
+      }
     }
-    std::string full_code = ke.getStructuredCode(kernel_code, index_type);
-    return full_code;
+    if (first_ke != nullptr) {
+      return first_ke->getStructuredCode(kernel_code, first_index_type);
+    }
+    return "";
   } else {
     return kernel_code;
   }
@@ -227,9 +240,11 @@ std::string FusionExecutorCache::getScheduledIr(
     ss << "} // {Re-written complete fusion}\n";
     ss << fs << "\n";
   }
-  for (auto& exec : kernel_runtime->executors()) {
-    auto sched_ir = exec.kernel()->as<Fusion>();
-    sched_ir->print(ss, tensor_transforms);
+  for (auto& ea : kernel_runtime->executors()) {
+    if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
+      auto sched_ir = ke->kernel()->as<Fusion>();
+      sched_ir->print(ss, tensor_transforms);
+    }
   }
   return ss.str();
 }
@@ -418,9 +433,9 @@ void FusionExecutorCache::deserialize(
 
     DynamicTransformConcretizationInfo* conc_info = nullptr;
     if (initial_info.isDynamic()) {
-      // Each FusionKernelRuntime stores a metadata copy of its initial inputs.
-      // We deserialize the arguments of the first FusionKernelRuntime to
-      // recompute the concretization info.
+      // Each FusionKernelRuntime stores a metadata copy of its initial
+      // inputs. We deserialize the arguments of the first FusionKernelRuntime
+      // to recompute the concretization info.
       KernelArgumentHolder args;
       args.deserialize(fb_device_runtimes->runtimes()->begin()->args());
       auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
@@ -504,35 +519,38 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
   id_to_kernel_runtime_.erase(it);
 }
 
-// getKernelRuntimeFor inspects the inputs to find a usable FusionKernelRuntime
-// as quickly as possible. To do so we cache at multiple levels:
+// getKernelRuntimeFor inspects the inputs to find a usable
+// FusionKernelRuntime as quickly as possible. To do so we cache at multiple
+// levels:
 //   A. If we have seen these inputs before, we re-use the FusionKernelRuntime
 //   we used last time. Here, we mean the same input tensor sizes, as well as
 //   same input scalars if they are used to compute an intermediate or output
 //   tensor size.
 //   B. We check how we should concretize the dynamic fusion using these
-//   inputs. If we have not concretized the fusion this way previously, then we
-//   concretize it and create a new FusionKernelRuntime, which means segmenting
-//   and compiling new kernels. Otherwise, we check whether we can re-use any of
-//   the previously-segmented runtimes.
+//   inputs. If we have not concretized the fusion this way previously, then
+//   we concretize it and create a new FusionKernelRuntime, which means
+//   segmenting and compiling new kernels. Otherwise, we check whether we can
+//   re-use any of the previously-segmented runtimes.
 //      i. We look at all FusionKernelRuntimes that have been used with
 //      this concretized fusion.
-//      ii. For each of those runtimes, we compare the heuristic parameters for
-//      each segment to those that we compute using the current inputs.
+//      ii. For each of those runtimes, we compare the heuristic parameters
+//      for each segment to those that we compute using the current inputs.
 //   If we do not find any runtimes whose heuristic parameters match, then we
-//   create a new FusionKernelRuntime, which means segmenting and compiling all
-//   new kernels.
+//   create a new FusionKernelRuntime, which means segmenting and compiling
+//   all new kernels.
 //
 // In summary, we have the following paths, in order of hottest to coldest:
-//   1. Input ID cache hit: re-use runtime used last time these inputs were seen
+//   1. Input ID cache hit: re-use runtime used last time these inputs were
+//   seen
 //   2. Concretization match, runtime heuristic params match: re-use runtime
 //   after checking concretization/heuristics.
 //   3. Concretization match but no runtime heuristic params match. Segment
 //   to create new FusionKernelRuntime
 //   4. Concretization is unseen: Segment to create a new FusionKernelRuntime
-// For re-used shapes, path 1 is most relevant. For dynamic shape problems with
-// a large number of unique shapes, path 2 is important. Paths 3 and 4 are slow
-// since they both involve re-segmentation and re-compilation of the Fusion.
+// For re-used shapes, path 1 is most relevant. For dynamic shape problems
+// with a large number of unique shapes, path 2 is important. Paths 3 and 4
+// are slow since they both involve re-segmentation and re-compilation of the
+// Fusion.
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
@@ -586,16 +604,15 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   FusionKernelRuntime* kernel_runtime = nullptr;
 
-  // Check if we missed the KernelRuntime cache (Path 2) and need to generate a
-  // new kernel runtime (Path 3/4)
-  // By default, we try to avoid recompiling whenever possible. However, this
-  // can lead to suboptimal code if we only check that a compiled kernel is able
-  // to run with some inputs, instead of whether it is optimal to do so. The
-  // NVFUSER_DISABLE=kernel_reuse option is a coarse tool that just enforces
-  // that whenever we encounter a new set of input shapes we segment and compile
-  // a new FusionKernelRuntime. Effectively, this option disables Paths 2 and 3
-  // above so that we only have Path 1 (hottest re-use path) and Path 4 (full
-  // recompile).
+  // Check if we missed the KernelRuntime cache (Path 2) and need to generate
+  // a new kernel runtime (Path 3/4). By default, we try to avoid recompiling
+  // whenever possible. However, this can lead to suboptimal code if we only
+  // check that a compiled kernel is able to run with some inputs, instead of
+  // whether it is optimal to do so. The NVFUSER_DISABLE=kernel_reuse option
+  // is a coarse tool that just enforces that whenever we encounter a new set
+  // of input shapes we segment and compile a new FusionKernelRuntime.
+  // Effectively, this option disables Paths 2 and 3 above so that we only
+  // have Path 1 (hottest re-use path) and Path 4 (full recompile).
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
     FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::reuseKRT");
     auto runtime_it = std::find_if(
@@ -639,9 +656,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       }
 
       DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
-      // Initial info is used during concretization and is owned by conc_fusion.
-      // After concretization, we stop managing it so that we won't keep cloning
-      // it for every subsequent Fusion copy.
+      // Initial info is used during concretization and is owned by
+      // conc_fusion. After concretization, we stop managing it so that we
+      // won't keep cloning it for every subsequent Fusion copy.
       conc_fusion->stopManaging("initial_info");
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {

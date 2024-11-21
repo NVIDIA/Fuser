@@ -20,10 +20,9 @@ namespace {
 void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  const std::vector<KernelExecutor>& executors = runtime->executors();
-  EXPECT_THAT(executors, testing::SizeIs(1));
-  for (const auto& executor : executors) {
-    EXPECT_TRUE(executor.fusion()->isA<hir::HostIrContainer>())
+  EXPECT_TRUE(runtime->executors().size() == 1);
+  for (const auto& ea : runtime->executors()) {
+    EXPECT_TRUE(ea->isA<HostIrExecutor>())
         << "failed to compile to a HostIrContainer with Communications";
   }
 }
