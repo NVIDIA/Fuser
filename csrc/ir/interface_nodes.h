@@ -179,7 +179,8 @@ std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 using CircularBufferType = std::variant<Pipelined>;
 
 std::ostream& operator<<(std::ostream& os, const CircularBufferType& type) {
-  return std::visit([&os](const auto& t) { return os << t; }, type);
+  return std::visit(
+      [&os](const auto& t) -> std::ostream& { return os << t; }, type);
 }
 
 struct CircularBufferOptions {
