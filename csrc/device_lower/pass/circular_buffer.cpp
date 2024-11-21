@@ -1382,8 +1382,13 @@ class CircularBufferInserter : private kir::ExprMutator {
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // Arrive on the WAR mbarriers to let the prefetching start.
-    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    registerInsertBefore(circular_buffer_loop, prefetch_loop);
+    if (GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+            .usesMBarrierForWAR()) {
+      auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
+      registerInsertBefore(circular_buffer_loop, prefetch_loop);
+    }
 
     // Prologue loop:
     //  - launch only
