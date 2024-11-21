@@ -177,7 +177,7 @@ struct CircularBufferOptions {
   }
 
   bool usesMBarrierForWAR() const {
-    return true;
+    return false;
   }
 
   bool operator==(const CircularBufferOptions& other) const {
