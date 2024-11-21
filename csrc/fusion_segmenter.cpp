@@ -1912,7 +1912,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
             /*root_domain=*/std::vector<IterDomain*>{},
             /*logical_domain=*/new_logical,
             /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/new_logical,
+            /*loop_domain=*/TensorDomain::noReductions(new_td->allocation()),
             /*contiguity=*/no_red_contiguity);
       } else {
         new_td = IrBuilder::create<TensorDomain>(
