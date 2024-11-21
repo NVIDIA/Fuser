@@ -172,8 +172,10 @@ struct Pipelined {
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
-  return os << "Pipelined{ uses_mbarrier_for_war="
-            << pipelined.uses_mbarrier_for_war << " }";
+  if (pipelined.uses_mbarrier_for_war) {
+    return os << "PipelinedMBarrierForWAR";
+  }
+  return os << "Pipelined";
 }
 
 using CircularBufferType = std::variant<Pipelined>;
