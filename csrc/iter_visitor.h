@@ -600,7 +600,7 @@ class IRBFS
   // Find the shortest path from the from_groups_ to to_groups_ on a
   // given graph. Dependency between vals and exprs must be satisfied.
   // It is an error if no valid path is found.
-  static ExprPath getExprsBetween(
+  static std::pair<ExprPath, bool> getExprsBetween(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool require_all_to_visited = true) {
