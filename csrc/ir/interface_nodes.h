@@ -255,7 +255,7 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
   return os << "Pipelined";
 }
 
-using CircularBufferType = std::variant<Pipelined>;
+using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
 
 inline std::ostream& operator<<(
     std::ostream& os,
@@ -279,7 +279,8 @@ struct CircularBufferOptions {
 
   bool usesMBarrierForWAR() const {
     return std::holds_alternative<Pipelined>(type) &&
-        std::get<Pipelined>(type).uses_mbarrier_for_war;
+        std::get<Pipelined>(type).uses_mbarrier_for_war ||
+        std::holds_alternative<WarpSpecialized>(type);
     return false;
   }
 
