@@ -588,9 +588,7 @@ struct DimsOpRecord : RecordFunctor {
       auto output = set(arg);
       std::vector<IterDomain*> allocation_domain =
           ir_utils::strideOrderToAllocation(output->getLogicalDomain(), dims_);
-      auto contiguity = TensorDomain::getContiguityFilledWith(
-          allocation_domain, true);
-      output->setAllocationDomain(allocation_domain, contiguity);
+      output->setAllocationDomain(allocation_domain, true);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
       NVF_THROW("op_type is not recognized by dims operator.");
