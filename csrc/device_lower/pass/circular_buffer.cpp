@@ -383,7 +383,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
     NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
     // WAR arrive only exists in the main loop
-    if (loop_type_ != CircularBufferLoopStage::Main) {
+    if (loop_type_ != CircularBufferLoopStage::Main &&
+        loop_type_ != CircularBufferLoopStage::ComputeWarp) {
       return;
     }
     for (auto it = war_mbarriers_to_uses_.begin();
@@ -758,8 +759,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
       case CircularBufferLoopStage::Epilog:
       case CircularBufferLoopStage::LoadWarp:
-      case CircularBufferLoopStage::ComputeWarp:
-      {
+      case CircularBufferLoopStage::ComputeWarp: {
         break;
       }
       default: {

@@ -1039,7 +1039,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         while (!sync_exprs.empty()) {
           // TODO: wrong
           if (for_loop->circularBufferLoopStage() == CircularBufferLoopStage::ComputeWarp) {
-            // NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
+            NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
             registerInsertAfter(
                 for_loop->body().exprs().at(for_loop->body().exprs().size() - 2),
                 sync_exprs.back(),
