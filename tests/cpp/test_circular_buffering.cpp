@@ -832,7 +832,7 @@ INSTANTIATE_TEST_SUITE_P(
     nonTMAName);
 
 using TmaCircularBufferingParams =
-    std::tuple<int64_t, int64_t, int64_t, int64_t>;
+    std::tuple<int64_t, int64_t, int64_t, int64_t, CircularBufferType>;
 
 class TmaCircularBufferingTest
     : public NVFuserFixtureParamTest<TmaCircularBufferingParams> {
@@ -841,12 +841,14 @@ class TmaCircularBufferingTest
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 1;
   int64_t tensor_inner_dim = 1;
+  CircularBufferType circular_buffer_type;
 
   void SetUp() override {
     number_of_stages = std::get<0>(GetParam());
     prefetch_distance = std::get<1>(GetParam());
     tensor_outer_dim = std::get<2>(GetParam());
     tensor_inner_dim = std::get<3>(GetParam());
+    circular_buffer_type = std::get<4>(GetParam());
 
     // NOTE: Multiple of 16 required for inner dimension
     NVF_ERROR(tensor_inner_dim % 16 == 0);
@@ -1017,7 +1019,8 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
 
   // Circular Buffer with TMA loads
-  tv2->circularBuffer(number_of_stages, prefetch_distance);
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_inner_dim}, options);
@@ -1070,7 +1073,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(number_of_stages, prefetch_distance);
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_inner_dim}, options);
@@ -1130,7 +1134,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(number_of_stages, prefetch_distance);
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_inner_dim}, options);
@@ -1200,7 +1205,8 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(number_of_stages, prefetch_distance);
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::ones({tensor_outer_dim, tensor_inner_dim}, options);
@@ -1252,11 +1258,13 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   // Circular Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->circularBuffer(number_of_stages, prefetch_distance);
+  tv3->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Circular Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->circularBuffer(number_of_stages, prefetch_distance);
+  tv4->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
@@ -1317,7 +1325,8 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   // Circular Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->circularBuffer(number_of_stages, prefetch_distance);
+  tv3->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Circular Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
@@ -1387,7 +1396,8 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   // Circular Buffer with TMA loads
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(number_of_stages, prefetch_distance);
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
@@ -1511,7 +1521,8 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   // Apply circular buffer after computeAt
   x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
   if (examples_per_cta > 1) {
-    x_cache_smem->circularBuffer(number_of_stages, prefetch_distance);
+    x_cache_smem->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
   }
 
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -1630,8 +1641,10 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   tv0_cache_local->circularBuffer(number_of_stages, prefetch_distance);
   tv1_cache_local->circularBuffer(number_of_stages, prefetch_distance);
 
-  tv0_cache_smem->circularBuffer(number_of_stages, prefetch_distance);
-  tv1_cache_smem->circularBuffer(number_of_stages, prefetch_distance);
+  tv0_cache_smem->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+  tv1_cache_smem->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   constexpr int64_t K = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1745,8 +1758,10 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   tv0_cache_local->circularBuffer(number_of_stages, prefetch_distance);
   tv1_cache_local->circularBuffer(number_of_stages, prefetch_distance);
 
-  tv0_cache_smem->circularBuffer(number_of_stages, prefetch_distance);
-  tv1_cache_smem->circularBuffer(number_of_stages, prefetch_distance);
+  tv0_cache_smem->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+  tv1_cache_smem->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   constexpr int64_t K = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1765,12 +1780,19 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 }
 
 auto tmaCircularBufferingParams() {
+  // A very simple PRNG:
+  // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
+  uint32_t lcg_parkmiller = 1;
+  const std::vector<CircularBufferType> all_types{
+      Pipelined(false), Pipelined(true)};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {128, 1024}) {
-          values.emplace_back(i, j, m, n);
+          values.emplace_back(
+              i, j, m, n, all_types[lcg_parkmiller % all_types.size()]);
+          lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
         }
       }
     }
@@ -1787,9 +1809,13 @@ std::string tmaName(
   } else {
     prefetch_distance_str = std::to_string(prefetch_distance);
   }
-  return "stage_" + std::to_string(std::get<0>(info.param)) + "_prefetch_" +
-      prefetch_distance_str + "_M_" + std::to_string(std::get<2>(info.param)) +
-      "_N_" + std::to_string(std::get<3>(info.param));
+  std::stringstream ss;
+  ss << "stage_" << std::to_string(std::get<0>(info.param)) << "_prefetch_"
+     << prefetch_distance_str << "_M_"
+     << std::to_string(std::get<2>(info.param)) << "_N_"
+     << std::to_string(std::get<3>(info.param)) << "_"
+     << std::get<4>(info.param);
+  return ss.str();
 }
 
 INSTANTIATE_TEST_SUITE_P(

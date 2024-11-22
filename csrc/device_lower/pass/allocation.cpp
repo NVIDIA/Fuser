@@ -22,6 +22,8 @@ namespace nvfuser {
 
 namespace {
 
+enum class CircularBufferWaitType { ReadAfterWrite, WriteAfterRead };
+
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
 ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
@@ -43,25 +45,52 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 // }
 Expr* initializeMbarrier(
     ForLoop* circular_buffer_loop,
-    TensorView* all_mbarriers) {
+    TensorView* all_mbarriers,
+    CircularBufferWaitType wait_type) {
   NVF_ERROR(circular_buffer_loop != nullptr);
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
+  int64_t stage_depth =
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+          .stage;
+
+  // We use mbarrier[0:stage_depth] for RAW, and
+  // mbarrier[stage_depth:2*stage_depth] for WAR.
+  Val* mbarrier_index = wait_type == CircularBufferWaitType::ReadAfterWrite
+      ? loop->index()
+      : SimplifyingIrBuilder::addExpr(loop->index(), stage_depth);
+
   // Get mbarrier for this circular buffer stage.
   kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, mbarrier_index);
 
   auto circular_buffered_tvs =
       GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
           circular_buffer_loop);
-  int64_t num_of_tvs_loaded_by_tma = std::count_if(
-      circular_buffered_tvs.begin(),
-      circular_buffered_tvs.end(),
-      [](const TensorView* tv) {
-        return ir_utils::isCpAsyncBulkLoad(tv->definition());
-      });
-  Val* num_of_arrives =
-      IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
+
+  Val* num_of_arrives = nullptr;
+  if (wait_type == CircularBufferWaitType::ReadAfterWrite) {
+    // The mbarrier of RAW is used to wait for the completion of the TMA
+    // load of the circular buffer tensor. The number of arrives is the
+    // number of TMA issued for the circular buffer tensor.
+    int64_t num_of_tvs_loaded_by_tma = std::count_if(
+        circular_buffered_tvs.begin(),
+        circular_buffered_tvs.end(),
+        [](const TensorView* tv) {
+          return ir_utils::isCpAsyncBulkLoad(tv->definition());
+        });
+    num_of_arrives =
+        IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
+  } else {
+    // The mbarrier of WAR is used to wait for the completion of the reading
+    // of the circular buffer tensor. The number of arrives is the number of
+    // threads in the CTA.
+    num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
+        DataType::UInt32,
+        GpuLower::current()->parallelDimensionMap().getNumThreadsEachBlock());
+  }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
@@ -87,13 +116,26 @@ Expr* initializeMbarrier(
 // }
 Expr* invalidateMbarrier(
     ForLoop* circular_buffer_loop,
-    TensorView* all_mbarriers) {
+    TensorView* all_mbarriers,
+    CircularBufferWaitType wait_type) {
   NVF_ERROR(circular_buffer_loop != nullptr);
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
+  int64_t stage_depth =
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
+          .stage;
+
+  // We use mbarrier[0:stage_depth] for RAW, and
+  // mbarrier[stage_depth:2*stage_depth] for WAR.
+  Val* mbarrier_index = wait_type == CircularBufferWaitType::ReadAfterWrite
+      ? loop->index()
+      : SimplifyingIrBuilder::addExpr(loop->index(), stage_depth);
+
   // Get mbarrier for this circular buffer stage.
   kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, mbarrier_index);
 
   // Invalidate the mbarrier for each circular buffer stage.
   kir::MBarrierInvalidate* mbarrier_inval =
@@ -640,18 +682,22 @@ class AllocationInserter : public kir::ExprMutator {
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
-      int64_t circular_buffer_depth =
-          GpuLower::current()
-              ->circularBufferInfo()
-              .getCircularBufferOptionsFor(fl->iter_domain())
-              .stage;
+      const auto& opt =
+          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+              fl->iter_domain());
 
-      TensorView* mbarrier =
-          TensorViewBuilder()
-              .shape(std::vector<int64_t>{circular_buffer_depth})
-              .dtype(DataType::UInt)
-              .contiguity(true)
-              .build();
+      // We use mbarrier[0:stage] for RAW, that is, to wait for the completion
+      // of the TMA load of the circular buffer tensor, and
+      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
+      // the reading of the circular buffer tensor.
+      int64_t num_mbarriers =
+          opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
+
+      TensorView* mbarrier = TensorViewBuilder()
+                                 .shape(std::vector<int64_t>{num_mbarriers})
+                                 .dtype(DataType::UInt)
+                                 .contiguity(true)
+                                 .build();
       mbarrier->setMemoryType(MemoryType::Shared);
 
       kir::Allocate* mbarrier_alloc =
@@ -659,8 +705,10 @@ class AllocationInserter : public kir::ExprMutator {
 
       // Initialize and invalidate mbarriers that are used to notify that
       // the load of the circular buffer is complete.
-      auto mbarrier_init_filled = initializeMbarrier(fl, mbarrier);
-      auto mbarrier_inval_filled = invalidateMbarrier(fl, mbarrier);
+      auto mbarrier_init_raw = initializeMbarrier(
+          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      auto mbarrier_inval_raw = invalidateMbarrier(
+          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -670,6 +718,11 @@ class AllocationInserter : public kir::ExprMutator {
       //
       // __shared__ mbarrier[num_stages];
       // for (circular_buffer_stage) {
+      //   // initialize mbarrier for RAW
+      //   init(mbarrier[stage]);
+      // }
+      // for (circular_buffer_stage) {
+      //   // initialize mbarrier for WAR
       //   init(mbarrier[stage]);
       // }
       // block_sync();
@@ -679,13 +732,27 @@ class AllocationInserter : public kir::ExprMutator {
       // }
       //
       // for (circular_buffer_stage) {
+      //   // invalidate mbarrier for WAR
+      //   inval(mbarrier[stage]);
+      // }
+      // for (circular_buffer_stage) {
+      //   // invalidate mbarrier for RAW
       //   inval(mbarrier[stage]);
       // }
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init_filled, current_scope);
-      registerInsertAfter(fl, mbarrier_inval_filled, current_scope);
+      registerInsertBefore(fl, mbarrier_init_raw, current_scope);
+      registerInsertAfter(fl, mbarrier_inval_raw, current_scope);
+
+      if (opt.usesMBarrierForWAR()) {
+        auto mbarrier_init_war = initializeMbarrier(
+            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
+        auto mbarrier_inval_war = invalidateMbarrier(
+            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
+        registerInsertBefore(fl, mbarrier_init_war, current_scope);
+        registerInsertAfter(fl, mbarrier_inval_war, current_scope);
+      }
       registerInsertBefore(fl, sync, current_scope);
 
       for (auto tv : circular_buffer_tvs) {

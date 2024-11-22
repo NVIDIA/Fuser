@@ -253,6 +253,12 @@ class WarSyncInserter : private kir::ExprMutator {
     std::vector<TensorView*> to_erase;
     bool insert_sync = false;
     for (auto& entry : smem_allocations_) {
+      if (entry.first->isCircularBuffered() &&
+          entry.first->circularBufferOptions().usesMBarrierForWAR()) {
+        // If we are using mbarriers for WAR, we don't need to insert block
+        // syncs because the mbarriers will handle it.
+        continue;
+      }
       auto& alloc_stack = entry.second;
       if (!alloc_stack.empty() && alloc_stack.back().ca_loop == for_loop) {
         if (!alloc_stack.back().sync_after_read &&
