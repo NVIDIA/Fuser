@@ -1537,9 +1537,7 @@ struct OutputRecord : RecordFunctor {
           auto logical_domain = tv_output->getLogicalDomain();
           std::vector<IterDomain*> allocation_domain =
               ir_utils::strideOrderToAllocation(logical_domain, stride_order_);
-          auto contiguity = TensorDomain::getContiguityFilledWith(
-              allocation_domain, true);
-          tv_output->setAllocationDomain(allocation_domain, contiguity);
+          tv_output->setAllocationDomain(allocation_domain, true);
         }
         fd.addOutput(tv_output, args_.at(0).index);
       } else {
