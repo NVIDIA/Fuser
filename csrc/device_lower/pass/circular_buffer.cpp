@@ -1360,9 +1360,8 @@ class CircularBufferInserter : private kir::ExprMutator {
                 circular_buffer_loop->fusion()->oneVal()))));
 
     // Load loop:
-    ForLoop* load_loop =
-        CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync::clone(
-            circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
+    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
     // Prefetch:
@@ -1389,9 +1388,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     }
 
     // Compute loop:
-    ForLoop* compute_loop =
-        CloneWarpSpecializedTmaCircularBufferLoopAndInsertSync::clone(
-            circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
+    ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
     warp_dispatch_ite->elseBody().push_back(compute_loop);
 
     registerReplace(circular_buffer_loop, warp_dispatch_ite);
@@ -1468,18 +1466,16 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx and tma load operations
     if (hasPrefetch(circular_buffer_loop)) {
       // If there is no prefetch, then we don't need a prologue loop.
-      ForLoop* prologue_loop =
-          CloneTmaCircularBufferLoopAndInsertSync::clone(
-              circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
       registerInsertBefore(circular_buffer_loop, prologue_loop);
     }
 
     // Main loop:
     //  - Launch and wait
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
-    ForLoop* main_loop =
-        CloneTmaCircularBufferLoopAndInsertSync::clone(
-            circular_buffer_loop, loads, CircularBufferLoopStage::Main);
+    ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
 
     if (!hasPrefetch(circular_buffer_loop)) {
@@ -1496,12 +1492,11 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Epilogue loop:
     //  - wait only
     //  - mbarrier_wait
-    ForLoop* epilogue_loop =
-        CloneTmaCircularBufferLoopAndInsertSync::clone(
-            circular_buffer_loop,
-            loads,
-            CircularBufferLoopStage::Epilog,
-            expressions_allocated_in_main_loop);
+    ForLoop* epilogue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::Epilog,
+        expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
   }
 
