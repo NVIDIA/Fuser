@@ -2662,11 +2662,11 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
         tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
           return group->has(gmem_id);
         });
-    NVF_ERROR(
-        it != tma_all_ids.end(),
-        "Cannot find corresponding ID for ",
-        nvfuser::toString(group));
-    ids_to_index.push_back(*it);
+    if (it != tma_all_ids.end()) {
+      ids_to_index.push_back(*it);
+    } else {
+      ids_to_index.push_back(group->front()->as<IterDomain>());
+    }
   }
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
