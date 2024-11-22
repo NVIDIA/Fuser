@@ -627,6 +627,7 @@ class AllocationInserter : public kir::ExprMutator {
     // The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
     if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
+      std::cout << "non-circular-buffered cp.async.bulk" << std::endl;
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
