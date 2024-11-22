@@ -726,6 +726,21 @@ class CloneTmaCircularBufferLoopAndInsertSync
         }
         break;
       }
+      case CircularBufferLoopStage::LoadWarp: {
+        if (is_circular_buffer_load_expr) {
+          NVF_ERROR(
+              ir_utils::isCpAsyncBulkLoad(expr),
+              "Warp specialization only support TMA loading.");
+          for_loop_stack_.back()->body().push_back(expr);
+        }
+        break;
+      }
+      case CircularBufferLoopStage::ComputeWarp: {
+        if (!is_circular_buffer_load_expr) {
+          for_loop_stack_.back()->body().push_back(expr);
+        }
+        break;
+      }
       default: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
@@ -741,7 +756,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
         handleMainLoop(expr);
         break;
       }
-      case CircularBufferLoopStage::Epilog: {
+      case CircularBufferLoopStage::Epilog:
+      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::ComputeWarp:
+      {
         break;
       }
       default: {
