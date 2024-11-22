@@ -75,15 +75,6 @@ class TVDomainGuard;
 
 // [Circular buffering]
 
-// For example, if `on` is TIDy, then will assign additional TIDy for cirular
-// buffer loading.
-struct WarpSpecialized {
-  ParallelType on;
-  bool operator==(const WarpSpecialized& other) const {
-    return on == other.on;
-  }
-};
-
 #if 0
 if (std::holds_alternative<Pipelined>(tv->getCircularBufferType())) {
   // The behavior today. Clone loop like this:
@@ -246,6 +237,9 @@ struct Pipelined {
   explicit Pipelined(bool uses_mbarrier_for_war)
       : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
   Pipelined() = default;
+  bool operator==(const Pipelined& other) const {
+    return uses_mbarrier_for_war == other.uses_mbarrier_for_war;
+  }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
@@ -253,6 +247,21 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
     return os << "PipelinedMBarrierForWAR";
   }
   return os << "Pipelined";
+}
+
+// For example, if `on` is TIDy, then will assign additional TIDy for cirular
+// buffer loading.
+struct WarpSpecialized {
+  ParallelType on;
+  bool operator==(const WarpSpecialized& other) const {
+    return on == other.on;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const WarpSpecialized& warp_specialized) {
+  return os << "WarpSpecializedOn" << warp_specialized.on;
 }
 
 using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
@@ -279,13 +288,14 @@ struct CircularBufferOptions {
 
   bool usesMBarrierForWAR() const {
     return (std::holds_alternative<Pipelined>(type) &&
-        std::get<Pipelined>(type).uses_mbarrier_for_war) ||
+            std::get<Pipelined>(type).uses_mbarrier_for_war) ||
         std::holds_alternative<WarpSpecialized>(type);
     return false;
   }
 
   bool operator==(const CircularBufferOptions& other) const {
-    return stage == other.stage && prefetch == other.prefetch;
+    return type == other.type && stage == other.stage &&
+        prefetch == other.prefetch;
   }
 };
 
