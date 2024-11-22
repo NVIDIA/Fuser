@@ -657,24 +657,18 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   if (inner_dim_numel <= 1024) {
     rparams->multiple_reds_per_blk = true;
     rparams->tidx_for_outer_reduction = true;
-    constexpr int64_t threads_per_block_mrpb = 512;
 
     // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
     // inner_batch(reuse), bdimx
     iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
-    iop.gdimy =
-        getGdimy(iop.inner_vect, threads_per_block_mrpb, iop.inner_batch);
+    iop.gdimy = getGdimy(iop.inner_vect, iop.bdimx, iop.inner_batch);
 
     // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
-    // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
-    // cover what is left in both the outer_dim and inner_dim. However, it
-    // should not exceed the limitation set by threads_per_block_mrpb.
-    int64_t bdimy_tmp = std::max(
-        ceilDiv(outer_dim_numel, iop.gdimy),
-        ceilDiv(inner_dim_numel, iop.vectorization_factor_outer * iop.gdimy));
-    iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
+    // bdimy, gdimy (in previous step).
+    // WAR for https://github.com/NVIDIA/Fuser/issues/3428
+    iop.bdimy = 1;
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
     iop.warps_per_sm = ceilDiv(iop.bdimx * iop.bdimy, dev_prop->warpSize) *

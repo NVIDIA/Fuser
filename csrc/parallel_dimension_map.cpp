@@ -188,6 +188,18 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
+Val* ParallelDimensionMap::getNumThreadsEachBlock() const {
+  Val* num_threads = FusionGuard::getCurFusion()->oneVal();
+  for (auto pt : kParallelTypeTIDs) {
+    auto dim = getRaw(pt);
+    if (dim == nullptr) {
+      continue;
+    }
+    num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
+  }
+  return num_threads;
+}
+
 std::string ParallelDimensionMap::toString() const {
   std::stringstream ss;
   for (auto pt : kParallelTypeThreads) {

@@ -22,7 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-enum class CircularBufferWaitType { Filled, Empty };
+enum class CircularBufferWaitType { ReadAfterWrite, WriteAfterRead };
 
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
@@ -56,7 +56,9 @@ Expr* initializeMbarrier(
           .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
           .stage;
 
-  Val* mbarrier_index = wait_type == CircularBufferWaitType::Filled
+  // We use mbarrier[0:stage_depth] for RAW, and
+  // mbarrier[stage_depth:2*stage_depth] for WAR.
+  Val* mbarrier_index = wait_type == CircularBufferWaitType::ReadAfterWrite
       ? loop->index()
       : SimplifyingIrBuilder::addExpr(loop->index(), stage_depth);
 
@@ -69,7 +71,10 @@ Expr* initializeMbarrier(
           circular_buffer_loop);
 
   Val* num_of_arrives = nullptr;
-  if (wait_type == CircularBufferWaitType::Filled) {
+  if (wait_type == CircularBufferWaitType::ReadAfterWrite) {
+    // The mbarrier of RAW is used to wait for the completion of the TMA
+    // load of the circular buffer tensor. The number of arrives is the
+    // number of TMA issued for the circular buffer tensor.
     int64_t num_of_tvs_loaded_by_tma = std::count_if(
         circular_buffered_tvs.begin(),
         circular_buffered_tvs.end(),
@@ -79,8 +84,12 @@ Expr* initializeMbarrier(
     num_of_arrives =
         IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
   } else {
-    // TODO: calculate this
-    num_of_arrives = IrBuilder::create<Val>(128 * 2, DataType::UInt32);
+    // The mbarrier of WAR is used to wait for the completion of the reading
+    // of the circular buffer tensor. The number of arrives is the number of
+    // threads in the CTA.
+    num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
+        DataType::UInt32,
+        GpuLower::current()->parallelDimensionMap().getNumThreadsEachBlock());
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
@@ -118,7 +127,9 @@ Expr* invalidateMbarrier(
           .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
           .stage;
 
-  Val* mbarrier_index = wait_type == CircularBufferWaitType::Filled
+  // We use mbarrier[0:stage_depth] for RAW, and
+  // mbarrier[stage_depth:2*stage_depth] for WAR.
+  Val* mbarrier_index = wait_type == CircularBufferWaitType::ReadAfterWrite
       ? loop->index()
       : SimplifyingIrBuilder::addExpr(loop->index(), stage_depth);
 
@@ -675,15 +686,12 @@ class AllocationInserter : public kir::ExprMutator {
           GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               fl->iter_domain());
 
-      // For pipelined circular buffering, we have use one mbarrier per stage
-      // for tracking the completion of TMA loading. For warp specialized
-      // circular buffering, we use two mbarriers per stage for tracking the
-      // completion of TMA load (to avoid RAW harzard) and the finish of using
-      // of the buffer so that it is ready to be loaded again (to avoid WAR
-      // harzard).
-      int64_t num_mbarriers = std::holds_alternative<WarpSpecialized>(opt.type)
-          ? opt.stage * 2
-          : opt.stage;
+      // We use mbarrier[0:stage] for RAW, that is, to wait for the completion
+      // of the TMA load of the circular buffer tensor, and
+      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
+      // the reading of the circular buffer tensor.
+      int64_t num_mbarriers =
+          opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
 
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{num_mbarriers})
@@ -697,10 +705,10 @@ class AllocationInserter : public kir::ExprMutator {
 
       // Initialize and invalidate mbarriers that are used to notify that
       // the load of the circular buffer is complete.
-      auto mbarrier_init_filled =
-          initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
-      auto mbarrier_inval_filled =
-          invalidateMbarrier(fl, mbarrier, CircularBufferWaitType::Filled);
+      auto mbarrier_init_raw = initializeMbarrier(
+          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      auto mbarrier_inval_raw = invalidateMbarrier(
+          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -710,6 +718,11 @@ class AllocationInserter : public kir::ExprMutator {
       //
       // __shared__ mbarrier[num_stages];
       // for (circular_buffer_stage) {
+      //   // initialize mbarrier for RAW
+      //   init(mbarrier[stage]);
+      // }
+      // for (circular_buffer_stage) {
+      //   // initialize mbarrier for WAR
       //   init(mbarrier[stage]);
       // }
       // block_sync();
@@ -719,21 +732,26 @@ class AllocationInserter : public kir::ExprMutator {
       // }
       //
       // for (circular_buffer_stage) {
+      //   // invalidate mbarrier for WAR
+      //   inval(mbarrier[stage]);
+      // }
+      // for (circular_buffer_stage) {
+      //   // invalidate mbarrier for RAW
       //   inval(mbarrier[stage]);
       // }
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init_filled, current_scope);
-      registerInsertAfter(fl, mbarrier_inval_filled, current_scope);
+      registerInsertBefore(fl, mbarrier_init_raw, current_scope);
+      registerInsertAfter(fl, mbarrier_inval_raw, current_scope);
 
-      if (std::holds_alternative<WarpSpecialized>(opt.type)) {
-        auto mbarrier_init_empty =
-            initializeMbarrier(fl, mbarrier, CircularBufferWaitType::Empty);
-        auto mbarrier_inval_empty =
-            invalidateMbarrier(fl, mbarrier, CircularBufferWaitType::Empty);
-        registerInsertBefore(fl, mbarrier_init_empty, current_scope);
-        registerInsertAfter(fl, mbarrier_inval_empty, current_scope);
+      if (opt.usesMBarrierForWAR()) {
+        auto mbarrier_init_war = initializeMbarrier(
+            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
+        auto mbarrier_inval_war = invalidateMbarrier(
+            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
+        registerInsertBefore(fl, mbarrier_init_war, current_scope);
+        registerInsertAfter(fl, mbarrier_inval_war, current_scope);
       }
       registerInsertBefore(fl, sync, current_scope);
 
