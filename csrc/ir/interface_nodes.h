@@ -278,8 +278,8 @@ struct CircularBufferOptions {
   }
 
   bool usesMBarrierForWAR() const {
-    return std::holds_alternative<Pipelined>(type) &&
-        std::get<Pipelined>(type).uses_mbarrier_for_war ||
+    return (std::holds_alternative<Pipelined>(type) &&
+        std::get<Pipelined>(type).uses_mbarrier_for_war) ||
         std::holds_alternative<WarpSpecialized>(type);
     return false;
   }
