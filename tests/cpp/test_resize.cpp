@@ -2956,7 +2956,7 @@ TEST_F(ResizeTest, Slice2DVectorize1) {
 }
 
 // Fully contiguous tensor, but a sliced domain makes the domain to
-// the left non-contiguous
+// the left non-contiguous, hence we need to check for its stride
 TEST_F(ResizeTest, Slice3DVectorize1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -2970,7 +2970,7 @@ TEST_F(ResizeTest, Slice3DVectorize1) {
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(4), IrBuilder::create<Val>(6)},
+       {IrBuilder::create<Val>(4), IrBuilder::create<Val>(1024)},
        {IrBuilder::create<Val>(0), tv0->axis(2)->extent()}});
   fusion.addOutput(tv1);
 
