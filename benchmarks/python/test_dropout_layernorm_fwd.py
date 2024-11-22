@@ -8,11 +8,12 @@ from .core import (
     run_benchmark,
     clear_dynamo_cache,
     compute_total_iobytes,
-    with_executor
+    with_executor,
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import dropout_layernorm
+
 
 def dropout_layernorm_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float, eps: float = 1e-5

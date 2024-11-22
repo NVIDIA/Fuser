@@ -8,11 +8,12 @@ from .core import (
     run_benchmark,
     clear_dynamo_cache,
     compute_total_iobytes,
-    with_executor
+    with_executor,
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import dropout_rmsnorm
+
 
 def dropout_rmsnorm_fwd_fusion(
     fd: FusionDefinition,
@@ -161,7 +162,7 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
     ]
 
     benchmark_fn = with_executor(executor, dropout_rmsnorm)
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

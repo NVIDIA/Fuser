@@ -69,7 +69,7 @@ def test_reduction_baseline_benchmark(
     input = torch.randn(size, device="cuda", dtype=dtype)
 
     benchmark_fn = with_executor(executor, reduction_fwd_fn)
-    
+
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,

@@ -9,6 +9,7 @@ import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import huggingface_attn
 
+
 # Fusion from huggingface attention implementation
 # The nvFuser defintion only includes the non-matmul computation (add + reshape + softmax + dropout)
 def huggingface_attn_bwd_fusion(
@@ -128,7 +129,7 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     )
 
     # Compile the fwd fn for torchcompile
-    fwd_fn =with_executor(executor, huggingface_attn)
+    fwd_fn = with_executor(executor, huggingface_attn)
     fwd_inputs = [inputs, attention_mask, size, dropout_p]
     outputs = fwd_fn(fwd_inputs)
     grads = torch.randn(batch_size * nh, seq_len, seq_len, device="cuda", dtype=dtype)

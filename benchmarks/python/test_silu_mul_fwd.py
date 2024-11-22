@@ -9,6 +9,7 @@ import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import silu_mul
 
+
 def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
     T0 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False

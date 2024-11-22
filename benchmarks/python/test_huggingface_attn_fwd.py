@@ -9,6 +9,7 @@ import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import huggingface_attn
 
+
 # Fusion from huggingface attention implementation.
 # The nvFuser defintion only includes the non-matmul computation (add + reshape + softmax + dropout)
 def huggingface_attn_fwd_fusion(

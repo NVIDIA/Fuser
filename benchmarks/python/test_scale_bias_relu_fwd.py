@@ -10,6 +10,7 @@ from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
 from .torch_ops import scale_bias_relu
 
+
 def sbr_fwd_fusion(
     fd: FusionDefinition,
     dtype: DataType,

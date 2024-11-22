@@ -10,6 +10,7 @@ from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
 from .torch_ops import silu_mul
 
+
 def silu_mul_bwd_fusion(fd: FusionDefinition, dtype: DataType):
     T0 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
@@ -93,7 +94,6 @@ def test_silu_mul_bwd_baseline_benchmark(
     x = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     y = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
-
 
     # Compile the fwd fn for torchcompile
     fwd_fn = with_executor(executor, silu_mul)
