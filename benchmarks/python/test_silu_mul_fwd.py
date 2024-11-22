@@ -31,10 +31,6 @@ def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
     fd.add_output(T8)
 
 
-def silu_mul_fwd_fn(inputs: list):  # [in_tensor1, in_tensor_2]
-    return torch.nn.functional.silu(inputs[0]) * inputs[1]
-
-
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_silu_mul_fwd_nvf_benchmark(
@@ -49,7 +45,7 @@ def test_silu_mul_fwd_nvf_benchmark(
     with FusionDefinition() as fd:
         silu_mul_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
     if not disable_validation:
-        eager_output = silu_mul_fwd_fn(inputs)
+        eager_output = silu_mul(inputs)
         fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:

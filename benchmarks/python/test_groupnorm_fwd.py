@@ -6,8 +6,6 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
-import thunder
-from thunder.executors.nvfuserex import nvfuserex
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 

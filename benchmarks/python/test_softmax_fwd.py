@@ -70,7 +70,7 @@ def test_softmax_fwd_nvf_benchmark(
         softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
     if not disable_validation:
-        eager_output = softmax_fwd_fn([inputs[0], reduction_axis])
+        eager_output = softmax([inputs[0], reduction_axis])
         fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:

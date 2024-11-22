@@ -74,17 +74,6 @@ def huggingface_attn_fwd_fusion(
     fd.add_output(T47)
 
 
-def huggingface_attn_fwd(
-    inputs: list,
-):
-    # Reference implementation in Thunder: https://github.com/Lightning-AI/lightning-thunder/blob/888b46324462fba70f93d5017bc0d99025f05091/thunder/tests/hf_bart_self_attn.py#L73-L83
-    attention_mask, input, size, dropout_p = inputs
-    batch_size, seq_len, nh, n_embd = size
-    attn = (input + attention_mask).view(batch_size * nh, seq_len, seq_len)
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    return torch.nn.functional.dropout(attn, p=dropout_p)
-
-
 def huggingface_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser outputs (output, attn, dropout_mask) differ from baseline outputs (output).
 
@@ -153,7 +142,7 @@ def test_huggingface_attn_fwd_baseline_benchmark(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
 
-    benchmark_fn = with_executor(executor, huggingface_attn_fwd)
+    benchmark_fn = with_executor(executor, huggingface_attn)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

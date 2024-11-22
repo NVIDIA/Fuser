@@ -57,7 +57,7 @@ def test_gelu_fwd_nvf_benchmark(
     with FusionDefinition() as fd:
         gelu_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
     if not disable_validation:
-        eager_output = gelu_fwd_fn(inputs)
+        eager_output = gelu(inputs)
         fd.validate(inputs, [eager_output])
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)

@@ -86,7 +86,7 @@ def test_layernorm_fwd_nvf_benchmark(
         layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        eager_output = layernorm_fwd(inputs)
+        eager_output = layernorm(inputs)
         mean = inputs[0].to(torch.float).mean(dim=-1)
         variance = inputs[0].to(torch.float).var(dim=-1, unbiased=False)
         invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
