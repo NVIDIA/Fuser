@@ -753,9 +753,13 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load
     // expression. A mbarrier_arrive_tx_ for another cpAsyncBulk load expression
     // should not be active.
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-      mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
+    if (loop_type_ == CircularBufferLoopStage::Prolog ||
+        loop_type_ == CircularBufferLoopStage::Main ||
+        loop_type_ == CircularBufferLoopStage::LoadWarp) {
+      if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+        NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+        mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
+      }
     }
 
     // Handle cpAsyncBulk expression with circular buffered TensorView output.
