@@ -84,8 +84,6 @@ struct WarpSpecialized {
   }
 };
 
-using CircularBufferingType = std::variant<Pipelined, WarpSpecialized>;
-
 #if 0
 if (std::holds_alternative<Pipelined>(tv->getCircularBufferType())) {
   // The behavior today. Clone loop like this:
