@@ -281,17 +281,18 @@ bool haveDifferentShardings(
         return false;
       }
 
-      // Going between bDID{1} and iDID{N} doesn't trigger resharding, but would
-      // be flagged by ALMOSTEXACT as a false positive. We could use BROADCAST
-      // but it wouldn't be able to map iDID{N}*b{1} and iDID{N}. See
-      // https://github.com/NVIDIA/Fuser/pull/3421#discussion_r1849665430 for
-      // the recommendation to use ALMOSTEXACT and special-case broadcasts.
-      if (a->isBroadcast() || b->isBroadcast()) {
+      // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
+      // would be flagged by ALMOSTEXACT as a false positive.
+      if (id_model.idGraph(IdMappingMode::BROADCAST)
+              .disjointValSets()
+              .strictAreMapped(a, b)) {
         return true;
       }
 
-      const ValGraph& val_graph = id_model.idGraph(IdMappingMode::ALMOSTEXACT);
-      return val_graph.disjointValSets().strictAreMapped(a, b);
+      // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
+      return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+          .disjointValSets()
+          .strictAreMapped(a, b);
     };
 
     if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
@@ -310,6 +311,7 @@ bool isResharding(const Expr* expr) {
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
   id_model.buildAlmostExactGraph();
+  id_model.buildBroadcastGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
