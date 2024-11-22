@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <c10/util/ArrayRef.h>
+
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
@@ -127,4 +129,31 @@ int64_t getShardedAxis(TensorView*);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
 void reorderDIDToFront(TensorView*);
+
+// Given a TensorView and the shape of a sharded tensor of which certain
+// dimensions are partially alloated, returns the global shape that'll be used
+// to bind to the TensorView's logical domain. This is to solve #3282 so we can
+// bind a sharded tensor to a TensorView that has a DID-parallel loop domain.
+//
+// For example, when `tv` is
+//   logical: iM, iN
+//   allocation: iDIDx{D}, iN/D, iM
+// and `sizes` is [2, 3], the returned shape will be [2, 3D]. This is because,
+// according to the allocation domain, iM is fully allocated and iN is sharded
+// and thus partially allocated.
+//
+// As a degenerate case, it's fine to call this function with a non-sharded
+// TensorView and tensor.
+//
+// Limitations:
+// - The function assumes that there are no Merges from logical to the
+// DID-parallel IterDomains in allocation. Otherwise, it's unclear which logical
+// dimension this DID-parallelization should be attributed to.
+// - The function assumes that all Splits from logical to the DID-parallel
+// IterDomains in allocation are even. This is because there are currently no
+// ways to pass in the global shape without an API overhaul.
+std::vector<int64_t> unshardedSizes(
+    const TensorView* tv,
+    c10::IntArrayRef sizes);
+
 } // namespace nvfuser

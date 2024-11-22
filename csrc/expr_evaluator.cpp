@@ -128,44 +128,6 @@ void validateValWithConcreteValue(
   }
 }
 
-std::vector<int64_t> unshardedSizes(
-    const TensorView* tv,
-    c10::IntArrayRef sizes) {
-  std::vector<int64_t> unsharded_sizes = sizes.vec();
-
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    const ParallelType parallel_type = alloc_id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
-      continue;
-    }
-
-    const auto inputs = IterVisitor::getInputsTo(
-        {alloc_id},
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-    if (inputs.empty()) {
-      // FIXME: is this even possible? Logical ought to dominate allocation.
-      continue;
-    }
-    NVF_ERROR(inputs.size() == 1);
-
-    const auto iter = std::find(
-        tv->getLogicalDomain().begin(),
-        tv->getLogicalDomain().end(),
-        inputs[0]);
-    if (iter == tv->getLogicalDomain().end()) {
-      // FIXME: is this even possible? Logical ought to dominate allocation.
-      continue;
-    }
-    const auto index = std::count_if(
-        tv->getLogicalDomain().begin(), iter, [](IterDomain* id) -> bool {
-          return !id->isReduction();
-        });
-    unsharded_sizes.at(index) *= tv->getDeviceMesh().size(parallel_type);
-  }
-
-  return unsharded_sizes;
-}
-
 } // namespace
 
 void ExpressionEvaluator::bindTensorDomain(
@@ -183,13 +145,7 @@ void ExpressionEvaluator::bindTensorDomain(
       ", but got a tensor of rank ",
       t.dim());
 
-  std::vector<int64_t> sizes;
-  if (isSharded(tv)) {
-    sizes = unshardedSizes(tv, t.sizes());
-  } else {
-    sizes = t.sizes().vec();
-  }
-
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
   for (auto i : c10::irange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
@@ -197,7 +153,7 @@ void ExpressionEvaluator::bindTensorDomain(
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
-            sizes[i] == 1 || t.stride(i) == 0,
+            logical_sizes[i] == 1 || t.stride(i) == 0,
             "IterDomain ",
             id->toString(),
             " in ",
@@ -205,15 +161,15 @@ void ExpressionEvaluator::bindTensorDomain(
             "TensorView ",
             tv->toString(),
             " has expanded extent but input tensor has size ",
-            sizes[i],
+            logical_sizes[i],
             " and stride ",
             t.stride(i),
             " in dimension ",
             i);
-        bind_(id->expandedExtent(), sizes[i], evaluate_validate);
+        bind_(id->expandedExtent(), logical_sizes[i], evaluate_validate);
       }
     } else {
-      bind_(id->extent(), sizes[i], evaluate_validate);
+      bind_(id->extent(), logical_sizes[i], evaluate_validate);
     }
   }
 }

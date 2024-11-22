@@ -122,6 +122,51 @@ bool isSharded(const TensorView* tv) {
   return is_sharded;
 }
 
+std::vector<int64_t> unshardedSizes(
+    const TensorView* tv,
+    c10::IntArrayRef sizes) {
+  std::vector<int64_t> unsharded_sizes = sizes.vec();
+
+  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
+    const ParallelType parallel_type = alloc_id->getParallelType();
+    if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    const auto inputs = IterVisitor::getInputsTo(
+        {alloc_id},
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    NVF_ERROR(
+        !inputs.empty(),
+        "IterVisitor::getInputsTo shouldn't return empty unless `of` is empty.");
+    NVF_ERROR(
+        inputs.size() == 1,
+        "Failed to find the single logical input to ",
+        alloc_id,
+        ". This is likely because there's a Merge expression from logical to allocation, which isn't supported. Inputs are: ",
+        toDelimitedString(inputs));
+
+    const auto iter = std::find(
+        tv->getLogicalDomain().begin(),
+        tv->getLogicalDomain().end(),
+        inputs[0]);
+    NVF_ERROR(
+        iter != tv->getLogicalDomain().end(),
+        "The found input IterDomain isn't logical. This is likely because logical doesn't dominate allocation: ",
+        inputs[0]);
+
+    // Count the number of non-reduction IterDomains before `iter`. Reduction
+    // IterDomains are not materialized in the at::Tensor's shape.
+    const auto index = std::count_if(
+        tv->getLogicalDomain().begin(), iter, [](IterDomain* id) -> bool {
+          return !id->isReduction();
+        });
+    unsharded_sizes.at(index) *= tv->getDeviceMesh().size(parallel_type);
+  }
+
+  return unsharded_sizes;
+}
+
 int64_t numDeviceDims(const TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),

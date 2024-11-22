@@ -272,46 +272,6 @@ void validateAllocationSizesAndStrides(
   }
 }
 
-// FIXME: strides are never changed
-std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
-    TensorView* tv,
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef strides) {
-  std::vector<int64_t> unsharded_sizes = sizes.vec();
-  std::vector<int64_t> unsharded_strides = strides.vec();
-
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    const ParallelType parallel_type = alloc_id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
-      continue;
-    }
-
-    const auto inputs = IterVisitor::getInputsTo(
-        {alloc_id},
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-    if (inputs.empty()) {
-      // FIXME: is this even possible? Logical ought to dominate loop.
-      continue;
-    }
-    NVF_ERROR(inputs.size() == 1);
-
-    const auto iter = std::find(
-        tv->getLogicalDomain().begin(),
-        tv->getLogicalDomain().end(),
-        inputs[0]);
-    if (iter == tv->getLogicalDomain().end()) {
-      // FIXME: is this even possible? Logical ought to dominate loop.
-      continue;
-    }
-    const auto index = std::count_if(
-        tv->getLogicalDomain().begin(), iter, [](IterDomain* id) -> bool {
-          return !id->isReduction();
-        });
-    unsharded_sizes.at(index) *= tv->getDeviceMesh().size(parallel_type);
-  }
-
-  return {unsharded_sizes, unsharded_strides};
-}
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
@@ -322,21 +282,12 @@ inferAndValidateAllocationSizesAndStrides(
   const auto& logical = tv->getLogicalDomain();
   const auto& alloc = tv->getMaybeAllocationDomain();
 
-  std::vector<int64_t> logical_sizes;
-  std::vector<int64_t> logical_strides;
-  if (isSharded(tv)) {
-    std::tie(logical_sizes, logical_strides) =
-        unshardedSizesAndStrides(tv, tensor.sizes(), tensor.strides());
-  } else {
-    logical_sizes = tensor.sizes().vec();
-    logical_strides = tensor.strides().vec();
-  }
-
   // active IDs and their shape and stride
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
   for (IterDomain* id : TensorDomain::noReductions(logical)) {
-    active_ids[id] = {logical_sizes[dim_index], logical_strides[dim_index]};
+    active_ids[id] = {logical_sizes[dim_index], tensor.stride(dim_index)};
     dim_index++;
   }
   NVF_ERROR(dim_index == tensor.dim());
@@ -348,6 +299,8 @@ inferAndValidateAllocationSizesAndStrides(
   // need to put them to the correct order.
   std::vector<int64_t> allocation_sizes;
   std::vector<int64_t> allocation_strides;
+  allocation_sizes.reserve(alloc.size());
+  allocation_strides.reserve(alloc.size());
   for (IterDomain* id : TensorDomain::noReductions(alloc)) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
@@ -388,22 +341,19 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->data = input.data_ptr();
 
   if (isSharded(tv)) {
-    auto [unsharded_sizes, unsharded_strides] =
-        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
+    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
     metadata->logical_size_data = std::move(unsharded_sizes);
     metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-    metadata->logical_stride_data = std::move(unsharded_strides);
-    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
   } else {
     metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
   }
+  metadata->logical_stride = input.strides();
 
-  auto [sizes, strides] =
+  auto [allocation_sizes, allocation_strides] =
       inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-  metadata->alloc_size_data = std::move(sizes);
+  metadata->alloc_size_data = std::move(allocation_sizes);
   metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-  metadata->alloc_stride_data = std::move(strides);
+  metadata->alloc_stride_data = std::move(allocation_strides);
   metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   return {PolymorphicValue(std::move(struct_))};
 }
