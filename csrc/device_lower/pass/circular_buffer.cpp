@@ -584,7 +584,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // TensorView. If so, create the mbarrier::wait expression for the
   // corresponding buffer and update raw_mbarriers_to_wait_.
   void updateRawMbarrierToWaitMap(Expr* expr) {
-    if (loop_type_ == CircularBufferLoopStage::Prolog) {
+    if (loop_type_ == CircularBufferLoopStage::Prolog ||
+        loop_type_ == CircularBufferLoopStage::LoadWarp) {
       // If we are in the prologue loop, we won't clone expr, so we don't need
       // to insert mbarrier::wait.
       return;
