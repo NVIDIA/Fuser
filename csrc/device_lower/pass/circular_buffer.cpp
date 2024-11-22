@@ -396,7 +396,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
   // This function inserts arrive and wait expressions for RAW and WAR
-  // harzards. The argument `cloned_loop` can be:
+  // hazards. The argument `cloned_loop` can be:
   // 1. A loop containing TMA expressions loading circular buffer tensors.
   // 2. A loop containing an expression that is the first use a circular buffer
   //    tensor.
@@ -407,8 +407,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // For 4, there is nothing interesting, we just naively add the cloned loop
   // to the parent loop body.
   //
-  // For 1, we delagate to addTmaLoadBlock, who is responsible for: i) adding
-  // mbarrier::waitParity to avoid WAR harzard, ii) adding the cloned loop
+  // For 1, we delegate to addTmaLoadBlock, who is responsible for: i) adding
+  // mbarrier::waitParity to avoid WAR hazard, ii) adding the cloned loop
   // containing TMA to the parent loop body, and iii) add the necessary
   // mbarrier::arriveExpectTx expressions to signal that TMA has been issued,
   // and loading in progress.
@@ -539,7 +539,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // compute_index_per_stage with a divisor of 2. See:
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
   // for reference.
-  Val* currentRawParity() const {
+  Val* currentRawMbarrierParity() const {
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -558,7 +558,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // The parity used for waiting for the WAR mbarrier:
   //   (currentLoadIndex() / stage_depth) % 2
-  Val* currentWarParity() const {
+  Val* currentWarMbarrierParity() const {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -1038,7 +1038,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
-            stage_mbarrier, currentRawParity());
+            stage_mbarrier, currentRawMbarrierParity());
     return mbarrier_wait;
   }
 
@@ -1061,7 +1061,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
-            stage_mbarrier, currentWarParity());
+            stage_mbarrier, currentWarMbarrierParity());
     return mbarrier_wait;
   }
 
@@ -1347,7 +1347,7 @@ class CircularBufferInserter : private kir::ExprMutator {
   //
   // This is needed because we prefetch data in circular buffering, and we
   // need to make sure the initial prefetches are not blocked by the
-  // non-existing WAR harzards.
+  // non-existing WAR hazards.
   ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
