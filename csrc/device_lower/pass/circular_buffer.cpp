@@ -491,7 +491,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // `stages - prefetch - 1` pending computations, and we wait for stage
   //   (loop_index + prefetch + 1) % stages
   Val* currentCompletionStage() const {
-    NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
+    NVF_ERROR(
+        loop_type_ == CircularBufferLoopStage::Main ||
+        loop_type_ == CircularBufferLoopStage::ComputeWarp);
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
