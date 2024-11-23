@@ -304,23 +304,27 @@ bool haveDifferentShardings(
   return false;
 }
 
-bool isResharding(const Expr* expr) {
-  FUSER_PERF_SCOPE("isResharding");
+bool isResharding(const Expr* expr, const IdModel* id_model) {
+  FUSER_PERF_SCOPE("isResharding Expr");
 
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
-  id_model.buildAlmostExactGraph();
-  id_model.buildBroadcastGraph();
+  std::unique_ptr<IdModel> id_model_ptr;
+  if (id_model == nullptr) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    id_model_ptr.reset(
+        new IdModel({const_cast<Expr*>(expr)}, {}, false, false));
+    id_model = id_model_ptr.get();
+  }
+
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
-      if (haveDifferentShardings(input, output, id_model)) {
+      if (haveDifferentShardings(input, output, *id_model)) {
         return true;
       }
     }
@@ -330,9 +334,17 @@ bool isResharding(const Expr* expr) {
 }
 
 bool isResharding(const Fusion* fusion) {
+  FUSER_PERF_SCOPE("isResharding Fusion");
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  IdModel id_model(const_cast<Fusion*>(fusion), false);
+  id_model.buildAlmostExactGraph();
+  id_model.buildBroadcastGraph();
+
   const std::vector<Expr*>& exprs = fusion->exprs();
-  return std::any_of(
-      exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
+  return std::any_of(exprs.begin(), exprs.end(), [&](Expr* e) {
+    return isResharding(e, &id_model);
+  });
 }
 
 bool isInnerResharding(Expr* expr) {
