@@ -448,7 +448,7 @@ bool hasReferenceTensorView(Fusion* fusion) {
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
-  if (scheduler_utils::isResharding(fusion)) {
+  if (isResharding(fusion)) {
     FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");

@@ -707,9 +707,6 @@ int64_t getSharedMemoryOverheadPerBlock(
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
 
-// Returns true if any Expr in `fusion` is resharding.
-bool isResharding(Fusion* fusion);
-
 // Move non-concretized broadcast domains to innermost
 // positions. Broadcast domains mapped with any domains of given tvs
 // are ignored.

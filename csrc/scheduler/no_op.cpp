@@ -122,7 +122,7 @@ void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       "Invalid heuristic sent to NoOp scheduler: ",
       params);
 
-  if (scheduler_utils::isResharding(fusion)) {
+  if (isResharding(fusion)) {
     return;
   }
 

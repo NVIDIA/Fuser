@@ -5,6 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <deque>
+#include <iostream>
+#include <iterator>
+#include <memory>
+#include <sstream>
+#include <type_traits>
+#include <utility>
+#include <variant>
+
+#include "ATen/cuda/CUDAContext.h"
+
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_utils.h>
@@ -20,23 +32,13 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <mma_type.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/executor_utils.h>
+#include <type.h>
+#include <utils.h>
 #include <val_graph.h>
-#include <algorithm>
-#include <deque>
-#include <iostream>
-#include <iterator>
-#include <memory>
-#include <sstream>
-#include <type_traits>
-#include <utility>
-#include <variant>
-#include "ATen/cuda/CUDAContext.h"
-#include "mma_type.h"
-#include "mma_utils.h"
-#include "type.h"
-#include "utils.h"
 
 namespace nvfuser {
 namespace matmul_utils {
@@ -881,7 +883,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   }
 
   // #6
-  if (scheduler_utils::isResharding(fusion)) {
+  if (isResharding(fusion)) {
     return "Fusion is resharding.";
   }
 

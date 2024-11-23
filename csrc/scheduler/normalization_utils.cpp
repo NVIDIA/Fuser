@@ -9,6 +9,7 @@
 #include <grouped_reduction.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -993,7 +994,7 @@ PersistentKernelProperties getPersistentKernelProperties(
 }
 
 bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {
-  if (scheduler_utils::isResharding(fusion)) {
+  if (isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Fusion is resharding.");
     return false;
