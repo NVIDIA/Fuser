@@ -318,6 +318,23 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_set<Resize*> resize_in_slice_;
 };
 
+struct TensorResizeAlignmentInfo {
+  Val* offset_;
+  // SchedulerRuntimeInfo::getInputAllocationSizes could be used to check alignment.
+  // field that becomes non-contiguous after resize operations.
+  Val* noncontig_stride_idx_;
+};
+
+class NVF_API ChainedResizeAlignmentCheck {
+ public:
+  static ChainedResizeAlignmentCheck map_to_input(
+      TensorView* reference,
+      const std::vector<IterDomain*>& ids);
+  
+ private:
+  std::unordered_map<TensorView*, TensorResizeAlignmentInfo> ;
+};
+
 // logical_reorder_map is provided to assume reference_tv will be reordered per
 // the map, hence changing the order of IterDomain in the reference
 int64_t getVectorizationFactor(

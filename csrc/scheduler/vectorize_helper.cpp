@@ -483,8 +483,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
               SimplifyingIrBuilder::eqExpr(
                   extent, extent->container()->zeroVal()),
               factor,
-              // for extent < 0, we'll take max(1, extent). Because of the gcd,
-              // This is effectively excluding the resize id from vectorization.
               SimplifyingIrBuilder::gcdExpr(
                   factor,
                   SimplifyingIrBuilder::whereExpr(
