@@ -2580,12 +2580,6 @@ int64_t getSharedMemoryOverheadPerBlock(
   return reduction_broadcast_workspace + smem_overhead_driver;
 }
 
-bool isResharding(Fusion* fusion) {
-  const std::vector<Expr*>& exprs = fusion->exprs();
-  return std::any_of(
-      exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
-}
-
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs) {

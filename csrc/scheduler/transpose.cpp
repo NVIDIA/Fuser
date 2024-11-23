@@ -9,6 +9,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
@@ -22,7 +23,7 @@ namespace nvfuser {
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
-  if (scheduler_utils::isResharding(fusion)) {
+  if (isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");
     return false;

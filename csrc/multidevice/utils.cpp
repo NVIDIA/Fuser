@@ -329,6 +329,12 @@ bool isResharding(const Expr* expr) {
   return false;
 }
 
+bool isResharding(const Fusion* fusion) {
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  return std::any_of(
+      exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
+}
+
 bool isInnerResharding(Expr* expr) {
   NVF_ERROR(
       ir_utils::isTvOp(expr),

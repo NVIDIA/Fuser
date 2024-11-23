@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/expr_eval_sched.h>
 #include <scheduler/registry_utils.h>
@@ -16,7 +17,7 @@ namespace nvfuser {
 
 // Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
-  if (scheduler_utils::isResharding(fusion)) {
+  if (isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");
     return false;

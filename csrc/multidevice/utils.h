@@ -77,6 +77,8 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 
 // Returns whether an Expr embeds multi-device resharding
 bool isResharding(const Expr* expr);
+// Returns true if any Expr in `fusion` is resharding.
+bool isResharding(const Fusion* fusion);
 
 // Returns whether two tensors have different shardings. Expect a
 // producer/consumer relationship between the arguments.
