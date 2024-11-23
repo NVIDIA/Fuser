@@ -383,12 +383,11 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt()) {
-      if (split->innerSplit()) {
-        mapped_ids.push_back({split->in(), split->outer()});
-      } else {
-        mapped_ids.push_back({split->in(), split->inner()});
-      }
+    if (split->inner()->extent()->isOneInt()) {
+      mapped_ids.push_back({split->in(), split->outer()});
+    }
+    if (split->outer()->extent()->isOneInt()) {
+      mapped_ids.push_back({split->in(), split->inner()});
     }
   } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
     if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
