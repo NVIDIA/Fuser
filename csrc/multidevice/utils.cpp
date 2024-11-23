@@ -8,6 +8,7 @@
 
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
+#include <instrumentation.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -304,6 +305,8 @@ bool haveDifferentShardings(
 }
 
 bool isResharding(const Expr* expr) {
+  FUSER_PERF_SCOPE("isResharding");
+
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }
