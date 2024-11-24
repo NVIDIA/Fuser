@@ -179,7 +179,7 @@ std::string FusionExecutorCache::getCode(
       } else {
         kernel_code += "\n";
       }
-      kernel_code += ke->kernelString();
+      kernel_code += ke->compiledKernel()->kernelString();
     }
   }
 
@@ -194,7 +194,7 @@ std::string FusionExecutorCache::getCode(
         if (first_ke == nullptr) {
           first_ke = ke;
         }
-        auto cur_index_type = ke->kernel()->indexType();
+        auto cur_index_type = ke->compiledKernel()->kernel()->indexType();
         if (first_index_type == PrimDataType::Null) {
           first_index_type = cur_index_type;
         }
@@ -207,7 +207,8 @@ std::string FusionExecutorCache::getCode(
       }
     }
     if (first_ke != nullptr) {
-      return first_ke->getStructuredCode(kernel_code, first_index_type);
+      return first_ke->compiledKernel()->getStructuredCode(
+          kernel_code, first_index_type);
     }
     return "";
   } else {
@@ -242,7 +243,7 @@ std::string FusionExecutorCache::getScheduledIr(
   }
   for (auto& ea : kernel_runtime->executors()) {
     if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
-      auto sched_ir = ke->kernel()->as<Fusion>();
+      auto sched_ir = ke->compiledKernel()->kernel()->as<Fusion>();
       sched_ir->print(ss, tensor_transforms);
     }
   }

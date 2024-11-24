@@ -422,7 +422,7 @@ void FusionKernelRuntime::disableLaunchParamCache() {
       "Tried to set parameters of executors before they were initialized.");
   for (auto& executor : executors_) {
     if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
-      ke->disableLaunchParamCache();
+      ke->compiledKernel()->disableLaunchParamCache();
     }
   }
 }

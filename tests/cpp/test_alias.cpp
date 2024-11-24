@@ -357,9 +357,11 @@ namespace {
 bool storesToOutput(const KernelExecutor* ke, const int64_t out_index) {
   // Get the variable name from the `kir::Kernel` not the input fusion, because
   // they are not always the same.
-  std::string var_name = ir_utils::varName(ke->kernel()->outputs()[out_index]);
+  std::string var_name =
+      ir_utils::varName(ke->compiledKernel()->kernel()->outputs()[out_index]);
   std::regex store_to_output(R"(\b)" + var_name + R"(\[)");
-  return std::regex_search(ke->kernelString(), store_to_output);
+  return std::regex_search(
+      ke->compiledKernel()->kernelString(), store_to_output);
 }
 
 } // namespace
@@ -416,7 +418,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
       EXPECT_EQ(num_stores, 1)
           << "The generated CUDA kernel is expected to store data to one output:"
           << std::endl
-          << ke->kernelString();
+          << ke->compiledKernel()->kernelString();
     }
   }
 }
@@ -496,7 +498,7 @@ TEST_F(AliasTest, Issue1452) {
       EXPECT_EQ(num_stores, 1)
           << "The generated CUDA kernel is expected to store data to one output:"
           << std::endl
-          << ke->kernelString();
+          << ke->compiledKernel()->kernelString();
     }
   }
 }
@@ -527,7 +529,7 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   EXPECT_FALSE(storesToOutput(ke, /*out_index=*/0))
       << "The generated CUDA kernel shouldn't store data to output 0:"
       << std::endl
-      << ke->kernelString();
+      << ke->compiledKernel()->kernelString();
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {

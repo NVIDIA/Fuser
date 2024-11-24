@@ -14,6 +14,7 @@
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <runtime/allocations.h>
+#include <runtime/compiled_kernel.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_params.h>
 #include <runtime/executor_utils.h>
@@ -27,11 +28,6 @@
 #include <functional>
 
 namespace nvfuser {
-
-// TODO: Should this actually be in launch params?
-struct CompileOptions {
-  c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
-};
 
 class ExprEvalExecutor : public ExecutorAbstract {
  public:
@@ -146,21 +142,10 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Function to query whether compilation was attempted for a `KernelExecutor`
   bool isCompiled() const override {
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr);
-    NVF_ERROR(num_compiled_artifacts <= 1);
-    return num_compiled_artifacts == 1;
-  };
-
-  // function to query whether a `KernelExecutor` has a compiled kernel to
-  // execute
-  bool hasCompiledKernel() const {
-    if (compiled_kernel_ != nullptr) {
-      NVF_ERROR(compiled_kernel_->function != nullptr);
-      NVF_ERROR(
-          fusion_ == nullptr,
-          "fusion_ should only be initialized when using expression evaluator.");
+    if (compiledKernel()) {
+      return true;
     }
-    return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
+    return fusion_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -195,26 +180,9 @@ class KernelExecutor : public ExecutorAbstract {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  kir::Kernel* kernel() const {
-    NVF_ERROR(lowered_);
-    return lowered_->kernel();
+  const std::unique_ptr<Fusion>& fusion() {
+    return fusion_;
   }
-
-  Fusion* fusion() const {
-    NVF_ERROR(isCompiled());
-    if (fusion_ != nullptr) {
-      return fusion_.get();
-    }
-    if (lowered_ != nullptr) {
-      return lowered_->kernel()->as<Fusion>();
-    }
-    NVF_THROW("unreachable because of the isCompiled check");
-  }
-
-  const ThreadPredicateMap& threadPredMap() const {
-    return lowered_->threadPredMap();
-  }
-
   //! Internal knob used for debugging/profiling only
   void setExecuteKernelFlag(bool execute_kernel) {
     execute_kernel_ = execute_kernel;
@@ -232,125 +200,21 @@ class KernelExecutor : public ExecutorAbstract {
     kernel_occupancy_ = occupancy;
   }
 
-  //! get register spills (load + store) of the compiled kernel
-  int getKernelRegisterSpills() const {
-    return compiled_kernel_->register_spills;
-  }
-
   //! Returns the launch parameters from the last kernel execution
   LaunchParams lastLaunchParams() const {
     return launch_params_;
   }
 
-  //! Returns the string of the compiled kernel
-  NVF_API std::string kernelString() const {
-    NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
-    return kernel_code_;
-  }
-
-  // Add preamble and wrap in namespace
-  NVF_API std::string getStructuredCode(
-      const std::string& kernel,
-      PrimDataType index_type) const;
-
-  NVF_API std::string getStructuredCode() const;
-
-  //! Returns a const reference to the latest compiled kernel.
-  const executor_utils::CompiledKernel& compiledKernel() const {
-    return *compiled_kernel_;
-  }
-
-  //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledBinary(
-      const std::string& nvdisasm_args = "") const {
-    return executor_utils::disassembleBinary(
-        compiled_kernel_->cubin, nvdisasm_args);
-  }
-
-  //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledKernelSASS() const {
-    return executor_utils::disassembleBinary(
-        compiled_kernel_->cubin, "-fun 1 -c");
-  }
-
   static void setGlobalFusionCount(int64_t new_fusion_count) {
-    global_fusion_count_.store(new_fusion_count);
+    CompiledKernel::setGlobalFusionCount(new_fusion_count);
   }
 
   static int64_t getGlobalFusionCount() {
-    return global_fusion_count_.load();
+    return CompiledKernel::getGlobalFusionCount();
   }
 
-  int64_t groupId() const {
-    return group_id_;
-  }
   void setGroupId(int64_t gid) {
     group_id_ = gid;
-  }
-
-  bool validKernelId() const {
-    return !kernel_id_.empty();
-  }
-
-  void createKernelId(
-      SchedulerType scheduler_type = SchedulerType::None,
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0) {
-    NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
-    NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
-    NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
-    NVF_ERROR(group_id > -1, "Invalid group_id");
-
-    scheduler_type_ = scheduler_type;
-    fusion_id_ = fusion_id;
-    concrete_id_ = concrete_id;
-    runtime_id_ = runtime_id;
-    group_id_ = group_id;
-    ++global_fusion_count_;
-
-    std::stringstream ss;
-    if (isOptionEnabled(EnableOption::StaticFusionCount)) {
-      ss << global_fusion_count_.load();
-    } else {
-      ss << toString(scheduler_type_);
-      ss << "_f" << fusion_id_;
-      ss << "_c" << concrete_id_;
-      ss << "_r" << runtime_id_;
-      ss << "_g" << group_id_;
-    }
-    kernel_id_ = ss.str();
-  }
-
-  std::string kernelName() const {
-    NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
-    std::stringstream ss;
-    ss << "nvfuser_" << kernel_id_;
-    return ss.str();
-  }
-
-  //! Internal tests only. Compiles CUDA code with NVRTC directly from
-  //! string. This util provides a path to test runtime code, i.e. the resource
-  //! strings.
-  // TODO: Consider split out compileRtc and runRtc to a different
-  //! class. Not much code is shared with the normal path.
-  NVF_API void compileRtc(
-      const std::string& code,
-      const std::string& name,
-      bool structured,
-      PrimDataType index_type);
-
-  //! Internal tests only. Runs the compiled CUDA kernel from
-  //! compileRtc. Return the elapsed milliseconds.
-  NVF_API float runRtc(
-      const LaunchParams& launch_params,
-      const std::vector<at::Tensor>& args,
-      PrimDataType indextype);
-
-  //! Internal knob used for debugging/profiling only
-  void disableLaunchParamCache() {
-    disable_parameter_cache_ = true;
   }
 
   //! Serialize Fusion Executor using flatbuffers
@@ -369,6 +233,15 @@ class KernelExecutor : public ExecutorAbstract {
       int64_t runtime_id,
       int64_t group_id);
 
+  const std::unique_ptr<CompiledKernel>& compiledKernel() const {
+    return compiled_kernel_2_;
+  }
+
+  const std::unique_ptr<CompiledKernel>& initCompiledKernel() {
+    compiledKernel_() = std::make_unique<CompiledKernel>();
+    return compiledKernel();
+  }
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -383,12 +256,6 @@ class KernelExecutor : public ExecutorAbstract {
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
-
-  void setUsedTVs();
-
-  const std::vector<TensorView*>& getUsedTVs() const {
-    return used_tvs_;
-  };
 
   ExecutorCompileTimeInfoCache* compileTimeDataCache() {
     return &compile_time_info_cache_;
@@ -405,11 +272,6 @@ class KernelExecutor : public ExecutorAbstract {
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
 
-  // Recompile the kernel if the number of threads in the block has increased
-  // or maxrregcount has changed
-  void recompileKernel(
-      const LaunchParams& new_launch_params,
-      const CompileParams& new_compile_params);
   // Creates the initial set of arguments to a kernel, based on the arguments
   // to we have now.
   void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
@@ -467,8 +329,18 @@ class KernelExecutor : public ExecutorAbstract {
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
 
+  std::unique_ptr<CompiledKernel>& compiledKernel_() {
+    return compiled_kernel_2_;
+  }
+
+  void disableLaunchParamCache() {
+    if (compiledKernel()) {
+      compiledKernel()->disableLaunchParamCache();
+    }
+  }
+
  private:
-  CompileOptions options_;
+  std::unique_ptr<CompiledKernel> compiled_kernel_2_;
 
   //! Absolute limit of all available shared mem space from cudaDeviceProp
   int64_t device_smem_limit_ = 0;
@@ -480,36 +352,10 @@ class KernelExecutor : public ExecutorAbstract {
   //!  compiled kernel at the current shared memory/L1 configuration
   std::optional<int64_t> available_dynamic_smem_size_ = std::nullopt;
 
-  // Assuming sm70 or above:
-  //  limit of statically allocated smem is 48 KB:
-  // See:
-  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-8-x
-  const int64_t max_static_smem_ = 48 << 10;
-
   int64_t warp_size_ = 0;
-  std::unique_ptr<executor_utils::CompiledKernel> compiled_kernel_;
-
-  // TensorViews actually used in the kernel.
-  std::vector<TensorView*> used_tvs_;
-
-  inline static std::atomic<int64_t> global_fusion_count_;
-
-  // Scheduling Heuristic for this Fusion
-  SchedulerType scheduler_type_ = SchedulerType::None;
-
-  // Kernel name for fusion executor
-  std::string kernel_id_;
-
-  std::unique_ptr<GpuLower> lowered_;
 
   // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_;
-
-  // Track the block size this kernel was compiled with. If the block size
-  // increases, recompile to adjust maxregister count.
-  int64_t block_size_high_water_mark_ = 1;
-  int64_t maxrregcount_high_water_mark_ = 255;
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.
@@ -535,15 +381,6 @@ class KernelExecutor : public ExecutorAbstract {
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
 
-  // Profiling support: disable caching of launch params and output allocation
-  // output allocation is also disable when output sizes are dependent on
-  // runtime scalar inputs, such as for the case of tensor factory. see
-  // https://github.com/csarofeen/pytorch/issues/2002
-  bool disable_parameter_cache_ = false;
-
-  // Profiling support: kept copy of the cuda kernel
-  std::string kernel_code_;
-
   // Lowering hooks that are called after the GpuLower instance is created
   // before running lowering passes.
   // The main use case is for unit tests to modify the lowering process.
@@ -552,6 +389,9 @@ class KernelExecutor : public ExecutorAbstract {
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
+
+  // TODO: Should this be removed?
+  SchedulerType scheduler_type_ = SchedulerType::None;
 };
 
 } // namespace nvfuser

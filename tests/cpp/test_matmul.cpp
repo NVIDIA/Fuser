@@ -133,9 +133,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -196,9 +196,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref =
       atMatmul(
@@ -254,9 +254,9 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -315,9 +315,9 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.sin().to(at::kFloat),
@@ -376,9 +376,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -439,9 +439,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
-    ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+    ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -523,9 +523,9 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
-    ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+    ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -651,9 +651,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
-    ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+    ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -940,8 +940,8 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
       8, 0, ke.compile(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1, t2});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // relaxed check for now, err accumulation is significant.
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.1, 0.1));
 }
@@ -1318,8 +1318,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
       8, 0, ke.compile(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1, t2});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto g1 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
   auto sg1 = at::_softmax(g1, -1, false);
   auto gsg1 = sg1.matmul(t2.t().to(at::kFloat));
@@ -1368,9 +1368,9 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       7, 5, ke.compile(&fusion, {inputs.first, inputs.second}));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -1514,8 +1514,8 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
@@ -1681,8 +1681,8 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // ref implementation:
   auto ref_t0 = t0.permute({0, 2, 1, 3})
                     .contiguous()
@@ -1852,8 +1852,8 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto tref =
       at::native::view(t0, {M, K}).to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
@@ -2035,8 +2035,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
@@ -2092,9 +2092,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2148,9 +2148,9 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2220,10 +2220,10 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
-      EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+      EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       auto cg_outputs = ke.run({inputs.first, inputs.second});
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(
@@ -2301,9 +2301,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
                 {inputs.first, inputs.second},
                 LaunchParams(),
                 matmul_cparams));
-        ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-        ASSERT_FALSE(
-            PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+        ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+        ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+            ke.compiledKernel()->kernel()));
         auto cg_outputs = ke.run({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2372,9 +2372,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
-    ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+    ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2432,9 +2432,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2484,9 +2484,9 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({t0, t1});
   auto tref = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
@@ -2582,9 +2582,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
     // check bank conflicts
-    ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+    ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     // (0.001, 0.001) passed on local A100 but failed on CI A100
     NVF_CHECK(
         cg_outputs[0].allclose(tref, 0.01, 0.01),
@@ -2602,7 +2602,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     //   - !use_smem_epilogue : A + B (this test is skipped in this case)
     //   - use_smem_epilogue && !promote_prologue_smem_reuse : A + B + C
     //   - use_smem_epilogue && promote_prologue_smem_reuse : max(A + B, C)
-    auto smem_allocs = ke.kernel()->summary().dynamic_smem_allocations;
+    auto smem_allocs =
+        ke.compiledKernel()->kernel()->summary().dynamic_smem_allocations;
     NVF_CHECK(smem_allocs.size() == 3);
     if (mparams.promote_prologue_smem_reuse) {
       // Check prologue shared memory re-use
@@ -2722,9 +2723,9 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
   // check bank conflicts
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // (0.001, 0.001) passed on local A100 but failed on CI A100
   NVF_CHECK(
       cg_outputs[0].allclose(tref, 0.01, 0.01),
@@ -2822,9 +2823,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
   tref = tref.to(at::kHalf);
   // check bank conflicts
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // (0.001, 0.001) passed on local A100 but failed on CI A100
   NVF_CHECK(
       cg_outputs[0].allclose(tref, 0.01, 0.01),
@@ -2919,9 +2920,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
   auto tref = at::relu(t2).to(at::kFloat);
 
   // check bank conflicts
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // (0.001, 0.001) passed on local A100 but failed on CI A100
   NVF_CHECK(
       cg_outputs[0].allclose(tref, 0.01, 0.01),
@@ -2996,10 +2997,10 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
       KernelExecutor ke;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, ke.compile(&fusion, {inputs.first, inputs.second}));
-      EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+      EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       auto cg_outputs = ke.run({inputs.first, inputs.second});
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
@@ -3060,10 +3061,10 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
 
       KernelExecutor ke;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
-      EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+      EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       auto cg_outputs = ke.run(inputs);
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto tref = atBiasEpilogue(
           atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
           aten_bias);
@@ -3122,9 +3123,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
 
       KernelExecutor ke;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
-      ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+      ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto cg_outputs = ke.run(inputs);
       auto tref =
           atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout);
@@ -3188,9 +3189,9 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
 
       KernelExecutor ke;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
-      ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+      ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto cg_outputs = ke.run(inputs);
       auto tref = atBiasEpilogue(
           atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
@@ -3255,9 +3256,9 @@ TEST_F(MatmulTest, ReproIssue1808) {
           {inputs.first, inputs.second},
           LaunchParams(),
           matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3407,9 +3408,9 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
             8,
             0,
             ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams));
-        ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-        ASSERT_FALSE(
-            PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+        ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+        ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+            ke.compiledKernel()->kernel()));
         auto outputs = ke.run(inputs);
 
         EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
@@ -3466,9 +3467,9 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run(inputs);
   auto tref = at::reshape(
       at::linear(
@@ -3532,9 +3533,9 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run(inputs);
   auto Apermuted = A.permute({{1, 2}}).reshape({M1 * M2, K});
   auto tref = at::linear(Apermuted.to(at::kFloat), B.to(at::kFloat))
@@ -3598,9 +3599,9 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run(inputs);
   auto Bpermuted = B.permute({{1, 2}}).reshape({N1 * N2, K});
   auto tref = at::linear(A.to(at::kFloat), Bpermuted.to(at::kFloat))
@@ -3658,9 +3659,9 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run(inputs);
   auto tref =
       at::matmul(A.to(at::kFloat), at::permute(B.to(at::kFloat), {0, 2, 1}));
