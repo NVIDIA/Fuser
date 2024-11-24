@@ -5,7 +5,6 @@
 
 import torch
 import itertools
-import math
 from nvfuser import FusionDefinition, SchedulerType, DataType, ParallelType
 from enum import Enum
 from dataclasses import dataclass
@@ -16,10 +15,12 @@ from autotune_utils import (
     separate_data,
     test_model_rmse,
     test_model,
+    ceil_div,
+    floor_div,
 )
 
 
-# ============================ Description ============================
+# ================================ Description ================================
 
 # This script defines four inner reduction fusions:
 #
@@ -57,23 +58,7 @@ from autotune_utils import (
 # scheduler selects the configuration that has the highest predicted
 # effective_bandwidth_gbs.
 
-# ============================ Configurations ============================
-
-# gpu device properties are defined globally
-assert torch.cuda.is_available()
-gpu_properties = torch.cuda.get_device_properties(device=0)
-
-
-# Returns the result of a/b rounded to the nearest integer in the direction of
-# positive infinity.
-def ceil_div(a, b):
-    return int(math.ceil(a / b))
-
-
-# Returns the result of a/b rounded to the nearest integer in the direction of
-# negative infinity.
-def floor_div(a, b):
-    return int(math.floor(a / b))
+# =============================================================================
 
 
 class AutotuneInnerReduction:
@@ -94,6 +79,10 @@ class AutotuneInnerReduction:
 
     def __init__(self, selected_fusion):
         self.selected_fusion = selected_fusion
+
+        # gpu device properties are defined globally
+        assert torch.cuda.is_available()
+        self.gpu_properties = torch.cuda.get_device_properties(device=0)
 
     def __repr__(self):
         return f"inner_reduction_{self.selected_fusion.name}"
