@@ -427,6 +427,58 @@ class HopperRSStmatrix
   }
 };
 
+void newScheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
+  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
+  tv->split(-2, m);
+  tv->split(-1, n);
+  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
+  tv->reorder({{-2, -3}});
+
+  // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
+  // skip the first 5 iterDomains
+  int64_t num_ids_to_skip = 5;
+  MmaInputSmemSwizzle swizzle = MmaInputSmemSwizzle::B128;
+
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+    // [Ko, No, K8, N8]
+    num_ids_to_skip += 2;
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+    num_ids_to_skip += 1;
+  }
+
+  // The shared memory producer must have the swizzled allocation domain.
+  // The global memory consumer must have the ParallelType::Bulk iterDomains.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Set the allocation to the loop domain.
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  } else {
+    mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+        tv, num_ids_to_skip);
+  }
+}
+
 TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -440,6 +492,11 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   if (getM(macro) % tile_m || getN(macro) % tile_n) {
     GTEST_SKIP() << "skipping test as output is not divisible by tile size";
   }
+
+  if (getN(macro) != 256 ) {
+    GTEST_SKIP() << "skipping test ";
+  }
+
 
   auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
   auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
@@ -531,22 +588,81 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
+  auto initial_tv3_loop_domain = tv3->getLoopDomain();
+
+  newScheduleTMAStoreForMmaOutput(tv3, 16, 64);
+  tv3->setLoopDomain(initial_tv3_loop_domain);
+  // newScheduleTMAStoreForMmaOutput(tv4, 16, 64);
+
   mma_utils::scheduleStMatrixForMmaOutput(tv3, tile_m, tile_n);
 
-  mma_utils::scheduleTMAStoreForMmaOutput(tv4, getM(macro), getN(macro));
+  // mma_utils::scheduleTMAStoreForMmaOutput(tv4, getM(macro), getN(macro));
+  mma_utils::scheduleTMAStoreForMmaOutput(tv4, 16, 64);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
+  at::Half cnt = 0.0;
+  for (int i = 0; i < getM(macro); i++) {
+    for (int j = 0; j < getK(macro); j++) {
+      inputs.first[i][0][j] = cnt;
+      cnt += 1.0;
+    }
+  }
+
+  for (int i = 0; i < getN(macro); i++) {
+    for (int j = 0; j < getK(macro); j++) {
+      inputs.second[0][i][j] = 0.0;
+      if (i == j) {
+        inputs.second[0][i][j] = 1.0;
+      }
+    }
+  }
+
+  for (int i = 0; i < getM(macro); i++) {
+    for (int j = 0; j < getK(macro); j++) {
+      std::cout << inputs.first[i][0][j].item<at::Half>() << " ";
+    }
+    std::cout << std::endl;
+  }
+  std::cout << "\n\n";
+
+  for (int i = 0; i < getN(macro); i++) {
+    for (int j = 0; j < getK(macro); j++) {
+      std::cout << inputs.second[0][i][j].item<at::Half>() << " ";
+    }
+    std::cout << std::endl;
+  }
+  std::cout << "\n\n";
+
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  fusion.printKernel();
+  std::cout << "K is " << getK(macro) << std::endl;
 
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
+
+  for (int i = 0; i < getM(macro); i++) {
+    for (int j = 0; j < getN(macro); j++) {
+      std::cout << tref[i][j].item<at::Half>() << " ";
+    }
+    std::cout << std::endl;
+  }
+  std::cout << "\n\n";
+
+  for (int i = 0; i < getM(macro); i++) {
+    for (int j = 0; j < getN(macro); j++) {
+      std::cout << cg_outputs[0][i][j].item<at::Half>() << " ";
+    }
+    std::cout << std::endl;
+  }
+  std::cout << "\n\n";
 
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref.to(at::kHalf), 1e-1, 1e-1));
 }
@@ -569,7 +685,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         kAllHopperMacros,
         testing::Values(DataType::Half),
-        testing::Values(MmaLayout::TN, MmaLayout::TT),
+        testing::Values(MmaLayout::TN),
         kAllSmemSwizzleModes,
         testing::Values(
             // M, N

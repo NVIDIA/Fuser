@@ -3677,6 +3677,58 @@ INSTANTIATE_TEST_SUITE_P(
 
 using HopperMatmulTest = HopperBase;
 
+void newScheduleTMAStoreForMmaOutput2(TensorView* tv, int64_t m, int64_t n) {
+  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
+  tv->split(-2, m);
+  tv->split(-1, n);
+  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
+  tv->reorder({{-2, -3}});
+
+  // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
+  // skip the first 5 iterDomains
+  int64_t num_ids_to_skip = 5;
+  MmaInputSmemSwizzle swizzle = MmaInputSmemSwizzle::B128;
+
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+    // [Ko, No, K8, N8]
+    num_ids_to_skip += 2;
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+    num_ids_to_skip += 1;
+  }
+
+  // The shared memory producer must have the swizzled allocation domain.
+  // The global memory consumer must have the ParallelType::Bulk iterDomains.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Set the allocation to the loop domain.
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  } else {
+    mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+        tv, num_ids_to_skip);
+  }
+}
+
 TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3687,7 +3739,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
-  constexpr bool use_smem_epilogue = false;
+  constexpr bool use_smem_epilogue = true;
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
@@ -3810,9 +3862,14 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
     // This internally calls
     // mma_utils::MmaSwizzler::scheduleMmaOutputAllocation
+
+    auto initial_tv3_loop_domain = tv3_shmem->getLoopDomain();
+    newScheduleTMAStoreForMmaOutput2(tv3_shmem, 16, 64);
+    tv3_shmem->setLoopDomain(initial_tv3_loop_domain);
     mma_utils::scheduleStMatrixForMmaOutput(tv3_shmem, 16, 16);
 
-    mma_utils::scheduleTMAStoreForMmaOutput(tv3, M, N);
+    // mma_utils::scheduleTMAStoreForMmaOutput(tv3, M, N);
+    newScheduleTMAStoreForMmaOutput2(tv3, 16, 64);
   }
 
   inlineMost();
