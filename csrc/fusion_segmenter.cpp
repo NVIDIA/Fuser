@@ -1885,13 +1885,32 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       for (IterDomain* alloc_id : tv->getAllocationDomain()) {
         new_alloc.push_back(replay.getReplay().at(alloc_id));
       }
+
+      std::vector<IterDomain*> new_loop;
+      if (tv->getLoopDomain() == tv->getAllocationDomain()) {
+        new_loop = new_alloc;
+      } else {
+        NVF_ERROR(
+            tv->getLoopDomain() == tv->getLogicalDomain(),
+            tv,
+            " has an unexpected loop domain:\n",
+            tv->domain()->toString(0, /*loop_only=*/false));
+
+        new_loop = new_logical_domain;
+      }
+
       new_td = IrBuilder::create<TensorDomain>(
           /*root_domain=*/std::vector<IterDomain*>(),
           new_logical_domain,
           new_alloc,
-          /*loop_domain=*/new_alloc,
+          new_loop,
           tv->domain()->contiguity());
     } else {
+      NVF_ERROR(
+          tv->getLoopDomain() == tv->getLogicalDomain(),
+          tv,
+          " has an unexpected loop domain:\n",
+          tv->domain()->toString(0, /*loop_only=*/false));
       new_td = IrBuilder::create<TensorDomain>(
           new_logical_domain, tv->domain()->contiguity());
     }
@@ -1912,7 +1931,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
             /*root_domain=*/std::vector<IterDomain*>{},
             /*logical_domain=*/new_logical,
             /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/TensorDomain::noReductions(new_td->allocation()),
+            /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
             /*contiguity=*/no_red_contiguity);
       } else {
         new_td = IrBuilder::create<TensorDomain>(
