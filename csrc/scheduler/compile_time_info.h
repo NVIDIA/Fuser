@@ -109,7 +109,7 @@ class TvToContigInnerSizeMaps {
 class TvToResizeAlignmentInfoMaps {
  public:
   using DataType = std::
-      unordered_map<TensorView*, vectorize_helper::TensorResizeAlignmentInfo*>;
+      unordered_map<TensorView*, vectorize_helper::TensorResizeAlignmentInfo>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::TV_TO_RESIZE_ALIGNMENT_INFO_MAPS;
 };

@@ -62,9 +62,9 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(
       TensorView* tv,
-      std::unordered_map<
+      const std::unordered_map<
           TensorView*,
-          vectorize_helper::TensorResizeAlignmentInfo*> resize_alignment_map);
+          vectorize_helper::TensorResizeAlignmentInfo>& resize_alignment_map);
 
   //! Returns sizes of tensor dimensions in same order as allocation domain,
   //! ignoring any IterType::Reduction domains in the allocation domain. This

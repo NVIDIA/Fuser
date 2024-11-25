@@ -919,9 +919,9 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
-std::unordered_map<TensorView*, TensorResizeAlignmentInfo*>
+std::unordered_map<TensorView*, TensorResizeAlignmentInfo>
 mapResizeAlignmentToInputs(TensorView* ref) {
-  std::unordered_map<TensorView*, TensorResizeAlignmentInfo*> res;
+  std::unordered_map<TensorView*, TensorResizeAlignmentInfo> res;
   return res;
 }
 
@@ -966,9 +966,9 @@ int64_t getVectorizationFactor(
   auto resize_alignment_maps_entry = HeuristicDataCacheEntry<
       HeuristicCompileTime::TvToResizeAlignmentInfoMaps>(
       data_cache, [&reference_tv]() {
-        return std::make_unique <
-            std::unordered_map<TensorView*, TensorResizeAlignmentInfo*>>(
-                   mapResizeAlignmentToInputs(reference_tv));
+        return std::make_unique<
+            std::unordered_map<TensorView*, TensorResizeAlignmentInfo>>(
+            mapResizeAlignmentToInputs(reference_tv));
       });
 
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
