@@ -896,8 +896,8 @@ class DomainMerger {
     if (merging_inner && swizzle_ != MmaInputSmemSwizzle::None) {
       const int64_t swizzle_size =
           getBytesFromSwizzle(swizzle_) / item_size_bytes_;
-      Val* merging_makes_gt_swizzle_size =
-          SimplifyingIrBuilder::gtExpr(merged_extent, swizzle_size);
+      Val* merging_makes_gt_swizzle_size = SimplifyingIrBuilder::gtExpr(
+          merged_extent, IrBuilder::create<Val>(swizzle_size));
       if (simplifyExpr(merging_makes_gt_swizzle_size)->isTrue()) {
         return false;
       }
