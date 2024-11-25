@@ -2831,7 +2831,8 @@ class TestNvFuserFrontend(NVFuserTest):
             T89 = fd.ops.sum(T98, dims=[4], keepdim=False, dtype=DataType.Null)
             fd.add_output(T89)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        # TODO Segmentation fails validateAllocationSizesAndStrides
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     # This tests no dead code at definition does not cause a problem due to
     # removal of empty tensors
@@ -3237,7 +3238,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T54)
             fd.add_output(T30)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         # self.assertEqual(nvf_out[0], t24)
 
     # Test that symbolic IterDomains can be concatenated
@@ -3769,7 +3770,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T57)
             fd.add_output(T101)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     # A simple pointwise fusion, but passed misaligned input
     def test_misaligned_add(self):
@@ -3935,7 +3936,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(T88)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
     @pytest.mark.skipif(
@@ -3981,7 +3982,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T101 = fd.ops.cat([T7, T100], dim=-1)
             fd.add_output(T101)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
     @pytest.mark.skipif(
@@ -4138,7 +4139,8 @@ class TestNvFuserFrontend(NVFuserTest):
             # T7 = fd.ops.reshape(T1, new_shape=V5)
             fd.add_output(T7)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        # TODO Segmentation fails validateAllocationSizesAndStrides
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     # Test empty symbolic tensors can be reshaped
     # See https://github.com/NVIDIA/Fuser/issues/2362
@@ -4762,7 +4764,7 @@ fd.execute(inputs)
             T223 = fd.ops.cat([T169, T222], dim=-1, manual_padding=0)
             fd.add_output(T223)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     def test_enable_disable_options(self):
         m = 24

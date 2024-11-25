@@ -307,7 +307,6 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
   TensorView* a_t = transpose(a, 1, 2); // (Ko, M, Ki)
   TensorView* c0 = matmul(a_t, b); // (Ko,M,N,r)
-  c0 = segment_set(c0);
   std::vector<int64_t> orig_size = {Ko, M, N};
   std::vector<int64_t> new_size = {Ko, Mo, Mi, N};
   TensorView* c1 = reshape(c0, orig_size, new_size);

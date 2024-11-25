@@ -87,7 +87,9 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
 
     if nvf_op.is_clonable:
-        assert check_cpp_translation(nvfuser_result, fd, inputs_cap)
+        assert check_cpp_translation(
+            nvfuser_result, fd, inputs_cap, supports_segmentation=True
+        )
 
     torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 
