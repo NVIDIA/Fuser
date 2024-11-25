@@ -1123,6 +1123,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Mark the end of segmentation
             inst::Trace::instance()->endEvent(nullptr);
           })
+      .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
+      .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
           "__repr__",
           [](FusionDefinition& self) {

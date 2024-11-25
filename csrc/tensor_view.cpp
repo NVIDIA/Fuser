@@ -1343,7 +1343,8 @@ void TensorView::clearReductionIterDomains() {
 
 void TensorView::circularBuffer(
     int64_t number_of_stages,
-    int64_t prefetch_distance) {
+    int64_t prefetch_distance,
+    CircularBufferType type) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
@@ -1357,6 +1358,7 @@ void TensorView::circularBuffer(
   validateCircularBufferedTensor(this);
   circular_buffer_options_.stage = number_of_stages;
   circular_buffer_options_.prefetch = prefetch_distance;
+  circular_buffer_options_.type = type;
 }
 
 bool TensorView::isEmptyTensor() const {
