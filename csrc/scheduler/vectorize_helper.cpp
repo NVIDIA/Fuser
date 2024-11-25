@@ -967,7 +967,7 @@ int64_t getVectorizationFactor(
           data_cache, [&reference_tv]() {
             return std::make_unique<
                 std::unordered_map<TensorView*, TensorResizeAlignmentInfo*>(
-                mapResizeAlignmentToInputs(ref));
+                mapResizeAlignmentToInputs(reference_tv));
           });
 
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
