@@ -930,7 +930,7 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
   tv1->setAllocationDomain(alloc1.as<IterDomain*>(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32, 4, 2, 8, 8, 8, 2, 8, 4}, options);
+  auto t0 = at::randn({2, 256, 2, 32}, options);
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
