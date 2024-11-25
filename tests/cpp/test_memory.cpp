@@ -881,7 +881,6 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   }
   // Parallelize the tile axes
   tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32, 4, 2, 8, 8, 8, 2, 8, 4}, options);
@@ -914,8 +913,7 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
     id->parallelize(ParallelType::Bulk);
   }
 
-  // Then use 256*32 threads to dump results out
-  tv2->axis(1)->parallelize(ParallelType::TIDy);
+  // Then use 32 threads to dump results out
   tv2->axis(3)->parallelize(ParallelType::TIDx);
 
   // Schedule the allocation domain of tv1 to use 128B swizzle
