@@ -97,12 +97,6 @@ bool isTV(const Val* const);
 // Returns if Expr is a TensorView or TensorIndex Expr.
 NVF_API bool isTvOp(const Expr*);
 
-// Returns the first output of Expr that is a TensorView
-NVF_API TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.

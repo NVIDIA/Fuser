@@ -125,6 +125,9 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       output_permute->axis(0)->parallelize(shard_added_id->getParallelType());
       new_output->axis(sharding_axis_after_permute)
           ->parallelize(shard_added_id->getParallelType());
+      // `output_permute` and `new_output` have inherited mesh from `input`. We
+      // need to change them to `output`'s mesh so communication is only
+      // between `input_permute` and `output_permute`.
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
     }

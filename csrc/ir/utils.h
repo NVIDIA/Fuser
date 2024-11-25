@@ -723,4 +723,14 @@ bool isRecursivelyDefined(Val* val);
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
 
+// Create a ForLoop IR node that represents:
+//   for (int i = 0; i < size; i++)
+ForLoop* createRangeLoop(int64_t size);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
+
 } // namespace nvfuser::ir_utils

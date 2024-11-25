@@ -367,14 +367,14 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     rparams->grid_dim_iter_dom = ParallelType::BIDy;
     if (godim > scheduler_utils::y_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
-      gdimy = std::min(godim, scheduler_utils::y_grid_limit);
+      gdimy = scheduler_utils::y_grid_limit;
     }
 
   } else {
     rparams->grid_dim_iter_dom = ParallelType::BIDx;
-    if (gdimx > scheduler_utils::x_grid_limit) {
+    if (godim > scheduler_utils::x_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
-      gdimx = godim;
+      gdimx = scheduler_utils::x_grid_limit;
     }
   }
 
@@ -746,14 +746,14 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
     rparams->grid_dim_iter_dom = ParallelType::BIDy;
     if (godim > scheduler_utils::y_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
-      gdimy = std::min(godim, scheduler_utils::y_grid_limit);
+      gdimy = scheduler_utils::y_grid_limit;
     }
 
   } else {
     rparams->grid_dim_iter_dom = ParallelType::BIDx;
-    if (gdimx > scheduler_utils::x_grid_limit) {
+    if (godim > scheduler_utils::x_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
-      gdimx = godim;
+      gdimx = scheduler_utils::x_grid_limit;
     }
   }
 
@@ -912,6 +912,23 @@ std::unique_ptr<ReductionParams> heuristicParaToSchedulerPara(
   // bool flip_grid = gidim > 1 && gidim < 8;
   const bool flip_grid = false;
   auto rparams = std::make_unique<ReductionParams>();
+
+  // Configure register count to achieve 50% occupancy with 1024 threads per SM.
+  // Typical thread configurations are 512 or 1024 threads per block, both
+  // evenly divisible. This setup ensures each thread is limited to 64
+  // registers, preventing compilers from allocating more registers per thread,
+  // which could reduce occupancy and degrade performance.
+  int64_t target_threads_per_sm =
+      (int64_t)at::cuda::getCurrentDeviceProperties()
+          ->maxThreadsPerMultiProcessor /
+      2;
+  int64_t threads_per_block = params.bdimx * params.bdimy;
+  int64_t threads_per_sm =
+      scheduler_utils::safeDiv(target_threads_per_sm, threads_per_block) *
+      threads_per_block;
+  int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(threads_per_sm);
+  rparams->cparams.maxrregcount = reg_per_thread;
+
   // cross grid implies cross block
   rparams->cross_block_inner_reduction = params.bdimy > 1 || params.grdim > 1;
   rparams->cross_grid_inner_reduction = params.grdim > 1;
