@@ -10,6 +10,7 @@
 #include <runtime/executor_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/vectorize_helper.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {
@@ -134,7 +135,7 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
   return alignment_size;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
+size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv, std::unordered_map<TensorView*, TensorResizeAlignmentInfo*> resize_alignment_map) {
   auto alignment_entry = alignment_map_.find(tv);
   if (alignment_entry != alignment_map_.end()) {
     return alignment_entry->second;
@@ -148,6 +149,12 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
           alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
     }
   }
+
+  auto resize_id_it = resize_alignment_map.find(tv);
+  if (resize_id_it != resize_alignment_map.end()) {
+    NVF_ERROR(false, "NOT IMPLEMENTED");
+  }
+
   alignment_map_[tv] = alignment_size;
   return alignment_size;
 }

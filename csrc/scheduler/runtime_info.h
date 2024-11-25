@@ -60,7 +60,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  actual alignment info for input tensors to the complete fusion,
   //!  and for other intermediate/fuser-allocated tensors will
   //!  return max_alignment_size_in_byte.
-  size_t getAlignmentSize(TensorView* tv);
+  size_t getAlignmentSize(TensorView* tv, std::unordered_map<TensorView*, TensorResizeAlignmentInfo*> resize_alignment_map);
 
   //! Returns sizes of tensor dimensions in same order as allocation domain,
   //! ignoring any IterType::Reduction domains in the allocation domain. This

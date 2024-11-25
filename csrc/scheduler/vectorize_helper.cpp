@@ -919,6 +919,11 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
+std::unordered_map<TensorView*, TensorResizeAlignmentInfo*> mapResizeAlignmentToInputs(TensorView* ref) {
+  std::unordered_map<TensorView*, TensorResizeAlignmentInfo*> res;
+  return res;
+}
+
 } // namespace
 
 int64_t getVectorizationFactor(
@@ -939,6 +944,10 @@ int64_t getVectorizationFactor(
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
 
+  if (vectorizable_inputs_outputs.empty()) {
+    return 1;
+  }
+
   auto vectorize_maps_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
           data_cache, [&reference_tv, &logical_reorder_map]() {
@@ -948,14 +957,18 @@ int64_t getVectorizationFactor(
                     reference_tv, logical_reorder_map));
           });
 
-  if (vectorizable_inputs_outputs.empty()) {
-    return 1;
-  }
-
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
     return 1;
   }
+
+  auto resize_alignment_maps_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::TvToResizeAlignmentInfoMaps>(
+          data_cache, [&reference_tv]() {
+            return std::make_unique<
+                std::unordered_map<TensorView*, TensorResizeAlignmentInfo*>(
+                mapResizeAlignmentToInputs(ref));
+          });
 
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
@@ -969,7 +982,7 @@ int64_t getVectorizationFactor(
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
 
     // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
+    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out, resize_alignment_maps_entry.get());
     NVF_ERROR(alignment_size % dtype_size == 0);
     max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
 
