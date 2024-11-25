@@ -218,24 +218,26 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   auto tv_loop_groups = graph().toGroups(tv->getLoopDomain());
 
   bool resize_war = false;
-  ValGraphBFS::ExprPath resize_path_from_ref =
-      ValGraphBFS::getExprsBetween(
-          graph(),
-          ref_id_groups_,
-          tv_loop_groups,
-          /*require_all_to_visited=*/false,
-          Direction::Backward)
-          .first;
-  auto unreachable_groups = ValGraphBFS::getUnreachableValsFrom(
-      graph(), ref_id_groups_, tv_loop_groups, resize_path_from_ref);
-  if (unreachable_groups.empty() ||
-      std::all_of(
-          unreachable_groups.begin(),
-          unreachable_groups.end(),
-          [&](const ValGroup& unreachable_group) {
-            return unreachable_group->front()->as<IterDomain>()->isBroadcast();
-          })) {
-    resize_war = true;
+  auto [resize_path_from_ref, all_visited] = ValGraphBFS::getExprsBetween(
+      graph(),
+      ref_id_groups_,
+      tv_loop_groups,
+      /*require_all_to_visited=*/false,
+      Direction::Backward);
+  resize_war = all_visited;
+  if (!all_visited) {
+    auto unreachable_groups = ValGraphBFS::getUnreachableValsFrom(
+        graph(), ref_id_groups_, tv_loop_groups, resize_path_from_ref);
+    if (std::all_of(
+            unreachable_groups.begin(),
+            unreachable_groups.end(),
+            [&](const ValGroup& unreachable_group) {
+              return unreachable_group->front()
+                  ->as<IterDomain>()
+                  ->isBroadcast();
+            })) {
+      resize_war = true;
+    }
   }
 
   // All of the existing IDs are reused as much as possible to
