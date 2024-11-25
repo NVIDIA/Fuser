@@ -383,11 +383,24 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->inner()->extent()->isOneInt()) {
-      mapped_ids.push_back({split->in(), split->outer()});
-    }
-    if (split->outer()->extent()->isOneInt()) {
-      mapped_ids.push_back({split->in(), split->inner()});
+    if (split->factor()->isOneInt()) {
+      if (split->innerSplit()) {
+        mapped_ids.push_back({split->in(), split->outer()});
+      } else {
+        mapped_ids.push_back({split->in(), split->inner()});
+      }
+    } else {
+      // Even when the factor is not known to be 1, as long as the
+      // input and output have the same extent, they should be
+      // mapped. This happens, for example, split 32 by 32 -> 1, 32.
+      if (split->outer()->extent()->sameAs(split->in()->extent())) {
+        NVF_ERROR(split->inner()->extent()->isOneInt());
+        mapped_ids.push_back({split->in(), split->outer()});
+      }
+      if (split->inner()->extent()->sameAs(split->in()->extent())) {
+        NVF_ERROR(split->outer()->extent()->isOneInt())
+        mapped_ids.push_back({split->in(), split->inner()});
+      }
     }
   } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
     if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
