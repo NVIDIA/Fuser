@@ -322,8 +322,8 @@ struct TensorResizeAlignmentInfo {
   // Do not consider offset yet
   // Val* offset_;
 
-  // SchedulerRuntimeInfo::getInputAllocationSizes could be used to check alignment.
-  // field that becomes non-contiguous after resize operations.
+  // SchedulerRuntimeInfo::getInputAllocationSizes could be used to check
+  // alignment. field that becomes non-contiguous after resize operations.
   std::vector<Val*> resized_id;
 };
 

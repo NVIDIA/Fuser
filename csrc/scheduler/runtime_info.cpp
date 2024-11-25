@@ -135,7 +135,11 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
   return alignment_size;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv, std::unordered_map<TensorView*, vectorize_helper::TensorResizeAlignmentInfo*> resize_alignment_map) {
+size_t SchedulerRuntimeInfo::getAlignmentSize(
+    TensorView* tv,
+    std::unordered_map<
+        TensorView*,
+        vectorize_helper::TensorResizeAlignmentInfo*> resize_alignment_map) {
   auto alignment_entry = alignment_map_.find(tv);
   if (alignment_entry != alignment_map_.end()) {
     return alignment_entry->second;
