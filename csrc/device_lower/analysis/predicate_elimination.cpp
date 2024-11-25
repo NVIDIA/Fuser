@@ -232,8 +232,13 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       // parallelized in the same way. Otherwise, needs to be
       // predicated.
       auto c2p_it = c2p_.find(consumer_id);
-      if (c2p_it == c2p_.end() ||
-          c2p_it->second->getParallelType() != consumer_id->getParallelType()) {
+      if (c2p_it == c2p_.end()) {
+        if (consumer_id->isReduction()) {
+          needs_predicate_ = true;
+        }
+        return;
+      }
+      if (c2p_it->second->getParallelType() != consumer_id->getParallelType()) {
         needs_predicate_ = true;
         return;
       }
