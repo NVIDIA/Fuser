@@ -887,7 +887,7 @@ class DomainMerger {
     auto extent1 = (*this)[i + 1]->front()->as<IterDomain>()->extent();
     Val* merged_extent = SimplifyingIrBuilder::mulExpr(extent0, extent1);
 
-    bool merging_inner = ((int64_t)size() == i + 2);
+    bool merging_innermost = ((int64_t)size() == i + 2);
 
     // If merging makes the size of a dimension larger than 256, we should not
     // merge.
@@ -901,7 +901,7 @@ class DomainMerger {
 
     // If merging makes the inner size larger than the swizzle size,
     // we should not merge
-    if (merging_inner && swizzle_ != MmaInputSmemSwizzle::None) {
+    if (merging_innermost && swizzle_ != MmaInputSmemSwizzle::None) {
       const int64_t swizzle_size =
           getBytesFromSwizzle(swizzle_) / item_size_bytes_;
       Val* merging_makes_gt_swizzle_size = SimplifyingIrBuilder::gtExpr(
