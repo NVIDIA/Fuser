@@ -875,6 +875,14 @@ class DomainMerger {
   }
 
   bool shouldMerge(int64_t i) {
+    auto type0 = type(i);
+    auto type1 = type(i + 1);
+
+    bool may_increasing_box_size = (type0 == CB && type1 == CB);
+    if (!may_increasing_box_size) {
+      return true;
+    }
+
     auto extent0 = (*this)[i]->front()->as<IterDomain>()->extent();
     auto extent1 = (*this)[i + 1]->front()->as<IterDomain>()->extent();
     Val* merged_extent = SimplifyingIrBuilder::mulExpr(extent0, extent1);
