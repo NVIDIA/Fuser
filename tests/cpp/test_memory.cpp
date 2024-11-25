@@ -895,7 +895,7 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, DefineBoxByCompositing3) {
+TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -926,7 +926,7 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing3) {
   alloc1.split(1, 4);
   alloc1.split(0, 8);
   // [128, 8, 8, 4]
-  alloc1.swizzle(1, 2, SwizzleType::XOR);
+  alloc1.swizzle(SwizzleType::XOR, 1, 2);
   tv1->setAllocationDomain(alloc1.as<IterDomain*>(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
