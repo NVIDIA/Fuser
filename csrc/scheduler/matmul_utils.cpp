@@ -220,7 +220,7 @@ std::string isMatmulFusionDefinitionSupported(
     const mma_utils::MatmulPattern& pattern,
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& id_roles,
-    const ValGraph& permissive_graph) {
+    const ValGraph& broadcast_graph) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -300,7 +300,7 @@ std::string isMatmulFusionDefinitionSupported(
   // properly handled
   {
     std::vector<ValGroup> dim_ordering = mma_utils::canonicalDimOrdering(
-        tensor_roles, id_roles, permissive_graph);
+        tensor_roles, id_roles, broadcast_graph);
     VectorOfUniqueEntries<MatmulDimRole> role_order;
     for (const ValGroup& g : dim_ordering) {
       const auto it = id_roles.find(g);
@@ -356,16 +356,16 @@ class VectorizationCalculator {
   VectorizationCalculator(
       const mma_utils::TensorRolesMap& tensor_roles,
       const mma_utils::DimRolesMap& dim_roles,
-      const ValGraph& permissive_graph,
+      const ValGraph& broadcast_graph,
       SchedulerRuntimeInfo& runtime_info)
       : runtime_info_(runtime_info),
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
-        permissive_graph_(permissive_graph),
+        broadcast_graph_(broadcast_graph),
         dim_ordering_(mma_utils::canonicalDimOrdering(
             tensor_roles,
             dim_roles_,
-            permissive_graph_)) {}
+            broadcast_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
@@ -443,6 +443,7 @@ class VectorizationCalculator {
       IterDomain* id = tv->getMaybeAllocationDomain().at(i);
       if (id->isBroadcast()) {
         sizes.push_back(1);
+        concrete_contig.push_back(false);
         continue;
       }
       if (id->isReduction()) {
@@ -464,7 +465,7 @@ class VectorizationCalculator {
     for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
       strides[(size_t)i] = sizes[(size_t)i] == 1 ? 0 : stride;
       stride *= sizes[(size_t)i];
-      if (!concrete_contig[(size_t)i]) {
+      if (!concrete_contig.at((size_t)i)) {
         // pad non-concrete dims to next odd value
         stride |= 1l;
       }
@@ -498,7 +499,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = permissive_graph_.toGroup(id);
+      ValGroup g = broadcast_graph_.toGroup(id);
       // Exit when this does not match the given ordered inner dimension
       if (remaining_inner_dims.empty() || g != remaining_inner_dims.back()) {
         break;
@@ -577,7 +578,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = permissive_graph_.toGroup(id);
+      ValGroup g = broadcast_graph_.toGroup(id);
       MatmulDimRole dim_role = dimRole(g);
       if (dim_role == MatmulDimRole::Batch) {
         // We cannot vectorize in batch dimensions
@@ -670,17 +671,17 @@ class VectorizationCalculator {
   SchedulerRuntimeInfo& runtime_info_;
   const mma_utils::TensorRolesMap& tensor_roles_;
   const mma_utils::DimRolesMap& dim_roles_;
-  const ValGraph& permissive_graph_;
+  const ValGraph& broadcast_graph_;
   std::vector<ValGroup> dim_ordering_;
 };
 
 MatmulParams::SupportedVectorization getSupportedVectorization(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph,
+    const ValGraph& broadcast_graph,
     SchedulerRuntimeInfo& runtime_info) {
   VectorizationCalculator calc(
-      tensor_roles, dim_roles, permissive_graph, runtime_info);
+      tensor_roles, dim_roles, broadcast_graph, runtime_info);
   return calc.compute();
 }
 
@@ -708,7 +709,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
 
   // IdModel is used to analyze problem shape & layout
   IdModel id_model(fusion);
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
+  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
 
   const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
 
@@ -730,7 +731,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   mparams->supported_vec_size = getSupportedVectorization(
       tensor_roles,
       id_roles,
-      id_model.idGraph(IdMappingMode::PERMISSIVE),
+      id_model.idGraph(IdMappingMode::BROADCAST),
       runtime_info);
 
   if (matmul_heuristic_plugin::hasPlugin()) {
@@ -867,7 +868,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         patterns.front(),
         tensor_roles,
         id_roles,
-        id_model.idGraph(IdMappingMode::PERMISSIVE));
+        id_model.idGraph(IdMappingMode::BROADCAST));
     if (!support_status.empty()) {
       return support_status;
     }

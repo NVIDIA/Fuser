@@ -23,39 +23,6 @@ namespace nvfuser::MmaOpUtils {
 // The expected number of concrete domains for gemm
 constexpr size_t expected_gemm_cdomains = 2;
 
-// A helper structure used to gather all data created during analysis
-struct MmaOpDetails {
-  using AxesData = MmaOp::AxesData;
-  // Concrete axes from A that are broadcast in B and are not
-  //  reduction in output
-  AxesData m_axes;
-  // Concrete axes from B that are broadcast in A and are not
-  //  reduction in output
-  AxesData n_axes;
-  // Concrete axes from A that are concrete in B and are
-  //  reduction in output
-  AxesData k_axes;
-  // Concrete or broadcast axes that are present in all inputs
-  //  and output
-  AxesData batch_axes;
-};
-
-// A helper structure with pieces of information about TensorView
-struct TensorViewDetails {
-  using AxesData = MmaOp::AxesData;
-  // Broadcast domains
-  AxesData bcasts;
-  // Reduction domains
-  AxesData rdomains;
-  // Concrete domains
-  AxesData cdomains;
-};
-
-MmaOpDetails getMmaOpDetails(
-    TensorView* out,
-    TensorView* in_a,
-    TensorView* in_b);
-
 void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
 
 struct MatmulInputs {
@@ -658,6 +625,25 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+template <typename T>
+std::vector<T> applyPermutation(
+    const std::vector<T>& in,
+    const std::vector<int64_t>& permutation) {
+  NVF_CHECK(in.size() == permutation.size());
+
+  std::vector<int64_t> identity(permutation.size());
+  std::iota(identity.begin(), identity.end(), 0);
+  NVF_CHECK(std::is_permutation(
+      permutation.begin(), permutation.end(), identity.begin()));
+
+  std::vector<T> out;
+  out.reserve(permutation.size());
+  for (auto i : permutation) {
+    out.push_back(in[i]);
+  }
+  return out;
+}
+
 bool hasTrivialAllocationDomain(const TensorView* tv);
 
 // Returns true if all expr outputs should be mapped unconditionally
@@ -736,5 +722,15 @@ bool isRecursivelyDefined(Val* val);
 // Return the number of operations that are used to define val. One
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
+
+// Create a ForLoop IR node that represents:
+//   for (int i = 0; i < size; i++)
+ForLoop* createRangeLoop(int64_t size);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
 
 } // namespace nvfuser::ir_utils

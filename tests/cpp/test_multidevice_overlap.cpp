@@ -400,7 +400,7 @@ TEST_F(
   // tva_j->isProducerOf(tvc_locally_reduced_j) == true
   hic->addOutput(tvc_locally_reduced_j);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -648,7 +648,7 @@ TEST_F(
   hic->addOutput(dst_buffer_ij);
   hic->addOutput(src_buffer_ij);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -688,6 +688,9 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 
   void SetUp() {
     MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
@@ -900,7 +903,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   // tva_j->isProducerOf(tvc_j) == true
   hic->addOutput(tvc_j);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {

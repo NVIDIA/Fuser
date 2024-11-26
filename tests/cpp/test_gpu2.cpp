@@ -1952,7 +1952,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
   // Make sure bad launch params throws
   // TODO: Re-enable once we have parallelization validation in.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  // ASSERT_ANY_THROW(ke.runFusion({t0, t1}, LaunchParams(1, 2, 3, 4, 5, 6)));
+  // ASSERT_ANY_THROW(ke.run({t0, t1}, LaunchParams(1, 2, 3, 4, 5, 6)));
 
   // Don't specify any launch params
   auto cg_outputs = ke.run({t0, t1});
@@ -2593,7 +2593,7 @@ TEST_P(WelfordReduction, Test) {
   // lowering pass will use int64 as the index tpye, since this test saves
   // `tv_N` as index type, it may cause vectorization size validation error. For
   // example, the heuristics set index type to int32 and the max vectorization
-  // factor is 4, if compile para is not passed to compile, the lowering
+  // factor is 4, if compile para is not passed to compileFusion, the lowering
   // pass uses int64 as index type, so the max vectorization factor is 16 bytes
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.

@@ -703,6 +703,9 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
+static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
+    ParallelType::DIDx};
+
 enum class MemoryType { Local, Shared, Global };
 
 // Symbolic: Undetermined between Iteration or Broadcast
@@ -766,7 +769,13 @@ enum class LoadStoreOpType {
 
 // Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
-enum class CircularBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
+enum class CircularBufferLoopStage {
+  Prolog = 0,
+  Main,
+  Epilog,
+  EndOfStages, // A special placeholder used to iterate over all stages
+  NotApplicable
+};
 
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda

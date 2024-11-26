@@ -3734,7 +3734,7 @@ TEST_F(NVFuserTest, FusionSimpleGemm_CUDA) {
   // Make sure bad launch params throws
   // TODO: Re-enable once we have parallelization validation in.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  // ASSERT_ANY_THROW(ke.runFusion({t0, t1}, LaunchParams(1, 2, 3, 4, 5, 6)));
+  // ASSERT_ANY_THROW(ke.run({t0, t1}, LaunchParams(1, 2, 3, 4, 5, 6)));
 
   // Don't specify any launch params
   auto cg_outputs = ke.run({t0, t1});
@@ -6753,6 +6753,8 @@ TEST_F(NVFuserTest, FusionPersistentSoftmaxLocalShared_CUDA) {
 
   TensorView* sx_softmax = div(sx_exp, bcast_sum); // (M, N)
   TensorView* dx_softmax = div(dx_exp, bcast_sum); // (M, N)
+  sx_softmax->setContiguity(false);
+  dx_softmax->setContiguity(false);
   fusion.addOutput(sx_softmax);
   fusion.addOutput(dx_softmax);
 

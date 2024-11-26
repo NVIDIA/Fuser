@@ -167,7 +167,34 @@ class TVDomainGuard;
 // redundant. We can remove them to further optimize the performance, but
 // we decide to keep them for simplicity.
 
+struct Pipelined {
+  bool uses_mbarrier_for_war = false;
+  explicit Pipelined(bool uses_mbarrier_for_war)
+      : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  Pipelined() = default;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+  if (pipelined.uses_mbarrier_for_war) {
+    return os << "PipelinedMBarrierForWAR";
+  }
+  return os << "Pipelined";
+}
+
+using CircularBufferType = std::variant<Pipelined>;
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferType& type) {
+  return std::visit(
+      [&os](const auto& t) -> std::ostream& { return os << t; }, type);
+}
+
 struct CircularBufferOptions {
+  CircularBufferType type =
+      Pipelined(false); // Type of circular buffer. Currently supports:
+                        // - pipelined using syncthreads for WAR hazards
+                        // - pipelined using mbarrier for WAR hazards.
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
@@ -175,7 +202,25 @@ struct CircularBufferOptions {
   bool isEnable() const {
     return stage > 1;
   }
+
+  bool usesMBarrierForWAR() const {
+    return std::holds_alternative<Pipelined>(type) &&
+        std::get<Pipelined>(type).uses_mbarrier_for_war;
+    return false;
+  }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return stage == other.stage && prefetch == other.prefetch;
+  }
 };
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferOptions& options) {
+  return os << "CircularBufferOptions{ stage=" << options.stage
+            << ", prefetch=" << options.prefetch << ", type=" << options.type
+            << " }";
+}
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
@@ -482,10 +527,16 @@ class NVF_API TensorView : public Val {
   //!
   //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
+  //! @param cache_op: cache operator, see enum class CacheOp
+  //! @param propagate_allocation_domain: replay allocation domain on cached
+  //! load
+  //! @param cached_uses: if empty, cache all uses; otherwise, only try to cache
+  //! uses in cached_uses.
   TensorView* cacheAfter(
       LoadStoreOpType op_type = LoadStoreOpType::Set,
       CacheOp cache_op = CacheOp::Unspecified,
-      bool propagate_allocation_domain = true);
+      bool propagate_allocation_domain = true,
+      std::vector<Expr*> cached_uses = {});
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -501,21 +552,18 @@ class NVF_API TensorView : public Val {
 
   // Apply circular buffering transformation. Negative prefetch_distance
   // means "all but", for example, -1 means number_of_stages - 1.
-  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance = -1);
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
     return circular_buffer_options_.isEnable();
   }
 
-  // Returns the depth of circular buffering if applicable.
-  int64_t circularBufferDepth() const {
-    return circular_buffer_options_.stage;
-  }
-
-  // Returns the prefetch of circular buffering if applicable.
-  int64_t circularBufferPrefetchDistance() const {
-    return circular_buffer_options_.prefetch;
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
