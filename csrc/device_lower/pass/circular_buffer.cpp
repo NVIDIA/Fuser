@@ -384,10 +384,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // insert a mbarrier::arrive to signal that we have done with the reading
   // of the buffer and it is ready to be loaded with new data.
   void insertWarMBarrierArriveAfterLastRead() {
-    if (!usesMBarrierForWAR()) {
-      return;
-    }
-    if (!(mayHaveWarHazard() && clonesCompute())) {
+    if (!usesMBarrierForWAR() || !mayHaveWarHazard() || !clonesCompute()) {
       return;
     }
     // Only insert arrive on the top-level loop
