@@ -138,9 +138,7 @@ class LoopDomainScheduler {
     return id_model_->idGraph(IdMappingMode::EXACT);
   }
 
-  ValGraphBFS::ExprPath getReplayPath(
-      TensorView* tv,
-      bool require_all_visited = true) const;
+  ValGraphBFS::ExprPath getReplayPath(TensorView* tv) const;
 
   // Replay an ExprGroup with given lists of input and output
   // groups. NOte that inputs and outputs are based on a given
@@ -339,9 +337,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 //
 // See LoopDomainSchedulingTest.ReshapeTraversalDirection for a
 // concrete example.
-ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
-    TensorView* tv,
-    bool require_all_visited) const {
+ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   // Find the path to the root domain of the tensor. It is important
   // to use the root domain if available since there can be multiple
   // forward paths to the logical domain in the ValGraph. For example,
@@ -362,88 +358,46 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   // with the t4 merge reshape). This issue can be avoided by using the root
   // domain of tv2 as the target of path finding.
 
-  std::cerr << "getReplayPath: " << tv->toString() << ", root; "
-            << toDelimitedString(tv->getMaybeRootDomain()) << ", loop; "
-            << toDelimitedString(tv->getLoopDomain()) << "\n";
-
-  std::cerr << "Ref IDs: " << nvfuser::toString(ref_id_groups_) << "\n";
-
-  // TODO: Should broadcast be ignored? If not all required to be
-  // visited, it shouldn't matter
-  ValGroups tv_loop_domains = graph().toGroups(
-      require_all_visited ? TensorDomain::noBroadcasts(tv->getLoopDomain())
-                          : tv->getLoopDomain());
-
-  std::cerr << "Loop: " << nvfuser::toString(tv_loop_domains) << "\n";
+  ValGroups tv_loop_domains =
+      graph().toGroups(TensorDomain::noBroadcasts(tv->getLoopDomain()));
 
   ValGroups tv_root_domains =
       graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
-
-  std::cerr << "Root: " << nvfuser::toString(tv_root_domains) << "\n";
 
   // If all the target domains are an ancestor of the reference
   // domains, just a single backward BFS should be enough to find a
   // valid path
   if (std::all_of(
-          tv_loop_domains.begin(),
-          tv_loop_domains.end(),
-          [&](const ValGroup& tv_loop_domain) {
-            return all_ancestors_of_ref_.has(tv_loop_domain);
+          tv_root_domains.begin(),
+          tv_root_domains.end(),
+          [&](const ValGroup& tv_root_domain) {
+            return all_ancestors_of_ref_.has(tv_root_domain);
           })) {
-    std::cerr << "Backward only path\n";
     return ValGraphBFS::getExprsBetween(
                graph(),
                ref_id_groups_,
-               tv_loop_domains,
+               tv_root_domains,
                /*require_all_to_visited=*/true,
                Direction::Backward)
         .first;
   }
 
   // Find the forward path from the ancestors to the target tensor
-  auto forward_path_to_root =
-      ValGraphBFS::getExprsBetween(
-          graph(),
-          all_ancestors_of_ref_,
-          tv_root_domains,
-          /*require_all_to_visited=*/require_all_visited,
-          Direction::Forward)
-          .first;
+  auto forward_path = ValGraphBFS::getExprsBetween(
+                          graph(),
+                          all_ancestors_of_ref_,
+                          tv_root_domains,
+                          /*require_all_to_visited=*/true,
+                          Direction::Forward)
+                          .first;
 
-  std::cerr << "Forward path to root\n";
-  for (const auto& [eg, dir] : forward_path_to_root) {
-    std::cerr << dir << " " << eg->front()->toString();
-  }
-
-  auto outputs_of_forward_path =
-      getOutputsOfExprPath(graph(), forward_path_to_root);
+  auto outputs_of_forward_path = getOutputsOfExprPath(graph(), forward_path);
 
   // tv_root_domains may be included in all_ancestors_of_ref_
   outputs_of_forward_path.pushBack(all_ancestors_of_ref_);
 
-  std::cerr << "Outputs for forward_path_to_root: "
-            << nvfuser::toString(outputs_of_forward_path)
-            << ", loop: " << nvfuser::toString(tv_loop_domains) << "\n";
-
-  auto root_to_loop = ValGraphBFS::getExprsBetween(
-                          graph(),
-                          outputs_of_forward_path,
-                          tv_loop_domains,
-                          /*require_all_to_visited=*/require_all_visited,
-                          Direction::Forward)
-                          .first;
-
-  std::cerr << "Root to loop\n";
-  for (const auto& [eg, dir] : root_to_loop) {
-    std::cerr << dir << " " << eg->front()->toString();
-  }
-
-  ValGraphBFS::ExprPath ancestor_to_loop = forward_path_to_root;
-  ancestor_to_loop.insert(
-      ancestor_to_loop.end(), root_to_loop.begin(), root_to_loop.end());
-
   // Find the path from the ref to the forward path.
-  auto inputs_of_forward_path = getInputsOfExprPath(graph(), ancestor_to_loop);
+  auto inputs_of_forward_path = getInputsOfExprPath(graph(), forward_path);
 
   // If tv_root_domain itself is included in the ancestor set, there's
   // no expr but the backward exprs from the reference to the ancestor
@@ -454,39 +408,23 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
     }
   }
 
-  std::cerr << "Inputs of forward path: "
-            << nvfuser::toString(inputs_of_forward_path) << "\n";
+  auto backward_path = ValGraphBFS::getExprsBetween(
+                           graph(),
+                           ref_id_groups_,
+                           inputs_of_forward_path,
+                           /*require_all_to_visited=*/true,
+                           Direction::Backward)
+                           .first;
 
-  auto backward_path_from_ref = ValGraphBFS::getExprsBetween(
-                                    graph(),
-                                    ref_id_groups_,
-                                    inputs_of_forward_path,
-                                    /*require_all_to_visited=*/true,
-                                    Direction::Backward)
-                                    .first;
+  // Overall replay path = backward_path + forward_path
+  ValGraphBFS::ExprPath replay_path;
+  replay_path.reserve(backward_path.size() + forward_path.size());
+  replay_path.insert(
+      replay_path.end(), backward_path.begin(), backward_path.end());
+  replay_path.insert(
+      replay_path.end(), forward_path.begin(), forward_path.end());
 
-  std::cerr << "Backward path from ref\n";
-  for (const auto& [eg, dir] : backward_path_from_ref) {
-    std::cerr << dir << " " << eg->front()->toString();
-  }
-
-  // Overall replay path = backward_path + forward_path_to_root +
-  // forward_path_to_loop
-  ValGraphBFS::ExprPath ref_to_loop;
-  ref_to_loop.reserve(backward_path_from_ref.size() + ancestor_to_loop.size());
-  ref_to_loop.insert(
-      ref_to_loop.end(),
-      backward_path_from_ref.begin(),
-      backward_path_from_ref.end());
-  ref_to_loop.insert(
-      ref_to_loop.end(), ancestor_to_loop.begin(), ancestor_to_loop.end());
-
-  std::cerr << "Final path\n";
-  for (const auto& [eg, dir] : ref_to_loop) {
-    std::cerr << dir << " " << eg->front()->toString();
-  }
-
-  return ref_to_loop;
+  return replay_path;
 }
 
 } // namespace
