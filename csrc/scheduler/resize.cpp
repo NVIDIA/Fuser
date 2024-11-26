@@ -273,7 +273,7 @@ getReferenceTensors(Fusion* fusion) {
             out_tv_i_loop_groups,
             out_tv_j_loop_groups,
             /*require_all_to_visited=*/false);
-        if (!!all_visited) {
+        if (!all_visited) {
           // There are some unreachable loop groups
           continue;
         }
