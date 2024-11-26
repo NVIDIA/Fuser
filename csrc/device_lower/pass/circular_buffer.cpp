@@ -334,6 +334,20 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
         war_mbarriers_to_uses_(getAllWarMbarriersToUses()),
         war_mbarriers_to_wait_(getAllMbarriersToWait()) {}
 
+  bool clonesCircularBufferLoad() const {
+    return loop_type_ == CircularBufferLoopStage::Prolog ||
+        loop_type_ == CircularBufferLoopStage::Main;
+  }
+
+  bool clonesCompute() const {
+    return loop_type_ == CircularBufferLoopStage::Main ||
+        loop_type_ == CircularBufferLoopStage::Epilog;
+  }
+
+  bool mayHaveWarHazard() const {
+    return clonesCircularBufferLoad() && clonesCompute();
+  }
+
   bool usesMBarrierForWAR() const {
     return GpuLower::current()
         ->circularBufferInfo()
@@ -378,8 +392,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       return;
     }
     NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-    // WAR arrive only exists in the main loop
-    if (loop_type_ != CircularBufferLoopStage::Main) {
+    if (!mayHaveWarHazard()) {
       return;
     }
     for (auto it = war_mbarriers_to_uses_.begin();
@@ -465,6 +478,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // Current compute stage: loop_index % stages
   Val* currentComputeStage() const {
+    NVF_ERROR(clonesCompute());
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -486,7 +500,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // `stages - prefetch - 1` pending computations, and we wait for stage
   //   (loop_index + prefetch + 1) % stages
   Val* currentCompletionStage() const {
-    NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
+    NVF_ERROR(mayHaveWarHazard());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -520,6 +534,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   // Current load stage: currentLoadIndex() % stages
   Val* currentLoadStage() const {
+    NVF_ERROR(clonesCircularBufferLoad());
     int64_t stage =
         GpuLower::current()
             ->circularBufferInfo()
@@ -540,6 +555,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
   // for reference.
   Val* currentRawMbarrierParity() const {
+    NVF_ERROR(clonesCompute());
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -559,6 +575,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // The parity used for waiting for the WAR mbarrier:
   //   (currentLoadIndex() / stage_depth) % 2
   Val* currentWarMbarrierParity() const {
+    NVF_ERROR(mayHaveWarHazard());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -577,9 +594,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // TensorView. If so, create the mbarrier::wait expression for the
   // corresponding buffer and update raw_mbarriers_to_wait_.
   void updateRawMbarrierToWaitMap(Expr* expr) {
-    if (loop_type_ == CircularBufferLoopStage::Prolog) {
-      // If we are in the prologue loop, we won't clone expr, so we don't need
-      // to insert mbarrier::wait.
+    if (!clonesCompute()) {
+      // expr won't be cloned, so nothing to worry about RAW hazards
       return;
     }
 
