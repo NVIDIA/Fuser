@@ -587,6 +587,7 @@ MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_CHECK(state->dtype() == DataType::UInt);
+  NVF_THROW("wrong");
   addInput(mbarrier);
   addInput(state);
 }
