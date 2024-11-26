@@ -634,7 +634,8 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // so, create the mbarrier::wait expression for the corresponding buffer and
   // update war_mbarriers_to_wait_.
   void updateWarMbarrierToWaitMap(Expr* expr) {
-    if (!usesMBarrierForWAR()) {
+    if (!usesMBarrierForWAR() || !mayHaveWarHazard() ||
+        !clonesCircularBufferLoad()) {
       return;
     }
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
