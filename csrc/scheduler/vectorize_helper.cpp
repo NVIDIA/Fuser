@@ -929,11 +929,11 @@ mapResizeAlignmentToInputs(TensorView* ref) {
   ValGroups ref_target_domains =
     exact_graph.toGroups(ref->getLogicalDomain());
 
-  std::find << "ref: " << ref->toString(0) << std::endl;
+  std::cout << "ref: " << ref->toString(0) << std::endl;
 
   auto in_tvs = ir_utils::filterByType<TensorView>(ref->fusion()->inputs());
   for (auto inp : in_tvs) {
-    std::find << "\tinp: " << inp->toString(0) << std::endl;
+    std::cout << "\tinp: " << inp->toString(0) << std::endl;
     auto inp_alloc_dom = inp->getMaybeAllocationDomain();
 
     if (inp_alloc_dom.size() <= 1) {
@@ -961,7 +961,7 @@ mapResizeAlignmentToInputs(TensorView* ref) {
           Direction::Forward).first;
 
       
-      std::find << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << " find path: " << fwd_path << std::endl;
+      std::cout << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << " find path: " << fwd_path << std::endl;
 
       // skip non contiguous IDs.
       i = inner_i;
