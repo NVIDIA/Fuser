@@ -2962,7 +2962,7 @@ TEST_F(ResizeTest, Slice3DVectorize1) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const std::vector<int64_t> shape({4, 1025, 3});
+  const std::vector<int64_t> shape({1024, 1025, 3});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3000,7 +3000,7 @@ TEST_F(ResizeTest, Slice3DVectorize2) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const std::vector<int64_t> shape({4, 1, 1025, 3});
+  const std::vector<int64_t> shape({1024, 1, 1025, 3});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
