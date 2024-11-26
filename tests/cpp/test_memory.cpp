@@ -881,7 +881,6 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   }
   // Parallelize the tile axes
   tv1->axis(1)->parallelize(ParallelType::Bulk);
-  // tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32, 4, 2, 8, 8, 8, 2, 8, 4}, options);
@@ -890,6 +889,54 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
 
   EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 5);
   EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, ke.kernel()));
+
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 256, 2, 32});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // Use 1 thread and a single instruction to load the entire tensor to smem
+  for (auto id : tv1->getLoopDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
+
+  // Then use 32 threads to dump results out
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  // Schedule the allocation domain of tv1 to use 128B swizzle
+  AbstractTensor alloc1(tv1->getLoopDomain());
+  alloc1.merge(0);
+  alloc1.merge(0);
+  // [1024, 32]
+  alloc1.split(1, 4);
+  alloc1.split(0, 8);
+  // [128, 8, 8, 4]
+  alloc1.swizzle(SwizzleType::XOR, 1, 2);
+  tv1->setAllocationDomain(alloc1.as<IterDomain*>(), true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 256, 2, 32}, options);
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0}, {}, matmul_cparams);
+
+  // Because merging dims will violate hardware requirement, we do not merge
+  // dims.
+  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 4);
+
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, ke.kernel()));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
