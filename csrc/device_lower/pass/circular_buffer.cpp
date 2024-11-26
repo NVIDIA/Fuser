@@ -302,7 +302,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //   }
 // }
 //
-class ClonePipelinedTmaCircularBufferLoopAndInsertSync
+class CloneTmaCircularBufferLoopAndInsertSync
     : public CircularBufferLoopCloner {
  public:
   static ForLoop* clone(
@@ -310,14 +310,14 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
-    ClonePipelinedTmaCircularBufferLoopAndInsertSync cloner(
+    CloneTmaCircularBufferLoopAndInsertSync cloner(
         circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
 
  private:
-  ClonePipelinedTmaCircularBufferLoopAndInsertSync(
+  CloneTmaCircularBufferLoopAndInsertSync(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
@@ -1416,18 +1416,16 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx and tma load operations
     if (hasPrefetch(circular_buffer_loop)) {
       // If there is no prefetch, then we don't need a prologue loop.
-      ForLoop* prologue_loop =
-          ClonePipelinedTmaCircularBufferLoopAndInsertSync ::clone(
-              circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync ::clone(
+          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
       registerInsertBefore(circular_buffer_loop, prologue_loop);
     }
 
     // Main loop:
     //  - Launch and wait
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
-    ForLoop* main_loop =
-        ClonePipelinedTmaCircularBufferLoopAndInsertSync ::clone(
-            circular_buffer_loop, loads, CircularBufferLoopStage::Main);
+    ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync ::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
 
     if (!hasPrefetch(circular_buffer_loop)) {
@@ -1436,7 +1434,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     }
 
     // We can use exclude argument in
-    // ClonePipelinedTmaCircularBufferLoopAndInsertSync clone to avoid
+    // CloneTmaCircularBufferLoopAndInsertSync clone to avoid
     // duplicating allocations if main loop is trivial.
     std::unordered_set<Expr*> expressions_allocated_in_main_loop;
     getAllocInTrivialLoop(main_loop, expressions_allocated_in_main_loop);
@@ -1444,12 +1442,11 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Epilogue loop:
     //  - wait only
     //  - mbarrier_wait
-    ForLoop* epilogue_loop =
-        ClonePipelinedTmaCircularBufferLoopAndInsertSync ::clone(
-            circular_buffer_loop,
-            loads,
-            CircularBufferLoopStage::Epilog,
-            expressions_allocated_in_main_loop);
+    ForLoop* epilogue_loop = CloneTmaCircularBufferLoopAndInsertSync ::clone(
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::Epilog,
+        expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
   }
 
