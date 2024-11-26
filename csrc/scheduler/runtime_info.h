@@ -63,6 +63,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(
       TensorView* tv,
+      int64_t datatype_size,
       const std::unordered_map<
           TensorView*,
           vectorize_helper::TensorResizeAlignmentInfo>& resize_alignment_map);

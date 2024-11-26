@@ -137,6 +137,7 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
 
 size_t SchedulerRuntimeInfo::getAlignmentSize(
     TensorView* tv,
+    int64_t datatype_size,
     const std::unordered_map<
         TensorView*,
         vectorize_helper::TensorResizeAlignmentInfo>& resize_alignment_map) {
@@ -158,15 +159,13 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
   if (resize_id_it != resize_alignment_map.end()) {
     // get tensor stride
     auto strides = getInputAllocationStrides(tv);
-    // dtype size, multiple with tensor stride to get memory stride
-    const int64_t dtype_size = dataTypeSize(tv->dtype());
     // resize operation makes its inner dimension non-contiguous in access,
     // hence affecting alignment.
     for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
       alignment_size = std::min(
           alignment_size,
           SchedulerRuntimeInfo::computeAlignmentSize(
-              strides[alloc_idx] * dtype_size));
+              strides[alloc_idx] * datatype_size));
     }
   }
 
