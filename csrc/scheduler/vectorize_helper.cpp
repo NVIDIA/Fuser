@@ -1042,6 +1042,9 @@ int64_t getVectorizationFactor(
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(
         inp_or_out, resize_alignment_maps_entry.get());
+    if (alignment_size == 1) {
+      return 1;
+    }
     NVF_ERROR(alignment_size % dtype_size == 0);
     max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
 
