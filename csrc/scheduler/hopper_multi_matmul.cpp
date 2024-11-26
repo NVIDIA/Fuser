@@ -1035,6 +1035,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Set LoadStoreOp
+      // TODO Use LoadStoreOpType::StMatrix on d_smem definition
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
@@ -1279,6 +1280,8 @@ void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
   // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
   tv->reorder({{-2, -3}});
 
+  // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
+  // skip the first 5 iterDomains
   int64_t num_ids_to_skip = 5;
   MmaInputSmemSwizzle swizzle = MmaInputSmemSwizzle::B128;
 
