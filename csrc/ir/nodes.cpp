@@ -677,25 +677,13 @@ void BinaryOp::printHelper(
   bool istvop = ir_utils::isTvOp(this);
   auto op_type = getBinaryOpType();
   if (auto inline_bop = inline_op_str(op_type)) {
-    if (lhs.back() == ')' || std::all_of(lhs.begin(), lhs.end(), [](auto c) {
-          return std::isalnum(c);
-        })) {
-      ss << lhs;
-    } else {
-      ss << "(" << lhs << ")";
-    }
+    ss << lhs;
     if (istvop) {
       ss << "\n";
       indent(ss, indent_size);
     }
     ss << " " << inline_bop.value() << " ";
-    if (rhs.back() == ')' || std::all_of(rhs.begin(), rhs.end(), [](auto c) {
-          return std::isalnum(c);
-        })) {
-      ss << rhs;
-    } else {
-      ss << "(" << rhs << ")";
-    }
+    ss << rhs;
   } else {
     ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&
@@ -3409,17 +3397,13 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::broadcast(int64_t axis, Val* extent, bool predicate) {
+void TensorDomain::broadcast(int64_t axis, Val* extent) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
   IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
   additional_ids_.push_back(id);
-
-  if (predicate) {
-    additional_predicate_ids_.push_back(id);
-  }
 }
 
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {

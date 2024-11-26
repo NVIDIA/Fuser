@@ -621,10 +621,6 @@ class TensorDomain : public Val {
     return additional_ids_;
   }
 
-  const std::vector<IterDomain*>& additionalPredicateIDs() const {
-    return additional_predicate_ids_;
-  }
-
   // Set the loop domain of this TensorDomain.
   NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
 
@@ -662,7 +658,7 @@ class TensorDomain : public Val {
   int64_t rootPosOf(IterDomain* id) const;
 
   //! Create a new broadcast IterDomain with the given extent in the loop domain
-  void broadcast(int64_t axis, Val* extent, bool predicate = false);
+  void broadcast(int64_t axis, Val* extent);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -735,9 +731,6 @@ class TensorDomain : public Val {
   // setLoopDomain
   std::vector<IterDomain*> initial_loop_domain_;
   std::vector<IterDomain*> additional_ids_;
-
-  // TODO
-  std::vector<IterDomain*> additional_predicate_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

@@ -126,28 +126,12 @@ class LoopDomainScheduler {
         graph().disjointValSets().disjointSets();
     all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
         graph(), ref_id_groups_, all_val_groups, Direction::Backward);
-
-    squeezed_slices_ =
-        ir_utils::getSqueezedSlices(ref_loop_dom_.front()->fusion());
-
-    for (auto squeezed_slice : squeezed_slices_) {
-      auto path =
-          ValGraphBFS::getExprsBetween(
-              graph(),
-              ref_id_groups_,
-              graph().toGroups(std::vector<IterDomain*>{squeezed_slice}),
-              /*require_all_to_visited=*/false)
-              .first;
-      squeezed_slice_paths_.emplace(squeezed_slice, path);
-    }
   }
 
   // Create the loop domain of a given tensor as specified by the
   // reference. The new loop domain is connected to the existing IDs of
   // the tensor by replaying exprs found in the ValGraph.
   void schedule(TensorView* tv) const;
-
-  void replaceAndAppend(TensorView* tv) const;
 
  private:
   ValGraph& graph() const {
@@ -196,22 +180,14 @@ class LoopDomainScheduler {
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
-  std::vector<IterDomain*> squeezed_slices_;
-  std::unordered_map<IterDomain*, ValGraphBFS::ExprPath> squeezed_slice_paths_;
 };
 
 void LoopDomainScheduler::schedule(TensorView* tv) const {
   std::cerr << "LoopDomainScheduler::schedule: " << tv->toString() << "\n";
 
-  if (tv->name() == 22) {
-    std::cerr << "All ids: " << toDelimitedString(tv->domain()->allIDs())
-              << "\n";
-  }
-
   // Quick shortcut
   if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
     // No need to change the current loop domain
-    std::cerr << "Already equal\n";
     return;
   }
 
