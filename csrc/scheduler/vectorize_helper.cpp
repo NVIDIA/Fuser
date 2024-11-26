@@ -69,8 +69,6 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
 
-  initializeResizeInfo(reference->fusion());
-
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
