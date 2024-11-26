@@ -157,7 +157,7 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
   auto resize_id_it = resize_alignment_map.find(tv);
   if (resize_id_it != resize_alignment_map.end()) {
     auto strides = getInputAllocationStrides(tv);
-    for (int64_t alloc_idx : resize_id_it->non_contig_idx_alloc) {
+    for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
       alignment_size = std::min(
           alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(strides[alloc_idx]));
     }
