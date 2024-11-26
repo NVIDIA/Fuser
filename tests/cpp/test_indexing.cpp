@@ -1518,8 +1518,10 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
 
       // iS20 is the only ID to index.
       // T3's iS8 is mapped with id15. The AlmostExact graph maps iS15
-      // with iS18 and iS20.
+      // with iS18 but not iS20 since the extent of iS18 is different
+      // from that of iS20.
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      TensorView* tv2 = tv;
       TensorView* tv3 = consumer_tv;
       IterDomain* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
       IterDomain* id9 = id11->definition()->input(1)->as<IterDomain>();
@@ -1527,7 +1529,9 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
           mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
           loop_indices.at(2));
       Val* id8_idx = divExpr(id11_idx, id9->extent());
-      return id8_idx;
+      IterDomain* id20 = tv2->axis(2);
+      Val* id20_idx = modExpr(id8_idx, id20->extent());
+      return id20_idx;
     }
   };
 
