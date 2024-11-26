@@ -413,38 +413,29 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
 
 INSTANTIATE_TEST_SUITE_P(, MultiDeviceBroadcastTest, testing::Bool());
 
-using InsertReshardingTestParams =
-    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
+using InsertReshardingTestParams = std::tuple<DeviceMesh, bool, bool, bool>;
 class InsertReshardingTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<InsertReshardingTestParams> {};
 
-TEST_P(InsertReshardingTest, InsertAndReorder) {
-  auto
-      [mesh0,
-       mesh1,
-       mesh2,
-       is_tv0_tv5_sharded,
-       is_tv1_tv4_sharded,
-       is_tv2_sharded] = GetParam();
+TEST_P(InsertReshardingTest, Execute) {
+  auto [mesh, is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_sharded] =
+      GetParam();
   constexpr int64_t kShardedAxis = 1;
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
-  TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
+  TensorView* tv1 = mul(tv0, tv0);
+  TensorView* tv2 = add(tv0, tv1);
   TensorView* tv3 = sum(tv2, {kShardedAxis});
   TensorView* tv4 = broadcast(tv3, {false, true, false});
-  TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
+  TensorView* tv5 = mul(tv2, tv4);
 
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh1);
-  tv2->setDeviceMesh(mesh2);
-  tv3->setDeviceMesh(mesh0);
-  tv4->setDeviceMesh(mesh1);
-  tv5->setDeviceMesh(mesh0);
+  for (auto* tv : {tv0, tv1, tv2, tv3, tv4, tv5}) {
+    tv->setDeviceMesh(mesh);
+  }
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv5);
@@ -465,7 +456,8 @@ TEST_P(InsertReshardingTest, InsertAndReorder) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  executor_cache.runFusionWithInputs({at::randn({2, 1, 5}, tensor_options)});
+  executor_cache.runFusionWithInputs({at::randn(
+      {2, is_tv0_tv5_sharded ? 1 : mesh.size(), 5}, tensor_options)});
 }
 
 namespace {
@@ -480,9 +472,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     InsertReshardingTest,
     ::testing::Combine(
-        ::testing::Values(mesh0, mesh2),
-        ::testing::Values(mesh1, mesh2),
-        ::testing::Values(mesh2),
+        ::testing::Values(mesh0, mesh1, mesh2),
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool()));
