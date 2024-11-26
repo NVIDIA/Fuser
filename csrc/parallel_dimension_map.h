@@ -41,7 +41,7 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
-  Val* getNumThreadsEachBlock() const;
+  Val* getNumThreadsEachBlockIgnoringWarpSpecialization() const;
 
  private:
   //! TIDx may need to be marked as non-exact as it may be padded to a
@@ -57,6 +57,7 @@ class ParallelDimensionMap {
   //! Set of parallel types whose dimensions are identified to be
   //! exactly the same as extents of mapped domains.
   std::unordered_set<ParallelType> exact_types_;
+  std::unordered_set<ParallelType> warp_specialized_types_;
 };
 
 } // namespace nvfuser

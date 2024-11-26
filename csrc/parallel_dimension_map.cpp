@@ -164,6 +164,7 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
     dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_it->second, 1);
   }
   exact_types_.erase(pt);
+  warp_specialized_types_.insert(pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
@@ -188,12 +189,15 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
-Val* ParallelDimensionMap::getNumThreadsEachBlock() const {
+Val* ParallelDimensionMap::getNumThreadsEachBlockIgnoringWarpSpecialization() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     auto dim = getRaw(pt);
     if (dim == nullptr) {
       continue;
+    }
+    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
+      dim = SimplifyingIrBuilder::subExpr(dim, 1);
     }
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
