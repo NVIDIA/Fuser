@@ -160,7 +160,8 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
     auto strides = getInputAllocationStrides(tv);
     // dtype size, multiple with tensor stride to get memory stride
     const int64_t dtype_size = dataTypeSize(tv->dtype());
-    // resize operation makes its inner dimension non-contiguous in access, hence affecting alignment.
+    // resize operation makes its inner dimension non-contiguous in access,
+    // hence affecting alignment.
     for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
       alignment_size = std::min(
           alignment_size,
