@@ -278,8 +278,12 @@ bool haveDifferentShardings(
         return true;
       }
 
-      if (a == nullptr || b == nullptr) {
-        return false;
+      if (a == nullptr) {
+        return b->isBroadcast();
+      }
+
+      if (b == nullptr) {
+        return a->isBroadcast();
       }
 
       // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
