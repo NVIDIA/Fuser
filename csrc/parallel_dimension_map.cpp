@@ -197,7 +197,7 @@ Val* ParallelDimensionMap::getNumThreadsEachBlockIgnoringWarpSpecialization() co
       continue;
     }
     if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
-      dim = SimplifyingIrBuilder::subExpr(dim, 1);
+      dim = SimplifyingIrBuilder::addExpr(dim, -1);
     }
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
