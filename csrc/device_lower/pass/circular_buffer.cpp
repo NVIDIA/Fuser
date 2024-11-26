@@ -334,14 +334,12 @@ class CloneTmaCircularBufferLoopAndInsertSync
         war_mbarriers_to_uses_(getAllWarMbarriersToUses()),
         war_mbarriers_to_wait_(getAllMbarriersToWait()) {}
 
-  bool clonesCircularBufferLoad() const {
-    return loop_type_ == CircularBufferLoopStage::Prolog ||
-        loop_type_ == CircularBufferLoopStage::Main;
+  bool hasCircularBufferLoad() const {
+    return nvfuser::hasCircularBufferLoad(loop_type_);
   }
 
-  bool clonesCompute() const {
-    return loop_type_ == CircularBufferLoopStage::Main ||
-        loop_type_ == CircularBufferLoopStage::Epilog;
+  bool hasCircularBufferConsume() const {
+    return nvfuser::hasCircularBufferConsume(loop_type_);
   }
 
   // A loop type may have WAR hazard if any of the following is true:
@@ -390,7 +388,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // insert a mbarrier::arrive to signal that we have done with the reading
   // of the buffer and it is ready to be loaded with new data.
   void insertWarMBarrierArriveAfterLastRead() {
-    if (!usesMBarrierForWAR() || !mayHaveWarHazard() || !clonesCompute()) {
+    if (!usesMBarrierForWAR() || !mayHaveWarHazard() ||
+        !hasCircularBufferConsume()) {
       return;
     }
     // Only insert arrive on the top-level loop
@@ -481,7 +480,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Current compute stage: loop_index % stages
   Val* currentComputeStage() const {
-    NVF_ERROR(clonesCompute());
+    NVF_ERROR(hasCircularBufferConsume());
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -503,7 +502,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // `stages - prefetch - 1` pending computations, and we wait for stage
   //   (loop_index + prefetch + 1) % stages
   Val* currentCompletionStage() const {
-    NVF_ERROR(mayHaveWarHazard() && clonesCompute());
+    NVF_ERROR(mayHaveWarHazard() && hasCircularBufferConsume());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -537,7 +536,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Current load stage: currentLoadIndex() % stages
   Val* currentLoadStage() const {
-    NVF_ERROR(clonesCircularBufferLoad());
+    NVF_ERROR(hasCircularBufferLoad());
     int64_t stage =
         GpuLower::current()
             ->circularBufferInfo()
@@ -558,7 +557,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
   // for reference.
   Val* currentRawMbarrierParity() const {
-    NVF_ERROR(clonesCompute());
+    NVF_ERROR(hasCircularBufferConsume());
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -578,7 +577,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // The parity used for waiting for the WAR mbarrier:
   //   (currentLoadIndex() / stage_depth) % 2
   Val* currentWarMbarrierParity() const {
-    NVF_ERROR(mayHaveWarHazard() && clonesCircularBufferLoad());
+    NVF_ERROR(mayHaveWarHazard() && hasCircularBufferLoad());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -597,7 +596,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // TensorView. If so, create the mbarrier::wait expression for the
   // corresponding buffer and update raw_mbarriers_to_wait_.
   void updateRawMbarrierToWaitMap(Expr* expr) {
-    if (!clonesCompute()) {
+    if (!hasCircularBufferConsume()) {
       // expr won't be cloned, so nothing to worry about RAW hazards
       return;
     }
@@ -638,7 +637,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // update war_mbarriers_to_wait_.
   void updateWarMbarrierToWaitMap(Expr* expr) {
     if (!usesMBarrierForWAR() || !mayHaveWarHazard() ||
-        !clonesCircularBufferLoad()) {
+        !hasCircularBufferLoad()) {
       return;
     }
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
