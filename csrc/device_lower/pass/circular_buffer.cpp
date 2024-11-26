@@ -760,6 +760,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
         NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
         mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
       }
+      // Register mbarrier object to be used with LoadStoreOp
+      //  from main loop
+      NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
+      GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
+          ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
     }
 
     // Handle cpAsyncBulk expression with circular buffered TensorView output.
@@ -811,12 +816,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
             ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
             ->withPredicate(ldst->predicate());
 
-    // Register mbarrier object to be used with new LoadStoreOp
-    // from prolog loop
-    NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
-    GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
-        new_ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
-
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
     if (for_loop_stack_.size() == 1) {
@@ -848,12 +847,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
 
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-
-    // Register mbarrier object to be used with LoadStoreOp
-    //  from main loop
-    NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
-    GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
-        ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp
