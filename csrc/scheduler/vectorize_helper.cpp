@@ -969,6 +969,8 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         if (expr->isA<Resize>()) {
           // inner i is resized, we need to push `i` for alignment check
           std::cout << "found it at idx: " << i << " ! ";
+          res[inp].non_contig_idx_alloc.push_back(i);
+          break;
         }
       }
       std::cout << std::endl;
