@@ -433,14 +433,13 @@ TEST_P(InsertReshardingTest, Execute) {
   TensorView* tv4 = broadcast(tv3, {false, true, false});
   TensorView* tv5 = mul(tv2, tv4);
 
-  for (auto* tv : {tv0, tv1, tv2, tv3, tv4, tv5}) {
-    tv->setDeviceMesh(mesh);
-  }
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv5);
 
-  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
+  for (auto* tv : {tv0, tv1, tv2, tv3, tv4, tv5}) {
+    tv->setDeviceMesh(mesh);
+  }
 
   if (is_tv0_tv5_sharded) {
     tv0->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
@@ -455,24 +454,19 @@ TEST_P(InsertReshardingTest, Execute) {
     tv2->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
   }
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
+
   FusionExecutorCache executor_cache(std::move(fusion));
   executor_cache.runFusionWithInputs({at::randn(
       {2, is_tv0_tv5_sharded ? 1 : mesh.size(), 5}, tensor_options)});
 }
 
-namespace {
-
-DeviceMesh mesh0({0});
-DeviceMesh mesh1({1, 2});
-DeviceMesh mesh2({0, 1, 2, 3});
-
-} // namespace
-
 INSTANTIATE_TEST_SUITE_P(
     ,
     InsertReshardingTest,
     ::testing::Combine(
-        ::testing::Values(mesh0, mesh1, mesh2),
+        ::testing::ValuesIn(
+            std::vector<DeviceMesh>({{0}, {0, 1}, {0, 1, 2, 3}})),
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool()));
