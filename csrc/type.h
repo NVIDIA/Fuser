@@ -780,7 +780,7 @@ enum class CircularBufferLoopStage {
 // The circular buffer load expressions are cloned for these circular buffer
 // loop types.
 // e.g., No additional loads are required for the Epilogue stage.
-bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
+inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Prolog ||
       stage == CircularBufferLoopStage::Main;
 }
@@ -788,7 +788,7 @@ bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
 // The consuming expressions of circular buffer are cloned for these circular
 // buffer loop types.
 // e.g., No actual computation occurs in the Prologue stage.
-bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
+inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Main ||
       stage == CircularBufferLoopStage::Epilog;
 }
@@ -799,7 +799,7 @@ bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
 // - The compute *in this loop type* reads circular buffer TVs that, if not
 //   properly handled, could be overwriten by a circular buffer loading
 //   somewhere (*may or may not be in this loop*)
-bool mayHaveWarHazard(CircularBufferLoopStage stage) {
+inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Main;
 }
 
