@@ -907,14 +907,14 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getLogicalDomain();
+  auto logical_dom = ref->getLogicalDomain();
   if (!logical_reorder_map.empty()) {
-    root_dom = TensorDomain::orderedAs(root_dom, logical_reorder_map);
+    logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
-  while (!root_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
+  while (!logical_dom.empty()) {
+    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
                           .getTvToContigMergeOfInnerSizeMap());
-    root_dom.erase(root_dom.begin());
+    logical_dom.erase(logical_dom.begin());
   }
   return mappers;
 }
@@ -922,6 +922,51 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 std::unordered_map<TensorView*, TensorResizeAlignmentInfo>
 mapResizeAlignmentToInputs(TensorView* ref) {
   std::unordered_map<TensorView*, TensorResizeAlignmentInfo> res;
+  auto id_model = std::make_unique<IdModel>(ref->fusion(), /*build_graphs=*/false);
+  id_model->buildExactGraph();
+  auto& exact_graph = id_model->idGraph(IdMappingMode::EXACT);
+
+  ValGroups ref_target_domains =
+    exact_graph.toGroups(ref->getLogicalDomain());
+
+  std::find << "ref: " << ref->toString(0) << std::endl;
+
+  auto in_tvs = ir_utils::filterByType<TensorView>(ref->fusion()->inputs());
+  for (auto inp : in_tvs) {
+    std::find << "\tinp: " << inp->toString(0) << std::endl;
+    auto inp_alloc_dom = inp->getMaybeAllocationDomain();
+
+    if (inp_alloc_dom.size() <= 1) {
+      continue;
+    }
+    
+    const std::vector<std::optional<bool>>& contiguity = inp->getContiguity();
+    for (int64_t i = 0; i < (int64_t)inp_alloc_dom.size()-1; ++i) {
+      // skip non-collapsable IDs.
+      if (!contiguity[i].has_value() || !contiguity[i].value()) {
+        continue;
+      }
+
+      int64_t inner_i = i + 1;
+      while (inner_i < contiguity.size() && !contiguity[inner_i].has_value()) {
+        ++inner_i;
+      }
+
+      // get path from inner ID to ref target domains, if we found any resize, we need to add 
+      auto fwd_path = ValGraphBFS::getExprsBetween(
+          exact_graph,
+          exact_graph.toGroup(inp_alloc_dom[inner_i]),
+          ref_target_domains,
+          /*require_all_to_visited=*/false,
+          Direction::Forward).first;
+
+      
+      std::find << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << " find path: " << fwd_path << std::endl;
+
+      // skip non contiguous IDs.
+      i = inner_i;
+    }
+  }
   return res;
 }
 
