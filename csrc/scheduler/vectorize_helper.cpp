@@ -49,41 +49,11 @@ Val* commonOrConstExtent(
   return ca_map->getConcreteMappedID(id, IdMappingMode::ALMOSTEXACT)->extent();
 }
 
-template <typename ArithOp>
-void retrieveResizeInArithOp(
-    const std::vector<Expr*>& exprs,
-    std::unordered_set<Resize*>& arith_op_set) {
-  for (auto* op : ir_utils::filterByType<ArithOp>(exprs)) {
-    if (!op->out()->template isA<TensorView>()) {
-      continue;
-    }
-
-    auto* out_tv = op->out()->template as<TensorView>();
-
-    auto consumer_exprs = StmtSort::getExprsBetween(
-        {out_tv->getMaybeRootDomain().begin(),
-         out_tv->getMaybeRootDomain().end()},
-        {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
-
-    auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
-    std::copy(
-        resize_ops.begin(),
-        resize_ops.end(),
-        std::inserter(arith_op_set, arith_op_set.end()));
-  }
-}
-
 } // namespace
 
 Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
   return SimplifyingIrBuilder::eqExpr(
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
-}
-
-void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  retrieveResizeInArithOp<PadOp>(exprs, resize_in_pad_);
-  retrieveResizeInArithOp<SliceOp>(exprs, resize_in_slice_);
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
@@ -409,95 +379,49 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
 
     auto pos = std::distance(frontier.begin(), it);
-    if (resize_in_pad_.count(resize_op) != 0) {
-      // resize created by PadOp.
 
-      // project resize op to frontier.
-      frontier[pos] = id_to;
-      // clear left of resize, since those are no long contiguous.
-      frontier.erase(frontier.begin(), it);
+    // project resize op to frontier.
+    frontier[pos] = id_to;
+    // clear left of resize, since those are no long contiguous.
+    frontier.erase(frontier.begin(), it);
 
-      if (recording_) {
-        // TODO: support negative resize extent.
-        //
-        // Limit current support to only positive resize extent for now. So we
-        // only consider the pad_extent, which becomes the real buffer on
-        // output. Hence we do GCD among padded extent as well as extent of the
-        // id_from. Note since we are taking the GCD here, I don't think using
-        // id_from or id_to makes a difference.
-        auto projected_extent = getProjectedExtent(id_from);
-        auto pad_extent = SimplifyingIrBuilder::addExpr(
-            resize_op->leftExpand(), resize_op->leftExpand());
-        if (p2c) {
-          projected_extent =
-              SimplifyingIrBuilder::addExpr(projected_extent, pad_extent);
-        } else {
-          projected_extent =
-              SimplifyingIrBuilder::subExpr(projected_extent, pad_extent);
-        }
-        auto comp = [](Val* factor, Val* extent) {
-          return SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::eqExpr(
-                  extent, extent->container()->zeroVal()),
-              factor,
-              // for extent < 0, we'll take max(1, extent). Because of the gcd,
-              // This is effectively excluding the resize id from vectorization.
-              SimplifyingIrBuilder::gcdExpr(
-                  factor,
-                  SimplifyingIrBuilder::maxExpr(
-                      extent->container()->oneVal(), extent)));
-        };
-        projected_extent = comp(projected_extent, resize_op->leftExpand());
-        projected_extent = comp(projected_extent, resize_op->rightExpand());
-        addProjectedExtent(id_to, projected_extent);
+    if (recording_) {
+      // we need to check slice offset at this point.
+      auto projected_extent = getProjectedExtent(id_from);
+
+      std::vector<Val*> expands = {
+          resize_op->leftExpand(), resize_op->rightExpand()};
+      if (!p2c) {
+        // reverse pad extent for c2p propagation
+        std::for_each(expands.begin(), expands.end(), [](Val*& val) {
+          val = SimplifyingIrBuilder::negExpr(val);
+        });
       }
-    } else if (resize_in_slice_.count(resize_op) != 0) {
-      // resize created by SliceOp.
-      // TODO: merge this with handling of resize in pad, this would also enable
-      // supporting negative resize extent in pad.
 
-      // NOTE: in terms of offset:
-      //   1. slice on non-contiguous dimensions doesn't matter, since we check
-      //   their strides for alignment requirements anyway.
-      //   2. slice on contiguous dimensions:
-      //      2.1 for non innermost slice, does it matter?
-      //      2.2 for innermost slice
+      // resize extent == 0: no resizing, return the factor as-is
+      // resize extent  > 0: padding, take gcd(factor, extent)
+      // resize extent  < 0: slicing, we ignore the resize when slicing on right
+      // (return factor as-is), but we take gcd(abs(factor), extent) when
+      // slicing on left. This is a conservative analysis of the offset for data
+      // accessing. A better approach needs to consider the actual start pointer
+      // address and handle it in alignment analysis in runtime info.
+      auto comp = [](Val* factor, Val* extent, bool is_left) {
+        return SimplifyingIrBuilder::whereExpr(
+            SimplifyingIrBuilder::logicalOrExpr(
+                SimplifyingIrBuilder::eqExpr(
+                    extent, extent->container()->zeroVal()),
 
-      // project resize op to frontier.
-      frontier[pos] = id_to;
-      // clear left of resize, since those are no long contiguous.
-      frontier.erase(frontier.begin(), it);
-
-      if (recording_) {
-        // we need to check slice offset at this point.
-        auto projected_extent = getProjectedExtent(id_from);
-        // NOTE: projected extent to input of slice shouldn't compensate the
-        // resize extent, since we are not accessing those region in the kernel.
-        if (p2c) {
-          projected_extent = SimplifyingIrBuilder::addExpr(
-              projected_extent,
-              SimplifyingIrBuilder::addExpr(
-                  resize_op->leftExpand(), resize_op->leftExpand()));
-        }
-        auto comp = [](Val* factor, Val* extent) {
-          return SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::eqExpr(
-                  extent, extent->container()->zeroVal()),
-              factor,
-              SimplifyingIrBuilder::gcdExpr(
-                  factor,
-                  SimplifyingIrBuilder::whereExpr(
-                      SimplifyingIrBuilder::ltExpr(
-                          extent, extent->container()->zeroVal()),
-                      extent,
-                      SimplifyingIrBuilder::negExpr(extent))));
-        };
-        projected_extent = comp(projected_extent, resize_op->leftExpand());
-        addProjectedExtent(id_to, projected_extent);
-      }
-    } else {
-      // unsupproted resize.
-      frontier.erase(frontier.begin(), it + 1);
+                SimplifyingIrBuilder::logicalAndExpr(
+                    SimplifyingIrBuilder::ltExpr(
+                        extent, extent->container()->zeroVal()),
+                    IrBuilder::create<Val>(!is_left))),
+            factor,
+            SimplifyingIrBuilder::gcdExpr(factor, IrBuilder::absExpr(extent)));
+      };
+      projected_extent = comp(projected_extent, resize_op->leftExpand(), true);
+      projected_extent =
+          comp(projected_extent, resize_op->rightExpand(), false);
+      addProjectedExtent(id_to, projected_extent);
     }
   };
 

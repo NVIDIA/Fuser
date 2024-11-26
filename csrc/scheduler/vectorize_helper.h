@@ -311,11 +311,6 @@ class NVF_API ContiguousInnerDimensionsMapper
       tv_infos_;
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
-
-  //! stores all Resize* op that's added from PadOp*
-  std::unordered_set<Resize*> resize_in_pad_;
-  //! stores all Resize* op that's added from SliceOp*
-  std::unordered_set<Resize*> resize_in_slice_;
 };
 
 // Do not consider offset yet
