@@ -949,7 +949,7 @@ mapResizeAlignmentToInputs(TensorView* ref) {
       }
 
       int64_t inner_i = i + 1;
-      while (inner_i < contiguity.size() && !contiguity[inner_i].has_value()) {
+      while (inner_i < (int64_t)contiguity.size() && !contiguity[inner_i].has_value()) {
         ++inner_i;
       }
 
