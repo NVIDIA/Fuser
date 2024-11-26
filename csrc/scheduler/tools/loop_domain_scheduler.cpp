@@ -104,16 +104,6 @@ class LoopDomainScheduler {
   LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
       : ref_loop_dom_(std::move(ref_loop_dom)) {
     NVF_ERROR(!ref_loop_dom_.empty());
-#if 0
-    // For now, ref must not be a broadcast domain
-    NVF_ERROR(
-        std::none_of(
-            ref_loop_dom_.begin(),
-            ref_loop_dom_.end(),
-            [](IterDomain* id) { return id->isBroadcast(); }),
-        "Broadcast referene not supported: ",
-        toDelimitedString(ref_loop_dom_));
-#endif
     Fusion* fusion = ref_loop_dom_.front()->fusion();
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
     id_model_->buildExactGraph();
@@ -181,8 +171,6 @@ class LoopDomainScheduler {
 };
 
 void LoopDomainScheduler::schedule(TensorView* tv) const {
-  std::cerr << "LoopDomainScheduler::schedule: " << tv->toString() << "\n";
-
   // Quick shortcut
   if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
     // No need to change the current loop domain
@@ -225,8 +213,6 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
     all_id_groups.pushBack(group);
   }
 
-  std::cerr << "All ID Groups: " << nvfuser::toString(all_id_groups) << "\n";
-
   // New loop domain to set for the tv
   std::vector<IterDomain*> loop_domain(ref_loop_dom_.size());
 
@@ -244,8 +230,6 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
       has_missing_ids = true;
       // TODO: Don't force mapping at this point since that may not be necessary
       auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
-      std::cerr << "Cloned ID: " << clone->toString()
-                << ", original: " << ref_loop_dom_.at(i)->toString() << "\n";
       loop_domain.at(i) = clone;
       group_to_id.emplace(ref_id_group, clone);
       all_id_groups.pushBack(ref_id_group);
@@ -254,7 +238,6 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   // If no new ID is created, no expr replay is necessary
   if (!has_missing_ids) {
-    std::cerr << "No missing ids: " << toDelimitedString(loop_domain) << "\n";
     tv->setLoopDomain(loop_domain);
     return;
   }
@@ -266,7 +249,6 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   // Replay the path on the target tensor
   for (const auto& [expr_g, dir] : path_from_ref) {
-    std::cerr << "Visiting " << dir << ", " << expr_g->front()->toString();
     // Skip if the tensor already has the expr
     if (all_existing_expr_groups.has(expr_g)) {
       continue;
@@ -296,21 +278,14 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
       // No need to force exact mapping since this clone is going to
       // be connected with tv
       auto clone = representativeId(output_g)->cloneWithoutRFactor();
-      std::cerr << "Cloned: " << clone->toString()
-                << ", original: " << representativeId(output_g)->toString()
-                << "\n";
       all_id_groups.pushBack(output_g);
       group_to_id[output_g] = clone;
     }
 
-    std::cerr << "Replaying inputs: " << nvfuser::toString(input_groups)
-              << ", outputs: " << nvfuser::toString(output_groups) << "\n";
     auto replayed_expr =
         replay(expr_g, dir, input_groups, output_groups, group_to_id);
-    std::cerr << "Replayed: " << replayed_expr->toString();
   }
 
-  std::cerr << "setLoopDomain: " << toDelimitedString(loop_domain) << "\n";
   tv->setLoopDomain(loop_domain);
 }
 
