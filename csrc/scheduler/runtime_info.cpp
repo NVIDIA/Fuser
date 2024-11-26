@@ -155,11 +155,12 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
   }
 
   auto resize_id_it = resize_alignment_map.find(tv);
+  const int64_t dtype_size = dataTypeSize(tv->dtype());
   if (resize_id_it != resize_alignment_map.end()) {
     auto strides = getInputAllocationStrides(tv);
     for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
       alignment_size = std::min(
-          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(strides[alloc_idx]));
+          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(strides[alloc_idx] * dtype_size));
     }
   }
 
