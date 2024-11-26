@@ -16,6 +16,7 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <iter_visitor.h>
+#include <val_graph_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 
@@ -955,13 +956,21 @@ mapResizeAlignmentToInputs(TensorView* ref) {
       // get path from inner ID to ref target domains, if we found any resize, we need to add 
       auto fwd_path = ValGraphBFS::getExprsBetween(
           exact_graph,
-          exact_graph.toGroup(inp_alloc_dom[inner_i]),
+          {exact_graph.toGroup(inp_alloc_dom[inner_i])},
           ref_target_domains,
           /*require_all_to_visited=*/false,
           Direction::Forward).first;
 
       
-      std::cout << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << " find path: " << fwd_path << std::endl;
+      std::cout << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << " find path: ";
+      for (const auto& [expr_g, dir] : fwd_path) {
+        Expr* expr = expr_g->front();
+        std::cout << expr->toString(0) << ", ";
+        if (expr->isA<Resize>()) {
+          std::cout << "found it at idx: " << i << " ! ";
+        }
+      }
+      std::cout << std::endl;
 
       // skip non contiguous IDs.
       i = inner_i;
