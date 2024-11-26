@@ -24,7 +24,10 @@ void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom);
 
-// Should the Param be ExprGroup?
+// Replay a transform expr on the loop domain of each of the given
+// tensors. If the input of the transform matches with the loop
+// domain, the transform is replayed as a forward op. If the output
+// matches with the loop domain, it's replayed as a backward op.
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
     Expr* transform);

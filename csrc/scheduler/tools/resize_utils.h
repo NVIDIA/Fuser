@@ -16,7 +16,7 @@ class Fusion;
 
 namespace scheduler_tools {
 
-bool propagateSqueezedSliceToOutputs(Fusion* fusion);
+void propagateSqueezedSliceToOutputs(Fusion* fusion);
 
 void propagateResizeTensorOpToInputs(Expr* resize_op);
 

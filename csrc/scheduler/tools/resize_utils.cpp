@@ -17,10 +17,8 @@
 namespace nvfuser {
 namespace scheduler_tools {
 
-bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
+void propagateSqueezedSliceToOutputs(Fusion* fusion) {
   std::cerr << "propagateSqueezedSliceToOutputs\n";
-
-  fusion->printMath();
 
   IdModel id_model(fusion, /*build_models=*/false);
   const auto& graph = id_model.buildExactGraph();
@@ -28,9 +26,6 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
   auto squeezed_slices = ir_utils::getSqueezedSlices(fusion);
   std::unordered_set<IterDomain*> squeezed_slice_set{
       squeezed_slices.begin(), squeezed_slices.end()};
-
-  std::cerr << "All squeezed slices: " << toDelimitedString(squeezed_slices)
-            << "\n";
 
   const auto exprs = fusion->exprs();
 
@@ -43,8 +38,6 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
       continue;
     }
 
-    std::cerr << "Slice: " << slice->toString();
-
     auto slice_out = slice->output(0)->as<TensorView>();
 
     auto dep_outputs = DependencyCheck::getAllValsBetween(
@@ -54,12 +47,6 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
       if (squeezed_slice_set.count(logical_id) == 0) {
         continue;
       }
-
-      std::cerr << "propagateSqueezedSliceToOutputs: slice candidate: "
-                << slice->toString() << ", " << logical_id->toString() << "\n";
-
-      std::cerr << "All dep outputs: " << toDelimitedString(dep_outputs)
-                << "\n";
 
       // squeezed slice found
       // Assume this ID remains in the loop domain
@@ -105,8 +92,6 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
           }
         }
         if (already_done) {
-          // std::cerr << "Already inserted: " << logical_id->toString() <<
-          // "\n";
           continue;
         }
         // Unlikely but this could happen
@@ -124,11 +109,6 @@ bool propagateSqueezedSliceToOutputs(Fusion* fusion) {
       }
     }
   }
-
-  std::cerr << "propagateSqueezedSliceToOutputs done\n";
-  fusion->printMath();
-
-  return true;
 }
 
 void propagateResizeTensorOpToInputs(Expr* resize_op) {
