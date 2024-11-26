@@ -953,6 +953,10 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         ++inner_i;
       }
 
+      if (inner_i == contiguity.size()) {
+        break;
+      }
+
       // get path from inner ID to ref target domains, if we found any resize, we need to add 
       auto fwd_path = ValGraphBFS::getExprsBetween(
           exact_graph,
