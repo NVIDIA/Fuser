@@ -324,7 +324,7 @@ struct TensorResizeAlignmentInfo {
 
   // SchedulerRuntimeInfo::getInputAllocationSizes could be used to check
   // alignment. field that becomes non-contiguous after resize operations.
-  std::vector<Val*> resized_id;
+  std::vector<int64_t> non_contig_idx_alloc;
 };
 
 // logical_reorder_map is provided to assume reference_tv will be reordered per

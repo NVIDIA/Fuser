@@ -967,6 +967,7 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         Expr* expr = expr_g->front();
         std::cout << expr->toString(0) << ", ";
         if (expr->isA<Resize>()) {
+          // inner i is resized, we need to push `i` for alignment check
           std::cout << "found it at idx: " << i << " ! ";
         }
       }

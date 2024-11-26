@@ -156,7 +156,11 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
 
   auto resize_id_it = resize_alignment_map.find(tv);
   if (resize_id_it != resize_alignment_map.end()) {
-    NVF_ERROR(false, "NOT IMPLEMENTED");
+    auto strides = getInputAllocationStrides(tv);
+    for (int64_t alloc_idx : resize_id_it->non_contig_idx_alloc) {
+      alignment_size = std::min(
+          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(strides[alloc_idx]));
+    }
   }
 
   alignment_map_[tv] = alignment_size;
