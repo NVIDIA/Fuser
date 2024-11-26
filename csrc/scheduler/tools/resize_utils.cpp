@@ -18,8 +18,6 @@ namespace nvfuser {
 namespace scheduler_tools {
 
 void propagateSqueezedSliceToOutputs(Fusion* fusion) {
-  std::cerr << "propagateSqueezedSliceToOutputs\n";
-
   IdModel id_model(fusion, /*build_models=*/false);
   const auto& graph = id_model.buildExactGraph();
 
@@ -32,6 +30,7 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
   std::unordered_map<TensorView*, std::unordered_set<IterDomain*>>
       propagated_squeezed_slices;
 
+  // TODO: Does the traversal order matter?
   for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
     auto slice = dynamic_cast<SliceOp*>(*it);
     if (slice == nullptr) {
@@ -43,8 +42,8 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
     auto dep_outputs = DependencyCheck::getAllValsBetween(
         {slice_out}, {fusion->outputs().begin(), fusion->outputs().end()});
 
-    for (const auto logical_id : slice_out->getLogicalDomain()) {
-      if (squeezed_slice_set.count(logical_id) == 0) {
+    for (const auto squeezed_id : slice_out->getLogicalDomain()) {
+      if (squeezed_slice_set.count(squeezed_id) == 0) {
         continue;
       }
 
@@ -54,7 +53,7 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
           std::find(
               slice_out->getLoopDomain().begin(),
               slice_out->getLoopDomain().end(),
-              logical_id) != slice_out->getLoopDomain().end());
+              squeezed_id) != slice_out->getLoopDomain().end());
 
       std::vector<TensorView*> tvs_to_schedule;
       tvs_to_schedule.reserve(dep_outputs.size());
@@ -65,10 +64,9 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
                 tv->getLogicalDomain().end(),
                 [&](IterDomain* id) {
                   return graph.disjointValSets().strictAreMapped(
-                      id, logical_id);
+                      id, squeezed_id);
                 }) != tv->getLogicalDomain().end()) {
-          // Not yet squeezed
-          std::cerr << "Not yet squeezed: " << tv->toString() << "\n";
+          // The ID still exists in tv
           continue;
         }
         tvs_to_schedule.push_back(tv);
@@ -78,15 +76,12 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
         continue;
       }
 
-      std::cerr << "propagate squeezed slice: " << logical_id->toString()
-                << " of " << slice->toString();
-      std::cerr << "To tensors: " << toDelimitedString(tvs_to_schedule) << "\n";
+      // Insert a new broadcast ID for the squeezed ID
       for (auto tv : tvs_to_schedule) {
         // Skip if already inserted
         bool already_done = false;
-        const auto& squeezed_slices = propagated_squeezed_slices[tv];
-        for (const auto& id : squeezed_slices) {
-          if (graph.disjointValSets().strictAreMapped(id, logical_id)) {
+        for (const auto& id : propagated_squeezed_slices[tv]) {
+          if (graph.disjointValSets().strictAreMapped(id, squeezed_id)) {
             already_done = true;
             break;
           }
@@ -94,18 +89,16 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
         if (already_done) {
           continue;
         }
-        // Unlikely but this could happen
-        if (!squeezed_slices.empty()) {
-          std::cerr << "Adding multiple squeezed slices to " << tv->toString()
-                    << "\n";
-        }
+
+        // Insert a broadcast ID at the innermost position
         tv->broadcast(-1);
         auto inserted_broadcast = tv->getLoopDomain().back();
-        std::cerr << "New inserted broadcast for " << tv->toString() << ": "
-                  << inserted_broadcast->toString()
-                  << ", original: " << logical_id->toString() << "\n";
-        tv->fusion()->registerExactMapping(logical_id, inserted_broadcast);
-        propagated_squeezed_slices[tv].emplace(logical_id);
+
+        // Mark the new ID as mapped as the squeezed ID
+        tv->fusion()->registerExactMapping(squeezed_id, inserted_broadcast);
+
+        // Keep track of which squeezed IDs have been processed
+        propagated_squeezed_slices[tv].emplace(squeezed_id);
       }
     }
   }

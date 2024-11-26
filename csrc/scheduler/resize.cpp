@@ -573,8 +573,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
               << updated_def->toString();
   }
 
-  fusion->printMath();
-
   // Having squeezed slices uniformly seems to make things
   // simpler. Part of the reason is the reshape propagation, which
   // would remove broadcast IDs. While it shouldn't matter, losing
