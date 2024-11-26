@@ -160,7 +160,9 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
     auto strides = getInputAllocationStrides(tv);
     for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
       alignment_size = std::min(
-          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(strides[alloc_idx] * dtype_size));
+          alignment_size,
+          SchedulerRuntimeInfo::computeAlignmentSize(
+              strides[alloc_idx] * dtype_size));
     }
   }
 

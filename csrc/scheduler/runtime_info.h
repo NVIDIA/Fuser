@@ -12,6 +12,7 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <runtime/executor_kernel_arg.h>
+#include <scheduler/vectorize_helper.h>
 #include <utils.h>
 #include <visibility.h>
 

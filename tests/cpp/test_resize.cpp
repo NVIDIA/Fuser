@@ -2720,7 +2720,8 @@ TEST_F(ResizeTest, Slice1DVectorize2) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2729,7 +2730,7 @@ TEST_F(ResizeTest, Slice1DVectorize2) {
       tv1->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
-  
+
   testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -2814,7 +2815,8 @@ TEST_F(ResizeTest, Slice1DVectorize3) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2823,7 +2825,7 @@ TEST_F(ResizeTest, Slice1DVectorize3) {
       tv1->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
-  
+
   testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -2942,7 +2944,8 @@ TEST_F(ResizeTest, Slice2DVectorize1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2951,7 +2954,7 @@ TEST_F(ResizeTest, Slice2DVectorize1) {
       tv1->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
-  
+
   testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -2978,12 +2981,13 @@ TEST_F(ResizeTest, Slice3DVectorize1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-  
+
   ASSERT_EQ(pparams->vectorization_factor, 1)
       << "Unexpected factor of vectorization";
-  
+
   testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -3011,12 +3015,13 @@ TEST_F(ResizeTest, Slice3DVectorize2) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 1)
       << "Unexpected factor of vectorization";
-  
+
   testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 

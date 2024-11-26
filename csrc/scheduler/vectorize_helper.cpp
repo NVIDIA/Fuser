@@ -16,9 +16,9 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <iter_visitor.h>
-#include <val_graph_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <val_graph_visitor.h>
 
 #include <c10/util/irange.h>
 
@@ -923,12 +923,12 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 std::unordered_map<TensorView*, TensorResizeAlignmentInfo>
 mapResizeAlignmentToInputs(TensorView* ref) {
   std::unordered_map<TensorView*, TensorResizeAlignmentInfo> res;
-  auto id_model = std::make_unique<IdModel>(ref->fusion(), /*build_graphs=*/false);
+  auto id_model =
+      std::make_unique<IdModel>(ref->fusion(), /*build_graphs=*/false);
   id_model->buildExactGraph();
   auto& exact_graph = id_model->idGraph(IdMappingMode::EXACT);
 
-  ValGroups ref_target_domains =
-    exact_graph.toGroups(ref->getLogicalDomain());
+  ValGroups ref_target_domains = exact_graph.toGroups(ref->getLogicalDomain());
 
   // std::cout << "ref: " << ref->toString(0) << std::endl;
 
@@ -940,16 +940,17 @@ mapResizeAlignmentToInputs(TensorView* ref) {
     if (inp_alloc_dom.size() <= 1) {
       continue;
     }
-    
+
     const std::vector<std::optional<bool>>& contiguity = inp->getContiguity();
-    for (int64_t i = 0; i < (int64_t)inp_alloc_dom.size()-1; ++i) {
+    for (int64_t i = 0; i < (int64_t)inp_alloc_dom.size() - 1; ++i) {
       // skip non-collapsable IDs.
       if (!contiguity[i].has_value() || !contiguity[i].value()) {
         continue;
       }
 
       int64_t inner_i = i + 1;
-      while (inner_i < (int64_t)contiguity.size() && !contiguity[inner_i].has_value()) {
+      while (inner_i < (int64_t)contiguity.size() &&
+             !contiguity[inner_i].has_value()) {
         ++inner_i;
       }
 
@@ -957,16 +958,18 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         break;
       }
 
-      // get path from inner ID to ref target domains, if we found any resize, we need to add 
+      // get path from inner ID to ref target domains, if we found any resize,
+      // we need to add
       auto fwd_path = ValGraphBFS::getExprsBetween(
-          exact_graph,
-          {exact_graph.toGroup(inp_alloc_dom[inner_i])},
-          ref_target_domains,
-          /*require_all_to_visited=*/false,
-          Direction::Forward).first;
+                          exact_graph,
+                          {exact_graph.toGroup(inp_alloc_dom[inner_i])},
+                          ref_target_domains,
+                          /*require_all_to_visited=*/false,
+                          Direction::Forward)
+                          .first;
 
-      
-      // std::cout << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << " find path: ";
+      // std::cout << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << "
+      // find path: ";
       for (const auto& [expr_g, dir] : fwd_path) {
         Expr* expr = expr_g->front();
         // std::cout << expr->toString(0) << ", ";
