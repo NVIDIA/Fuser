@@ -237,7 +237,6 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
       c);
   auto* input_tv = c->input(0)->as<TensorView>();
   auto* output_tv = c->output(0)->as<TensorView>();
-  at::Tensor dummy;
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();

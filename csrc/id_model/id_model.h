@@ -95,7 +95,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Map all iteration domains
 //   Always contain root mappings (otherwise they could have been forwarded in
 //   broadcast)
-// IdMappingMode::AlmostExact
+// IdMappingMode::ALMOSTEXACT
 //   Forward through broadcast axes, but not through to a non-broadcast axis
 //     i.e. id{b1*i0}, id{i0} are mapped
 //          id{i1*i0}, id{i0} are not mapped (this part is the difference from

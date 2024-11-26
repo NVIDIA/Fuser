@@ -9,6 +9,7 @@
 
 #include <compute_at_map.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/multidevice.h>
 #include <visibility.h>
@@ -81,7 +82,8 @@ bool isResharding(const Expr* expr);
 // producer/consumer relationship between the arguments.
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer);
+    const TensorView* consumer,
+    const IdModel& id_model);
 
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
