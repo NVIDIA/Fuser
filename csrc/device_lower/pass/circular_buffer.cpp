@@ -759,12 +759,12 @@ class CloneTmaCircularBufferLoopAndInsertSync
       if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
         NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
         mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
+        // Register mbarrier object to be used with LoadStoreOp
+        //  from main loop
+        NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
+        GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
+            ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
       }
-      // Register mbarrier object to be used with LoadStoreOp
-      //  from main loop
-      NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
-      GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
-          ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
     }
 
     // Handle cpAsyncBulk expression with circular buffered TensorView output.
