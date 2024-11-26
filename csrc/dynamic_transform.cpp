@@ -1048,12 +1048,6 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // check the root to logical transforms to be sure we have concretized any
   // intermediate IterDomains.
 
-  // At this point, there should be no expr beyond rfactor root
-  NVF_ERROR(
-      tv->getLoopDomain() == tv->getLogicalDomain(),
-      "Invalid tensor: ",
-      tv->toString());
-
   // If it has an root domain, the IterTypes of the logical
   // IDs may need to be updated as well. Traverse the rfactor exprs
   // and mutate the IterTypes of output IDs if symbolic.
