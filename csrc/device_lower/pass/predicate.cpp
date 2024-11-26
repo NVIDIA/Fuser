@@ -253,7 +253,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           if (pdim_map.has(pt)) {
             first_warp = SimplifyingIrBuilder::logicalAndExpr(
                 first_warp,
-                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero))
+                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
           }
         }
         return SimplifyingIrBuilder::logicalAndExpr(first_warp, elect_sync_val);
