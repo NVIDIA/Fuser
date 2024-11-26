@@ -233,7 +233,12 @@ class DomainMap : public pointwise_utils::DomainMap {
     for (auto* expr : replay_exprs) {
       if (auto* split = dynamic_cast<Split*>(expr)) {
         if (split->in() == mapped_id) {
-          mapped_id = split->inner();
+          if (split->inner()->extent()->isOneInt() &&
+              !split->outer()->extent()->isOneInt()) {
+            mapped_id = split->outer();
+          } else {
+            mapped_id = split->inner();
+          }
         }
       } else if (auto* merge = dynamic_cast<Merge*>(expr)) {
         // Merge with size-1 dimension is not supposed to be here, reshape would
