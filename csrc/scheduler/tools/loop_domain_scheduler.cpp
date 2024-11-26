@@ -357,10 +357,6 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   // mean the t2 logical domain would have another definition (exactly mapped
   // with the t4 merge reshape). This issue can be avoided by using the root
   // domain of tv2 as the target of path finding.
-
-  ValGroups tv_loop_domains =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getLoopDomain()));
-
   ValGroups tv_root_domains =
       graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
 
@@ -390,11 +386,6 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                           /*require_all_to_visited=*/true,
                           Direction::Forward)
                           .first;
-
-  auto outputs_of_forward_path = getOutputsOfExprPath(graph(), forward_path);
-
-  // tv_root_domains may be included in all_ancestors_of_ref_
-  outputs_of_forward_path.pushBack(all_ancestors_of_ref_);
 
   // Find the path from the ref to the forward path.
   auto inputs_of_forward_path = getInputsOfExprPath(graph(), forward_path);
