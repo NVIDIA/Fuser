@@ -177,8 +177,6 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
     return;
   }
 
-  auto tv_loop_groups = graph().toGroups(tv->getLoopDomain());
-
   // All of the existing IDs are reused as much as possible to
   // minimize creating new IDs.
   auto all_ids = tv->domain()->allIDs();
@@ -223,7 +221,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
     return;
   }
 
-  auto path_from_ref = getReplayPath(tv);
+  const auto path_from_ref = getReplayPath(tv);
 
   const ExprGroups all_existing_expr_groups =
       graph().toGroups(tv->domain()->allExprs());
@@ -319,21 +317,15 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   ValGroups tv_target_domains =
       graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
 
-  std::vector<ValGroup> all_val_groups =
-      graph().disjointValSets().disjointSets();
-  auto all_ancestors_of_ref = ValGraphBFS::getReachableValsFrom(
-      graph(), ref_id_groups_, all_val_groups, Direction::Backward);
-
   // If all the target domains are an ancestor of the reference
   // domains, just a single backward BFS should be enough to find a
   // valid path
   if (std::all_of(
           tv_target_domains.begin(),
           tv_target_domains.end(),
-          [&](const ValGroup& tv_root_domain) {
-            return all_ancestors_of_ref.has(tv_root_domain);
+          [&](const ValGroup& tv_target_domain) {
+            return all_ancestors_of_ref_.has(tv_target_domain);
           })) {
-    std::cerr << "Using short cut for " << tv->toString() << "\n";
     return ValGraphBFS::getExprsBetween(
                graph(),
                ref_id_groups_,
@@ -341,15 +333,6 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                /*require_all_to_visited=*/true,
                Direction::Backward)
         .first;
-  }
-
-  if (tv->name() == 122) {
-    std::cerr << "Finding missing ID for " << tv->toString() << "\n";
-    for (const auto& g : tv_target_domains) {
-      if (!all_ancestors_of_ref.has(g)) {
-        std::cerr << "Missing: " << g->front()->toString() << "\n";
-      }
-    }
   }
 
   // Find the forward path from the ancestors to the target tensor
