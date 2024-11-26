@@ -345,7 +345,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   }
 
   bool mayHaveWarHazard() const {
-    return clonesCircularBufferLoad() && clonesCompute();
+    return loop_type_ == CircularBufferLoopStage::Main;
   }
 
   bool usesMBarrierForWAR() const {
@@ -387,14 +387,14 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
     if (!usesMBarrierForWAR()) {
       return;
     }
+    if (!(mayHaveWarHazard() && clonesCompute())) {
+      return;
+    }
     // Only insert arrive on the top-level loop
     if (for_loop_stack_.size() != 1) {
       return;
     }
     NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-    if (!mayHaveWarHazard()) {
-      return;
-    }
     for (auto it = war_mbarriers_to_uses_.begin();
          it != war_mbarriers_to_uses_.end();) {
       auto& uses = it->second;
@@ -500,7 +500,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // `stages - prefetch - 1` pending computations, and we wait for stage
   //   (loop_index + prefetch + 1) % stages
   Val* currentCompletionStage() const {
-    NVF_ERROR(mayHaveWarHazard());
+    NVF_ERROR(mayHaveWarHazard() && clonesCompute());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -575,7 +575,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // The parity used for waiting for the WAR mbarrier:
   //   (currentLoadIndex() / stage_depth) % 2
   Val* currentWarMbarrierParity() const {
-    NVF_ERROR(mayHaveWarHazard());
+    NVF_ERROR(mayHaveWarHazard() && clonesCircularBufferLoad());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
