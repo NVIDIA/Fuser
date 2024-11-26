@@ -344,6 +344,12 @@ class CloneTmaCircularBufferLoopAndInsertSync
         loop_type_ == CircularBufferLoopStage::Epilog;
   }
 
+  // A loop type may have WAR hazard if any of the following is true:
+  // - The load *in this loop type* may overwrite a buffer being read by a
+  //   compute somewhere (*may or may not in this loop*)
+  // - The compute *in this loop type* reads circular buffer TVs that, if not
+  //   properly handled, could be overwrite by a circular buffer loading
+  //   somewhere (*may or may not in this loop*)
   bool mayHaveWarHazard() const {
     return loop_type_ == CircularBufferLoopStage::Main;
   }
