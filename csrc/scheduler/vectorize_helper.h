@@ -318,10 +318,9 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_set<Resize*> resize_in_slice_;
 };
 
+// Do not consider offset yet
+// Val* offset_;
 struct TensorResizeAlignmentInfo {
-  // Do not consider offset yet
-  // Val* offset_;
-
   // SchedulerRuntimeInfo::getInputAllocationSizes could be used to check
   // alignment. field that becomes non-contiguous after resize operations.
   std::vector<int64_t> non_contig_idx_alloc;
