@@ -876,7 +876,7 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         ++inner_i;
       }
 
-      if (inner_i == contiguity.size()) {
+      if (inner_i == (int64_t)contiguity.size()) {
         break;
       }
 
