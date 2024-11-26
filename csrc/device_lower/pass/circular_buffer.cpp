@@ -342,14 +342,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     return nvfuser::hasCircularBufferConsume(loop_type_);
   }
 
-  // A loop type may have WAR hazard if any of the following is true:
-  // - The load *in this loop type* may overwrite a buffer being read by a
-  //   compute somewhere (*may or may not be in this loop*)
-  // - The compute *in this loop type* reads circular buffer TVs that, if not
-  //   properly handled, could be overwriten by a circular buffer loading
-  //   somewhere (*may or may not be in this loop*)
   bool mayHaveWarHazard() const {
-    return loop_type_ == CircularBufferLoopStage::Main;
+    return nvfuser::mayHaveWarHazard(loop_type_);
   }
 
   bool usesMBarrierForWAR() const {
