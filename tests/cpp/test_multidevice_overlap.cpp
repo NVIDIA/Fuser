@@ -73,7 +73,7 @@ class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterf
 
 std::map<std::string, float> OverlapBenchmark::times = {};
 
-TEST_P(OverlapBenchmark, DummyBenchmark) {
+TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
   constexpr int64_t number_of_warmups = 50;
   constexpr int64_t number_of_iterations = 100;
   constexpr int64_t iteration_profiler_start = 10;
@@ -106,6 +106,7 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
   auto ta = at::randn({S, M/S,K}, options);
   auto ta_unsharded = at::empty({S, D, M/S,K}, options);
   auto tb = at::randn({K,N}, options);
+  auto tc = at::empty({S, D, M/S, N}, options);
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -140,6 +141,7 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
 
         auto ta_j = ta.select(0, j);
         auto ta_unsharded_j = ta_unsharded.select(0, j);
+        auto tc_j = ta_unsharded.select(0, j);
 
         // communication
         world->_allgather_base(ta_unsharded_j, ta_j)->wait();
@@ -149,7 +151,7 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
         }
         if (unfuse_loops == false) {
           // compute
-          auto tc_j = torch::matmul(ta_unsharded_j,tb);
+          torch::matmul_out(tc_j, ta_unsharded_j,tb);
         }
       }
       if (unfuse_loops) {
@@ -157,9 +159,10 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
           int64_t stream_index = j % streams.size();
           setCurrentCUDAStream(streams.at(stream_index));
           auto ta_unsharded_j = ta_unsharded.select(0, j);
+          auto tc_j = ta_unsharded.select(0, j);
 
           // compute
-          auto tc_j = torch::matmul(ta_unsharded_j,tb);
+          torch::matmul_out(tc_j, ta_unsharded_j,tb);
         }
       }
       if (iteration == iteration_cuda_graph_capture) {
