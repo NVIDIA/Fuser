@@ -1426,8 +1426,9 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Concrete) {
   fusion->addInput(in);
   fusion->addOutput(out);
 
-  in->split(0, 2);
-  in->setAllocationDomain(in->getLoopDomain(), true);
+  auto [outer, inner] = IterDomain::split(
+      in->axis(0), IrBuilder::create<Val>(2, DataType::Index), true);
+  in->setAllocationDomain({outer, inner}, true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
