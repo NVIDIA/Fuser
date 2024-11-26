@@ -383,7 +383,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
   // If we have visited the last use of a circular buffer tensor, then we
   // insert a mbarrier::arrive to signal that we have done with the reading
   // of the buffer and it is ready to be loaded with new data.
-  void insertMBarrierArriveAfterLastRead() {
+  void insertWarMBarrierArriveAfterLastRead() {
     if (!usesMBarrierForWAR()) {
       return;
     }
@@ -468,7 +468,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
       }
     }
 
-    insertMBarrierArriveAfterLastRead();
+    insertWarMBarrierArriveAfterLastRead();
   }
 
   // Current compute index: loop_index
@@ -763,7 +763,7 @@ class ClonePipelinedTmaCircularBufferLoopAndInsertSync
 
   handle_war:
     updateWarMbarrierUseMap(expr);
-    insertMBarrierArriveAfterLastRead();
+    insertWarMBarrierArriveAfterLastRead();
   }
 
   // Replace cpAsyncBulk type LoadStoreOp with:
