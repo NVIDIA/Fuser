@@ -28,7 +28,7 @@ class SegmentedFusion;
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
   std::unique_ptr<HeuristicParams> params = nullptr;
-  KernelExecutor* fusion_executor = nullptr;
+  ExecutorAbstract* fusion_executor = nullptr;
 };
 
 struct RuntimeWorkSpace {

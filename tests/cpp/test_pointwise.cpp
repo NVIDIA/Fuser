@@ -730,4 +730,47 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_outer_unroll_" << std::get<2>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
+  // Pointwise scheduler applies permutation to restore contiguous memory access
+  // on reference TV. Vectorization validation requires vectorized operations to
+  // preserve the allocation domain of their inputs. This test checks that PadOp
+  // propagates the allocation domain properly.
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // input is permuted
+  auto tv0 = TensorViewBuilder()
+                 .shape({1024, 1024})
+                 .dtype(DataType::Float)
+                 .contiguity(true)
+                 .strideOrder({0, 1})
+                 .build();
+  fusion.addInput(tv0);
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  auto tv2 = relu(tv1);
+  fusion.addOutput(tv2);
+  // output is permuted
+  tv2->setAllocationDomain({tv2->axis(1), tv2->axis(0)}, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 =
+      at::randn({1024 * 1024}, options).as_strided({1024, 1024}, {1, 1024});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  // check that we vectorize 4
+  bool found_vectorize = false;
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluate(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser

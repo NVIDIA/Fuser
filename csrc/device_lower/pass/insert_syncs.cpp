@@ -253,6 +253,12 @@ class WarSyncInserter : private kir::ExprMutator {
     std::vector<TensorView*> to_erase;
     bool insert_sync = false;
     for (auto& entry : smem_allocations_) {
+      if (entry.first->isCircularBuffered() &&
+          entry.first->circularBufferOptions().usesMBarrierForWAR()) {
+        // If we are using mbarriers for WAR, we don't need to insert block
+        // syncs because the mbarriers will handle it.
+        continue;
+      }
       auto& alloc_stack = entry.second;
       if (!alloc_stack.empty() && alloc_stack.back().ca_loop == for_loop) {
         if (!alloc_stack.back().sync_after_read &&
@@ -700,7 +706,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
             (!tv->isCircularBuffered() ||
-             tv->circularBufferPrefetchDistance() == 0)) {
+             tv->circularBufferOptions().prefetch == 0)) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async
@@ -971,12 +977,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           "Only main circular buffer loop needs WAR async wait, ",
           "so the code should not reach here. Stage:",
           stage);
-      const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-      const auto prefetch_distance =
-          gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+
+      const auto& opt =
+          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               circular_buffer_loop->iter_domain());
-      pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
+      pending_ops = std::min(pending_ops, opt.stage - opt.prefetch - 1);
     }
     return pending_ops;
   }

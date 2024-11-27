@@ -2768,7 +2768,6 @@ class AllocationDomainTest
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     mparams.mma_macro = MmaMacro::Ampere_16_8_16;
     mparams.supported_vec_size = {8, 8, 4};
@@ -3159,9 +3158,6 @@ class HopperMatmulSchedulerTest
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
     gemm_tile.warp_tile = GemmTile(64, 128, 16);
-
-    // TODO remove instruction tile
-    gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
     mparams.supported_vec_size = {8, 8, 4};
 

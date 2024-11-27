@@ -1495,6 +1495,31 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       if (tv->name() != 2 || as_consumer) {
         return nullptr;
       }
+
+      // T2_l_float[ iS14{( ceilDiv(i0, 3) )}, iS19{1}, iS20{5}, bS17{4} ]
+      // ca_pos( 1 ) logical domain : (iS3{i0}, bS4{1}) contiguity: t n
+      //  Split: iS3{i0} by factor 3 -> iS14{( ceilDiv(i0, 3) )}, iS15{3}
+      //  Split: bS4{1} by factor 4 -> bS16{1}, bS17{4}
+      //  Merge: iS15{3} and bS16{1} -> iS18{3}
+      //  Split: iS18{3} by factor 5 -> iS19{1}, iS20{5}
+      // loop domain : (iS14{( ceilDiv(i0, 3) )}, iS19{1}, iS20{5}, bS17{4})
+
+      // T3_g_float[ iS7{( ceilDiv(i2, 3) )}, iS12{( ceilDiv(( ( ceilDiv(i3, 4)
+      // ) * 3 ), 5) )}, iS13{5}, iS10{4} ] ca_pos( 1 ) produce_pos( 1 )
+      //  logical domain : (iS5{i2}, iS6{i3})
+      //  contiguity: t t
+      //   Split: iS5{i2} by factor 3 -> iS7{( ceilDiv(i2, 3) )}, iS8{3}
+      //   Split: iS6{i3} by factor 4 -> iS9{( ceilDiv(i3, 4) )}, iS10{4}
+      //   Merge: iS8{3} and iS9{( ceilDiv(i3, 4) )} -> iS11{( ( ceilDiv(i3, 4)
+      //   ) * 3 )} Split: iS11{( ( ceilDiv(i3, 4) ) * 3 )} by factor 5 ->
+      //   iS12{( ceilDiv(( ( ceilDiv(i3, 4) ) * 3 ), 5) )}, iS13{5}
+      //  loop domain : (iS7{( ceilDiv(i2, 3) )}, iS12{( ceilDiv(( ( ceilDiv(i3,
+      //  4) ) * 3 ), 5) )}, iS13{5}, iS10{4})
+
+      // iS20 is the only ID to index.
+      // T3's iS8 is mapped with id15. The AlmostExact graph maps iS15
+      // with iS18 but not iS20 since the extent of iS18 is different
+      // from that of iS20.
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       TensorView* tv2 = tv;
       TensorView* tv3 = consumer_tv;
@@ -1504,8 +1529,6 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
           mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
           loop_indices.at(2));
       Val* id8_idx = divExpr(id11_idx, id9->extent());
-      // id8 is mapped with id15, which should also be mapped with
-      // id18
       IterDomain* id20 = tv2->axis(2);
       Val* id20_idx = modExpr(id8_idx, id20->extent());
       return id20_idx;
@@ -5231,6 +5254,41 @@ TEST_F(IndexingTest, Issue3374) {
   auto t2 = at::randn(shape3, options);
   auto t3 = at::randn(shape3, options);
   std::vector<c10::IValue> inputs{t0, t1, t2, t3};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repro of issue #3299
+TEST_F(IndexingTest, Issue3299) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128000, 1024};
+  std::vector<int64_t> shape2{128000, 8, 128};
+  std::vector<int64_t> shape3{8, 4, 128000, 128};
+  std::vector<int64_t> shape4{32, 128000, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, shape1, shape2);
+  auto tv2 = permute(tv1, {1, 0, 2});
+  auto tv3 = broadcast(tv2, {false, true, false, false});
+  auto tv4 = expand(
+      tv3,
+      {IrBuilder::create<Val>(shape3[0], DataType::Index),
+       IrBuilder::create<Val>(shape3[1], DataType::Index),
+       IrBuilder::create<Val>(shape3[2], DataType::Index),
+       IrBuilder::create<Val>(shape3[3], DataType::Index)});
+  auto tv5 = reshape(tv4, shape3, shape4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  std::vector<c10::IValue> inputs{t0};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);

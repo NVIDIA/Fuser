@@ -807,13 +807,6 @@ bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
-bool isExpressionEvaluated(Fusion* fusion) {
-  return std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
-}
-
 namespace {
 std::vector<TensorView*> findAllTvs(Fusion* fusion) {
   auto used_vals = fusion->usedMathVals();

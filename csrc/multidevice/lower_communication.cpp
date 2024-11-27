@@ -8,6 +8,7 @@
 #include <device_lower/utils.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
@@ -232,10 +233,10 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
   NVF_ERROR(
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
-      "I/O must be TensorViews");
+      "Input/Output must be single TensorView: ",
+      c);
   auto* input_tv = c->input(0)->as<TensorView>();
   auto* output_tv = c->output(0)->as<TensorView>();
-  at::Tensor dummy;
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();

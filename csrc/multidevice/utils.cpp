@@ -7,6 +7,8 @@
 // clang-format on
 
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
+#include <instrumentation.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -104,10 +106,8 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  const auto& logical_ids = TensorDomain::noReductions(tv->getLogicalDomain());
-  const auto& loop_ids = TensorDomain::noReductions(tv->getLoopDomain());
-  for (auto i : c10::irange(loop_ids.size())) {
-    if (!loop_ids[i]->isDeviceDim()) {
+  for (IterDomain* id : tv->getLoopDomain()) {
+    if (!id->isDeviceDim()) {
       continue;
     }
 
@@ -116,14 +116,6 @@ bool isSharded(const TensorView* tv) {
         !is_sharded,
         "Multiple IterDomains parallelized on DIDx in TensorView ",
         tv);
-
-    // Currently do not support split/merge on a device dimension.
-    NVF_ERROR(
-        std::find(logical_ids.begin(), logical_ids.end(), loop_ids[i]) !=
-            logical_ids.end(),
-        "Cannot parallelize DIDx on a split/merge axis ",
-        loop_ids[i]);
-
     is_sharded = true;
   }
   return is_sharded;
@@ -136,56 +128,199 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
+namespace {
+// Collect device-parallel IterDomains in `loop_domain` and return them as a
+// ParallelType-to-IterDomain map.
+std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
+    const std::vector<IterDomain*>& loop_domain) {
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
+  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+  for (IterDomain* loop_id : loop_domain) {
+    const ParallelType parallel_type = loop_id->getParallelType();
+    if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    NVF_ERROR(
+        parallel_type_to_id.try_emplace(parallel_type, loop_id).second,
+        "Found multiple loop IterDomains with the same parallel type (",
+        parallel_type,
+        "): ",
+        toDelimitedString(loop_domain));
+  }
+  return parallel_type_to_id;
+}
+
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain) {
+  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+      {loop_id}, {target_domain.begin(), target_domain.end()});
+
+  std::vector<IterDomain*> inputs_as_iter_domains;
+  inputs_as_iter_domains.reserve(inputs_as_vals.size());
+  std::transform(
+      inputs_as_vals.begin(),
+      inputs_as_vals.end(),
+      std::back_inserter(inputs_as_iter_domains),
+      [](Val* val) { return val->as<IterDomain>(); });
+  return inputs_as_iter_domains;
+}
+
+bool overlaps(
+    const std::vector<IterDomain*>& a,
+    const std::unordered_set<IterDomain*>& b) {
+  return std::any_of(
+      a.begin(), a.end(), [&](IterDomain* id) { return b.count(id); });
+}
+
+} // namespace
+
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer) {
+    const TensorView* consumer,
+    const IdModel& id_model) {
   // cpu scalars are not required to have a mesh
   if (producer->isCpuScalar() || consumer->isCpuScalar()) {
     return false;
   }
+
   // exit early in the unsharded case for performance
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
     return false;
   }
+
   // If device mesh are different, the Expr is resharding
-  if (!(producer->getDeviceMesh() == consumer->getDeviceMesh())) {
+  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
     return true;
   }
-  // Create a map between producer's and consumer's IterDomains. We iterate
-  // over producer's iterdomain and compare sharding type with consumer's
-  // iterdomain
+
+  // The rest of this function tries to do the following: for each pair of
+  // logical-domain-mapped IterDomains (i.e. those mapped by
+  // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
+  // returns true. For example,
+  //
+  //   a: iDIDx{M}, iK
+  //   b: iK, iDIDy{N}
+  //   c = matmul(a, b): iDIDx{M}, iDIDy{N}
+  //
+  // haveDifferentShardings(a, c) only cares about iM, which is
+  // logical-domain-mapped, but not iK or iN, which are not
+  // logical-domain-mapped.
+  //
+  // One challenge is that DID parallelization doesn't always
+  // happen on the root/logical IterDomains. For example, a root/logical
+  // IterDomain may be outer-split by the number of devices, and only the outer
+  // split gets parallelized on DID.
+  //
+  //   logical: iM
+  //   loop: iDIDx{D}, iM/D
+  //
+  // Therefore, we collect all the loop IterDomains that depend on the
+  // logical-domain-mapped IterDomains, and check if they are DID-parallelized
+  // consistently.
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
-    const auto i = p2c.find(p_id);
+  std::unordered_set<IterDomain*> mapped_p_logical_ids;
+  mapped_p_logical_ids.reserve(p2c.size());
+  std::unordered_set<IterDomain*> mapped_c_root_ids;
+  mapped_c_root_ids.reserve(p2c.size());
+  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
+    const auto i = p2c.find(p_logical_id);
     if (i == p2c.end()) {
-      // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
-      // parallelized on DID, the squeezed dimension is size-1 and doesn't
-      // trigger resharding.
+      // This happens e.g. when `p_logical_id` is squeezed or is a product of a
+      // reduction. Even if `p_logical_id` is parallelized on DID, the
+      // dimension is size-1 and doesn't trigger resharding.
       continue;
     }
+    mapped_p_logical_ids.insert(p_logical_id);
+    mapped_c_root_ids.insert(i->second);
+  }
 
-    auto c_id = i->second;
-    if (p_id->getParallelType() != c_id->getParallelType() &&
-        (p_id->isDeviceDim() || c_id->isDeviceDim())) {
-      // Mismatch found
+  // In practice, only loop IterDomains can be parallelized, and no two loop
+  // IterDomains in a TensorView can have the same parallel type. Therefore, we
+  // do the check in reverse order for efficiency and simplicity:
+  // 1. For each DID parallel type, find the loop IterDomain in producer and the
+  // one in consumer that have the type.
+  // 2. Find what IterDomains they come from in producer's logical or
+  // consumer's root domain. If that input IterDomain is not
+  // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
+  // parallelized but just not a concern for this producer-consumer pair.
+  // 3. Check if the two loop IterDomains are almost-exactly mapped in the
+  // IdModel.
+  std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
+      mapParallelTypeToId(producer->getLoopDomain());
+  std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
+      mapParallelTypeToId(consumer->getLoopDomain());
+
+  for (const auto parallel_type : kParallelTypeDIDs) {
+    IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
+    if (p_loop_id != nullptr) {
+      auto p_inputs =
+          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
+      if (!overlaps(p_inputs, mapped_p_logical_ids)) {
+        p_loop_id = nullptr;
+      }
+    }
+
+    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
+    if (c_loop_id != nullptr) {
+      auto c_inputs =
+          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
+      if (!overlaps(c_inputs, mapped_c_root_ids)) {
+        c_loop_id = nullptr;
+      }
+    }
+
+    auto is_mapped_in_id_model =
+        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
+      if (a == nullptr && b == nullptr) {
+        return true;
+      }
+
+      if (a == nullptr || b == nullptr) {
+        return false;
+      }
+
+      // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
+      // would be flagged by ALMOSTEXACT as a false positive.
+      if (id_model.idGraph(IdMappingMode::BROADCAST)
+              .disjointValSets()
+              .strictAreMapped(a, b)) {
+        return true;
+      }
+
+      // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
+      return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+          .disjointValSets()
+          .strictAreMapped(a, b);
+    };
+
+    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
       return true;
     }
   }
+
   return false;
 }
 
 bool isResharding(const Expr* expr) {
+  FUSER_PERF_SCOPE("isResharding");
+
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
+  id_model.buildAlmostExactGraph();
+  id_model.buildBroadcastGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, id_model)) {
         return true;
       }
     }

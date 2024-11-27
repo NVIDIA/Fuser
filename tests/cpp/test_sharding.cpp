@@ -32,17 +32,33 @@ TEST_F(ShardingTest, IsSharded) {
   TensorView* a = makeSymbolicTensor(3);
   a->axis(2)->parallelize(ParallelType::DIDx);
   a->split(0, 4);
-  EXPECT_TRUE(isSharded(a));
+  EXPECT_TRUE(isSharded(a)) << "DIDx on logical domain";
 
   TensorView* b = makeSymbolicTensor(3);
   b->split(1, 4);
   b->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(b));
+  EXPECT_TRUE(isSharded(b)) << "DIDx on loop domain";
 
   TensorView* c = makeSymbolicTensor(3);
   c->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(c));
+  EXPECT_ANY_THROW(isSharded(c)) << "Multiple DIDx";
+}
+
+TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(2);
+  TensorView* y = sum(x, {0});
+
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  // y->axis(0) is a reduction dimension and shouldn't be sharded. Doing so
+  // leads to a multi-DIDx exception.
+  y->axis(0)->parallelize(ParallelType::DIDx);
+  y->axis(1)->parallelize(ParallelType::DIDx);
+
+  EXPECT_ANY_THROW(isSharded(y)) << "Multiple DIDx";
 }
 
 TEST_F(ShardingTest, PropagateSharding) {
@@ -147,7 +163,8 @@ TEST_P(ShardingTest, ComputeIndex) {
   c->setDeviceMesh(mesh);
   d->setDeviceMesh(mesh);
   a->axis(2)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDx);
+  TensorDomain::noReductions(b->getLoopDomain())[1]->parallelize(
+      ParallelType::DIDx);
   c->axis(2)->parallelize(ParallelType::DIDx);
   d->axis(0)->parallelize(ParallelType::DIDx);
 

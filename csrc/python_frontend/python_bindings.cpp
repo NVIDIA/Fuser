@@ -562,6 +562,48 @@ void verifyShape(const std::vector<int64_t>& shape) {
 }
 
 void defineHeuristicParamBindings(py::module& nvfuser) {
+  py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
+  launch_parameters.def(
+      py::init<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>());
+  launch_parameters.def(
+      "__repr__", [](const LaunchParams& self) { return self.toString(); });
+  launch_parameters.def_property(
+      "bdimx",
+      [](LaunchParams& self) { return self.bdimx(); },
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::TIDx);
+      });
+  launch_parameters.def_property(
+      "bdimy",
+      [](LaunchParams& self) { return self.bdimy(); },
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::TIDy);
+      });
+  launch_parameters.def_property(
+      "bdimz",
+      [](LaunchParams& self) { return self.bdimz(); },
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::TIDz);
+      });
+  launch_parameters.def_property(
+      "gdimx",
+      [](LaunchParams& self) { return self.gdimx(); },
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::BIDx);
+      });
+  launch_parameters.def_property(
+      "gdimy",
+      [](LaunchParams& self) { return self.gdimy(); },
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::BIDy);
+      });
+  launch_parameters.def_property(
+      "gdimz",
+      [](LaunchParams& self) { return self.gdimz(); },
+      [](LaunchParams& self, int64_t val) {
+        self.bindUnsafe(val, ParallelType::BIDz);
+      });
+
 #define DEFINECLASS(type) py::class_<type>(nvfuser, #type)
 
 #define TOSTRINGTOPLEVEL(type) \
@@ -570,6 +612,13 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   def("__repr__", [](const type& self) { return self.toString(); })
 
 #define PARAM(internal_type, name) def_readwrite(#name, &internal_type::name)
+
+  DEFINECLASS(CompileParams)
+      .PARAM(CompileParams, index_type)
+      .PARAM(CompileParams, maxrregcount)
+      .PARAM(CompileParams, enable_magic_zero)
+      .PARAM(CompileParams, enable_ptxas_verbose)
+      .TOSTRINGMETHOD(CompileParams);
 
   DEFINECLASS(GemmTile)
       .PARAM(GemmTile, m)
@@ -581,7 +630,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   DEFINECLASS(MatMulTileOptions)
       .PARAM(MatMulTileOptions, cta_tile)
       .PARAM(MatMulTileOptions, warp_tile)
-      .PARAM(MatMulTileOptions, instruction_tile)
       .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
   DEFINECLASS(MatmulParams::CircularBufferOptions)
@@ -626,7 +674,10 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
 #undef MMAMACROPROP
 
   // Base class for scheduler parameters
-  DEFINECLASS(HeuristicParams).TOSTRINGMETHOD(HeuristicParams);
+  DEFINECLASS(HeuristicParams)
+      .TOSTRINGMETHOD(HeuristicParams)
+      .PARAM(HeuristicParams, lparams)
+      .PARAM(HeuristicParams, cparams);
 
 #define INITHEURISTICPARAMS(internal_type)                            \
   py::class_<internal_type, HeuristicParams>(nvfuser, #internal_type) \
@@ -644,6 +695,47 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(PointwiseParams, vectorization_factor)
       .PARAM(PointwiseParams, unroll_factor_inner)
       .PARAM(PointwiseParams, unroll_factor_outer);
+
+  // Reduction scheduler parameters
+  INITHEURISTICPARAMS(ReductionParams)
+      .PARAM(ReductionParams, fastest_dim)
+      .PARAM(ReductionParams, persistent_kernel)
+      .PARAM(ReductionParams, project_persistent_buffers)
+      .PARAM(ReductionParams, schedule_3D)
+      .PARAM(ReductionParams, flip_grid)
+      .PARAM(ReductionParams, cross_block_inner_reduction)
+      .PARAM(ReductionParams, cross_grid_inner_reduction)
+      .PARAM(ReductionParams, unroll_factor_inner_reduction)
+      .PARAM(ReductionParams, unroll_factor_top_of_vectorization)
+      .PARAM(ReductionParams, vectorize_inner_reduction)
+      .PARAM(ReductionParams, split_grid_dim_inner_reduction)
+      .PARAM(ReductionParams, pad_inner_reduction_to_warp)
+      .PARAM(ReductionParams, batches_per_block_inner_reduction)
+      .PARAM(ReductionParams, block_dim_inner_reduction)
+      .PARAM(ReductionParams, grid_dim_inner_reduction)
+      .PARAM(ReductionParams, multiple_reds_per_blk)
+      .PARAM(ReductionParams, unroll_factor_iter_dom)
+      .PARAM(ReductionParams, vectorize_iter_dom)
+      .PARAM(ReductionParams, split_grid_dim_iter_dom_inner)
+      .PARAM(ReductionParams, split_grid_dim_iter_dom_outer)
+      .PARAM(ReductionParams, block_dim_iter_dom)
+      .PARAM(ReductionParams, grid_dim_iter_dom)
+      .PARAM(ReductionParams, cross_block_outer_reduction)
+      .PARAM(ReductionParams, cross_grid_outer_reduction)
+      .PARAM(ReductionParams, batches_per_block_outer_reduction)
+      .PARAM(ReductionParams, unroll_factor_outer_reduction)
+      .PARAM(ReductionParams, block_dim_outer_reduction)
+      .PARAM(ReductionParams, grid_dim_outer_reduction)
+      .PARAM(ReductionParams, compute_persistent_buffer_with_first_consumer)
+      .PARAM(ReductionParams, static_bdimx)
+      .PARAM(ReductionParams, static_bdimy)
+      .PARAM(ReductionParams, combined_inner_outer)
+      .PARAM(ReductionParams, tidx_for_outer_reduction)
+      .PARAM(ReductionParams, pad_outer_reduction_to_warp)
+      .PARAM(ReductionParams, combined_split_grid_inner_dim)
+      .PARAM(ReductionParams, vectorization_factor_outer)
+      .PARAM(ReductionParams, vectorization_factor_tmp_gmem_write)
+      .PARAM(ReductionParams, block_dim_inner_reduction_extra);
 
   // Matmul scheduler parameters
   INITHEURISTICPARAMS(MatmulParams)
@@ -997,6 +1089,45 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
             self.finalizeSchedule(inputs);
             // Mark the end of a schedule
+            inst::Trace::instance()->endEvent(nullptr);
+          })
+      .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
+      .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
+      .def(
+          "_setup_segmentation",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            // Instrumentation to mark the beginning of segmentation
+            inst::Trace::instance()->beginEvent(
+                "FusionDefinition Segmentation");
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
+            }
+            return self.setupSegmentation(inputs);
+          })
+      .def(
+          "_build_segment",
+          [](FusionDefinition& self,
+             FusionDefinition& other,
+             int64_t segment_id) {
+            return self.buildSegment(other, segment_id);
+          })
+      .def(
+          "_finalize_segmentation",
+          [](FusionDefinition& self) {
+            self.finalizeSegmentation();
+            // Mark the end of segmentation
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
@@ -3857,6 +3988,18 @@ void initNvFuserPythonBindings(PyObject* module) {
         HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::PointWise);
         return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_reduction_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> ReductionParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::Reduction);
+        return *parameters->as<ReductionParams>();
       },
       py::return_value_policy::reference);
   nvf_sched.def(
