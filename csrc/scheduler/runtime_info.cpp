@@ -155,12 +155,14 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
     }
   }
 
+  // resize operation has special checks on alignment sizes.
   auto resize_id_it = resize_alignment_map.find(tv);
   if (resize_id_it != resize_alignment_map.end()) {
     // get tensor stride
     auto strides = getInputAllocationStrides(tv);
-    // resize operation makes its inner dimension non-contiguous in access,
-    // hence affecting alignment.
+    // resize, specifically negative resize (slicing), makes its outer dimension
+    // non-contiguous, `non_contig_idx_alloc` is the index for allocation domain
+    // that needs alignment check on its stride.
     for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
       alignment_size = std::min(
           alignment_size,

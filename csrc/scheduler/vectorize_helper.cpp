@@ -375,7 +375,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     if (it == frontier.end()) {
       return;
     }
-
     auto pos = std::distance(frontier.begin(), it);
 
     // project resize op to frontier.
@@ -403,6 +402,12 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       // slicing on left. This is a conservative analysis of the offset for data
       // accessing. A better approach needs to consider the actual start pointer
       // address and handle it in alignment analysis in runtime info.
+      // Translating this to code:
+      // if (extent == 0 || (extent < 0 && !is_left)) {
+      //   return factor;
+      // } else {
+      //   gcd(factor, abs(extent));
+      // }
       auto comp = [](Val* factor, Val* extent, bool is_left) {
         return SimplifyingIrBuilder::whereExpr(
             SimplifyingIrBuilder::logicalOrExpr(
@@ -852,11 +857,8 @@ mapResizeAlignmentToInputs(TensorView* ref) {
 
   ValGroups ref_target_domains = exact_graph.toGroups(ref->getLogicalDomain());
 
-  // std::cout << "ref: " << ref->toString(0) << std::endl;
-
   auto in_tvs = ir_utils::filterByType<TensorView>(ref->fusion()->inputs());
   for (auto inp : in_tvs) {
-    // std::cout << "\tinp: " << inp->toString(0) << std::endl;
     auto inp_alloc_dom = inp->getMaybeAllocationDomain();
 
     if (inp_alloc_dom.size() <= 1) {
@@ -890,19 +892,14 @@ mapResizeAlignmentToInputs(TensorView* ref) {
                           Direction::Forward)
                           .first;
 
-      // std::cout << "\t\tid: " << inp_alloc_dom[inner_i]->toString(0) << "
-      // find path: ";
       for (const auto& [expr_g, dir] : fwd_path) {
         Expr* expr = expr_g->front();
-        // std::cout << expr->toString(0) << ", ";
         if (expr->isA<Resize>()) {
           // inner i is resized, we need to push `i` for alignment check
-          // std::cout << "found it at idx: " << i << " ! ";
           res[inp].non_contig_idx_alloc.push_back(i);
           break;
         }
       }
-      // std::cout << std::endl;
 
       // skip non contiguous IDs.
       i = inner_i;
