@@ -3113,344 +3113,169 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-TEST_F(MatmulSchedulerTest, HSH_TT) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+using HopperMatmulSchedulerTestParams = std::tuple<
+    bool, // a_k_inner
+    bool, // b_k_inner
+    int64_t, // M
+    int64_t, // N
+    int64_t // K
+    >;
 
-  const auto dtype = DataType::Half;
-  constexpr auto layout = MmaLayout::TT;
-
-  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // A [M, K, b]
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // B [b, K, N]
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
-
-  // Reorder the accumulator as [M, N, K]
-  // [M, rK, N] -> [M, N, K]
-  tv2->reorder({{-2, -1}, {-1, -2}});
-  tv2->commitLeafToLogical();
-
-  auto tv3 = castOp(DataType::Half, tv2);
-  fusion->addOutput(tv3);
-
-  NVF_CHECK(
-      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
-      "matmul fusion must have at least one MmaOp");
-
-  // Create custom Matmul Params
-  MatMulTileOptions gemm_tile;
-  // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-
-  // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 128, 16);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 4};
-
-  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
-
-  mparams.tile_sizes = gemm_tile;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-
-  // TODO Create prefetch parameter
-  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
-
-  // Schedule matmul fusion using custom parameters
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(fusion.get(), &mparams);
-
-  const int M = 512, N = 256, K = 256;
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-
-  KernelExecutor ke;
-  ke.compile(
-      fusion.get(),
-      {inputs.first, inputs.second},
-      LaunchParams(),
-      matmul_cparams);
-  auto cg_outputs = ke.run({inputs.first, inputs.second});
-  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+std::string hopperTestName(
+    const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
+  std::ostringstream os;
+  bool a_k_inner, b_k_inner;
+  int64_t M, N, K;
+  std::tie(a_k_inner, b_k_inner, M, N, K) = info.param;
+  os << (a_k_inner ? "K" : "M");
+  os << (b_k_inner ? "K" : "N");
+  os << "_" << M << "_" << N << "_" << K;
+  return os.str();
 }
 
-TEST_F(MatmulSchedulerTest, HSH_TN) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+class HopperMatmulSchedulerTest
+    : public NVFuserFixtureParamTest<HopperMatmulSchedulerTestParams> {
+ protected:
+  void SetUp() {
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
-  const auto dtype = DataType::Half;
-  constexpr auto layout = MmaLayout::TN;
+    std::tie(a_k_inner, b_k_inner, M, N, K) = GetParam();
 
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype);
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
+    if (a_k_inner) {
+      layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
+    } else {
+      layout = b_k_inner ? MmaLayout::NN : MmaLayout::NT;
+    }
 
-  // [M, b, K] x [b, N, K] -> [M, N, rK]
-  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+    fusion_up = std::make_unique<Fusion>();
+    fusion = fusion_up.get();
+    fusion_guard = std::make_unique<FusionGuard>(fusion);
 
-  // [M, N]
-  auto tv3 = castOp(DataType::Half, tv2);
-  fusion->addOutput(tv3);
+    // Create custom Matmul Params
+    MatMulTileOptions gemm_tile;
+    // TODO cta tile is a multiple of mma macro for hopper.
+    gemm_tile.cta_tile = GemmTile(128, 256, 16);
 
-  NVF_CHECK(
-      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
-      "matmul fusion must have at least one MmaOp");
+    // TODO warp tile is (macroM, macroN, macroK) for hopper.
+    gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
-  // Create custom Matmul Params
-  MatMulTileOptions gemm_tile;
-  // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+    mparams.supported_vec_size = {8, 8, 4};
 
-  // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 128, 16);
+    mparams.mma_macro = MmaMacro::Hopper_64_128_16;
 
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 4};
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
 
-  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    // TODO Create prefetch parameter
+    // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+  }
 
-  mparams.tile_sizes = gemm_tile;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  void TearDown() {
+    if (testing::Test::IsSkipped() || testing::Test::HasFailure()) {
+      return;
+    }
 
-  // TODO Create prefetch parameter
-  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+    NVF_CHECK(
+        1 == ir_utils::getOpsOfType<MmaOp>(fusion).size(),
+        "matmul fusion must have exactly one MmaOp");
 
-  // Schedule matmul fusion using custom parameters
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(fusion.get(), &mparams);
+    // Schedule matmul fusion using custom parameters
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(fusion, &mparams);
 
-  const int M = 512, N = 256, K = 256;
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+    KernelExecutor ke;
+    ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
+    auto nvf_out = ke.run(inputs);
+    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-5, 1e-5));
+  }
 
-  KernelExecutor ke;
-  ke.compile(
-      fusion.get(),
-      {inputs.first, inputs.second},
-      LaunchParams(),
-      matmul_cparams);
-  auto cg_outputs = ke.run({inputs.first, inputs.second});
-  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
-}
-
-TEST_F(MatmulSchedulerTest, HSH_NT) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto dtype = DataType::Half;
-  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
-
-  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
-  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
-
-  // Reorder the accumulator as [M, N, K]
-  // [K, M, N] -> [M, N, K]
-  tv2->reorder({{-3, -1}});
-  tv2->commitLeafToLogical();
-
-  auto tv3 = castOp(DataType::Half, tv2);
-
-  fusion->addOutput(tv3);
-
-  NVF_CHECK(
-      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
-      "matmul fusion must have at least one MmaOp");
-
-  // Create custom Matmul Params
-  MatMulTileOptions gemm_tile;
-  // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-
-  // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 128, 16);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 4};
-
-  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
-
-  mparams.tile_sizes = gemm_tile;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-
-  // TODO Create prefetch parameter
-  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
-
-  // Schedule matmul fusion using custom parameters
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(fusion.get(), &mparams);
-
-  const int M = 512, N = 256, K = 256;
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-
-  KernelExecutor ke;
-  ke.compile(
-      fusion.get(),
-      {inputs.first, inputs.second},
-      LaunchParams(),
-      matmul_cparams);
-
-  auto cg_outputs = ke.run({inputs.first, inputs.second});
-  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
-}
-
-TEST_F(MatmulSchedulerTest, HSH_NN) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto dtype = DataType::Half;
-  constexpr auto layout = MmaLayout::NN;
-
-  auto tv0 = makeContigConcreteTensor({1, -1, -1}, dtype); // A [b, K, M]
-  auto tv1 = makeContigConcreteTensor({-1, -1, 1}, dtype); // B [N, K, 1]
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
-
-  // Reorder the accumulator as [M, N, K]
-  // [N, rK, M] -> [M, N, K]
-  tv2->reorder({{-1, -3}});
-  tv2->commitLeafToLogical();
-
-  auto tv3 = castOp(DataType::Half, tv2);
-  fusion->addOutput(tv3);
-
-  NVF_CHECK(
-      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
-      "matmul fusion must have at least one MmaOp");
-
-  // Create custom Matmul Params
-  MatMulTileOptions gemm_tile;
-  // TODO cta tile is a multiple of mma macro for hopper.
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-
-  // TODO warp tile is (macroM, macroN, macroK) for hopper.
-  gemm_tile.warp_tile = GemmTile(64, 128, 16);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 4};
-
-  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
-
-  mparams.tile_sizes = gemm_tile;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-
-  // TODO Create prefetch parameter
-  // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
-
-  // Schedule matmul fusion using custom parameters
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(fusion.get(), &mparams);
-
-  const int M = 512, N = 256, K = 256;
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-
-  KernelExecutor ke;
-  ke.compile(
-      fusion.get(),
-      {inputs.first, inputs.second},
-      LaunchParams(),
-      matmul_cparams);
-  auto cg_outputs = ke.run({inputs.first, inputs.second});
-  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
-}
-
-// Test a kernel with MmaOp that has inputs like [B, M, K] and [B, K, N]
-// and whose output is [B, M, N, K]
-TEST_F(MatmulSchedulerTest, MmaOpAxisMapping) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  int64_t B = 4, M = 16, N = 32, K = 64;
+ protected:
+  bool a_k_inner, b_k_inner;
+  int64_t M, N, K;
+  std::unique_ptr<Fusion> fusion_up;
+  Fusion* fusion;
+  std::unique_ptr<FusionGuard> fusion_guard;
   DataType dtype = DataType::Half;
 
-  auto tv0 = makeConcreteTensor({B, M, K}, dtype);
-  auto tv1 = makeConcreteTensor({B, K, N}, dtype);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+  MmaLayout layout;
 
-  // Just doing a gmem->smem copy
-  tv0 = set(tv0);
-  tv0->setMemoryType(MemoryType::Shared);
-  tv1 = set(tv1);
-  tv1->setMemoryType(MemoryType::Shared);
+  MatmulParams mparams;
 
-  MmaOp::AxisMapping axis_mapping{
-      /*a_axes=*/{0, 1, -1, 2},
-      /*b_axes=*/{0, -1, 2, 1}};
+  std::vector<c10::IValue> inputs;
 
-  auto tv2 =
-      fusedMultiplySum(tv0, tv1, /*axes=*/{-1}, /*init=*/nullptr, axis_mapping);
+  // Tests should place the reference tensor here
+  at::Tensor tref;
+};
 
-  fusion.addOutput(tv2);
+TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
+  const auto& [A, B] =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  inputs = {A, B};
 
-  std::vector<mma_utils::MatmulPattern> patterns =
-      mma_utils::findMatmulPatterns(&fusion);
+  TensorView* tv0 = nullptr;
+  TensorView* tv1 = nullptr;
+  std::unordered_map<int64_t, int64_t> old2new;
+  int64_t k_axis = 0;
 
-  ASSERT_EQ(patterns.size(), 1);
-  const mma_utils::MatmulPattern& pattern = patterns.front();
+  switch (layout) {
+    case MmaLayout::TT:
+      // Inner dims KN, order is MKN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {{-2, -1}, {-1, -2}};
+      k_axis = -2;
+      break;
+    case MmaLayout::TN:
+      // Inner dims KK, order is MNK
+      tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {};
+      k_axis = -1;
+      break;
+    case MmaLayout::NT:
+      // Inner dims MN, order is KMN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      old2new = {{-3, -1}};
+      k_axis = -3;
+      break;
+    case MmaLayout::NN:
+      // Inner dims MK, order is NKM
+      tv0 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      old2new = {{-1, -3}};
+      k_axis = -2;
+      break;
+  }
 
-  IdModel id_model(&fusion);
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  mma_utils::DimRolesMap dim_roles = pattern.getDimRoles(id_model);
-  EXPECT_FALSE(dim_roles.empty());
+  auto tv2 = fusedMultiplySum(tv0, tv1, {k_axis});
 
-  auto checkAxisRoles = [&graph, &dim_roles](
-                            TensorView* tv,
-                            const std::vector<MatmulDimRole>& roles) {
-    ASSERT_EQ(tv->nDims(), (int64_t)roles.size());
-    for (size_t i : c10::irange(roles.size())) {
-      IterDomain* id = tv->axis(i);
-      MatmulDimRole role = roles[i];
-      ValGroup vg = graph.toGroup(id);
-      auto it = dim_roles.find(vg);
-      ASSERT_FALSE(it == dim_roles.end())
-          << "Could not find role for " << id->toString() << " in "
-          << tv->toString();
-      EXPECT_TRUE(it->second == role)
-          << "Role mismatch for " << id->toString() << " in " << tv->toString();
-    }
-  };
-  checkAxisRoles(
-      tv0, {MatmulDimRole::Batch, MatmulDimRole::M, MatmulDimRole::K});
-  checkAxisRoles(
-      tv1, {MatmulDimRole::Batch, MatmulDimRole::K, MatmulDimRole::N});
-  checkAxisRoles(
-      tv2,
-      {MatmulDimRole::Batch,
-       MatmulDimRole::M,
-       MatmulDimRole::N,
-       MatmulDimRole::K});
+  // Reorder the accumulator as [M, N, K]
+  tv2->reorder(old2new);
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(dtype, tv2);
+  fusion->addOutput(tv3);
+
+  tref = atMatmul(A.squeeze(), B.squeeze(), layout);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HopperMatmulSchedulerTest,
+    testing::Combine(
+        testing::Bool(), // a_k_inner
+        testing::Bool(), // b_k_inner
+        testing::Values(512), // M
+        testing::Values(256), // N
+        testing::Values(64) // K
+        ),
+    hopperTestName);
 
 } // namespace nvfuser
