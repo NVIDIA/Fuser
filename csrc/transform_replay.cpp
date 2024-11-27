@@ -775,7 +775,6 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       // AllocationDomainTest.CacheBefore.
       if (auto it = p2c_map.find(alloc_id); it != p2c_map.end()) {
         IterDomain* new_alloc_id = it->second;
-        // FIXME: should this be taken care of by ReplayTransformations?
         new_alloc_id->parallelize(alloc_id->getParallelType());
         new_allocation_domain.push_back(new_alloc_id);
         new_contiguity.push_back(producer->getContiguity()[i]);
