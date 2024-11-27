@@ -192,8 +192,14 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       // replayPasC skips mapping after the compute at position
       c2p[c] = p;
     }
-    [[maybe_unused]] const auto [producer_index_ids, consumer_index_ids] =
-        lower_utils::getIndexIDs(producer, consumer, &c2p);
+    std::unordered_set<IterDomain*> consumer_index_ids;
+    if (consumer->definition()->isA<MmaOp>()) {
+      // NOTE: if consumer_index_ids is empty, it will be ignored. We only fill
+      // it for MmaOp for now in order to limit our changes to the only op that
+      // currently requires this analysis.
+      consumer_index_ids =
+          lower_utils::getIndexIDs(producer, consumer, &c2p).second;
+    }
     ProducerConsumerPairAnalyzer analyzer(c2p, consumer_index_ids);
 
     for (auto id : consumer->getLoopDomain()) {
@@ -217,7 +223,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     // Check that this consumer_id is actually involved in indexing the
     // producer. If it is not connected to the producer allocation domain in
     // the broadcast graph, then we can skip processing it.
-    if (index_ids_.find(consumer_id) == index_ids_.end()) {
+    if (!index_ids_.empty() &&
+        index_ids_.find(consumer_id) == index_ids_.end()) {
       return false;
     }
     needs_predicate_ = false;
@@ -226,7 +233,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
   void handle(IterDomain* consumer_id) override {
-    if (index_ids_.find(consumer_id) == index_ids_.end()) {
+    if (!index_ids_.empty() &&
+        index_ids_.find(consumer_id) == index_ids_.end()) {
       return;
     }
     // The traversal should have ended if needs_predicate_ was true
