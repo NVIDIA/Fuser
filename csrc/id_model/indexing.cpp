@@ -781,7 +781,9 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 }
 
-Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
+Val* TensorIndexer::getLoopIndex(
+    IterDomain* loop_id,
+    const std::vector<ForLoop*>& for_loops) const {
   // loop_id must be a loop domain.
   const auto& loop_group =
       id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
@@ -792,6 +794,13 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
       loop_id->toString());
 
   Val* loop_index = loop_index_map_it->second;
+
+  // War for circular buffering
+  if (auto circular_buffer_loop_index =
+          getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
+    loop_index = circular_buffer_loop_index;
+  }
+
   return loop_index;
 }
 
@@ -803,16 +812,16 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   // For a given list of the loop domains, assign its corresponding
   // index Val.
   for (IterDomain* loop_id : loop_domains) {
-    Val* loop_index = getLoopIndex(loop_id);
+    Val* initial_index = getLoopIndex(loop_id, for_loops);
     const auto& almost_exact_group = traversalGraph().toGroup(loop_id);
 
     if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as this is an
       // almost exact group. It should be just size-1 domain.
       NVF_ERROR(
-          loop_index->isZeroInt(),
+          initial_index->isZeroInt(),
           "Unexpected initial index: ",
-          loop_index->toInlineString());
+          initial_index->toInlineString());
       auto existing_index = initial_index_map.at(almost_exact_group);
       NVF_ERROR(
           existing_index->isZeroInt(),
@@ -821,13 +830,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
-    // War for circular buffering
-    if (auto circular_buffer_loop_index =
-            getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
-      loop_index = circular_buffer_loop_index;
-    }
-
-    initial_index_map.emplace(almost_exact_group, loop_index);
+    initial_index_map.emplace(almost_exact_group, initial_index);
   }
 
   return initial_index_map;
@@ -980,11 +983,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
-    auto index_it = index_map.find(loop_group);
-    NVF_ERROR(index_it != index_map.end());
-    Val* cur_index = index_it->second;
-    NVF_ERROR(cur_index != nullptr);
+    Val* cur_index = getLoopIndex(loop_id, for_loops);
 
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
