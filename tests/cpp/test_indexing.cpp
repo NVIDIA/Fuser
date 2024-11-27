@@ -1495,6 +1495,31 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       if (tv->name() != 2 || as_consumer) {
         return nullptr;
       }
+
+      // T2_l_float[ iS14{( ceilDiv(i0, 3) )}, iS19{1}, iS20{5}, bS17{4} ]
+      // ca_pos( 1 ) logical domain : (iS3{i0}, bS4{1}) contiguity: t n
+      //  Split: iS3{i0} by factor 3 -> iS14{( ceilDiv(i0, 3) )}, iS15{3}
+      //  Split: bS4{1} by factor 4 -> bS16{1}, bS17{4}
+      //  Merge: iS15{3} and bS16{1} -> iS18{3}
+      //  Split: iS18{3} by factor 5 -> iS19{1}, iS20{5}
+      // loop domain : (iS14{( ceilDiv(i0, 3) )}, iS19{1}, iS20{5}, bS17{4})
+
+      // T3_g_float[ iS7{( ceilDiv(i2, 3) )}, iS12{( ceilDiv(( ( ceilDiv(i3, 4)
+      // ) * 3 ), 5) )}, iS13{5}, iS10{4} ] ca_pos( 1 ) produce_pos( 1 )
+      //  logical domain : (iS5{i2}, iS6{i3})
+      //  contiguity: t t
+      //   Split: iS5{i2} by factor 3 -> iS7{( ceilDiv(i2, 3) )}, iS8{3}
+      //   Split: iS6{i3} by factor 4 -> iS9{( ceilDiv(i3, 4) )}, iS10{4}
+      //   Merge: iS8{3} and iS9{( ceilDiv(i3, 4) )} -> iS11{( ( ceilDiv(i3, 4)
+      //   ) * 3 )} Split: iS11{( ( ceilDiv(i3, 4) ) * 3 )} by factor 5 ->
+      //   iS12{( ceilDiv(( ( ceilDiv(i3, 4) ) * 3 ), 5) )}, iS13{5}
+      //  loop domain : (iS7{( ceilDiv(i2, 3) )}, iS12{( ceilDiv(( ( ceilDiv(i3,
+      //  4) ) * 3 ), 5) )}, iS13{5}, iS10{4})
+
+      // iS20 is the only ID to index.
+      // T3's iS8 is mapped with id15. The AlmostExact graph maps iS15
+      // with iS18 but not iS20 since the extent of iS18 is different
+      // from that of iS20.
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       TensorView* tv2 = tv;
       TensorView* tv3 = consumer_tv;
@@ -1504,8 +1529,6 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
           mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
           loop_indices.at(2));
       Val* id8_idx = divExpr(id11_idx, id9->extent());
-      // id8 is mapped with id15, which should also be mapped with
-      // id18
       IterDomain* id20 = tv2->axis(2);
       Val* id20_idx = modExpr(id8_idx, id20->extent());
       return id20_idx;
