@@ -707,164 +707,54 @@ class CloneTmaCircularBufferLoopAndInsertSync
           NVF_ERROR(circular_buffer_tv != nullptr);
           return out_tv == circular_buffer_tv;
         });
+    bool is_cp_async_bulk_expr = ir_utils::isCpAsyncBulk(expr);
 
     updateRawMbarrierToWaitMap(expr);
     updateWarMbarrierToWaitMap(expr);
     insertMBarrierWaitBeforeFirstRead();
 
-    // Handle Short-Circuit conditions
-    switch (loop_type_) {
-      case CircularBufferLoopStage::Prolog: {
-        // Short-circuit: skip expression if it is not circular buffer load
-        // expression.
-        if (!is_circular_buffer_load_expr) {
-          goto handle_war;
-        }
+    if (hasCircularBufferLoad() && is_circular_buffer_load_expr &&
+        is_cp_async_bulk_expr) {
+      auto ldst = dynamic_cast<LoadStoreOp*>(expr);
 
-        // Short-circuit: There can be circular buffered loads without
-        // cpAsyncBulk load expressions.
-        if (!ir_utils::isCpAsyncBulkLoad(expr)) {
-          for_loop_stack_.back()->body().push_back(expr);
-          goto handle_war;
-        }
-        break;
+      // Clone LoadStoreOp and map it to mbarrier alloc
+      Expr* new_ldst =
+          IrBuilder::create<LoadStoreOp>(
+              ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
+              ->withPredicate(ldst->predicate());
+
+      // There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load
+      // expression. A mbarrier_arrive_tx_ for another cpAsyncBulk load
+      // expression should not be active.
+      NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+      mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
+      // Register mbarrier object to be used with LoadStoreOp
+      //  from main loop
+      NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
+      GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
+          new_ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
+
+      // If last cloned scope is the cloned_top_level_loop body, then add
+      // mbarrier::arriveExpectTx and new loadStoreOp.
+      if (for_loop_stack_.size() == 1) {
+        NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
+        addTmaLoadBlock(new_ldst);
       }
-      case CircularBufferLoopStage::Main:
-      case CircularBufferLoopStage::Epilog: {
-        // Short-circuit: Add expression if not circular-buffered load store
-        // operation.
-        if (!is_circular_buffer_load_expr || !ir_utils::isCpAsyncBulk(expr)) {
-          for_loop_stack_.back()->body().push_back(expr);
-          goto handle_war;
-        }
-        break;
-      }
-      case CircularBufferLoopStage::LoadWarp: {
-        if (is_circular_buffer_load_expr) {
-          NVF_ERROR(
-              ir_utils::isCpAsyncBulkLoad(expr),
-              "Warp specialization only support TMA loading.");
-          for_loop_stack_.back()->body().push_back(expr);
-        }
-        break;
-      }
-      case CircularBufferLoopStage::ComputeWarp: {
-        if (!is_circular_buffer_load_expr) {
-          for_loop_stack_.back()->body().push_back(expr);
-        }
-        break;
-      }
-      default: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
-      }
+
+      // Otherwise, we are in a nested for-loop and should wait until we
+      // return to top-level for loop.
+      for_loop_stack_.back()->body().push_back(new_ldst);
+    } else if (
+        (is_circular_buffer_load_expr && hasCircularBufferLoad() &&
+         !is_cp_async_bulk_expr) ||
+        (!is_circular_buffer_load_expr && hasCircularBufferConsume())) {
+      // For non-TMA circular buffer loads, and for computes, we just add it to
+      // the cloned loop body.
+      for_loop_stack_.back()->body().push_back(expr);
     }
 
-    // There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load
-    // expression. A mbarrier_arrive_tx_ for another cpAsyncBulk load expression
-    // should not be active.
-    if (hasCircularBufferLoad()) {
-      if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-        NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-        mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
-        // Register mbarrier object to be used with LoadStoreOp
-        //  from main loop
-        NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
-        GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
-            ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
-      }
-    }
-
-    // Handle cpAsyncBulk expression with circular buffered TensorView output.
-    switch (loop_type_) {
-      case CircularBufferLoopStage::Prolog: {
-        handlePrologueLoop(expr);
-        break;
-      }
-      case CircularBufferLoopStage::Main: {
-        handleMainLoop(expr);
-        break;
-      }
-      case CircularBufferLoopStage::Epilog:
-      case CircularBufferLoopStage::LoadWarp:
-      case CircularBufferLoopStage::ComputeWarp: {
-        break;
-      }
-      default: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
-      }
-    }
-
-  handle_war:
     updateWarMbarrierUseMap(expr);
     insertWarMBarrierArriveAfterLastRead();
-  }
-
-  // Replace cpAsyncBulk type LoadStoreOp with:
-  //   if (warp_id == 0 && electSync()()) {
-  //     mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
-  //     for (...) {
-  //       cpAsyncBulk(mbarriers[loop_index], ...);
-  //     }
-  //   }
-  // }
-  void handlePrologueLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr);
-
-    // Skip if not LoadStoreOp expression
-    if (!expr->isA<LoadStoreOp>()) {
-      return;
-    }
-
-    LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-
-    // Clone LoadStoreOp and map it to mbarrier alloc
-    Expr* new_ldst =
-        IrBuilder::create<LoadStoreOp>(
-            ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
-            ->withPredicate(ldst->predicate());
-
-    // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier::arriveExpectTx and new loadStoreOp.
-    if (for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-      return addTmaLoadBlock(new_ldst);
-    }
-
-    // Otherwise, we are in a nested for-loop and should wait until we
-    // return to top-level for loop.
-    for_loop_stack_.back()->body().push_back(new_ldst);
-  }
-
-  // Handle cpAsyncBulk type LoadStoreOp that is a circular buffer load
-  //
-  // compute_stage = loop_index % stage_depth
-  // load_stage = (loop_index + prefetch_distance) % stage_depth)
-  //
-  // Replace LoadStoreOp with:
-  //   if (warp_id == 0 && electSync()()) {
-  //     mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
-  //     for (...) {
-  //       cpAsyncBulk(mbarrier[load_stage], ...);
-  //     }
-  //   }
-  //   mbarrier::wait((loop_index / stage_depth) % 2);
-  //
-  // Where mbarrier are shared memory arrays bound to the LoadStoreOp
-  void handleMainLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
-
-    LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-
-    // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier::arriveExpectTx and new loadStoreOp
-    if (for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-      return addTmaLoadBlock(ldst);
-    }
-
-    // Otherwise, we are in a nested for-loop and should wait until we
-    // return to top-level for loop.
-    for_loop_stack_.back()->body().push_back(ldst);
   }
 
   // For each mbarrier that is used to wait for the loading of circular buffers
