@@ -202,7 +202,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveTest, Allgather_SplitLoop) {
+TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -224,12 +224,8 @@ TEST_F(LowerCollectiveTest, Allgather_SplitLoop) {
 
   at::Tensor unsharded_tensor =
       at::randn({num_devices * kTensorSize}, at::kFloat);
-  at::Tensor in_tensor = unsharded_tensor
-                             .slice(
-                                 0,
-                                 communicator_->deviceId() * kTensorSize,
-                                 (communicator_->deviceId() + 1) * kTensorSize)
-                             .to(communicator_->device());
+  at::Tensor in_tensor =
+      shardTensor(unsharded_tensor, in).to(communicator_->device());
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
