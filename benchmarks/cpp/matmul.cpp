@@ -243,7 +243,6 @@ MatmulParams getMatmulParams(
   gemm_tile.cta_tile = cta_tile;
   // TODO: pipe through split K
   gemm_tile.warp_tile = GemmTile(64, 64, cta_tile.k);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
   params.supported_vec_size = {8, 8, 8};
