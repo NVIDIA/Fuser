@@ -70,11 +70,21 @@ class AutotuneInnerReduction:
 
     @dataclass(unsafe_hash=True)
     class InnerReductionConfiguration:
+        # The vectorization factor for inner reduction domain.
         vectorize_factor: int = 1
+        # The unroll factor for the outer iteration domain.
         unroll_factor: int = 1
+        # The grid size for the outer iteration domain.
+        # If grdim > 1, then godim corresponds with y axis of the grid.
+        # Otherwise, it is the x axis of the grid.
         godim: int = -1
+        # The grid size for the inner reduction domain. It corresponds
+        # with x axis of the grid when it is >1.
         grdim: int = -1
+        # The x axis of CTA. It corresponds with inner reduction domain.
         bdimx: int = -1
+        # The y axis of CTA. It corresponds with outer reduction domain.
+        # If it is non-zero, then there are multiple reduction per CTA.
         bdimy: int = -1
 
     def __init__(self, selected_fusion):
