@@ -106,8 +106,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  for (IterDomain* alloc_id :
-       TensorDomain::noReductions(tv->getMaybeAllocationDomain())) {
+  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
     if (!alloc_id->isDeviceDim()) {
       continue;
     }

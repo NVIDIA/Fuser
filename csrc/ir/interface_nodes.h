@@ -172,6 +172,9 @@ struct Pipelined {
   explicit Pipelined(bool uses_mbarrier_for_war)
       : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
   Pipelined() = default;
+  bool operator==(const Pipelined& other) const {
+    return uses_mbarrier_for_war == other.uses_mbarrier_for_war;
+  }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
@@ -210,7 +213,8 @@ struct CircularBufferOptions {
   }
 
   bool operator==(const CircularBufferOptions& other) const {
-    return stage == other.stage && prefetch == other.prefetch;
+    return type == other.type && stage == other.stage &&
+        prefetch == other.prefetch;
   }
 };
 

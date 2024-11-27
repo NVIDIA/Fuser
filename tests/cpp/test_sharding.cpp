@@ -60,6 +60,22 @@ TEST_F(ShardingTest, MultipleDIDx) {
       << x->domain()->toString(0, /*loop_only=*/false);
 }
 
+TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(2);
+  TensorView* y = sum(x, {0});
+
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  // y->axis(0) is a reduction dimension and shouldn't be sharded. Doing so
+  // leads to a multi-DIDx exception.
+  y->axis(0)->parallelize(ParallelType::DIDx);
+  y->axis(1)->parallelize(ParallelType::DIDx);
+
+  EXPECT_ANY_THROW(isSharded(y)) << "Multiple DIDx";
+}
+
 TEST_F(ShardingTest, PropagateSharding) {
   Fusion fusion;
   FusionGuard fg(&fusion);

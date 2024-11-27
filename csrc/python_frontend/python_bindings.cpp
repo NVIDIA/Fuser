@@ -613,6 +613,13 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
 
 #define PARAM(internal_type, name) def_readwrite(#name, &internal_type::name)
 
+  DEFINECLASS(CompileParams)
+      .PARAM(CompileParams, index_type)
+      .PARAM(CompileParams, maxrregcount)
+      .PARAM(CompileParams, enable_magic_zero)
+      .PARAM(CompileParams, enable_ptxas_verbose)
+      .TOSTRINGMETHOD(CompileParams);
+
   DEFINECLASS(GemmTile)
       .PARAM(GemmTile, m)
       .PARAM(GemmTile, n)
@@ -623,7 +630,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   DEFINECLASS(MatMulTileOptions)
       .PARAM(MatMulTileOptions, cta_tile)
       .PARAM(MatMulTileOptions, warp_tile)
-      .PARAM(MatMulTileOptions, instruction_tile)
       .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
   DEFINECLASS(MatmulParams::CircularBufferOptions)
@@ -668,7 +674,10 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
 #undef MMAMACROPROP
 
   // Base class for scheduler parameters
-  DEFINECLASS(HeuristicParams).TOSTRINGMETHOD(HeuristicParams);
+  DEFINECLASS(HeuristicParams)
+      .TOSTRINGMETHOD(HeuristicParams)
+      .PARAM(HeuristicParams, lparams)
+      .PARAM(HeuristicParams, cparams);
 
 #define INITHEURISTICPARAMS(internal_type)                            \
   py::class_<internal_type, HeuristicParams>(nvfuser, #internal_type) \
@@ -685,8 +694,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(PointwiseParams, flip_grid_binding)
       .PARAM(PointwiseParams, vectorization_factor)
       .PARAM(PointwiseParams, unroll_factor_inner)
-      .PARAM(PointwiseParams, unroll_factor_outer)
-      .PARAM(PointwiseParams, lparams);
+      .PARAM(PointwiseParams, unroll_factor_outer);
 
   // Reduction scheduler parameters
   INITHEURISTICPARAMS(ReductionParams)
@@ -727,8 +735,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(ReductionParams, combined_split_grid_inner_dim)
       .PARAM(ReductionParams, vectorization_factor_outer)
       .PARAM(ReductionParams, vectorization_factor_tmp_gmem_write)
-      .PARAM(ReductionParams, block_dim_inner_reduction_extra)
-      .PARAM(ReductionParams, lparams);
+      .PARAM(ReductionParams, block_dim_inner_reduction_extra);
 
   // Matmul scheduler parameters
   INITHEURISTICPARAMS(MatmulParams)
