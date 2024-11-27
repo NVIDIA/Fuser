@@ -2768,7 +2768,6 @@ class AllocationDomainTest
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     mparams.mma_macro = MmaMacro::Ampere_16_8_16;
     mparams.supported_vec_size = {8, 8, 4};
@@ -3149,9 +3148,6 @@ TEST_F(MatmulSchedulerTest, HSH_TT) {
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
   gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
-  // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
-
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
@@ -3216,9 +3212,6 @@ TEST_F(MatmulSchedulerTest, HSH_TN) {
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
   gemm_tile.warp_tile = GemmTile(64, 128, 16);
-
-  // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -3289,9 +3282,6 @@ TEST_F(MatmulSchedulerTest, HSH_NT) {
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
   gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
-  // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(64, 64, 16);
-
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
 
@@ -3360,9 +3350,6 @@ TEST_F(MatmulSchedulerTest, HSH_NN) {
 
   // TODO warp tile is (macroM, macroN, macroK) for hopper.
   gemm_tile.warp_tile = GemmTile(64, 128, 16);
-
-  // TODO instruction tile is not used for hopper.
-  gemm_tile.instruction_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
