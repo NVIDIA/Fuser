@@ -246,16 +246,17 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         IrBuilder::create<UnaryOp>(
             UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
 
-        Val* first_warp = IrBuilder::logicalAndExpr(
-            // IrBuilder::logicalAndExpr(
-                IrBuilder::ltExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDx),
-                    warp_size),
-                // IrBuilder::eqExpr(
-                //     NamedScalar::getParallelIndex(ParallelType::TIDy), zero)),
-            IrBuilder::eqExpr(
-                NamedScalar::getParallelIndex(ParallelType::TIDz), zero));
-        return IrBuilder::logicalAndExpr(first_warp, elect_sync_val);
+        const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+        Val* first_warp = IrBuilder::ltExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+        for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+          if (pdim_map.has(pt)) {
+            first_warp = SimplifyingIrBuilder::logicalAndExpr(
+                first_warp,
+                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+          }
+        }
+        return SimplifyingIrBuilder::logicalAndExpr(first_warp, elect_sync_val);
       }
       default:
         break;

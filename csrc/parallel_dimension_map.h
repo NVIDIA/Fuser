@@ -43,6 +43,10 @@ class ParallelDimensionMap {
 
   Val* getNumThreadsEachBlockIgnoringWarpSpecialization() const;
 
+  bool has(ParallelType pt) const {
+    return dim_map_.count(pt) > 0;
+  }
+
  private:
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.

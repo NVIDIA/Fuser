@@ -245,12 +245,15 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       ignore_occupancy_drop);
 }
 
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
@@ -280,12 +283,15 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithNoReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 

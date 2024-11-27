@@ -338,6 +338,18 @@ class CloneTmaCircularBufferLoopAndInsertSync
         war_mbarriers_to_uses_(getAllWarMbarriersToUses()),
         war_mbarriers_to_wait_(getAllMbarriersToWait()) {}
 
+  bool hasCircularBufferLoad() const {
+    return nvfuser::hasCircularBufferLoad(loop_type_);
+  }
+
+  bool hasCircularBufferConsume() const {
+    return nvfuser::hasCircularBufferConsume(loop_type_);
+  }
+
+  bool mayHaveWarHazard() const {
+    return nvfuser::mayHaveWarHazard(loop_type_);
+  }
+
   bool usesMBarrierForWAR() const {
     return GpuLower::current()
         ->circularBufferInfo()
@@ -373,8 +385,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // If we have visited the last use of a circular buffer tensor, then we
   // insert a mbarrier::arrive to signal that we have done with the reading
   // of the buffer and it is ready to be loaded with new data.
-  void insertMBarrierArriveAfterLastRead() {
-    if (!usesMBarrierForWAR()) {
+  void insertWarMBarrierArriveAfterLastRead() {
+    if (!usesMBarrierForWAR() || !mayHaveWarHazard() ||
+        !hasCircularBufferConsume()) {
       return;
     }
     // Only insert arrive on the top-level loop
@@ -382,11 +395,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
     NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-    // WAR arrive only exists in the main loop
-    if (loop_type_ != CircularBufferLoopStage::Main &&
-        loop_type_ != CircularBufferLoopStage::ComputeWarp) {
-      return;
-    }
     for (auto it = war_mbarriers_to_uses_.begin();
          it != war_mbarriers_to_uses_.end();) {
       auto& uses = it->second;
@@ -460,7 +468,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
     }
 
-    insertMBarrierArriveAfterLastRead();
+    insertWarMBarrierArriveAfterLastRead();
   }
 
   // Current compute index: loop_index
@@ -470,6 +478,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Current compute stage: loop_index % stages
   Val* currentComputeStage() const {
+    NVF_ERROR(hasCircularBufferConsume());
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -491,9 +500,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // `stages - prefetch - 1` pending computations, and we wait for stage
   //   (loop_index + prefetch + 1) % stages
   Val* currentCompletionStage() const {
-    NVF_ERROR(
-        loop_type_ == CircularBufferLoopStage::Main ||
-        loop_type_ == CircularBufferLoopStage::ComputeWarp);
+    NVF_ERROR(mayHaveWarHazard() && hasCircularBufferConsume());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -527,6 +534,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Current load stage: currentLoadIndex() % stages
   Val* currentLoadStage() const {
+    NVF_ERROR(hasCircularBufferLoad());
     int64_t stage =
         GpuLower::current()
             ->circularBufferInfo()
@@ -547,6 +555,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
   // for reference.
   Val* currentRawMbarrierParity() const {
+    NVF_ERROR(hasCircularBufferConsume());
     int64_t stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -566,6 +575,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // The parity used for waiting for the WAR mbarrier:
   //   (currentLoadIndex() / stage_depth) % 2
   Val* currentWarMbarrierParity() const {
+    NVF_ERROR(mayHaveWarHazard() && hasCircularBufferLoad());
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -584,10 +594,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // TensorView. If so, create the mbarrier::wait expression for the
   // corresponding buffer and update raw_mbarriers_to_wait_.
   void updateRawMbarrierToWaitMap(Expr* expr) {
-    if (loop_type_ == CircularBufferLoopStage::Prolog ||
-        loop_type_ == CircularBufferLoopStage::LoadWarp) {
-      // If we are in the prologue loop, we won't clone expr, so we don't need
-      // to insert mbarrier::wait.
+    if (!hasCircularBufferConsume()) {
+      // expr won't be cloned, so nothing to worry about RAW hazards
       return;
     }
 
@@ -626,7 +634,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // so, create the mbarrier::wait expression for the corresponding buffer and
   // update war_mbarriers_to_wait_.
   void updateWarMbarrierToWaitMap(Expr* expr) {
-    if (!usesMBarrierForWAR()) {
+    if (!usesMBarrierForWAR() || !mayHaveWarHazard() ||
+        !hasCircularBufferLoad()) {
       return;
     }
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
@@ -789,7 +798,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   handle_war:
     updateWarMbarrierUseMap(expr);
-    insertMBarrierArriveAfterLastRead();
+    insertWarMBarrierArriveAfterLastRead();
   }
 
   // Replace cpAsyncBulk type LoadStoreOp with:
@@ -1488,7 +1497,7 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Main loop:
     //  - Launch and wait
-    //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
+    //  - arrive_expect_tx, tma load operations, and mbarrier_wait
     ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
