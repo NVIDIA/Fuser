@@ -847,6 +847,19 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
+// The returns a map of input to their resize alignment info. This function
+// currently checks the alignment requirement on contiguous iterdomain in
+// allocation domain that *could be* broken by resize. This function returns a
+// map for TensorView, containing the index in their allocation domain whose
+// stride needs to be checked in alignment. e.g. For TensorView with size {4,
+// 1025}, assuming it's contiguous on all dimensions. If we slice the second
+// dimension with slice(0, 1024, 1). The output tensor would have shape {4,
+// 1024}. The slice prevents us from collapsing the indexing on its outer
+// dimension. At this point, due to the resize operation on dimension-1024, we
+// now need to check the stride on dimension-4 for alignment. NOTE: This is a
+// conservative check, not all resize breaks the contiguity of its inner
+// dimension, i.e. think about a combination of pad/slice that cancels out each
+// other;
 std::unordered_map<TensorView*, TensorResizeAlignmentInfo>
 mapResizeAlignmentToInputs(TensorView* ref) {
   std::unordered_map<TensorView*, TensorResizeAlignmentInfo> res;
@@ -855,8 +868,10 @@ mapResizeAlignmentToInputs(TensorView* ref) {
   id_model->buildExactGraph();
   auto& exact_graph = id_model->idGraph(IdMappingMode::EXACT);
 
+  // ref_target_domains is the scheduling tensor
   ValGroups ref_target_domains = exact_graph.toGroups(ref->getLogicalDomain());
 
+  // propagate from input to ref_target_domains
   auto in_tvs = ir_utils::filterByType<TensorView>(ref->fusion()->inputs());
   for (auto inp : in_tvs) {
     auto inp_alloc_dom = inp->getMaybeAllocationDomain();
@@ -882,8 +897,7 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         break;
       }
 
-      // get path from inner ID to ref target domains, if we found any resize,
-      // we need to add
+      // Get path from inner ID to ref target domains
       auto fwd_path = ValGraphBFS::getExprsBetween(
                           exact_graph,
                           {exact_graph.toGroup(inp_alloc_dom[inner_i])},
@@ -892,6 +906,7 @@ mapResizeAlignmentToInputs(TensorView* ref) {
                           Direction::Forward)
                           .first;
 
+      // if resize is found, we need to addd current index `i`
       for (const auto& [expr_g, dir] : fwd_path) {
         Expr* expr = expr_g->front();
         if (expr->isA<Resize>()) {
@@ -905,6 +920,8 @@ mapResizeAlignmentToInputs(TensorView* ref) {
       i = inner_i;
     }
   }
+  // TODO: we need to do the same for outputs. But currently we don't have any
+  // scheduler goes from producer to consumer yet.
   return res;
 }
 
