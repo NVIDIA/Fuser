@@ -739,11 +739,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
       if (for_loop_stack_.size() == 1) {
         NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         addTmaLoadBlock(new_ldst);
+      } else {
+        // Otherwise, we are in a nested for-loop and should wait until we
+        // return to top-level for loop.
+        for_loop_stack_.back()->body().push_back(new_ldst);
       }
-
-      // Otherwise, we are in a nested for-loop and should wait until we
-      // return to top-level for loop.
-      for_loop_stack_.back()->body().push_back(new_ldst);
     } else if (
         (is_circular_buffer_load_expr && hasCircularBufferLoad() &&
          !is_cp_async_bulk_expr) ||
