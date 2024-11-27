@@ -137,7 +137,7 @@ Val* getOffsetForCircularBufferTensor(
   }
 
   // Add "offset % num_stages", except when it's in prologue
-  if (!is_prolog) {
+  if (stage != CircularBufferLoopStage::Prolog) {
     offset = SimplifyingIrBuilder::modExpr(
         offset, SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
   }
