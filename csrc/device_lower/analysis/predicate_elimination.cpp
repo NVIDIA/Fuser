@@ -157,6 +157,51 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
   RECORD_AND_RETURN(false);
 }
 
+namespace {
+
+//! MmaOp can contain an AxisMapping that does not map some output logical IDs
+//! to any logical ID for some operands. This is interpreted as an implicit
+//! broadcast. If the loop domain of the output contains such IDs or their
+//! consumers, then we do not inspect them for predication. Note that if a
+//! consumer ID of an unmapped logical ID is also a consumer of a mapped ID then
+//! we must inspect it, and that check will currently result in predication.
+std::vector<IterDomain*> mmaRelevantLoopIDs(
+    MmaOp* mma,
+    TensorView* operand,
+    const PairwiseLogicalDomainMap& pairwise_map) {
+  auto output = mma->out()->as<TensorView>();
+  const std::vector<IterDomain*>& out_loop = output->getLoopDomain();
+  std::vector<Val*> mapped_logical_ids;
+  std::unordered_set<IterDomain*> relevant_ids;
+  auto c2p = pairwise_map.mapConsumerToProducer();
+  for (auto [c_id, p_id] : c2p) {
+    mapped_logical_ids.push_back(c_id);
+    relevant_ids.insert(c_id);
+  }
+  for (auto [expr, dir] : IRBFS::getExprsBetween(
+                              mapped_logical_ids,
+                              {out_loop.begin(), out_loop.end()},
+                              /*require_all_to_visited=*/false)
+                              .first) {
+    const std::vector<Val*>& next_vals =
+        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+    for (Val* v : next_vals) {
+      if (auto* id = dynamic_cast<IterDomain*>(v)) {
+        relevant_ids.insert(id);
+      }
+    }
+  }
+  std::vector<IterDomain*> relevant_loop_ids;
+  for (IterDomain* loop_id : out_loop) {
+    if (relevant_ids.count(loop_id)) {
+      relevant_loop_ids.push_back(loop_id);
+    }
+  }
+  return relevant_loop_ids;
+}
+
+} // namespace
+
 class ProducerConsumerPairAnalyzer : public OptOutDispatch {
  public:
   //! Checks if a predicate is needed to avoid out-of-bound accesses.
@@ -190,7 +235,14 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     ProducerConsumerPairAnalyzer analyzer(c2p);
 
-    for (auto id : consumer->getLoopDomain()) {
+    std::vector<IterDomain*> loop_ids_to_check;
+    if (auto* mma = dynamic_cast<MmaOp*>(consumer->definition())) {
+      loop_ids_to_check = mmaRelevantLoopIDs(mma, producer, pairwise_map);
+    } else {
+      loop_ids_to_check = consumer->getLoopDomain();
+    }
+
+    for (auto id : loop_ids_to_check) {
       if (analyzer.needsPredicate(id)) {
         return true;
       }
