@@ -413,4 +413,60 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
 
 INSTANTIATE_TEST_SUITE_P(, MultiDeviceBroadcastTest, testing::Bool());
 
+TEST_F(MultiDeviceTest, AddWithBroadcast_BroadcastIsParallelized) {
+  const auto num_devices = communicator_->size();
+  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({num_devices});
+  x->setDeviceMesh(mesh);
+  TensorView* y = makeContigConcreteTensor({1});
+  y->setDeviceMesh(mesh);
+  TensorView* z = add(x, y);
+
+  fusion->addInput(x);
+  fusion->addInput(y);
+  fusion->addOutput(z);
+
+  y->axis(0)->parallelize(ParallelType::DIDx);
+
+  std::vector<c10::IValue> in_tensors(
+      {at::randn({num_devices}, tensor_options),
+       at::randn({1}, tensor_options)});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs(in_tensors);
+  testValidate(
+      executor_cache.fusion(), out_tensors, in_tensors, __LINE__, __FILE__);
+}
+
+TEST_F(MultiDeviceTest, AddWithBroadcast_BroadcastIsNotParallelized) {
+  const auto num_devices = communicator_->size();
+  const auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({num_devices});
+  x->setDeviceMesh(mesh);
+  TensorView* y = makeContigConcreteTensor({1});
+  y->setDeviceMesh(mesh);
+  TensorView* z = add(x, y);
+
+  fusion->addInput(x);
+  fusion->addInput(y);
+  fusion->addOutput(z);
+
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  z->axis(0)->parallelize(ParallelType::DIDx);
+
+  std::vector<c10::IValue> in_tensors(
+      {at::randn({1}, tensor_options), at::randn({1}, tensor_options)});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs(in_tensors);
+}
+
 } // namespace nvfuser

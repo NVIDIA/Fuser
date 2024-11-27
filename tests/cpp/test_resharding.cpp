@@ -279,7 +279,7 @@ TEST_F(ReshardingTest, Add_InputsParallelizedDifferently) {
   EXPECT_TRUE(isResharding(z->definition()));
 }
 
-TEST_F(ReshardingTest, Add_Broadcast) {
+TEST_F(ReshardingTest, AddWithBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
