@@ -575,8 +575,7 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
   scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
 
   // Cache and fork outputs
-  cached_outputs_ =
-      scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
+  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
 }
 
 void HopperMultipleMatmulScheduler::defineOperandCaches() {
@@ -992,7 +991,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   // TODO: schedule epilogue by propagation backward from dc
   // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
   // then TMA
-  for (auto& [dc, d] : cached_outputs_) {
+  for (Val* dv : fusion_->outputs()) {
+    auto* d = dv->as<TensorView>();
+    NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+    auto* dc = d->definition()->input(0)->as<TensorView>();
     blockTileTensors({dc});
     blockTileTensors({d});
     for (auto tv : {dc, d}) {
@@ -1021,7 +1023,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   }
   if (params_->use_smem_epilogue) {
     blockTileTensors(output_tvs);
-    for (auto [dc, d] : cached_outputs_) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
       // Schedule output tensor differently for better global memory access
       // pattern.
       scheduleOutputTensor(d);
@@ -1041,7 +1044,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
               .propagateParallelType()
               .propagateToBoundary());
     }
-    for (auto [dc, d] : cached_outputs_) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
       // We might propagate an inner dimension that is not compatible with the
       // output or bias-like inputs. In those cases, we will further split
       // this dimension with an outer unrolled loop to achieve the proper
