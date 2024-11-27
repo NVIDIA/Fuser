@@ -130,7 +130,7 @@ Val* getOffsetForCircularBufferTensor(
 
   // If this is a consumer and in the main loop, advance the offset
   // for read-ahead
-  if (as_consumer && is_main) {
+  if (as_consumer && stage == CircularBufferLoopStage::Main) {
     offset = SimplifyingIrBuilder::addExpr(
         offset,
         SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
