@@ -713,35 +713,53 @@ class CloneTmaCircularBufferLoopAndInsertSync
     updateWarMbarrierToWaitMap(expr);
     insertMBarrierWaitBeforeFirstRead();
 
+    // If expr is a TMA circular buffer load, then special handling it.
+    // Otherwise just add it to the cloned loop body if needed.
     if (hasCircularBufferLoad() && is_circular_buffer_load_expr &&
         is_cp_async_bulk_expr) {
+      // TMA circular buffer load expression
       auto ldst = dynamic_cast<LoadStoreOp*>(expr);
+      NVF_ERROR(ldst != nullptr);
 
-      // Clone LoadStoreOp and map it to mbarrier alloc
+      // We always clone expr. The reason for cloning is because, one loop
+      // before this pass will be cloned as multiple loops in this pass. Cloning
+      // makes sure that different loop stage has different LoadStoreOp* for
+      // the same operation, so that they can be handled differently in the
+      // later passes. Depending on the setup of circular buffer options, and
+      // the current loop stage, cloning may or may not be strictly necessary,
+      // but it is not harmful to just clone it.
       Expr* new_ldst =
           IrBuilder::create<LoadStoreOp>(
               ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
               ->withPredicate(ldst->predicate());
 
-      // There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load
-      // expression. A mbarrier_arrive_tx_ for another cpAsyncBulk load
-      // expression should not be active.
-      NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+      // Create mbarrier_arrive_tx_. Note that mbarrier_arrive_tx_ is created
+      // here when we are processing a cpAsyncBulk load expression, but added to
+      // the cloned loop body by addTmaLoadBlock either here or later when we
+      // are exiting the last cloned scope containing the cpAsyncBulk load
+      // expression.
+      NVF_ERROR(
+          mbarrier_arrive_tx_ == nullptr,
+          "There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load expression. ",
+          "A mbarrier_arrive_tx_ for another cpAsyncBulk load expression should not be active.");
       mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
-      // Register mbarrier object to be used with LoadStoreOp
-      //  from main loop
+      // Register mbarrier object to be used with the cloned LoadStoreOp
       NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
       GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
           new_ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
-      // If last cloned scope is the cloned_top_level_loop body, then add
-      // mbarrier::arriveExpectTx and new loadStoreOp.
+      // If last cloned scope is the cloned_top_level_loop body, this means that
+      // we only have a single TMA instruction in the top level loop for each
+      // iteration, then add mbarrier::arriveExpectTx and new loadStoreOp.
       if (for_loop_stack_.size() == 1) {
         NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         addTmaLoadBlock(new_ldst);
       } else {
-        // Otherwise, we are in a nested for-loop and should wait until we
-        // return to top-level for loop.
+        // Otherwise, in the top-level loop, there is a nested for-loop that
+        // issues multiple TMA instructions, and right now, we are in that
+        // nested for-loop and handling the cpAsyncBulk in it. In such case, we
+        // should wait until we return to top-level for loop and add the
+        // mbarrier::arriveExpectTx and new loadStoreOp there.
         for_loop_stack_.back()->body().push_back(new_ldst);
       }
     } else if (
