@@ -19,7 +19,7 @@ def dropout_layernorm(inputs: list):
 def dropout_rmsnorm(inputs: list):
     inp1, inp2, weights, dropout_p = inputs
     x = inp2 + F.dropout(inp1, p=dropout_p)
-    output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+    output = weights * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
     return output
 
 
