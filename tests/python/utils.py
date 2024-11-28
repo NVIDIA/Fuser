@@ -209,13 +209,6 @@ def verify_stride_order(output_strides, stride_order):
         sorted_stride[rank - 1 - axis] = output_strides[idx]
     assert sorted(sorted_stride, reverse=True) == sorted_stride
 
-def verify_stride_order(output_strides, stride_order):
-    sorted_stride = list(output_strides)
-    rank = len(output_strides)
-    for idx, axis in enumerate(stride_order):
-        sorted_stride[rank - 1 - axis] = output_strides[idx]
-    assert sorted(sorted_stride, reverse=True) == sorted_stride
-
 
 # Get string representation for FusionDefinition
 # Run captured python definition
