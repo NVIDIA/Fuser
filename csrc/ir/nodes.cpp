@@ -25,7 +25,6 @@
 
 #include <c10/util/irange.h>
 
-#include <cctype>
 #include <complex>
 #include <iterator>
 #include <numeric>
@@ -3252,7 +3251,7 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
     }
     ss << "," << std::endl;
     indent(ss, indent_size + 1)
-        << "rfactor=[ " << toDelimitedString(logical()) << " ]";
+        << "logical=[ " << toDelimitedString(logical()) << " ]";
     if (!allocation_domain_.empty()) {
       ss << "," << std::endl;
       indent(ss, indent_size + 1)
