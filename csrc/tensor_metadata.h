@@ -100,10 +100,6 @@ struct TensorMetaData : public Struct {
   }
 };
 
-std::vector<int64_t> inferStrides(
-  TensorView* tv,
-  const std::vector<int64_t>& sizes);
-
 // Given an ATen tensor, whose sizes and strides are w.r.t to the logical domain
 // of its corresponding TensorView, compute the sizes and strides of the tensor
 // with respect to its allocation domain.
@@ -119,4 +115,9 @@ inferAndValidateAllocationSizesAndStrides(
     TensorView* tv,
     ExpressionEvaluator ee);
 
+// Given a tensorview, compute the strides according to the allocation domain
+// for re-striding the corresponding ATen tensor.
+std::vector<int64_t> computeStrides(
+    TensorView* tv,
+    const std::vector<int64_t>& sizes);
 } // namespace nvfuser
