@@ -206,14 +206,16 @@ class TestMatmul(NVFuserTest):
         b, m, n, k = 3, 2, 5, 4
         inputs = [
             torch.randn(b, b, m, k, device="cuda", dtype=torch.float16),
-            torch.randn(k, n, device="cuda", dtype=torch.float16)
+            torch.randn(k, n, device="cuda", dtype=torch.float16),
         ]
         for perm in itertools.permutations(range(4), 4):
+
             def fusion_func(fd: FusionDefinition) -> None:
                 a = fd.from_pytorch(inputs[0])
                 b = fd.from_pytorch(inputs[1])
                 out = fd.ops.matmul(a, b)
                 fd.add_output(out, stride_order=perm)
+
             with FusionDefinition() as fd:
                 fusion_func(fd)
             out = fd.execute(inputs)
