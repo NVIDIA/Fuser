@@ -587,14 +587,16 @@ class IRBFS
   IRBFS(
       std::vector<NodeType> from_groups,
       std::vector<NodeType> to_groups,
-      bool require_all_to_visited)
+      bool require_all_to_visited,
+      Direction allowed_direction = Direction::Undefined)
       : BFS(IRDefinitions{},
             IRUses{},
             IRInputs{},
             IROutputs{},
             std::move(from_groups),
             std::move(to_groups),
-            require_all_to_visited) {}
+            require_all_to_visited,
+            allowed_direction) {}
 
  public:
   // Find the shortest path from the from_groups_ to to_groups_ on a

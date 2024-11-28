@@ -23,6 +23,8 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
+#include <ir/printer.h>
+
 namespace nvfuser {
 
 namespace {
@@ -226,6 +228,12 @@ void validateIr(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
   validateCpAsyncBulk(all_tvs);
+
+  IrTransformPrinter printer(std::cerr);
+  for (auto tv : fusion->allTvs()) {
+    // printer.printTransforms(tv);
+    NVF_ERROR(ir_utils::getRedundantIds(tv->getLoopDomain()).empty());
+  }
 }
 
 namespace {

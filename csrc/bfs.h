@@ -114,6 +114,8 @@ template <
     typename OutputsT>
 class BFS {
  public:
+  using ExprType = ExprT;
+  using ValType = ValT;
   using NodeType = std::variant<ExprT, ValT>;
   using ExprPath = std::vector<std::pair<ExprT, Direction>>;
 

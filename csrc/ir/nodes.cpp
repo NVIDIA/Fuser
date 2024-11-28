@@ -3670,6 +3670,7 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+  NVF_ERROR(ir_utils::getRedundantIds(new_loop_domain).empty());
   auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
       logical_domain_, new_loop_domain, additional_ids_);
   NVF_ERROR(
