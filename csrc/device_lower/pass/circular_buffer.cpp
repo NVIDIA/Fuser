@@ -1273,58 +1273,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
-  void insertTmaWarpSpecialized(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads) {
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
-    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
-
-    kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-            NamedScalar::getParallelIndex(warp_specialize_on),
-            IrBuilder::subExpr(
-                GpuLower::current()->parallelDimensionMap().get(
-                    warp_specialize_on),
-                circular_buffer_loop->fusion()->oneVal()))));
-
-    // Load loop:
-    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
-
-    // Prefetch:
-    auto circular_buffer_tvs =
-        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-            circular_buffer_loop->iter_domain());
-    VectorOfUniqueEntries<TensorView*> mbarriers;
-    for (auto tv : circular_buffer_tvs) {
-      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
-      NVF_ERROR(ldst != nullptr);
-      auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
-      mbarriers.pushBack(mbarrier);
-    }
-    for (auto mbarrier : mbarriers) {
-      auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
-      auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
-          mbarrier,
-          SimplifyingIrBuilder::addExpr(
-              prefetch_loop->indexOrStartIfTrivial(), opt.stage));
-      auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
-          /*state=*/nullptr, mbarrier_to_arrive);
-      prefetch_loop->body().push_back(prefetch);
-      warp_dispatch_ite->elseBody().push_back(prefetch_loop);
-    }
-
-    // Compute loop:
-    ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
-    warp_dispatch_ite->elseBody().push_back(compute_loop);
-
-    registerReplace(circular_buffer_loop, warp_dispatch_ite);
-  }
-
   bool hasPrefetch(ForLoop* circular_buffer_loop) {
     int64_t prefetch_distance =
         GpuLower::current()
@@ -1428,6 +1376,39 @@ class CircularBufferInserter : private kir::ExprMutator {
         CircularBufferLoopStage::Epilog,
         expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
+  }
+
+  void insertTmaWarpSpecialized(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& loads) {
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            circular_buffer_loop->iter_domain());
+    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
+
+    kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+            NamedScalar::getParallelIndex(warp_specialize_on),
+            IrBuilder::subExpr(
+                GpuLower::current()->parallelDimensionMap().get(
+                    warp_specialize_on),
+                circular_buffer_loop->fusion()->oneVal()))));
+
+    // Load loop:
+    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
+    warp_dispatch_ite->thenBody().push_back(load_loop);
+
+    // Prefetch:
+    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
+    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+
+    // Compute loop:
+    ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
+    warp_dispatch_ite->elseBody().push_back(compute_loop);
+
+    registerReplace(circular_buffer_loop, warp_dispatch_ite);
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
