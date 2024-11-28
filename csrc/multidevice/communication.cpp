@@ -326,7 +326,7 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   auto splits =
-      at::tensor_split(output_tensor, communication->team().size(), /*dim=*/0);
+      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
