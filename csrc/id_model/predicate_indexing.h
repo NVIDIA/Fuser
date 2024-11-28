@@ -17,9 +17,7 @@ namespace nvfuser {
 // of a given expr.
 std::vector<IterDomain*> getPredicateDomains(
     TensorView* consumer_tv,
-    const Expr* expr,
-    const std::vector<IterDomain*>& loop_ids,
-    const ValGraph& traversal_graph);
+    const Expr* expr);
 
 // Get a replace map for predicate indexing of a given tensor appearing
 // in a given loop-nest.

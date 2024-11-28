@@ -69,8 +69,9 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<ForLoop*>& loops) const;
 
-  // Get the index of a loop domain. Intended to be used only for testing.
-  Val* getLoopIndex(IterDomain* loop_id) const;
+  // Get the index of a loop domain.
+  Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
+      const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
@@ -146,6 +147,12 @@ class TensorIndexer {
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
       const std::vector<IterDomain*>& loop_domains,
       const std::vector<ForLoop*>& for_loops) const;
+
+  // Get the loop domains of a given expr. Currently, they're always
+  // the loop domains of a consumer tensor, but in the future this
+  // function may return the loop domains of a producer for
+  // producer-based indexing.
+  std::vector<IterDomain*> getLoopDomains(const Expr* expr) const;
 
   // For a given indexng traversal path toward allocation_domains,
   // return the contiguous domains and their strides that can provide

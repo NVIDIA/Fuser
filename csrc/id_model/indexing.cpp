@@ -34,8 +34,6 @@ namespace nvfuser {
 
 namespace {
 
-bool _debug = false;
-
 // True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
@@ -783,7 +781,9 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 }
 
-Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
+Val* TensorIndexer::getLoopIndex(
+    IterDomain* loop_id,
+    const std::vector<ForLoop*>& for_loops) const {
   // loop_id must be a loop domain.
   const auto& loop_group =
       id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
@@ -794,6 +794,13 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
       loop_id->toString());
 
   Val* loop_index = loop_index_map_it->second;
+
+  // War for circular buffering
+  if (auto circular_buffer_loop_index =
+          getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
+    loop_index = circular_buffer_loop_index;
+  }
+
   return loop_index;
 }
 
@@ -805,16 +812,16 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   // For a given list of the loop domains, assign its corresponding
   // index Val.
   for (IterDomain* loop_id : loop_domains) {
-    Val* loop_index = getLoopIndex(loop_id);
+    Val* initial_index = getLoopIndex(loop_id, for_loops);
     const auto& almost_exact_group = traversalGraph().toGroup(loop_id);
 
     if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as this is an
       // almost exact group. It should be just size-1 domain.
       NVF_ERROR(
-          loop_index->isZeroInt(),
+          initial_index->isZeroInt(),
           "Unexpected initial index: ",
-          loop_index->toInlineString());
+          initial_index->toInlineString());
       auto existing_index = initial_index_map.at(almost_exact_group);
       NVF_ERROR(
           existing_index->isZeroInt(),
@@ -823,13 +830,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
-    // War for circular buffering
-    if (auto circular_buffer_loop_index =
-            getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
-      loop_index = circular_buffer_loop_index;
-    }
-
-    initial_index_map.emplace(almost_exact_group, loop_index);
+    initial_index_map.emplace(almost_exact_group, initial_index);
   }
 
   return initial_index_map;
@@ -878,12 +879,6 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  if (tv->name() == 0 && expr->outputs().at(0)->name() == 37) {
-    _debug = true;
-    std::cerr << "getLinearIndex: " << tv->toString() << " for "
-              << expr->toString();
-  }
-
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] =
@@ -892,10 +887,6 @@ Val* TensorIndexer::getLinearIndex(
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(contig_indices.size())) {
-    if (_debug) {
-      std::cerr << "Index component: " << contig_indices.at(i)->toInlineString()
-                << "\n";
-    }
     Val* stride = contig_strides.at(i);
     linear_index = SimplifyingIrBuilder::addExpr(
         linear_index,
@@ -911,13 +902,21 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
-  if (tv->name() == 0) {
-    std::cerr << "Linear index: " << linear_index->toInlineString() << "\n";
+  return linear_index;
+}
+
+// Get the loop domains of a given expr, which are (potentially
+// promoted) loop domains of the consumer tensor.
+std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
+  // Assume consumer-based indexing. Needs to revisit for ops like
+  // scatter
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
+
+  for (auto& loop_id : loop_domains) {
+    loop_id = getLoopPromotion(loop_id, id_model_);
   }
 
-  _debug = false;
-
-  return linear_index;
+  return loop_domains;
 }
 
 IndexingInfo TensorIndexer::computeIndex(
@@ -925,10 +924,6 @@ IndexingInfo TensorIndexer::computeIndex(
     const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
   const auto loop_domains = getLoopIds(expr, id_model_);
-
-  if (_debug) {
-    std::cerr << "computeIndex: " << toDelimitedString(index_ids) << "\n";
-  }
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
@@ -954,9 +949,6 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   for (const auto& [expr_group, direction] : traversal_path) {
-    if (_debug) {
-      std::cerr << "Indexing traversal: " << expr_group->front()->toString();
-    }
     index_compute.propagate(expr_group, direction);
 
     // Propagate loop dependencies from inputs to outputs
@@ -968,12 +960,8 @@ IndexingInfo TensorIndexer::computeIndex(
         : traversalGraph().inputGroups(expr_group);
     for (const auto& output : output_groups) {
       for (const auto& input : input_groups) {
-        // Broadcast can be visited with no corresponding loop group
-        if (auto it = loop_group_dependencies.find(input);
-            it != loop_group_dependencies.end()) {
-          const auto& input_loop_groups = it->second;
-          loop_group_dependencies[output].pushBack(input_loop_groups);
-        }
+        const auto& input_loop_groups = loop_group_dependencies.at(input);
+        loop_group_dependencies[output].pushBack(input_loop_groups);
       }
     }
   }
@@ -995,11 +983,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
-    auto index_it = index_map.find(loop_group);
-    NVF_ERROR(index_it != index_map.end());
-    Val* cur_index = index_it->second;
-    NVF_ERROR(cur_index != nullptr);
+    Val* cur_index = getLoopIndex(loop_id, for_loops);
 
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
@@ -1063,12 +1047,11 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
-  _debug = tv->name() == 1;
+  const std::vector<IterDomain*>& predicate_domains =
+      getPredicateDomains(tv, expr);
 
-  const std::vector<IterDomain*>& predicate_ids = getPredicateDomains(
-      tv, expr, getLoopIds(expr, id_model_), traversalGraph());
-
-  const IndexingInfo& index_info = computeIndex(expr, predicate_ids, for_loops);
+  const IndexingInfo& index_info =
+      computeIndex(expr, predicate_domains, for_loops);
 
   const auto& index_map = index_info.index_map;
 
@@ -1097,17 +1080,17 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::unordered_map<IterDomain*, ValGroup> contig_domains =
       isContigIndexingEnabled()
       ? getContigDomains(
-            predicate_ids,
-            std::vector<bool>(predicate_ids.size(), true),
+            predicate_domains,
+            std::vector<bool>(predicate_domains.size(), true),
             reverse(index_info.traversal_path),
             traversalGraph(),
             /*is_predicate_pass=*/true)
       : std::unordered_map<IterDomain*, ValGroup>{};
 
   auto getCoveredPredicatedDomains =
-      [&predicate_ids, &contig_domains](const ValGroup& contig_group) {
+      [&predicate_domains, &contig_domains](const ValGroup& contig_group) {
         std::unordered_set<IterDomain*> covered_domains;
-        for (const auto& predicate_domain : predicate_ids) {
+        for (const auto& predicate_domain : predicate_domains) {
           auto contig_domains_it = contig_domains.find(predicate_domain);
           NVF_ERROR(contig_domains_it != contig_domains.end());
           if (contig_group == contig_domains_it->second) {
@@ -1121,12 +1104,12 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
-  info_vec.reserve(predicate_ids.size());
+  info_vec.reserve(predicate_domains.size());
 
   std::unordered_set<ValGroup> already_indexed_domains;
 
   // Follow the same approach as Index::getReferenceRootPredicates.
-  for (const auto& predicate_domain : predicate_ids) {
+  for (const auto& predicate_domain : predicate_domains) {
     const auto& predicate_domain_group =
         traversalGraph().toGroup(predicate_domain);
     IterDomain* actual_predicate_domain = predicate_domain;
@@ -1154,10 +1137,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           getCoveredPredicatedDomains(contig_domain_group);
     }
 
-    if (_debug) {
-      std::cerr << "Actual predicate domain: "
-                << nvfuser::toString(actual_predicate_domain_group) << "\n";
-    }
     auto idx_it = index_map.find(actual_predicate_domain_group);
     NVF_ERROR(
         idx_it != index_map.end(),
@@ -1192,13 +1171,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.predicated_domains_ = actual_predicate_domains;
 
     // Set the used loop ID groups for this predicated domain
-    if (auto it = index_info.loop_group_dependencies.find(
-            actual_predicate_domain_group);
-        it != index_info.loop_group_dependencies.end()) {
-      const ValGroups& loop_deps = it->second;
-      for (const auto& loop_dep : loop_deps) {
-        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
-      }
+    const ValGroups& loop_deps =
+        index_info.loop_group_dependencies.at(actual_predicate_domain_group);
+    for (const auto& loop_dep : loop_deps) {
+      info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
     }
 
     info_vec.emplace_back(info);
@@ -1255,7 +1231,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     }
   }
 
-  _debug = false;
   return info_vec;
 }
 
@@ -1308,7 +1283,6 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
-  const auto& index_groups = traversalGraph().toGroups(alloc_info.domains);
   auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
@@ -1345,11 +1319,6 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         contig_domain_group->front()->toString());
     Val* idx = idx_it->second;
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
-    if (_debug) {
-      std::cerr << "Contig alloc domain: "
-                << nvfuser::toString(contig_domain_group)
-                << ", idx: " << idx->toInlineString() << "\n";
-    }
     result.push_back(replaced_idx);
   }
 
