@@ -57,6 +57,7 @@
 #include <sstream>
 #include "parallel_dimension_map.h"
 
+#include <driver_api.h>
 namespace nvfuser {
 
 using namespace at::indexing;
@@ -9102,6 +9103,16 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
           exact_graph.toGroups(tv1->getLoopDomain()));
     }
   }
+}
+
+TEST_F(NVFuserTest, cuStreamWriteValue32) {
+  constexpr cuuint32_t value = 3;
+  CUdeviceptr pDevice;
+  cudaStream_t stream;
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc((void**)&pDevice, sizeof(cuuint32_t)));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamCreate(&stream));
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(stream, pDevice, value, /*flag=*/0));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
