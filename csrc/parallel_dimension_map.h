@@ -32,6 +32,8 @@ class ParallelDimensionMap {
   //! a ParallelType is unused.
   Val* getRaw(ParallelType pt) const;
 
+  Val* getRawWitoutWarpSpecialization(ParallelType pt) const;
+
   //! True if the dimension of a ParallelType is known to be exact
   NVF_API bool isExact(ParallelType pt) const;
 

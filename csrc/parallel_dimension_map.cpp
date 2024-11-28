@@ -152,18 +152,29 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 }
 
 void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
-  std::cout << "Warp specialize on: " << pt << std::endl;
-  auto dim_it = dim_map_.find(pt);
-  if (dim_it == dim_map_.end()) {
-    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
-  } else {
-    dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_it->second, 1);
-  }
   exact_types_.erase(pt);
   warp_specialized_types_.insert(pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
+  NVF_ERROR(isParallelTypeThread(pt), "Invalid ParallelType: ", pt);
+  auto it = dim_map_.find(pt);
+  if (it == dim_map_.end()) {
+    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
+      return IrBuilder::create<Val>(2, DataType::Index);
+    } else {
+      return nullptr;
+    }
+  } else {
+    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
+      return SimplifyingIrBuilder::addExpr(it->second, 1);
+    } else {
+      return it->second;
+    }
+  }
+}
+
+Val* ParallelDimensionMap::getRawWitoutWarpSpecialization(ParallelType pt) const {
   NVF_ERROR(isParallelTypeThread(pt), "Invalid ParallelType: ", pt);
   auto it = dim_map_.find(pt);
   if (it == dim_map_.end()) {
@@ -188,12 +199,9 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 Val* ParallelDimensionMap::getNumThreadsEachBlockIgnoringWarpSpecialization() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
-    auto dim = getRaw(pt);
+    auto dim = getRawWitoutWarpSpecialization(pt);
     if (dim == nullptr) {
       continue;
-    }
-    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
-      dim = SimplifyingIrBuilder::addExpr(dim, -1);
     }
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
