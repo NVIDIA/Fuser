@@ -117,7 +117,7 @@ inline std::vector<IterDomain*> getLoopIds(
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
   NVF_ERROR(!expr->outputs().empty());
-  auto output_tv = dynamic_cast<TensorView*>(expr->output(0));
+  auto output_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(output_tv != nullptr);
   auto loop_ids = output_tv->getLoopDomain();
 

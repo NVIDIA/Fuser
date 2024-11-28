@@ -179,10 +179,6 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
-      if (tv->name() == 42) {
-        std::cerr << "T42 ID: " << id->toString() << "\n";
-      }
-
       // Check if this id is a view like rfactor id
       if (view_like_domain && id->isRFactorProduct()) {
         // If the tensor domain is a view like domain, and the iteration
@@ -400,6 +396,31 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
         mapped_ids.push_back({split->in(), split->inner()});
+      }
+    } else {
+      // Rare, but don't want to deal with zero-dim IDs
+      if (!split->in()->extent()->isZeroInt()) {
+        // Even when the factor is not known to be 1, as long as the
+        // input and output have the same extent, they should be
+        // mapped. This happens, for example, split 32 by 32 -> 1, 32.
+        if (split->outer()->extent()->sameAs(split->in()->extent())) {
+          // In and outer have the same extent. They must be non-one and
+          // the inner must be one, or they must be one.
+          NVF_ERROR(
+              split->inner()->extent()->isOneInt() ||
+                  split->outer()->extent()->isOneInt(),
+              "Unexpected split: ",
+              split->toString());
+          mapped_ids.push_back({split->in(), split->outer()});
+        }
+        if (split->inner()->extent()->sameAs(split->in()->extent())) {
+          NVF_ERROR(
+              split->inner()->extent()->isOneInt() ||
+                  split->outer()->extent()->isOneInt(),
+              "Unexpected split: ",
+              split->toString());
+          mapped_ids.push_back({split->in(), split->inner()});
+        }
       }
     }
   } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {

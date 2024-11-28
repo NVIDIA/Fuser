@@ -2651,17 +2651,22 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   ValGroups groups_to_index = tma_info.getTMADomain();
 
-  // WAR
+  // TensorIndexer needs IterDomain instead of ValGroup to work around
+  // the resize indexing issue
   std::vector<IterDomain*> ids_to_index;
   ids_to_index.reserve(groups_to_index.size());
-  const auto gmem_all_ids = gmem_tv->domain()->allIDs();
+  const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                   : producer_tv->domain()->allIDs();
   for (const auto& group : groups_to_index) {
     auto it = std::find_if(
-        gmem_all_ids.begin(), gmem_all_ids.end(), [&](IterDomain* gmem_id) {
+        tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
           return group->has(gmem_id);
         });
-    NVF_ERROR(it != gmem_all_ids.end());
-    ids_to_index.push_back(*it);
+    if (it != tma_all_ids.end()) {
+      ids_to_index.push_back(*it);
+    } else {
+      ids_to_index.push_back(group->front()->as<IterDomain>());
+    }
   }
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
