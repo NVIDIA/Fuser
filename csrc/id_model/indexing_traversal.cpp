@@ -73,39 +73,9 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
       graph,
       {from_groups.vector().begin(), from_groups.vector().end()},
       {to_groups.vector().begin(), to_groups.vector().end()},
-      /*require_all_to_visited=*/false);
-  first_traversal.traverse();
-  auto first_path = first_traversal.getShortestExprPath().first;
-  auto unreachable_to_groups = ValGraphBFS::getUnreachableValsFrom(
-      graph, from_groups, to_groups, first_path);
-  if (unreachable_to_groups.empty()) {
-    return first_path;
-  }
-
-  ValGroups from_groups_with_broadcat = from_groups;
-  for (const auto& vg : graph.disjointValSets().disjointSets()) {
-    if (vg->front()->as<IterDomain>()->isBroadcast()) {
-      from_groups_with_broadcat.pushBack(vg);
-    }
-  }
-
-  // Second trial. Ignore dependencies with broadcast groups since
-  // unreachable broadcast groups should be indexable with just
-  // 0. Note that that may not be true if a broadcast group is
-  // reachable from from_groups, so this relaxation should not be used
-  // in the first traversal.
-  IndexingTraversal second_traversal(
-      expr,
-      graph,
-      {from_groups_with_broadcat.vector().begin(),
-       from_groups_with_broadcat.vector().end()},
-      {unreachable_to_groups.begin(), unreachable_to_groups.end()},
       /*require_all_to_visited=*/true);
-  second_traversal.traverse();
-  auto second_path = second_traversal.getShortestExprPath().first;
-  first_path.insert(first_path.end(), second_path.begin(), second_path.end());
-
-  return first_path;
+  first_traversal.traverse();
+  return first_traversal.getShortestExprPath().first;
 }
 
 std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
