@@ -5423,8 +5423,6 @@ TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
 
   fusion.addOutput(tv1);
 
-  fusion.printMath();
-
   // [b0, i1]
   tv1->split(-1, 5);
   // [b0, i1/5, 5]
