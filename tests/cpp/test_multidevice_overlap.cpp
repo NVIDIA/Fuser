@@ -20,6 +20,8 @@
 #include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
 
+#define CUSTOM_PG_WITH_INTERNAL_STREAM_ACCESS 1
+
 namespace nvfuser {
 
 namespace {
@@ -43,6 +45,190 @@ void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
 }
 
 } // namespace
+
+TEST_F(NVFuserTest, cuStreamWriteValue32) {
+  constexpr cuuint32_t value = 3;
+  cudaError_t error;
+  CUdeviceptr pDevice;
+  volatile cuuint32_t* ptr;
+  error = cudaSetDevice(0);
+  ASSERT_EQ(error, 0);
+  error = cudaMallocHost((void**)&ptr, sizeof(cuuint32_t));
+  ASSERT_EQ(error, 0);
+  error = cudaHostGetDevicePointer((void**)&pDevice, (void*)ptr, 0);
+  ASSERT_EQ(error, 0);
+
+  at::cuda::CUDAStream c10_stream = at::cuda::getStreamFromPool(
+              /*isHighPriority=*/true, /*device_index*/0);
+  CUstream stream = c10_stream.stream();
+  CUresult st;
+  st = cuStreamWriteValue32(stream, pDevice, value, /*flag=*/0);
+  ASSERT_EQ(st, 0);
+
+  torch::cuda::synchronize();
+  cuuint32_t ptr2;
+  error = cudaMemcpy(&ptr2, (void*)pDevice, sizeof(cuuint32_t), cudaMemcpyDeviceToHost);
+  ASSERT_EQ(error, 0);
+  ASSERT_EQ(ptr2, value);
+
+
+  int i = 0;
+  while (i < 10000000) {
+    if (*ptr == value) {
+      std::cout << " BREAK " << *ptr <<std::endl;
+      break;
+    }
+    if (i % 1000000 == 0) {
+      std::cout << "waiting, read value = " << *ptr <<std::endl;
+    }
+    i++;
+  }
+}
+
+using DummyOverlapBenchmarkParams = std::tuple<
+    CommunicatorBackend,
+    /*M=*/int64_t,
+    /*K=*/int64_t,
+    /*N=*/int64_t,
+    /*L(communication msgsize)=*/int64_t,
+    /*number_of_streams=*/int64_t,
+    /*add_cuStreamWriteValue32=*/bool,
+    /*number_of_pgs=*/int64_t>;
+
+class DummyOverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<DummyOverlapBenchmarkParams> {
+ protected:
+  static std::map<std::string, float> times;
+
+  static void TearDownTestSuite() {
+    auto rank = Communicator::getInstance().deviceId();
+    if (rank != 0) {
+      return;
+    }
+    for (auto it: times) {
+      std::cout << "time " << rank << ": " << it.first << ": " << it.second << std::endl;
+    }
+  }
+};
+
+std::map<std::string, float> DummyOverlapBenchmark::times = {};
+
+TEST_P(DummyOverlapBenchmark, PipelinedAGMatmulBenchmark) {
+  constexpr int64_t number_of_warmups = 50;
+  constexpr int64_t number_of_iterations = 100;
+  constexpr int64_t iteration_profiler_start = 10;
+  constexpr int64_t iteration_profiler_end = 15;
+
+
+  auto [backend,
+        M,
+        K,
+        N,
+        L,
+        number_of_streams,
+        add_cuStreamWriteValue32,
+        number_of_pgs] = GetParam();
+
+  std::vector<RankType> all_ranks(communicator_->size());
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(number_of_streams, communicator_->deviceId());
+  setCurrentCUDAStream(streams.at(0));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto ta = at::randn({M, K}, options);
+  auto tb = at::randn({K, N}, options);
+  auto tc = at::empty({M, N}, options);
+  auto src = at::randn({L}, options);
+  auto dst = at::empty({L * communicator_->size()}, options);
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  CUdeviceptr pDevice;
+  void* ptr;
+  if (add_cuStreamWriteValue32) {
+    cudaMallocHost(&ptr, 32);
+    cudaHostGetDevicePointer((void**)&pDevice, ptr, 0);
+  }
+
+  for (const auto& iteration :
+       c10::irange(number_of_warmups + number_of_iterations)) {
+    if (iteration == iteration_profiler_start) {
+      cudaProfilerStart();;
+    }
+    if (iteration == number_of_warmups) {
+      cudaEventRecord(start);
+    }
+    int64_t stream_index = iteration % streams.size();
+    setCurrentCUDAStream(streams.at(stream_index));
+
+    auto world = communicator_->getBackendForTeam(all_ranks, backend, std::to_string(iteration % number_of_pgs));
+
+    // communication
+    world->_allgather_base(dst, src)->wait();
+
+    // compute
+    torch::matmul_out(tc, ta, tb);
+
+    if (add_cuStreamWriteValue32) {
+
+      cuStreamWriteValue32(
+#if CUSTOM_PG_WITH_INTERNAL_STREAM_ACCESS
+        (CUstream)world->getCudaStream(communicator_->device()).stream(),
+#else
+        (CUstream)streams.at(stream_index).stream(), 
+#endif
+        (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
+    }
+
+    setCurrentCUDAStream(streams.at(0));
+    synchronizeStreams(streams);
+    if (iteration == iteration_profiler_end) {
+      cudaProfilerStop();;
+    }
+  }
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  milliseconds /= number_of_iterations;
+
+  std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  times.insert({test_name, milliseconds});
+  std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
+
+  if (add_cuStreamWriteValue32) {
+    cudaFree(ptr);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    DummyOverlapBenchmark,
+    testing::Combine(
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    /*M=*/testing::Values(pow(2,10), pow(2,15)),
+    /*K=*/testing::Values(pow(2,10), pow(2,15)),
+    /*N=*/testing::Values(pow(2,10)),
+    /*L=*/testing::Values(pow(2,15)),
+    /*number_of_streams=*/testing::Values(1, 8),
+    /*add_cuStreamWriteValue32*/testing::Values(false, true),
+    /*number_of_pgs=*/testing::Values(1, 2, 4, 8)),
+    [](const testing::TestParamInfo<DummyOverlapBenchmarkParams>& info)
+        -> std::string {
+      std::ostringstream os;
+      os << /*backend*/std::get<0>(info.param) << "_"
+         << "M" << std::get<1>(info.param) << "_"
+         << "K" << std::get<2>(info.param) << "_"
+         << "N" << std::get<3>(info.param) << "_"
+         << "L" << std::get<4>(info.param) << "_"
+         << "Streams" << std::get<5>(info.param) << "_"
+         << ((std::get<6>(info.param))? "WithcuStreamWriteValue32_" : "")
+         << "Pgs" << std::get<7>(info.param);
+      return os.str();
+    });
 
 using OverlapBenchmarkParams = std::tuple<
     CommunicatorBackend,
@@ -115,10 +301,10 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
   at::cuda::CUDAGraph cuda_graph;
 
   CUdeviceptr pDevice;
-  void* ptr;
+  cuuint32_t* ptr;
   if (add_cuStreamWriteValue32) {
-    cudaMallocHost(&ptr, 32);
-    cudaHostGetDevicePointer((void**)&pDevice, ptr, 0);
+    cudaMallocHost((void**)&ptr, sizeof(cuuint32_t));
+    cudaHostGetDevicePointer((void**)&pDevice, (void*)ptr, 0);
   }
 
   for (const auto& iteration :
@@ -129,8 +315,8 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
     if (iteration == number_of_warmups) {
       cudaEventRecord(start);
     }
-    if (iteration <= iteration_cuda_graph_capture) {
-      if (iteration == iteration_cuda_graph_capture) {
+    if (!use_cuda_graph || (iteration <= iteration_cuda_graph_capture)) {
+      if (use_cuda_graph && (iteration == iteration_cuda_graph_capture)) {
         cuda_graph.capture_begin();
       }
       for (auto j : c10::irange(S)) {
@@ -141,13 +327,22 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
 
         auto ta_j = ta.select(0, j);
         auto ta_unsharded_j = ta_unsharded.select(0, j);
-        auto tc_j = ta_unsharded.select(0, j);
+        auto tc_j = tc.select(0, j);
 
         // communication
         world->_allgather_base(ta_unsharded_j, ta_j)->wait();
 
         if (add_cuStreamWriteValue32) {
-          cuStreamWriteValue32((CUstream)streams.at(stream_index), (CUdeviceptr)pDevice, (cuuint32_t)1, (unsigned int)0);
+          if (!communicator_->deviceId()){
+            std::cout << "writing to stream " << world->getCudaStream(communicator_->device()).stream() << " the value " << (cuuint32_t)(iteration * S + j) << ", communicator_->device()=" << communicator_->device() << ", world=" << world << ", number_of_pgs=" << number_of_pgs << " with MACRO=" << CUSTOM_PG_WITH_INTERNAL_STREAM_ACCESS << std::endl;
+          }
+          cuStreamWriteValue32(
+#if CUSTOM_PG_WITH_INTERNAL_STREAM_ACCESS
+            (CUstream)world->getCudaStream(communicator_->device()).stream(),
+#else
+            // (CUstream)streams.at(stream_index).stream(),
+#endif
+            (CUdeviceptr)pDevice, (cuuint32_t)(iteration * S + j), (unsigned int)0);
         }
         if (unfuse_loops == false) {
           // compute
@@ -159,13 +354,13 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
           int64_t stream_index = j % streams.size();
           setCurrentCUDAStream(streams.at(stream_index));
           auto ta_unsharded_j = ta_unsharded.select(0, j);
-          auto tc_j = ta_unsharded.select(0, j);
+          auto tc_j = tc.select(0, j);
 
           // compute
           torch::matmul_out(tc_j, ta_unsharded_j,tb);
         }
       }
-      if (iteration == iteration_cuda_graph_capture) {
+      if (use_cuda_graph && (iteration == iteration_cuda_graph_capture)) {
         cuda_graph.capture_end();
       } else {
         setCurrentCUDAStream(streams.at(0));
@@ -189,7 +384,11 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
   std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
 
   if (add_cuStreamWriteValue32) {
-    cudaFree(ptr);
+    std::cout << "RANK " << communicator_->device() << " entering while loop. Max index=" << (number_of_warmups + number_of_iterations)*S + S << std::endl;
+    while (*ptr < (cuuint32_t)(number_of_warmups + number_of_iterations)*S + S - 1) {
+      std::cout << "RANK " << communicator_->device() << " waiting at index=" << *ptr << std::endl;
+    }
+    cudaFree((void*)ptr);
   }
 }
 
