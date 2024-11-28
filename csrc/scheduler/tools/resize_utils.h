@@ -13,8 +13,11 @@ namespace nvfuser {
 
 class Expr;
 class Fusion;
+class IterDomain;
 
 namespace scheduler_tools {
+
+std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
 
 // If a size-one slice ID is squeezed, add a broadcast loop ID to all
 // tensors that would have a corresponding ID if not squeezed. This

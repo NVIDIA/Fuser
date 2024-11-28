@@ -733,6 +733,4 @@ TensorView* getTvOutput(const Expr*);
 // Returns the first input of Expr that is a TensorView
 TensorView* getTvInput(const Expr*);
 
-std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
-
 } // namespace nvfuser::ir_utils
