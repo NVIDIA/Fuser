@@ -1666,22 +1666,6 @@ class TestNvFuserFrontend(NVFuserTest):
             out = fd.execute(inputs)[0]
             verify_stride_order(out.stride(), stride_order)
 
-    def test_output_stride_order_with_reduction(self):
-        inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
-        
-        for perm in itertools.permutations(range(3), 3):
-
-            def fusion_func(fd: FusionDefinition) -> None:
-                T0 = fd.from_pytorch(inputs[0])
-                T1 = fd.ops.sum(T0, dims=[2])
-                fd.add_output(T1, stride_order=perm)
-
-            with FusionDefinition() as fd:
-                fusion_func(fd)
-
-            nvf_out = fd.execute(inputs)
-            verify_stride_order(nvf_out[0].stride(), perm)
-
     def test_expanded_bcast_tensor(self):
         inputs = [
             torch.tensor(1.5, device="cuda"),

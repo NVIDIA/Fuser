@@ -337,6 +337,7 @@ def test_implicit_bcast_inplace():
     torch.testing.assert_close(ref_out[0], out[0])
     torch.testing.assert_close(ref_out[1], inputs[0])
 
+
 # Test that an error is raised if there are segments
 # with CPU outputs.
 # See https://github.com/NVIDIA/Fuser/issues/2853.
@@ -420,4 +421,3 @@ def test_single_segment_multi_device():
 
     with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
         _ = fd.execute(inputs)
-
