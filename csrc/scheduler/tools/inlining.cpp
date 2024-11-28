@@ -169,7 +169,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer) &&
       ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(consumer);
 
-  if (!getenv("DISABLE_LEGACY") && may_need_forwarding) {
+  if (may_need_forwarding) {
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
     auto replay_CasP = BestEffortReplay::replayCasP(
         consumer, producer, -1, pairwise_logical_map);

@@ -221,7 +221,7 @@ int64_t getConsumerPosAlignedToProducerCA(
       ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer) &&
       ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(consumer);
 
-  if (!getenv("DISABLE_LEGACY") && may_need_forwarding) {    
+  if (may_need_forwarding) {
     auto disjoint_sets = BestEffortReplay::replayPasC(
                              producer,
                              consumer,
