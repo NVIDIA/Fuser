@@ -17,7 +17,7 @@ void IdGraphIndexCompute::handle(Split* split) {
   auto inner_extent = split->inner()->extent();
 
   if (is_forward) {
-    // When propagating Merge forward, if one of the outputs is mapped
+    // When propagating Split forward, if one of the outputs is mapped
     // with the input (because of the almost-exact mapping), don't
     // update the index and just set 0 as the index of the other
     // output. This is necessary when the other output is a broadcast
