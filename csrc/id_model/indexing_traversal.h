@@ -33,12 +33,6 @@ class IndexingTraversal : public ValGraphBFS {
   static ExprPath getExprsBetween(
       const Expr* expr,
       const ValGraph& graph,
-      const ValGroups& from_groups,
-      const ValGroups& to_groups);
-
-  static ExprPath getExprsBetween(
-      const Expr* expr,
-      const ValGraph& graph,
       const std::vector<IterDomain*>& from_domains,
       const std::vector<IterDomain*>& to_domains);
 

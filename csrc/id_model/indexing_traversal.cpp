@@ -61,29 +61,12 @@ IndexingTraversal::IndexingTraversal(
   }
 }
 
-IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
-    const Expr* expr,
-    const ValGraph& graph,
-    const ValGroups& from_groups,
-    const ValGroups& to_groups) {
-  // First traversal. Allows unreachable nodes as they may be resolved
-  // by the second traversal
-  IndexingTraversal first_traversal(
-      expr,
-      graph,
-      {from_groups.vector().begin(), from_groups.vector().end()},
-      {to_groups.vector().begin(), to_groups.vector().end()},
-      /*require_all_to_visited=*/true);
-  first_traversal.traverse();
-  return first_traversal.getShortestExprPath().first;
-}
-
 std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     getExprsBetweenForResize(
         const Expr* expr,
         const ValGraph& graph,
-        const std::vector<IterDomain*>& from_domains,
-        const std::vector<IterDomain*>& to_domains) {
+        const std::vector<IterDomain*>& from_ids,
+        const std::vector<IterDomain*>& to_ids) {
   auto consumer_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(consumer_tv != nullptr);
 
@@ -93,15 +76,28 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
       std::vector<Expr*>{consumer_tv->definition()},
       /*additional_tvs=*/{},
       /*build_graphs=*/false);
+
+  // If there's no resize in the producer and consumer tensors of this
+  // expr, it should not need this WAR.
+  if (std::none_of(
+          local_model.idUses().begin(),
+          local_model.idUses().end(),
+          [](const auto& kv) {
+            const VectorOfUniqueEntries<Expr*>& exprs = kv.second;
+            return !exprs.empty() && exprs.at(0)->isA<Resize>();
+          })) {
+    return std::nullopt;
+  }
+
   const auto& local_graph = local_model.buildAlmostExactGraph();
 
-  // from_domains are loop domains, which are representative
+  // from_ids are loop domains, which are representative
   // domains of loop groups and not necessarily domains of any
   // of the producer and the consumer
-  std::vector<IterDomain*> consumer_from_domains(from_domains.size());
-  for (const auto i : c10::irange(from_domains.size())) {
+  std::vector<IterDomain*> consumer_from_domains(from_ids.size());
+  for (const auto i : c10::irange(from_ids.size())) {
     auto consumer_id = consumer_tv->getLoopDomain().at(i);
-    auto from_id = from_domains.at(i);
+    auto from_id = from_ids.at(i);
     NVF_ERROR(
         graph.disjointValSets().strictAreMapped(consumer_id, from_id),
         "Expected strict mapping: ",
@@ -117,13 +113,15 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   // allocation ID, it may be a loop promotion ID.
   // auto to_groups = local_graph.toGroups(to_domains);
   ValGroups to_groups;
-  for (auto id : to_domains) {
-    if (local_graph.hasGroup(id)) {
-      to_groups.pushBack(local_graph.toGroup(id));
+  for (auto to_id : to_ids) {
+    if (local_graph.hasGroup(to_id)) {
+      to_groups.pushBack(local_graph.toGroup(to_id));
       continue;
     }
+    // to_id is not found in the producer or consumer tensors of the
+    // expr. Look for a mapped ID in the ID group of the global graph.
     bool found = false;
-    const auto& global_group = graph.toGroup(id);
+    const auto& global_group = graph.toGroup(to_id);
     for (const auto& vg : local_graph.disjointValSets().disjointSets()) {
       if (global_group->has(vg->front())) {
         to_groups.pushBack(vg);
@@ -131,7 +129,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
         break;
       }
     }
-    NVF_ERROR(found);
+    NVF_ERROR(found, "Indexing path for resize not found: ", to_id->toString());
   }
 
   std::cerr << "Resize war from: " << nvfuser::toString(from_groups) << " -> "
@@ -159,28 +157,13 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     return std::nullopt;
   }
 
-  bool resize_used = false;
   for (const auto& [g, d] : path) {
     if (g->front()->isA<Resize>()) {
-      // found
-      resize_used = true;
-      break;
+      return path;
     }
   }
 
-  if (resize_used) {
-    std::cerr << "getExprsBetween resize WAR: " << expr->toString();
-    std::cerr << "From: " << toDelimitedString(from_domains) << "\n";
-    std::cerr << "To: " << toDelimitedString(to_domains) << "\n";
-    std::cerr << "Resize indexing path\n";
-    for (const auto& [g, d] : path) {
-      std::cerr << "\t" << d << g->front()->toString();
-    }
-    return path;
-  }
-
-  std::cerr << "Resize not used\n";
-
+  // If resize doesn't appear, the default path should work fine.
   return std::nullopt;
 }
 
@@ -189,19 +172,23 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
     const ValGraph& graph,
     const std::vector<IterDomain*>& from_domains,
     const std::vector<IterDomain*>& to_domains) {
+  // Take the path if found by the war for resize indexing
   if (auto path =
           getExprsBetweenForResize(expr, graph, from_domains, to_domains);
       path.has_value()) {
     return *path;
   }
 
-  std::cerr << "Not using resize war\n";
-
   auto from_groups = graph.toGroups(from_domains);
   auto to_groups = graph.toGroups(to_domains);
 
-  return IndexingTraversal::getExprsBetween(
-      expr, graph, from_groups, to_groups);
+  IndexingTraversal traversal(
+      expr,
+      graph,
+      {from_groups.vector().begin(), from_groups.vector().end()},
+      {to_groups.vector().begin(), to_groups.vector().end()});
+  traversal.traverse();
+  return traversal.getShortestExprPath().first;
 }
 
 } // namespace nvfuser
