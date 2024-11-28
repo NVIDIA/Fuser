@@ -4373,12 +4373,9 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
   auto matmul_out = at::matmul(a, b);
-  if (out()->hasAllocation()){
+  if (out()->hasAllocation()) {
     auto matmul_sizes = matmul_out.sizes().vec();
-    auto strides = inferStrides(
-      out(),
-      matmul_sizes
-    );
+    auto strides = computeStrides(out(), matmul_sizes);
     matmul_out = at::as_strided(matmul_out, matmul_sizes, strides);
   }
   return {matmul_out};
