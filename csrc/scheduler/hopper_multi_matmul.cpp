@@ -1019,8 +1019,13 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     // TODO: Use stmatrix to load from registers to shared memory
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
-    constexpr int64_t tma_m = 16;
-    constexpr int64_t tma_n = 64;
+    const int64_t tma_m = getM(params_->mma_macro);
+    const int64_t tma_n = getN(params_->mma_macro);
+
+    fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
+    fusion_->manage("st_matrix_m", tma_m);
+    fusion_->manage("st_matrix_n", tma_n);
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
@@ -1036,7 +1041,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Set LoadStoreOp
-      // TODO Use LoadStoreOpType::StMatrix on d_smem definition
+      d_smem->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::StMatrix);
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
@@ -1263,6 +1269,7 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(

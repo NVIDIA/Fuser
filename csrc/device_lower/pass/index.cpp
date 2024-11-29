@@ -1816,6 +1816,88 @@ Val* hardCodedIndexGenerationForStMatrix(
   return out;
 }
 
+Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
+    const LoadStoreOp* ldst,
+    const ForLoop* outer_loop,
+    const int64_t m_tile,
+    const int64_t n_tile,
+    const int64_t m,
+    const int64_t n) {
+  NVF_ERROR(
+      (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
+          (m_tile == 16 && n_tile == 16),
+      "size not currently supported for stmatrix");
+
+  NVF_ERROR(
+      ldst->out()->dtype() == DataType::Half,
+      "we only support half type in stmatrix");
+
+  // Constants
+  constexpr int64_t dtype_size = 2;
+  constexpr int64_t warp_size = 32;
+  constexpr int64_t stsm_column_size = 8;
+  constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
+  const int64_t warp_group_tile_stride = n * dtype_size;
+  const int64_t n_tile_stride = n_tile / stsm_column_size;
+  const int64_t tile_stride = m * n * dtype_size;
+
+  // NvFuser Val for constants
+  Val* warp_size_val = IrBuilder::create<Val>(warp_size, DataType::Index);
+  Val* m_tile_val = IrBuilder::create<Val>(m_tile, DataType::Index);
+  Val* n_tile_val = IrBuilder::create<Val>(n_tile, DataType::Index);
+  Val* n_tile_stride_val =
+      IrBuilder::create<Val>(n_tile_stride, DataType::Index);
+  Val* stsm_column_size_val =
+      IrBuilder::create<Val>(stsm_column_size, DataType::Index);
+  Val* stsm_column_stride_val =
+      IrBuilder::create<Val>(stsm_column_stride, DataType::Index);
+  Val* warp_group_tile_stride_val =
+      IrBuilder::create<Val>(warp_group_tile_stride, DataType::Index);
+  Val* tile_stride_val = IrBuilder::create<Val>(tile_stride, DataType::Index);
+
+  // Derived Constants
+  NamedScalar* TDX =
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index);
+  NamedScalar* TDY =
+      IrBuilder::create<NamedScalar>("threadIdx.y", DataType::Index);
+  Val* warp_id = SimplifyingIrBuilder::divExpr(TDX, warp_size_val);
+  Val* lane_id = SimplifyingIrBuilder::modExpr(TDX, warp_size_val);
+
+  // Calculate Row
+  Val* warp_row = SimplifyingIrBuilder::mulExpr(warp_id, m_tile_val);
+  Val* lane_row = SimplifyingIrBuilder::modExpr(lane_id, m_tile_val);
+  Val* row = SimplifyingIrBuilder::addExpr(warp_row, lane_row);
+
+  // Calculate Column
+  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, n_tile_val);
+  Val* iter_col =
+      SimplifyingIrBuilder::mulExpr(outer_loop->index(), n_tile_stride_val);
+  Val* col = SimplifyingIrBuilder::addExpr(lane_col, iter_col);
+
+  // Swizzle Column
+  Val* row_mod_stsm_col =
+      SimplifyingIrBuilder::modExpr(row, stsm_column_size_val);
+  Val* swizzle_col = bitwise_xor(col, row_mod_stsm_col);
+
+  // Calculate Tile Offset
+  Val* row_offset =
+      SimplifyingIrBuilder::mulExpr(row, warp_group_tile_stride_val);
+  Val* col_offset =
+      SimplifyingIrBuilder::mulExpr(swizzle_col, stsm_column_stride_val);
+  Val* offset = SimplifyingIrBuilder::addExpr(row_offset, col_offset);
+
+  // Calculate TDY offset
+  Val* threadIdx_y_offset = IrBuilder::mulExpr(TDY, tile_stride_val);
+
+  // Create shared memory TensorIndex
+  Val* out_index = IrBuilder::addExpr(
+      IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+      IrBuilder::addExpr(threadIdx_y_offset, offset));
+  Val* out = IrBuilder::create<kir::TensorIndex>(
+      dynamic_cast<TensorView*>(ldst->out()), out_index);
+  return out;
+}
+
 } // namespace
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
@@ -1853,7 +1935,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       auto n = ldst->fusion()->getManaged<int64_t>("st_matrix_n");
 
       // Get the index for the output of stmatrix.
-      out = hardCodedIndexGenerationForStMatrix(
+      out = hardCodedIndexGenerationForStMatrix128BSwizzle(
           ldst, for_loops_[0], m_tile, n_tile, m, n);
 
       auto num_regs = (m_tile) / 8 * (n_tile) / 8;

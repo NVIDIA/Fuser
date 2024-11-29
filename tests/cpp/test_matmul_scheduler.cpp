@@ -3166,7 +3166,8 @@ class HopperMatmulSchedulerTest
 
     mparams.supported_vec_size = {8, 8, 4};
 
-    mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    // TODO StMatrix (16,16) only works when macroN is 64.
+    mparams.mma_macro = MmaMacro::Hopper_64_64_16;
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
