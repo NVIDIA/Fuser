@@ -4378,6 +4378,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     auto strides = computeStrides(out(), matmul_sizes);
     matmul_out = at::as_strided(matmul_out, matmul_sizes, strides);
   }
+  inferAndValidateAllocationSizesAndStrides(matmul_out, out(), ee);
   return {matmul_out};
 }
 
