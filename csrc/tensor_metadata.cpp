@@ -342,8 +342,6 @@ std::vector<int64_t> computeStrides(
   for (auto idx : c10::irange(rank)) {
     strides[out_order.value()[idx]] = sorted_strides[idx];
   }
-  validateAllocationSizesAndStrides(
-      allocation_domain, tv->getContiguity(), sizes, strides);
   return strides;
 }
 
