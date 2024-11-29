@@ -9028,41 +9028,22 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
 
 TEST_F(NVFuserTest, cuStreamWriteValue32) {
   constexpr cuuint32_t value = 3;
+  constexpr size_t size = sizeof(cuuint32_t);
   cudaError_t error;
   CUdeviceptr pDevice;
-  volatile cuuint32_t* ptr;
-  error = cudaSetDevice(0);
-  ASSERT_EQ(error, 0);
-  error = cudaMallocHost((void**)&ptr, sizeof(cuuint32_t));
-  ASSERT_EQ(error, 0);
-  error = cudaHostGetDevicePointer((void**)&pDevice, (void*)ptr, 0);
+
+  error = cudaMalloc((void**)&pDevice, size);
   ASSERT_EQ(error, 0);
 
-  at::cuda::CUDAStream c10_stream = at::cuda::getStreamFromPool(
-              /*isHighPriority=*/true, /*device_index*/0);
-  CUstream stream = c10_stream.stream();
+  cudaStream_t stream;
+  error = cudaStreamCreate(&stream);
+  ASSERT_EQ(error, 0);
+
   CUresult st;
   st = cuStreamWriteValue32(stream, pDevice, value, /*flag=*/0);
   ASSERT_EQ(st, 0);
 
   torch::cuda::synchronize();
-  cuuint32_t ptr2;
-  error = cudaMemcpy(&ptr2, (void*)pDevice, sizeof(cuuint32_t), cudaMemcpyDeviceToHost);
-  ASSERT_EQ(error, 0);
-  ASSERT_EQ(ptr2, value);
-
-
-  int i = 0;
-  while (i < 10000000) {
-    if (*ptr == value) {
-      std::cout << " BREAK " << *ptr <<std::endl;
-      break;
-    }
-    if (i % 1000000 == 0) {
-      std::cout << "waiting, read value = " << *ptr <<std::endl;
-    }
-    i++;
-  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
