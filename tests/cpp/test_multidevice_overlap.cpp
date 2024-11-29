@@ -1060,16 +1060,19 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
 
         if (comms_req) {
           comms_req->wait();
+          comms_req = nullptr;
         }
 
         // send & matmul current index
         std::vector<at::Tensor> src = {tb_j_curr_slice};
         std::vector<at::Tensor> dst = {tb_j_next_slice};
         torch::matmul_out(tc_j, ta_unsharded_, tb_j_curr_slice);
-        world_communicator_->startCoalescing();
-        world_communicator_->send(src, send_rank, 0);
-        world_communicator_->recv(dst, recv_rank, 0);
-        comms_req = world_communicator_->endCoalescing();
+        if (j < number_of_steps_per_ring_ - 1) {
+          world_communicator_->startCoalescing();
+          world_communicator_->send(src, send_rank, 0);
+          world_communicator_->recv(dst, recv_rank, 0);
+          comms_req = world_communicator_->endCoalescing();
+        }
       }
     }
     synchronizeStreams(streams);
