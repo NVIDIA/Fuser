@@ -985,9 +985,21 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     // B(K, sharded(N))
     // C(M, N)
     ta_unsharded_sizes = std::vector<int64_t>{params.M, params.K};
-    tb_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
-    tb_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.K, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
-    tc_unsharded_sizes = std::vector<int64_t>{number_of_steps_per_ring_, number_of_rings_, params.M, params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+    tb_unsharded_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.K,
+        params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+    tb_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.K,
+        params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+    tc_unsharded_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M,
+        params.N / (number_of_steps_per_ring_ * number_of_rings_)};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -1000,14 +1012,14 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     ta_unsharded_ = at::empty(ta_unsharded_sizes, gpu_options);
     tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
     tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
-    tb_           = at::empty(tb_sizes, gpu_options);
+    tb_ = at::empty(tb_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
       debug() << "ta_unsharded_sizes()=" << ta_unsharded_.sizes() << std::endl
               << "tb_unsharded_sizes()=" << tb_unsharded_.sizes() << std::endl
               << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl
-              << "tb_.sizes()="          << tb_.sizes()           << std::endl;
+              << "tb_.sizes()=" << tb_.sizes() << std::endl;
     }
   }
 
@@ -1018,7 +1030,8 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     ta_unsharded_.uniform_();
     tb_unsharded_.uniform_();
     // we have allocated the full B matrix, but only copy the sharded portion
-    tb_.select(0, my_device_index_).copy_(tb_unsharded_.select(0, my_device_index_));
+    tb_.select(0, my_device_index_)
+        .copy_(tb_unsharded_.select(0, my_device_index_));
   }
 
   void validate() {
@@ -1032,16 +1045,18 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   }
 };
 
-TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation) {
+TEST_F(
+    RingAllgatherOverlapTest,
+    RingAllgatherBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
 
   const auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
-  const auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  const auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) %
+      number_of_steps_per_ring_;
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
-        
     initializeIO();
 
     for (auto i : c10::irange(number_of_rings_)) {
@@ -1050,10 +1065,11 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation)
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
-        auto slice_index =
-            (my_device_index_ - j + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+        auto slice_index = (my_device_index_ - j + number_of_steps_per_ring_) %
+            number_of_steps_per_ring_;
         auto next_slice_index =
-            (my_device_index_ - j - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+            (my_device_index_ - j - 1 + number_of_steps_per_ring_) %
+            number_of_steps_per_ring_;
         auto tb_j_curr_slice = tb_.select(0, slice_index).select(0, i);
         auto tb_j_next_slice = tb_.select(0, next_slice_index).select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
