@@ -4,7 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from utils import NVFuserTest, is_pre_volta
+from utils import NVFuserTest, is_pre_volta, verify_stride_order
 from nvfuser import FusionDefinition, DataType
 import pytest
 from functools import partial
@@ -201,3 +201,24 @@ class TestMatmul(NVFuserTest):
         ]
         outputs, _ = self.exec_nvfuser(fusion_func, inputs)
         assert outputs[0].ndim == 3
+
+    def test_matmul_stride(self):
+        b, m, n, k = 3, 2, 5, 4
+        inputs = [
+            torch.randn(b, b, m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, n, device="cuda", dtype=torch.float16),
+        ]
+        for perm in itertools.permutations(range(4), 4):
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                a = fd.from_pytorch(inputs[0])
+                b = fd.from_pytorch(inputs[1])
+                out = fd.ops.matmul(a, b)
+                fd.add_output(out, stride_order=perm)
+
+            with FusionDefinition() as fd:
+                fusion_func(fd)
+            out = fd.execute(inputs)
+            verify_stride_order(out[0].stride(), perm)
+            # Verify that setting the stride order does not change the logical shape
+            self.assertEqual(out[0].shape, torch.Size([b, b, m, n]))
