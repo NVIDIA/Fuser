@@ -958,6 +958,9 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
 
   void SetUp() {
     MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
