@@ -447,6 +447,10 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 std::vector<IterDomain*> getRedundantIds(
     const std::vector<IterDomain*>& domain);
 
+std::vector<IterDomain*> getRedundantIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference);
+
 //! Check if dom0 and dom1 completely covers each other with no
 //! redundancy. When they are equivalent, we can consider them as a different
 //! view of the each other with affine transformations.

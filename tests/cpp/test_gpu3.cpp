@@ -6500,6 +6500,47 @@ TEST_F(NVFuserTest, DetectRedundantIds) {
   EXPECT_FALSE(ir_utils::getRedundantIds(domain).empty());
 }
 
+TEST_F(NVFuserTest, DetectRedundantIdsWithReference) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  const auto& reference = tv1->getLogicalDomain();
+
+  tv1->merge(0);
+  auto domain = tv1->getLoopDomain();
+  std::cerr << toDelimitedString(ir_utils::getRedundantIds(domain, reference))
+            << "\n";
+  EXPECT_TRUE(ir_utils::getRedundantIds(domain, reference).empty());
+
+  // Adding one of the logical domain, which is redundant.
+  domain.push_back(tv1->getLogicalDomain().at(0));
+  EXPECT_FALSE(ir_utils::getRedundantIds(domain, reference).empty());
+
+  tv1->split(0, 4);
+  domain = tv1->getLoopDomain();
+  EXPECT_TRUE(ir_utils::getRedundantIds(domain, reference).empty());
+  // Replace one of the loop IDs with a logical ID. Dependency is not
+  // fully satisfied, but it should detect the redundancy
+  domain[0] = tv1->getLogicalDomain()[0];
+  EXPECT_FALSE(ir_utils::getRedundantIds(domain, reference).empty());
+
+  // Remember the current loop domain
+  domain = tv1->getLoopDomain();
+  // Reset the loop domain
+  tv1->setLoopDomain(tv1->getLogicalDomain());
+  // Schedule the tensor again
+  tv1->merge(0);
+  EXPECT_TRUE(
+      ir_utils::getRedundantIds(tv1->getLoopDomain(), reference).empty());
+  domain.push_back(tv1->getLoopDomain()[0]);
+  EXPECT_FALSE(ir_utils::getRedundantIds(domain, reference).empty());
+}
+
 TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
   Fusion fusion;
   FusionGuard fg(&fusion);

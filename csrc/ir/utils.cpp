@@ -803,7 +803,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
 
 namespace {
 
-class RedundancyChecker : IRBFS {
+class RedundancyChecker : public IRBFS {
  public:
   static std::vector<IterDomain*> getRedundantIds(
       const std::vector<IterDomain*>& domain) {
@@ -878,7 +878,16 @@ class RedundancyChecker : IRBFS {
     return redundant_ids;
   }
 
- private:
+  // TODO: Cleanup
+  static std::pair<ExprPath, bool> getExprsBetween(
+      const std::vector<IterDomain*>& from,
+      const std::vector<IterDomain*>& to) {
+    RedundancyChecker checker(
+        {from.begin(), from.end()}, {to.begin(), to.end()});
+    checker.traverse();
+    return checker.getShortestExprPath();
+  }
+
   RedundancyChecker(
       IterDomain* id,
       const std::vector<IterDomain*>& other_ids,
@@ -888,6 +897,15 @@ class RedundancyChecker : IRBFS {
             {other_ids.begin(), other_ids.end()},
             /*require_all_to_visited=*/false,
             allowed_direction) {}
+
+  RedundancyChecker(
+      const std::vector<Val*>& from_ids,
+      const std::vector<Val*>& to_ids,
+      bool require_all_to_visited = true)
+      : IRBFS(
+            {from_ids.begin(), from_ids.end()},
+            {to_ids.begin(), to_ids.end()},
+            /*require_all_to_visited=*/require_all_to_visited) {}
 
   // Unlike the default behavior, Expr is considered ready to visit as
   // long as one of the inputs or outputs has its dependency met
@@ -932,6 +950,79 @@ class RedundancyChecker : IRBFS {
 std::vector<IterDomain*> getRedundantIds(
     const std::vector<IterDomain*>& domain) {
   return RedundancyChecker::getRedundantIds(domain);
+}
+
+std::vector<IterDomain*> getRedundantIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference) {
+  if (domain.empty()) {
+    return {};
+  }
+  // If domain is not empty but reference is, unclear what it should
+  // mean. Throw an error for now.
+  NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
+
+  const auto path_to_ref = IRBFS::getExprsBetween(
+                               {domain.begin(), domain.end()},
+                               {reference.begin(), reference.end()},
+                               false)
+                               .first;
+
+  std::unordered_set<Val*> produced_ids;
+  std::unordered_set<Val*> consumed_ids;
+  // Consider the domain itself as produced and consumed if included in
+  // reference since there's no expr for that case
+  for (const auto id_to_check : domain) {
+    if (std::find(reference.begin(), reference.end(), id_to_check) !=
+        reference.end()) {
+      produced_ids.insert(id_to_check);
+      consumed_ids.insert(id_to_check);
+    }
+  }
+
+  for (const auto& [expr, dir] : path_to_ref) {
+    const auto& inputs =
+        dir == Direction::Forward ? expr->inputs() : expr->outputs();
+    const auto& outputs =
+        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+    consumed_ids.insert(inputs.begin(), inputs.end());
+    for (const auto& output : outputs) {
+      bool already_produced = !produced_ids.insert(output).second;
+      if (already_produced) {
+        // This output is redundantly produced.
+        std::cerr << "Already produced: " << output->toString() << "\n";
+        return {output->as<IterDomain>()};
+      }
+    }
+  }
+
+  std::vector<IterDomain*> remaining_ids;
+  remaining_ids.reserve(domain.size());
+  std::copy_if(
+      domain.begin(),
+      domain.end(),
+      std::back_inserter(remaining_ids),
+      [&](const auto id_to_check) {
+        return consumed_ids.find(id_to_check) == consumed_ids.end();
+      });
+
+  if (remaining_ids.empty()) {
+    return {};
+  }
+
+  const auto reachable_vals = getReachableValsFrom<RedundancyChecker>(
+      {remaining_ids.begin(), remaining_ids.end()},
+      {reference.begin(), reference.end()});
+
+  if (!reachable_vals.empty()) {
+    std::cerr << "Redudancy detected: " << toDelimitedString(remaining_ids)
+              << ", reachable: " << toDelimitedString(reachable_vals)
+              << ", ref: " << toDelimitedString(reference)
+              << ", domain: " << toDelimitedString(domain) << "\n";
+    return remaining_ids;
+  } else {
+    return {};
+  }
 }
 
 CompareDomainResult compareDomains(

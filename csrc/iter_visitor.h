@@ -639,6 +639,14 @@ class IRBFS
   static std::vector<Val*> getDependenciesTo(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to);
+
+  static std::vector<Val*> getInputsOfExprPath(const ExprPath& path) {
+    return BFS::getInputsOfExprPath(path, IRInputs{}, IROutputs{});
+  }
+
+  static std::vector<Val*> getOutputsOfExprPath(const ExprPath& path) {
+    return BFS::getInputsOfExprPath(reverse(path), IRInputs{}, IROutputs{});
+  }
 };
 
 } // namespace nvfuser

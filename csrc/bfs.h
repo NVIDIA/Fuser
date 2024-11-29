@@ -121,7 +121,47 @@ class BFS {
 
   virtual ~BFS() = default;
 
- protected:
+  static std::vector<ValT> getInputsOfExprPath(
+      const ExprPath& path,
+      InputsT get_inputs,
+      OutputsT get_outputs) {
+    std::vector<ValT> inputs;
+    std::unordered_set<ValT> all_outputs;
+
+    auto get_inputs_by_dir = [&](const ExprT& expr, Direction dir) {
+      if (dir == Direction::Forward) {
+        return get_inputs(expr);
+      } else if (dir == Direction::Backward) {
+        return get_outputs(expr);
+      } else {
+        NVF_THROW("Unexpected direction: ", dir);
+      }
+    };
+
+    auto get_outputs_by_dir = [&](const ExprT& expr, Direction dir) {
+      if (dir == Direction::Forward) {
+        return get_outputs(expr);
+      } else if (dir == Direction::Backward) {
+        return get_inputs(expr);
+      } else {
+        NVF_THROW("Unexpected direction: ", dir);
+      }
+    };
+
+    for (const auto& [expr, dir] : path) {
+      for (const auto& inp : get_inputs_by_dir(expr, dir)) {
+        if (all_outputs.find(inp) == all_outputs.end()) {
+          inputs.push_back(inp);
+        }
+      }
+      for (const auto& out : get_outputs_by_dir(expr, dir)) {
+        all_outputs.emplace(out);
+      }
+    }
+    return inputs;
+  }
+
+ public:
   BFS(DefinitionT definition,
       UsesT uses,
       InputsT inputs,
@@ -507,5 +547,27 @@ class BFS {
   bool require_all_to_visited_ = true;
   Direction allowed_direction_ = Direction::Undefined;
 };
+
+template <typename BFSType>
+std::vector<typename BFSType::ValType> getReachableValsFrom(
+    const std::vector<typename BFSType::ValType>& from,
+    const std::vector<typename BFSType::ValType>& vals) {
+  BFSType bfs(
+      {from.begin(), from.end()},
+      {vals.begin(), vals.end()},
+      /*require_all_to_visited=*/false);
+
+  bfs.traverse();
+
+  std::vector<typename BFSType::ValType> reachable_vals;
+  for (const auto& val : vals) {
+    if (bfs.isVisited(val) ||
+        std::find(from.begin(), from.end(), val) != from.end()) {
+      reachable_vals.push_back(val);
+    }
+  }
+
+  return reachable_vals;
+}
 
 } // namespace nvfuser
