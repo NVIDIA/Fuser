@@ -142,7 +142,7 @@ void reorderDIDToFront(TensorView*);
 // according to the allocation domain, iM is fully allocated and iN is sharded
 // and thus partially allocated.
 //
-// If the TensorView is not sharded, this function returns `sizes` 
+// If the TensorView is not sharded, this function returns `sizes`.
 //
 // Limitations:
 // - The function assumes that there are no Merges from logical to the
