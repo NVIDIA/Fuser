@@ -52,7 +52,6 @@ sass::Container getSASSFor(
     MmaLayout layout,
     GemmTile cta_tile,
     GemmTile warp_tile,
-    GemmTile instruction_tile,
     MmaMacro macro,
     int M,
     int N,
@@ -80,7 +79,6 @@ sass::Container getSASSFor(
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = cta_tile;
   gemm_tile.warp_tile = warp_tile;
-  gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -115,7 +113,6 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
     MmaLayout layout,
     GemmTile cta_tile,
     GemmTile warp_tile,
-    GemmTile instruction_tile,
     MmaMacro macro,
     int M,
     int N,
@@ -144,7 +141,6 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = cta_tile;
   gemm_tile.warp_tile = warp_tile;
-  gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -201,7 +197,6 @@ TEST_P(MatmulSASSTestWithLayout, AmpereSanity) {
           layout,
           GemmTile(128, 128, 32),
           GemmTile(64, 64, 32),
-          GemmTile(16, 8, 16),
           MmaMacro::Ampere_16_8_16,
           M,
           N,
@@ -256,7 +251,6 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
             layout,
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
             MmaMacro::Ampere_16_8_16,
             M,
             N,
@@ -357,7 +351,6 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
   const int smem_circular_buffer_stage = 4;
   const bool ignore_occupancy_drop = true;
   const auto [use_smem_epilogue, promote_prologue_smem_reuse] =
@@ -390,7 +383,6 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
             layout,
             gemm_tile.cta_tile,
             gemm_tile.warp_tile,
-            gemm_tile.instruction_tile,
             MmaMacro::Ampere_16_8_16,
             M,
             N,
@@ -509,7 +501,6 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
             layout,
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
             MmaMacro::Ampere_16_8_16,
             M,
             N,
@@ -639,7 +630,6 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM) {
             layout,
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
             MmaMacro::Ampere_16_8_16,
             M,
             N,

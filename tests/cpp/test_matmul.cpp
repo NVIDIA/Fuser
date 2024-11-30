@@ -109,7 +109,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -172,7 +171,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -230,7 +228,6 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -291,7 +288,6 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -352,7 +348,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -415,7 +410,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams mparams;
     mparams.supported_vec_size = {8, 8, 4};
@@ -489,7 +483,6 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams mparams;
     mparams.supported_vec_size = {8, 8, 4};
@@ -627,7 +620,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams mparams;
     mparams.supported_vec_size = {8, 8, 4};
@@ -711,17 +703,14 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
   gemm_tile1.warp_tile = GemmTile(64, 32, 32);
   gemm_tile2.warp_tile = GemmTile(64, 16, 64);
 
-  // Using Ampere mma macro
-  gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
-  gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
       mma_ops.size());
-  mma_ops[0]->setMacro(MmaMacro::Ampere_16_8_16);
-  mma_ops[1]->setMacro(MmaMacro::Ampere_16_8_16);
+  MmaMacro macro = MmaMacro::Ampere_16_8_16;
+  mma_ops[0]->setMacro(macro);
+  mma_ops[1]->setMacro(macro);
 
   // Global read for gemm 1
   auto tv0r = tv0->cacheAfter();
@@ -777,8 +766,8 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
   tv2r->computeAt(tv4c, 3);
 
   // Make warp tile
-  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile2);
-  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile2);
+  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile2, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile2, macro);
   //           -8   -7  -6 -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv3cr->computeAt(tv4c, -4);
@@ -844,8 +833,8 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile1);
-  mma_utils::scheduleWarpTileWithNoReduction(tv3cw, gemm_tile1);
+  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile1, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv3cw, gemm_tile1, macro);
 
   tv0cr->computeAt(tv3c, -4);
   tv1cr->computeAt(tv3c, -4);
@@ -1021,16 +1010,14 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   // Distribute to 2x2 warps
   gemm_tile.warp_tile = GemmTile(16, 64, 32);
 
-  // Using Ampere mma macro
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
       mma_ops.size());
-  mma_ops[0]->setMacro(MmaMacro::Ampere_16_8_16);
-  mma_ops[1]->setMacro(MmaMacro::Ampere_16_8_16);
+  MmaMacro macro = MmaMacro::Ampere_16_8_16;
+  mma_ops[0]->setMacro(macro);
+  mma_ops[1]->setMacro(macro);
 
   // Global read for gemm 1
   auto tv0r = inp->cacheAfter();
@@ -1088,8 +1075,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   tv2r->computeAt(tv4c, 3);
 
   // Make warp tile
-  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile, macro);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv3cr->computeAt(tv4c, -4);
@@ -1162,8 +1149,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv3, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv3, gemm_tile, macro);
 
   tv0cr->computeAt(tv3c, -4);
   tv1cr->computeAt(tv3c, -4);
@@ -1354,7 +1341,6 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -1404,14 +1390,14 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
+  MmaMacro macro = MmaMacro::Ampere_16_8_16;
+  mma_ops.front()->setMacro(macro);
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1447,8 +1433,8 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile, macro);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -1548,14 +1534,14 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
+  MmaMacro macro = MmaMacro::Ampere_16_8_16;
+  mma_ops.front()->setMacro(macro);
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -1608,8 +1594,8 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile, macro);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -1729,14 +1715,14 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
+  MmaMacro macro = MmaMacro::Ampere_16_8_16;
+  mma_ops.front()->setMacro(macro);
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -1774,8 +1760,8 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile, macro);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -1873,7 +1859,6 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   // [M,K]
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -1895,7 +1880,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
+  MmaMacro macro = MmaMacro::Turing_16_8_16;
+  mma_ops.front()->setMacro(macro);
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1931,8 +1917,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
 
   // Make warp tile:
   //
-  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile, macro);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile, macro);
   //           -8   -7 -6 -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -2069,7 +2055,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 64);
   gemm_tile.warp_tile = GemmTile(64, 64, 64);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
   mparams.mma_macro = MmaMacro::Ampere_16_16_16;
@@ -2128,7 +2113,6 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2189,7 +2173,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
       MatMulTileOptions gemm_tile;
       gemm_tile.cta_tile = GemmTile(mn_size, mn_size, k_size);
       gemm_tile.warp_tile = GemmTile(mn_size / 2, mn_size / 2, k_size);
-      gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
       MatmulParams mparams;
       mparams.supported_vec_size = {8, 8, 4};
@@ -2268,7 +2251,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
         MatMulTileOptions gemm_tile;
         gemm_tile.cta_tile = GemmTile(m_size, n_size, k_size);
         gemm_tile.warp_tile = GemmTile(m_size / 4, n_size / 2, k_size);
-        gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
         MatmulParams mparams;
         mparams.supported_vec_size = {8, 8, 4};
@@ -2341,7 +2323,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
     // 2 warp by 3 warp
     gemm_tile.cta_tile = GemmTile(192, 128, k_size);
     gemm_tile.warp_tile = GemmTile(64, 64, k_size);
-    gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams mparams;
     mparams.supported_vec_size = {8, 8, 4};
@@ -2408,7 +2389,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 64);
   gemm_tile.warp_tile = GemmTile(64, 64, 64);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2465,7 +2445,6 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2527,7 +2506,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(64, 128, 32);
     gemm_tile.warp_tile = GemmTile(32, 32, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams mparams;
     mparams.supported_vec_size = {8, 8, 4};
@@ -2675,7 +2653,6 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(64, 96, 64);
   gemm_tile.warp_tile = GemmTile(16, 32, 64);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2768,7 +2745,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -2864,7 +2840,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2963,7 +2938,6 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
       MatMulTileOptions gemm_tile;
       gemm_tile.cta_tile = GemmTile(128, 128, 32);
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
-      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams mparams;
       mparams.supported_vec_size = {8, 8, 4};
@@ -3042,7 +3016,6 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       MatMulTileOptions gemm_tile;
       gemm_tile.cta_tile = GemmTile(128, 128, 32);
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
-      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams mparams;
       mparams.supported_vec_size = {8, 8, 4};
@@ -3101,7 +3074,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
       MatMulTileOptions gemm_tile;
       gemm_tile.cta_tile = GemmTile(128, 128, 32);
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
-      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams mparams;
       mparams.supported_vec_size = {8, 8, 4};
@@ -3166,7 +3138,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
       MatMulTileOptions gemm_tile;
       gemm_tile.cta_tile = GemmTile(128, 128, 32);
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
-      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams mparams;
       mparams.supported_vec_size = {8, 8, 4};
@@ -3232,7 +3203,6 @@ TEST_F(MatmulTest, ReproIssue1808) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(160, 144, 16);
   gemm_tile.warp_tile = GemmTile(80, 24, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -3445,7 +3415,6 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   // Supported vec size is based on inner dim
@@ -3511,7 +3480,6 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   // Supported vec size is based on inner dim
@@ -3576,7 +3544,6 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   // Output is M, N1, N2, contiguous so fully vectorizable despite size N2=2 in
@@ -3637,7 +3604,6 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   // Supported vec size is based on inner dim
