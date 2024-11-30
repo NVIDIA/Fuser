@@ -340,7 +340,7 @@ TEST_F(MultiDeviceTest, Transpose) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
-TEST_F(MultiDeviceTest, ParallelizeLoopSplit) {
+TEST_F(MultiDeviceTest, LoopSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -360,6 +360,44 @@ TEST_F(MultiDeviceTest, ParallelizeLoopSplit) {
   }
 
   at::Tensor in_tensor = at::randn({3}, tensor_options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, LoopSplitWithReorder) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigConcreteTensor({2, num_devices * 3});
+  in->setDeviceMesh(mesh);
+  fusion->addInput(in);
+
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  // logical: i{2}, i{3D}
+  // allocation: iDIDx{D}, i{3}, i{2}
+  in->split(1, num_devices, /*inner_split=*/false);
+  in->reorder({{0, -1}});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->split(1, num_devices, /*inner_split=*/false);
+  out->axis(1)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  at::Tensor in_tensor = at::randn({3, 2}, tensor_options).t();
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
