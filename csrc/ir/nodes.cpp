@@ -3670,16 +3670,34 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  NVF_ERROR(
-      ir_utils::getRedundantIds(new_loop_domain, logical_domain_).empty());
-  auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
-      logical_domain_, new_loop_domain, additional_ids_);
-  NVF_ERROR(
-      !logical_unreachable,
-      "Not all logical IDs are covered by loop domain. Loop: ",
-      toDelimitedString(new_loop_domain),
-      ". Logical: ",
-      toDelimitedString(logical_domain_));
+  if (!getenv("OLD")) {
+    auto [redundant_ids, additional_ids, unreachable_reference_ids] =
+        ir_utils::compareDomainWithReference(new_loop_domain, logical_domain_);
+    NVF_ERROR(
+        redundant_ids.empty(),
+        "Redundant IDs detected: ",
+        toDelimitedString(redundant_ids));
+    if (!unreachable_reference_ids.empty()) {
+      NVF_ERROR(
+          std::all_of(
+              unreachable_reference_ids.begin(),
+              unreachable_reference_ids.end(),
+              [](const auto id) { return id->isBroadcast(); }),
+          "Not all logical IDs are covered by loop domain. Loop: ",
+          toDelimitedString(new_loop_domain),
+          ". Unreachable logical IDs: ",
+          toDelimitedString(unreachable_reference_ids));
+    }
+  } else {
+    auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
+        logical_domain_, new_loop_domain, additional_ids_);
+    NVF_ERROR(
+        !logical_unreachable,
+        "Not all logical IDs are covered by loop domain. Loop: ",
+        toDelimitedString(new_loop_domain),
+        ". Logical: ",
+        toDelimitedString(logical_domain_));
+  }
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();

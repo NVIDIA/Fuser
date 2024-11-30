@@ -881,9 +881,12 @@ class RedundancyChecker : public IRBFS {
   // TODO: Cleanup
   static std::pair<ExprPath, bool> getExprsBetween(
       const std::vector<IterDomain*>& from,
-      const std::vector<IterDomain*>& to) {
+      const std::vector<IterDomain*>& to,
+      bool require_all_to_visited = true) {
     RedundancyChecker checker(
-        {from.begin(), from.end()}, {to.begin(), to.end()});
+        {from.begin(), from.end()},
+        {to.begin(), to.end()},
+        require_all_to_visited);
     checker.traverse();
     return checker.getShortestExprPath();
   }
@@ -952,7 +955,7 @@ std::vector<IterDomain*> getRedundantIds(
   return RedundancyChecker::getRedundantIds(domain);
 }
 
-std::vector<IterDomain*> getRedundantIds(
+CompareDomainWithReferenceResult compareDomainWithReference(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& reference) {
   if (domain.empty()) {
@@ -962,8 +965,19 @@ std::vector<IterDomain*> getRedundantIds(
   // mean. Throw an error for now.
   NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
 
+  std::vector<IterDomain*> domain_dedup;
+  std::vector<IterDomain*> redundant_ids;
+  std::unordered_set<IterDomain*> domain_set;
+  for (const auto id : domain) {
+    if (domain_set.insert(id).second) {
+      domain_dedup.push_back(id);
+    } else {
+      redundant_ids.push_back(id);
+    }
+  }
+
   const auto path_to_ref = IRBFS::getExprsBetween(
-                               {domain.begin(), domain.end()},
+                               {domain_dedup.begin(), domain_dedup.end()},
                                {reference.begin(), reference.end()},
                                false)
                                .first;
@@ -972,14 +986,16 @@ std::vector<IterDomain*> getRedundantIds(
   std::unordered_set<Val*> consumed_ids;
   // Consider the domain itself as produced and consumed if included in
   // reference since there's no expr for that case
-  for (const auto id_to_check : domain) {
+  for (const auto id_to_check : domain_dedup) {
     if (std::find(reference.begin(), reference.end(), id_to_check) !=
         reference.end()) {
+      // std::cerr << "Adding to both: " << id_to_check->toString() << "\n";
       produced_ids.insert(id_to_check);
       consumed_ids.insert(id_to_check);
     }
   }
 
+  std::vector<IterDomain*> redundantly_produced_ids;
   for (const auto& [expr, dir] : path_to_ref) {
     const auto& inputs =
         dir == Direction::Forward ? expr->inputs() : expr->outputs();
@@ -990,39 +1006,94 @@ std::vector<IterDomain*> getRedundantIds(
       bool already_produced = !produced_ids.insert(output).second;
       if (already_produced) {
         // This output is redundantly produced.
-        std::cerr << "Already produced: " << output->toString() << "\n";
-        return {output->as<IterDomain>()};
+        // std::cerr << "Already produced: " << output->toString() << "\n";
+        if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
+            domain_dedup.end()) {
+          redundant_ids.push_back(output->as<IterDomain>());
+        } else {
+          auto inputs_of_already_produced_id = IRBFS::getInputsOfExprPath(
+              IRBFS::getExprsBetween(
+                  {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
+                  .first);
+          for (const auto& input : inputs_of_already_produced_id) {
+            // std::cerr << "Input of redundantly produced id: "
+            //<< input->toString() << "\n";
+            redundant_ids.push_back(input->as<IterDomain>());
+          }
+        }
       }
     }
   }
 
-  std::vector<IterDomain*> remaining_ids;
-  remaining_ids.reserve(domain.size());
+  // IDs of the reference domain that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+  unreachable_reference_ids.reserve(reference.size());
   std::copy_if(
-      domain.begin(),
-      domain.end(),
-      std::back_inserter(remaining_ids),
+      reference.begin(),
+      reference.end(),
+      std::back_inserter(unreachable_reference_ids),
+      [&](const auto reference_id) {
+        return produced_ids.find(reference_id) == produced_ids.end();
+      });
+
+  // std::cerr << "Produced IDs: " << toDelimitedString(produced_ids) << "\n";
+  // std::cerr << "Consumed IDs: " << toDelimitedString(consumed_ids) << "\n";
+
+  // Check unused IDs, which should be either redundant or additional
+  // IDs.
+  std::vector<IterDomain*> unused_ids;
+  unused_ids.reserve(domain_dedup.size());
+  std::copy_if(
+      domain_dedup.begin(),
+      domain_dedup.end(),
+      std::back_inserter(unused_ids),
       [&](const auto id_to_check) {
         return consumed_ids.find(id_to_check) == consumed_ids.end();
       });
 
-  if (remaining_ids.empty()) {
-    return {};
+  std::vector<IterDomain*> additional_ids;
+
+  // If there's unreachable reference IDs, the unused IDs may have
+  // been unused because of missing dependencies, which should not be
+  // considered redundant or additional. Different analysis would be
+  // required in that case, which is not imlemented since error
+  // reporting of this function is best effort.
+  if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
+    // std::cerr << "Unused IDs: " << toDelimitedString(unused_ids) << "\n";
+    //  RedundancyChecker can traverse as long as one of the inputs or
+    //  outputs is visited
+    const auto from_remaining_ids =
+        RedundancyChecker::getExprsBetween(
+            unused_ids, reference, /*require_all_to_visited=*/false)
+            .first;
+    if (from_remaining_ids.empty()) {
+      additional_ids = unused_ids;
+    } else {
+      // Inputs are redundant
+      auto inputs = IRBFS::getInputsOfExprPath(from_remaining_ids);
+      for (const auto inp : inputs) {
+        redundant_ids.push_back(inp->as<IterDomain>());
+      }
+      for (const auto unused_id : unused_ids) {
+        if (std::find(inputs.begin(), inputs.end(), unused_id) ==
+            inputs.end()) {
+          additional_ids.push_back(unused_id);
+        }
+      }
+    }
   }
 
-  const auto reachable_vals = getReachableValsFrom<RedundancyChecker>(
-      {remaining_ids.begin(), remaining_ids.end()},
-      {reference.begin(), reference.end()});
-
-  if (!reachable_vals.empty()) {
-    std::cerr << "Redudancy detected: " << toDelimitedString(remaining_ids)
-              << ", reachable: " << toDelimitedString(reachable_vals)
-              << ", ref: " << toDelimitedString(reference)
-              << ", domain: " << toDelimitedString(domain) << "\n";
-    return remaining_ids;
-  } else {
-    return {};
+  // If an output of the path is not used, i.e., not part of the
+  // reference domain, it's considered an additional ID
+  for (const auto output : IRBFS::getOutputsOfExprPath(path_to_ref)) {
+    if (std::find(
+            reference.begin(), reference.end(), output->as<IterDomain>()) ==
+        reference.end()) {
+      additional_ids.push_back(output->as<IterDomain>());
+    }
   }
+
+  return {redundant_ids, additional_ids, unreachable_reference_ids};
 }
 
 CompareDomainResult compareDomains(

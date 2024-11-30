@@ -232,9 +232,9 @@ void validateIr(Fusion* fusion) {
   IrTransformPrinter printer(std::cerr);
   for (auto tv : fusion->allTvs()) {
     // printer.printTransforms(tv);
-    NVF_ERROR(
-        ir_utils::getRedundantIds(tv->getLoopDomain(), tv->getLogicalDomain())
-            .empty());
+    NVF_ERROR(ir_utils::compareDomainWithReference(
+                  tv->getLoopDomain(), tv->getLogicalDomain())
+                  .empty());
   }
 }
 

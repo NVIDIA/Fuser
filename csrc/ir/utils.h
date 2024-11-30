@@ -447,7 +447,27 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 std::vector<IterDomain*> getRedundantIds(
     const std::vector<IterDomain*>& domain);
 
-std::vector<IterDomain*> getRedundantIds(
+struct CompareDomainWithReferenceResult {
+  std::vector<IterDomain*> redundant_ids;
+  std::vector<IterDomain*> additional_ids;
+  std::vector<IterDomain*> unreachable_reference_ids;
+
+  bool empty() const {
+    return redundant_ids.empty() && additional_ids.empty() &&
+        unreachable_reference_ids.empty();
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "{redundant_ids: " << toDelimitedString(redundant_ids)
+       << ", additional_ids: " << toDelimitedString(additional_ids)
+       << ", unreachable_reference_ids: "
+       << toDelimitedString(unreachable_reference_ids) << "}";
+    return ss.str();
+  }
+};
+
+CompareDomainWithReferenceResult compareDomainWithReference(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& reference);
 
