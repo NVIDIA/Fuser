@@ -142,18 +142,16 @@ class CompiledKernel : public NonCopyable {
   NVF_API std::string getStructuredCode() const;
 
   //! Returns a const reference to the latest compiled kernel.
-  const std::unique_ptr<executor_utils::CudaExecutable>& executable() const {
+  const std::unique_ptr<executor_utils::CudaExecutable>& cudaExecutable()
+      const {
     return compiled_kernel_;
   }
-  std::unique_ptr<executor_utils::CudaExecutable>& executable() {
+  std::unique_ptr<executor_utils::CudaExecutable>& cudaExecutable() {
     return compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledKernelSASS() const {
-    return executor_utils::disassembleBinary(
-        compiled_kernel_->cubin, "-fun 1 -c");
-  }
+  NVF_API std::string disassembledKernelSASS() const;
 
   static void setGlobalFusionCount(int64_t new_fusion_count) {
     global_fusion_count_.store(new_fusion_count);

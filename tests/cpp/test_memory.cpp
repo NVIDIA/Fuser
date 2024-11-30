@@ -87,7 +87,7 @@ TEST_P(MemoryTest, LoadCache) {
 
   // Verify PTX.
   const executor_utils::CudaExecutable* compiled_kernel =
-      ke.compiledKernel()->executable().get();
+      ke.compiledKernel()->cudaExecutable().get();
   std::string ptx(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end());
   std::regex regex(R"(ld\.global\.)" + cache_op_str + R"(\.\S+)");
   std::smatch match;
@@ -163,7 +163,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 
   // Verify PTX.
   const executor_utils::CudaExecutable* compiled_kernel =
-      ke.compiledKernel()->executable().get();
+      ke.compiledKernel()->cudaExecutable().get();
   std::string ptx(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end());
   expectMatchCount(ptx, R"(ld\.global\.ca\.v4\.\S+)", 1);
   expectMatchCount(ptx, R"(ld\.global\.cs\.v4\.\S+)", 1);
@@ -1653,9 +1653,6 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // TODO: remove the line below. The line below is here only to make the test
   // pass. The result is actually wrong.
   expect.flatten(0, 2).select(0, 1) = at::arange(17, 33, options);
-
-  std::cout << cg_outputs[0] << std::endl;
-  std::cout << expect << std::endl;
 
   EXPECT_TRUE(at::equal(cg_outputs[0], expect));
 }
