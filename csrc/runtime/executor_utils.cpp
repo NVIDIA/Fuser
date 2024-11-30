@@ -1128,7 +1128,7 @@ void createNvrtcProgram(
 }
 
 // Compile the given source code with the NVRTC compiler driver.
-std::unique_ptr<CompiledKernel> compileSource(
+std::unique_ptr<CudaExecutable> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     const std::string& id,
@@ -1147,7 +1147,7 @@ std::unique_ptr<CompiledKernel> compileSource(
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
-  auto compiled_kernel = std::make_unique<CompiledKernel>();
+  auto compiled_kernel = std::make_unique<CudaExecutable>();
   const char* lowered_kernel_name = nullptr;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
@@ -1175,7 +1175,7 @@ std::unique_ptr<CompiledKernel> compileSource(
 
 } // namespace
 
-CompiledKernel::~CompiledKernel() {
+CudaExecutable::~CudaExecutable() {
   if (module != nullptr) {
     NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
     module = (CUmodule)0x2a2a2a2a2a2a2a2a;
@@ -1183,7 +1183,7 @@ CompiledKernel::~CompiledKernel() {
 }
 
 // Compile the source if no existing compiled binary is found in KernelDB
-std::unique_ptr<CompiledKernel> getCompiledKernel(
+std::unique_ptr<CudaExecutable> getCudaExecutable(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
@@ -1245,7 +1245,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     }
   }
 
-  auto compiled_kernel = std::make_unique<CompiledKernel>();
+  auto compiled_kernel = std::make_unique<CudaExecutable>();
   const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
@@ -1304,15 +1304,15 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
   return compiled_kernel;
 }
 
-std::unique_ptr<CompiledKernel> getCompiledKernel(
+std::unique_ptr<CudaExecutable> getCudaExecutable(
     const serde::CudaKernel* buffer,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
 
   NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
 
-  // Deserialize flatbuffer into CompiledKernel
-  auto compiled_kernel = std::make_unique<CompiledKernel>();
+  // Deserialize flatbuffer into CudaExecutable
+  auto compiled_kernel = std::make_unique<CudaExecutable>();
   compiled_kernel->kernel_name = buffer->kernel_name()->str();
   compiled_kernel->compile_args = buffer->compile_args()->str();
   compiled_kernel->block_size = buffer->block_size();
@@ -1385,11 +1385,11 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   NVF_ERROR(
       !compile_to_sass || !compiled_kernel->cubin.empty(),
-      "Expected compiled cubin after deserializing CompiledKernel.");
+      "Expected compiled cubin after deserializing CudaExecutable.");
 
   NVF_ERROR(
       compile_to_sass || !compiled_kernel->ptx.empty(),
-      "Expected compiled ptx after deserializing CompiledKernel.");
+      "Expected compiled ptx after deserializing CudaExecutable.");
 
   std::stringstream log;
   log << module_load_driver.invoke(

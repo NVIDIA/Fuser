@@ -43,48 +43,6 @@
 
 namespace nvfuser {
 
-namespace {
-// TODO: Is this needed?
-static const char* defineIndexType(PrimDataType index_type) {
-  if (index_type == DataType::Int32) {
-    return "typedef int nvfuser_index_t;\n";
-  } else if (index_type == DataType::Int) {
-    return "typedef int64_t nvfuser_index_t;\n";
-  } else {
-    NVF_THROW("invalid indexing type: ", index_type);
-  }
-}
-
-static const char* defineTypes() {
-  return R"(
-using int8_t = signed char;
-using uint8_t = unsigned char;
-using int16_t = short int;
-using uint16_t = unsigned short int;
-using int32_t = int;
-using uint32_t = unsigned int;
-using int64_t = long long int;
-using uint64_t = unsigned long long int;
-
-// Modified from cuda.h
-struct TensorMap {
-  alignas(64)
-  uint64_t opaque[16];
-};
-)";
-}
-
-static const std::string& includeStdComplex() {
-  static std::string result = std::string(R"ESCAPE(
-#ifdef __NVCC__
-#include <complex>
-#endif // __NVCC__
-)ESCAPE");
-  return result;
-}
-
-} // namespace
-
 std::unique_ptr<PrecomputedValues>& KernelExecutor::
     evaluatorPrecomputedValues() {
   if (!evaluator_precomputed_values_) {
@@ -876,7 +834,7 @@ int64_t KernelExecutor::getAvailableDynamicSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-        compiledKernel_()->compiledKernel()->function));
+        compiledKernel_()->executable()->function));
     available_dynamic_smem_size_ = size;
   }
   return available_dynamic_smem_size_.value();
@@ -889,7 +847,7 @@ int64_t KernelExecutor::getStaticSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
-        compiledKernel_()->compiledKernel()->function));
+        compiledKernel_()->executable()->function));
     static_smem_size_ = size;
   }
   return static_smem_size_.value();
@@ -931,7 +889,7 @@ int64_t KernelExecutor::ensureAvailableDynamicSmemSize(
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-        compiledKernel_()->compiledKernel()->function,
+        compiledKernel_()->executable()->function,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
         dynamic_smem_size));
     available_dynamic_smem_size_ = dynamic_smem_size;
@@ -1139,8 +1097,6 @@ std::vector<at::Tensor> KernelExecutor::run(
             << std::endl;
   }
 
-  executor_utils::CudaKernelTimer timer(stream);
-
   if (execute_kernel_ &&
       !compiledKernel_()->kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
@@ -1153,7 +1109,7 @@ std::vector<at::Tensor> KernelExecutor::run(
       int blocks_per_sm = -1;
       NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks_per_sm,
-          compiledKernel_()->compiledKernel()->function,
+          compiledKernel_()->executable()->function,
           launch_params_.nThreads(),
           launch_params_.smem()));
 
@@ -1183,7 +1139,7 @@ std::vector<at::Tensor> KernelExecutor::run(
              .has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiledKernel_()->compiledKernel()->function,
+          compiledKernel_()->executable()->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1197,7 +1153,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiledKernel_()->compiledKernel()->function,
+          compiledKernel_()->executable()->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1260,14 +1216,14 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(compiledKernel()->kernel()->indexType()),
-      serialize(builder, compiledKernel()->compiledKernel().get()));
+      serialize(builder, compiledKernel()->executable().get()));
 }
 
 flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const executor_utils::CompiledKernel* compiled_kernel) const {
+    const executor_utils::CudaExecutable* compiled_kernel) const {
   NVF_ERROR(
-      compiledKernel()->compiledKernel() != nullptr &&
+      compiledKernel()->executable() != nullptr &&
           (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
       "Expected compiled cuda kernel before serializing KernelExecutor.");
 
@@ -1454,7 +1410,7 @@ void KernelExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  // compiled_kernel_ = executor_utils::getCompiledKernel(
+  // compiled_kernel_ = executor_utils::getexecutable(
   //     buffer->compiled_kernel(), compile_params);
 
   // NVF_ERROR(hasCompiledKernel(), "Failed to deserialize KernelExecutor");

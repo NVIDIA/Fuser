@@ -32,18 +32,15 @@ namespace executor_utils {
 // Include all the functions we might need in generated code
 std::string kernelPreamble();
 
-//! Bind input values to runtime values
-NVF_API ExpressionEvaluator
-bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
-
 NVF_API std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
-// I'm not happy with CompiledKernel being a struct exposing all the fields.
+
+// I'm not happy with CudaExecutable being a struct exposing all the fields.
 // This could be refactored.
-struct CompiledKernel : public NonCopyable {
-  NVF_API ~CompiledKernel();
+struct CudaExecutable : public NonCopyable {
+  NVF_API ~CudaExecutable();
 
   CUmodule module = nullptr;
   CUfunction function = nullptr;
@@ -59,7 +56,7 @@ struct CompiledKernel : public NonCopyable {
 };
 
 // Returns executable function and the ptxas log from compilation
-std::unique_ptr<CompiledKernel> getCompiledKernel(
+std::unique_ptr<CudaExecutable> getCudaExecutable(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
@@ -68,10 +65,18 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<int64_t> opt_block_size = std::nullopt);
 
 // Returns executable function using flatbuffer object
-std::unique_ptr<CompiledKernel> getCompiledKernel(
+std::unique_ptr<CudaExecutable> getCudaExecutable(
     const serde::CudaKernel* buffer,
     const CompileParams& compile_params);
 
+
+
+//! Bind input values to runtime values
+NVF_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
+
+
+// Compile time cache for execution
 namespace caching {
 // TODO: Could consider putting some of
 //  the logic in the common space and re-use

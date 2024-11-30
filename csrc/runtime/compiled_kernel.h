@@ -142,19 +142,11 @@ class CompiledKernel : public NonCopyable {
   NVF_API std::string getStructuredCode() const;
 
   //! Returns a const reference to the latest compiled kernel.
-  const std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel()
-      const {
+  const std::unique_ptr<executor_utils::CudaExecutable>& executable() const {
     return compiled_kernel_;
   }
-  std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel() {
+  std::unique_ptr<executor_utils::CudaExecutable>& executable() {
     return compiled_kernel_;
-  }
-
-  //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledBinary(
-      const std::string& nvdisasm_args = "") const {
-    return executor_utils::disassembleBinary(
-        compiled_kernel_->cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
@@ -329,7 +321,7 @@ class CompiledKernel : public NonCopyable {
   // //! Serialize CompiledKernel using flatbuffers
   // flatbuffers::Offset<serde::CudaKernel> serialize(
   //     flatbuffers::FlatBufferBuilder& builder,
-  //     const executor_utils::CompiledKernel* kernel) const;
+  //     const executor_utils::CudaExecutable* kernel) const;
 
   // //! Deserialize Fusion Executor using flatbuffers
   // void deserialize(
@@ -367,7 +359,7 @@ class CompiledKernel : public NonCopyable {
   const int64_t max_static_smem_ = 48 << 10;
 
   int64_t warp_size_ = 0;
-  std::unique_ptr<executor_utils::CompiledKernel> compiled_kernel_;
+  std::unique_ptr<executor_utils::CudaExecutable> compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;

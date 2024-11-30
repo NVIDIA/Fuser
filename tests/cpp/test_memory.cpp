@@ -86,8 +86,8 @@ TEST_P(MemoryTest, LoadCache) {
   }
 
   // Verify PTX.
-  const executor_utils::CompiledKernel* compiled_kernel =
-      ke.compiledKernel()->compiledKernel().get();
+  const executor_utils::CudaExecutable* compiled_kernel =
+      ke.compiledKernel()->executable().get();
   std::string ptx(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end());
   std::regex regex(R"(ld\.global\.)" + cache_op_str + R"(\.\S+)");
   std::smatch match;
@@ -162,8 +162,8 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   }
 
   // Verify PTX.
-  const executor_utils::CompiledKernel* compiled_kernel =
-      ke.compiledKernel()->compiledKernel().get();
+  const executor_utils::CudaExecutable* compiled_kernel =
+      ke.compiledKernel()->executable().get();
   std::string ptx(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end());
   expectMatchCount(ptx, R"(ld\.global\.ca\.v4\.\S+)", 1);
   expectMatchCount(ptx, R"(ld\.global\.cs\.v4\.\S+)", 1);
@@ -940,9 +940,10 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
 
   // Because merging dims will violate hardware requirement, we do not merge
   // dims.
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 4);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 4);
 
-  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, ke.kernel()));
+  EXPECT_TRUE(
+      PredicatedChecker::isPredicated(tv1, ke.compiledKernel()->kernel()));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);

@@ -78,7 +78,7 @@ struct TensorMap {
 )";
 }
 
-static const std::string& includeStdComplex() {
+static const std::string& defineStdComplex() {
   static std::string result = std::string(R"ESCAPE(
 #ifdef __NVCC__
 #include <complex>
@@ -330,7 +330,7 @@ void CompiledKernel::compileFusion(
   block_size_high_water_mark_ =
       std::max<int64_t>(block_size, block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
-  compiled_kernel_ = executor_utils::getCompiledKernel(
+  compiled_kernel_ = executor_utils::getCudaExecutable(
       kernel_code_,
       structured_code,
       kernelName(),
@@ -353,7 +353,7 @@ std::string CompiledKernel::getStructuredCode(
     PrimDataType index_type) const {
   // generating cuda code;
   std::string code = "";
-  code += includeStdComplex();
+  code += defineStdComplex();
   code += std::string("namespace {\n") + defineTypes() +
       defineIndexType(index_type) + executor_utils::kernelPreamble() +
       kernel_str + "}\n";
@@ -403,7 +403,7 @@ void CompiledKernel::compileRtc(
     scode = code;
   }
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, scode, name, kernel_id_);
+      executor_utils::getCudaExecutable(std::nullopt, scode, name, kernel_id_);
 }
 
 float CompiledKernel::runRtc(
@@ -511,7 +511,7 @@ float CompiledKernel::runRtc(
 
 // flatbuffers::Offset<serde::CudaKernel> CompiledKernel::serialize(
 //     flatbuffers::FlatBufferBuilder& builder,
-//     const executor_utils::CompiledKernel* compiled_kernel) const {
+//     const executor_utils::CudaExecutable* compiled_kernel) const {
 //   NVF_ERROR(
 //       compiled_kernel_ != nullptr &&
 //           (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
@@ -644,7 +644,7 @@ float CompiledKernel::runRtc(
 //         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
 //   }
 
-//   compiled_kernel_ = executor_utils::getCompiledKernel(
+//   compiled_kernel_ = executor_utils::getCudaExecutable(
 //       buffer->compiled_kernel(), compile_params);
 
 //   NVF_ERROR(hasCompiledKernel(), "Failed to deserialize CompiledKernel");
@@ -702,7 +702,7 @@ void CompiledKernel::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
-  compiled_kernel_ = executor_utils::getCompiledKernel(
+  compiled_kernel_ = executor_utils::getCudaExecutable(
       kernel_code_,
       structured_code,
       kernelName(),

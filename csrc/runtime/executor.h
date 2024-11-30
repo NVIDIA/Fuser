@@ -287,7 +287,7 @@ class KernelExecutor : public ExecutorAbstract {
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const executor_utils::CompiledKernel* kernel) const;
+      const executor_utils::CudaExecutable* kernel) const;
 
   // ExecutorEntry is an internal POD struct for the KernelExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
