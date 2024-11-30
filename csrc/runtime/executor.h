@@ -234,12 +234,7 @@ class KernelExecutor : public ExecutorAbstract {
       int64_t group_id);
 
   const std::unique_ptr<CompiledKernel>& compiledKernel() const {
-    return compiled_kernel_2_;
-  }
-
-  const std::unique_ptr<CompiledKernel>& initCompiledKernel() {
-    compiledKernel_() = std::make_unique<CompiledKernel>();
-    return compiledKernel();
+    return compiled_kernel_;
   }
 
  private:
@@ -329,10 +324,6 @@ class KernelExecutor : public ExecutorAbstract {
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
 
-  std::unique_ptr<CompiledKernel>& compiledKernel_() {
-    return compiled_kernel_2_;
-  }
-
   void disableLaunchParamCache() {
     if (compiledKernel()) {
       compiledKernel()->disableLaunchParamCache();
@@ -340,7 +331,7 @@ class KernelExecutor : public ExecutorAbstract {
   }
 
  private:
-  std::unique_ptr<CompiledKernel> compiled_kernel_2_;
+  std::unique_ptr<CompiledKernel> compiled_kernel_;
 
   //! Absolute limit of all available shared mem space from cudaDeviceProp
   int64_t device_smem_limit_ = 0;

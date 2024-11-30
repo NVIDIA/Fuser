@@ -253,7 +253,7 @@ void KernelExecutor::compile(
 
   // Lowered is needed to compute launch parameters as it uses the CA map. We
   // could modify that, but simply generating that part first.
-  compiledKernel_() =
+  compiled_kernel_ =
       std::make_unique<CompiledKernel>(fusion_.get(), compile_params);
 
   // TODO: pass block_size here;
@@ -263,7 +263,7 @@ void KernelExecutor::compile(
   auto launch_params = launch_constraints;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(
-        args, compiledKernel_()->lowered()->kernel()->as<Fusion>());
+        args, compiled_kernel_->lowered()->kernel()->as<Fusion>());
     NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
         launch_constraints,
@@ -275,18 +275,20 @@ void KernelExecutor::compile(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
+  // TODO: Fix, This hook doesn't do anything as we needed to lower compiled
+  // kernel already
   for (const auto& hook : lowering_hooks_) {
-    compiledKernel_()->registerLoweringHook(hook);
+    compiled_kernel_->registerLoweringHook(hook);
   }
 
   for (const auto& hook : post_lowering_hooks_) {
-    compiledKernel_()->registerPostLoweringHook(hook);
+    compiled_kernel_->registerPostLoweringHook(hook);
   }
 
   // Now that we have launch parameters we can compile the kernel. It's a bit
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.
-  compiledKernel_()->compileFusion(
+  compiled_kernel_->compileFusion(
       device,
       launch_params.nThreads(),
       scheduler_type,
@@ -317,11 +319,11 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
   auto data_cache = compileTimeDataCache();
 
-  auto lower = compiledKernel_()->lowered().get();
-  if (compiledKernel_()->getUsedTVs().empty()) {
-    compiledKernel_()->setUsedTVs();
+  auto lower = compiled_kernel_->lowered().get();
+  if (compiled_kernel_->getUsedTVs().empty()) {
+    compiled_kernel_->setUsedTVs();
   }
-  auto& used_tvs = compiledKernel_()->getUsedTVs();
+  auto& used_tvs = compiled_kernel_->getUsedTVs();
 
   auto parallel_binding_ids_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
@@ -411,7 +413,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     expr_eval.precomputedValues()->evaluate();
   }
 
-  const auto kernel = compiledKernel_()->lowered()->kernel();
+  const auto kernel = compiled_kernel_->lowered()->kernel();
   const auto& kernel_summary = kernel->summary();
 
   // Calculate Dynamic Shared Memory Size
@@ -460,7 +462,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (compiledKernel_()->hasCompiledKernel()) {
+  if (compiled_kernel_->hasCompiledKernel()) {
     validateDynamicSmemSize(dynamic_smem_size);
   }
 
@@ -475,7 +477,7 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
   FUSER_PERF_SCOPE("KernelExecutor::getIntermediateBufferInfo");
   std::vector<GlobalBufferInfo> global_buffers;
 
-  const auto kernel = compiledKernel_()->lowered()->kernel();
+  const auto kernel = compiled_kernel_->lowered()->kernel();
   const auto& kernel_summary = kernel->summary();
 
   for (auto alloc : kernel_summary.global_allocations) {
@@ -648,25 +650,25 @@ void KernelExecutor::initializeExecutorEntry(
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
-  for (const auto& entry : compiledKernel_()->kernel()->summary().validations) {
+  for (const auto& entry : compiled_kernel_->kernel()->summary().validations) {
     NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
   }
 
   executor_utils::validateVectorizedTensors(
-      compiledKernel_()->kernel(),
+      compiled_kernel_->kernel(),
       args,
       outputs,
       compileTimeDataCache(),
       expr_eval);
 
   executor_utils::validateCircularBuffering(
-      compiledKernel_()->kernel(), expr_eval);
+      compiled_kernel_->kernel(), expr_eval);
 
   // Check that a full warp exists in blockDim.x if the kernel contains
   // ElectSync predicate.
   constexpr int64_t warp_size = 32;
   NVF_ERROR(
-      !compiledKernel_()->kernel()->summary().has_elect_sync_predicate ||
+      !compiled_kernel_->kernel()->summary().has_elect_sync_predicate ||
           launch_params.bdimx() >= warp_size,
       "This cuda kernel contains electSync predicate. "
       "Expected blockDim.x >= 32 but found ",
@@ -676,7 +678,7 @@ void KernelExecutor::initializeExecutorEntry(
 
   if (outputs.empty()) {
     output_info = getBufferInfos(
-        expr_eval, index_type, compiledKernel_()->kernel()->outputs());
+        expr_eval, index_type, compiled_kernel_->kernel()->outputs());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
@@ -836,7 +838,7 @@ int64_t KernelExecutor::getAvailableDynamicSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-        compiledKernel_()->cudaExecutable()->function));
+        compiled_kernel_->cudaExecutable()->function));
     available_dynamic_smem_size_ = size;
   }
   return available_dynamic_smem_size_.value();
@@ -849,7 +851,7 @@ int64_t KernelExecutor::getStaticSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
-        compiledKernel_()->cudaExecutable()->function));
+        compiled_kernel_->cudaExecutable()->function));
     static_smem_size_ = size;
   }
   return static_smem_size_.value();
@@ -860,7 +862,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
   // If specified, check that dynamic smem size matches what the scheduler
   // expects
   int64_t expected_dynamic_smem_size =
-      compiledKernel_()->fusion()->expectedDynamicSmemBytes();
+      compiled_kernel_->fusion()->expectedDynamicSmemBytes();
   if (expected_dynamic_smem_size >= 0) {
     NVF_ERROR(
         dynamic_smem_size == expected_dynamic_smem_size,
@@ -886,12 +888,12 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t KernelExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      compiledKernel_()->hasCompiledKernel(),
+      compiled_kernel_->hasCompiledKernel(),
       "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-        compiledKernel_()->cudaExecutable()->function,
+        compiled_kernel_->cudaExecutable()->function,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
         dynamic_smem_size));
     available_dynamic_smem_size_ = dynamic_smem_size;
@@ -934,7 +936,7 @@ std::vector<at::Tensor> KernelExecutor::run(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
-  validateIndexType(compiledKernel_()->kernel(), compile_params);
+  validateIndexType(compiled_kernel_->kernel(), compile_params);
 
   const auto num_inputs = args.size();
 
@@ -943,16 +945,16 @@ std::vector<at::Tensor> KernelExecutor::run(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
 
-  c10::DeviceGuard dg(compiledKernel_()->options().device);
+  c10::DeviceGuard dg(compiled_kernel_->options().device);
   auto stream = at::cuda::getCurrentCUDAStream();
   at::cuda::jit::initializeCudaContext();
-  NVF_ERROR(compiledKernel_()->lowered());
+  NVF_ERROR(compiled_kernel_->lowered());
 
   // Placeholder for the case where parameter cache is not used
   ExecutorEntry temporary_executor_entry;
 
   ExecutorEntry* executor_entry = args.getCacheId().has_value() &&
-          !compiledKernel_()->disablePaarameterCache()
+          !compiled_kernel_->disablePaarameterCache()
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
 
@@ -964,14 +966,14 @@ std::vector<at::Tensor> KernelExecutor::run(
         launch_constraints,
         compile_params,
         outputs,
-        compiledKernel_()->kernel()->indexType());
+        compiled_kernel_->kernel()->indexType());
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
-            compiledKernel_()->blockSizeHighWaterMark() &&
+            compiled_kernel_->blockSizeHighWaterMark() &&
         compile_params.maxrregcount ==
-            compiledKernel_()->maxrregcountHighWaterMark())) {
-    compiledKernel_()->recompileKernel(
+            compiled_kernel_->maxrregcountHighWaterMark())) {
+    compiled_kernel_->recompileKernel(
         executor_entry->launch_params, compile_params);
   }
 
@@ -987,24 +989,24 @@ std::vector<at::Tensor> KernelExecutor::run(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        compiledKernel_()->fusion(),
+        compiled_kernel_->fusion(),
         executor_entry->outputs,
-        compiledKernel_()->options().device,
+        compiled_kernel_->options().device,
         expr_eval);
   }
   args.push(outputs);
 
   for (const auto i : c10::irange(outputs.size())) {
-    auto output = compiledKernel_()->kernel()->outputs()[i];
+    auto output = compiled_kernel_->kernel()->outputs()[i];
     if (std::any_of(
-            compiledKernel_()->kernel()->inputs().begin(),
-            compiledKernel_()->kernel()->inputs().end(),
+            compiled_kernel_->kernel()->inputs().begin(),
+            compiled_kernel_->kernel()->inputs().end(),
             [&](const auto& in) { return in == output; })) {
       // Skip trivially forwarded outputs because they are just placeholders
       continue;
     }
     expr_eval.bind(
-        output, *args[compiledKernel_()->kernel()->inputs().size() + i]);
+        output, *args[compiled_kernel_->kernel()->inputs().size() + i]);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1035,20 +1037,20 @@ std::vector<at::Tensor> KernelExecutor::run(
           intermediate_buffer = contigZeroedTensor(
               unexpanded_sizes,
               buf_info.type,
-              compiledKernel_()->options().device);
+              compiled_kernel_->options().device);
         } else {
           intermediate_buffer = at::zeros(
               unexpanded_sizes,
               at::TensorOptions()
                   .dtype(buf_info.type)
-                  .device(compiledKernel_()->options().device));
+                  .device(compiled_kernel_->options().device));
         }
       } else {
         intermediate_buffer = at::native::empty_cuda(
             unexpanded_sizes,
             buf_info.type,
             c10::nullopt,
-            compiledKernel_()->options().device,
+            compiled_kernel_->options().device,
             c10::nullopt);
         if (shouldFillAllocationWithNan()) {
           fillTensorWithNan(intermediate_buffer);
@@ -1061,13 +1063,12 @@ std::vector<at::Tensor> KernelExecutor::run(
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
       expr_eval.bind(
-          compiledKernel_()
-              ->kernel()
+          compiled_kernel_->kernel()
               ->summary()
               .global_allocations.at(i)
               ->buffer(),
           *args
-              [compiledKernel_()->kernel()->inputs().size() + outputs.size() +
+              [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
                i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
@@ -1076,7 +1077,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   }
 
   if (executor_entry->args.empty()) {
-    computeArgs(*executor_entry, expr_eval, compiledKernel_()->kernel());
+    computeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1095,28 +1096,27 @@ std::vector<at::Tensor> KernelExecutor::run(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-    debug() << "Index type: " << compiledKernel_()->kernel()->indexType()
+    debug() << "Index type: " << compiled_kernel_->kernel()->indexType()
             << std::endl;
   }
 
-  if (execute_kernel_ &&
-      !compiledKernel_()->kernel()->topLevelExprs().empty()) {
+  if (execute_kernel_ && !compiled_kernel_->kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
-    recomputeArgs(*executor_entry, expr_eval, compiledKernel_()->kernel());
+    recomputeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       int blocks_per_sm = -1;
       NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks_per_sm,
-          compiledKernel_()->cudaExecutable()->function,
+          compiled_kernel_->cudaExecutable()->function,
           launch_params_.nThreads(),
           launch_params_.smem()));
 
       const int64_t device_id = static_cast<unsigned char>(
-          compiledKernel_()->options().device.index());
+          compiled_kernel_->options().device.index());
       const auto prop =
           at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
@@ -1135,13 +1135,10 @@ std::vector<at::Tensor> KernelExecutor::run(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (!compiledKernel_()
-             ->kernel()
-             ->summary()
-             .has_cooperative_grid_reduction) {
+    if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiledKernel_()->cudaExecutable()->function,
+          compiled_kernel_->cudaExecutable()->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1155,7 +1152,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiledKernel_()->cudaExecutable()->function,
+          compiled_kernel_->cudaExecutable()->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1171,7 +1168,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   releaseZeroedMemory();
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    debug() << compiledKernel_()->kernel()->profile().toString(profile_buffer);
+    debug() << compiled_kernel_->kernel()->profile().toString(profile_buffer);
   }
 
   if (isProfilerEnabled()) {
@@ -1451,16 +1448,16 @@ GlobalBufferInfo KernelExecutor::deserialize(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
 
   NVF_ERROR(
-      compiledKernel_()->lowered() != nullptr,
+      compiled_kernel_->lowered() != nullptr,
       "Lowered kernel is not initialized.");
 
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
-    auto out_val = compiledKernel_()->kernel()->outputs().at(buffer->tv());
+    auto out_val = compiled_kernel_->kernel()->outputs().at(buffer->tv());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
   } else {
-    auto out_val = compiledKernel_()->kernel()->summary().global_allocations.at(
+    auto out_val = compiled_kernel_->kernel()->summary().global_allocations.at(
         buffer->tv());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
