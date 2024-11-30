@@ -37,6 +37,7 @@ class ForwardTraverseFromLogicalToAlloc {
       // TODO: see [Allocation domain on both side of logical]
       return;
     }
+
     auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     NVF_ERROR(
@@ -44,17 +45,24 @@ class ForwardTraverseFromLogicalToAlloc {
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
+
+    int64_t inner_size = 0;
+    int64_t outer_size = 0;
+    if (split->innerSplit()) {
+      outer_size = in_size / factor;
+      inner_size = factor;
+    } else {
+      outer_size = factor;
+      inner_size = in_size / factor;
+    }
+
     NVF_ERROR(active_ids_.erase(in) == 1);
+    NVF_ERROR(active_ids_.emplace(inner, std::make_pair(inner_size, in_stride))
+                  .second);
     NVF_ERROR(
         active_ids_
-            .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
+            .emplace(outer, std::make_pair(outer_size, in_stride * inner_size))
             .second);
-    NVF_ERROR(active_ids_
-                  .emplace(
-                      outer,
-                      std::pair<int64_t, int64_t>{
-                          in_size / factor, in_stride * factor})
-                  .second);
   }
 
   void handle(Merge* merge) {
@@ -259,6 +267,10 @@ void validateAllocationSizesAndStrides(
           "Stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
+          ": sizes: ",
+          sizes,
+          ": strides: ",
+          strides,
           "; contiguity: ",
           toDelimitedString(contiguity),
           "; dim: ",
@@ -287,7 +299,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
   for (IterDomain* id : TensorDomain::noReductions(logical)) {
-    active_ids[id] = {logical_sizes[dim_index], tensor.stride(dim_index)};
+    active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
     dim_index++;
   }
   NVF_ERROR(dim_index == tensor.dim());

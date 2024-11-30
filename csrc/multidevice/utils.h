@@ -131,7 +131,7 @@ int64_t getShardedAxis(const TensorView* tv, ParallelType parallel_type);
 void reorderDIDToFront(TensorView*);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
-// dimensions are partially alloated, returns the global shape that'll be used
+// dimensions are partially allocated, returns the global shape that'll be used
 // to bind to the TensorView's logical domain. This is to solve #3282 so we can
 // bind a sharded tensor to a TensorView that has a DID-parallel loop domain.
 //
@@ -142,8 +142,7 @@ void reorderDIDToFront(TensorView*);
 // according to the allocation domain, iM is fully allocated and iN is sharded
 // and thus partially allocated.
 //
-// As a degenerate case, it's fine to call this function with a non-sharded
-// TensorView and tensor.
+// If the TensorView is not sharded, this function returns `sizes`.
 //
 // Limitations:
 // - The function assumes that there are no Merges from logical to the

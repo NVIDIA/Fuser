@@ -52,9 +52,12 @@ TEST_F(ShardingTest, MultipleDIDx) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* x = makeSymbolicTensor(3);
+  TensorView* x = makeSymbolicTensor(1);
+  x->split(0, 2);
   x->axis(0)->parallelize(ParallelType::DIDx);
   x->axis(1)->parallelize(ParallelType::DIDx);
+  x->setAllocationDomain(x->getLoopDomain(), true);
+
   EXPECT_ANY_THROW(isSharded(x))
       << "Multiple DIDx:" << std::endl
       << x->domain()->toString(0, /*loop_only=*/false);
