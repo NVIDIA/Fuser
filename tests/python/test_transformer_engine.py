@@ -65,6 +65,9 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
         hidden_size,
         ffn_hidden_size,
         num_heads,
+        # https://github.com/NVIDIA/TransformerEngine/issues/1350: the
+        # benchmark fails to execute on H100 with the default format (SBHD).
+        attn_input_format="bshd",
         set_parallel_mode=True,
         tp_group=dist.group.WORLD,
     )
