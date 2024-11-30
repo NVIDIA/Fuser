@@ -46,11 +46,11 @@ class ForwardTraverseFromLogicalToAlloc {
         "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
 
-    int64_t inner_size;
-    int64_t outer_size;
+    int64_t inner_size = 0;
+    int64_t outer_size = 0;
     if (split->innerSplit()) {
-      inner_size = factor;
       outer_size = in_size / factor;
+      inner_size = factor;
     } else {
       outer_size = factor;
       inner_size = in_size / factor;
