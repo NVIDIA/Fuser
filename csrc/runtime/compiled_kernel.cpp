@@ -1057,6 +1057,7 @@ NVF_API CompiledKernel::CompiledKernel(
   lowered_->run();
 }
 
+// TODO:Rename to "compile"
 void CompiledKernel::compileFusion(
     c10::Device device,
     int64_t block_size,
@@ -1072,17 +1073,6 @@ void CompiledKernel::compileFusion(
       "No output found for this kernel, aborting.");
 
   options_.device = device;
-
-  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
-  // given the conditional can exit early from compilation.
-  if (isProfilerEnabled()) {
-    NVF_CHECK(
-        group_id >= 0,
-        "An invalid segment id is passed to FusionProfiler!:",
-        group_id);
-    FusionProfiler::segment(group_id).startCompile();
-    FusionProfiler::segment(group_id).setDevice(device.index());
-  }
 
   for (auto out : fusion()->outputs()) {
     const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
@@ -1247,9 +1237,6 @@ void CompiledKernel::compileFusion(
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     debug() << disassembledKernelSASS() << std::endl;
-  }
-  if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id).stopCompile();
   }
 }
 
