@@ -39,20 +39,22 @@ class ForwardTraverseFromLogicalToAlloc {
     }
 
     auto [in_size, in_stride] = in_it->second;
+    auto factor = ee_.evaluate(split->factor()).as<int64_t>();
+    NVF_ERROR(
+        in_size % factor == 0,
+        "The logical domain and allocation domain of fusion input/output ",
+        "tensors must be a one-to-one map, therefore, ",
+        "non-divisible split is not allowed in allocation domain");
 
-    auto [outer_size, inner_size] = [&]() {
-      const auto factor = ee_.evaluate(split->factor()).as<int64_t>();
-      NVF_ERROR(
-          in_size % factor == 0,
-          "The logical domain and allocation domain of fusion input/output ",
-          "tensors must be a one-to-one map, therefore, ",
-          "non-divisible split is not allowed in allocation domain");
-      if (split->innerSplit()) {
-        return std::make_pair(in_size / factor, factor);
-      } else {
-        return std::make_pair(factor, in_size / factor);
-      }
-    }();
+    int64_t inner_size;
+    int64_t outer_size;
+    if (split->innerSplit()) {
+      inner_size = factor;
+      outer_size = in_size / factor;
+    } else {
+      outer_size = factor;
+      inner_size = in_size / factor;
+    }
 
     NVF_ERROR(active_ids_.erase(in) == 1);
     NVF_ERROR(active_ids_.emplace(inner, std::make_pair(inner_size, in_stride))
