@@ -35,10 +35,8 @@ def test_pointwise(mpi_test):
     num_devices = mpi_test.size
     rank = mpi_test.rank
 
-    torch.cuda.set_device(mpi_test.local_rank)
-
-    unsharded_input = torch.randn(num_devices, 4, device="cuda")
-    sharded_input = unsharded_input[rank : rank + 1]
+    unsharded_input = torch.randn(num_devices, 4)
+    sharded_input = mpi_test.shard_tensor(unsharded_input, 0)
 
     class Model(FusionDefinition):
         def definition(self):
@@ -58,7 +56,7 @@ def test_pointwise(mpi_test):
 
     fd = Model()
     outputs = fd.execute([sharded_input])
-    torch.testing.assert_close(outputs[0], unsharded_input.relu() * 2)
+    torch.testing.assert_close(outputs[0].cpu(), unsharded_input.relu() * 2)
 
 
 @pytest.mark.mpi

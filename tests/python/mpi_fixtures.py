@@ -38,6 +38,14 @@ class MpiTest:
     def barrier(self):
         self._communicator.barrier()
 
+    def shard_tensor(self, t: torch.Tensor, dim: int) -> torch.Tensor:
+        assert t.is_cpu, (
+            "This is not strictly required but it's a general good practice "
+            "for unit tests to create unsharded data on CPU to reduce GPU "
+            "memory footprint."
+        )
+        return t.tensor_split(self.size, dim)[self.rank].cuda(self.local_rank)
+
 
 @pytest.fixture(scope="session")
 def mpi_test():

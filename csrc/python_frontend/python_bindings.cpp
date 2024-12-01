@@ -1091,6 +1091,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
+      .def(
+          "_setup_multidevice_schedule",
+          [](FusionDefinition& self) { self.setupMultideviceSchedule(); })
+      .def(
+          "_finalize_multidevice_schedule",
+          [](FusionDefinition& self) { self.finalizeMultideviceSchedule(); })
       .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
       .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
       .def("extents", [](FusionDefinition& self) { return self.extents(); })
@@ -3596,7 +3602,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"),
       py::arg("mesh"));
-  //! experimental API for multidevice support
   nvf_sched.def(
       "parallelize",
       [](FusionDefinition::SchedOperators& self,
@@ -3683,6 +3688,18 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::arg("factor"),
       py::arg("inner_split") = true);
+  nvf_sched.def(
+      "set_allocation_as_loop",
+      [](FusionDefinition::SchedOperators& self, Tensor arg) {
+        FUSER_PERF_SCOPE("SchedOperators.set_allocation_as_loop");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto* tv = fd->getFusionState(arg.index)->template as<TensorView>();
+        tv->setAllocationDomain(tv->getLoopDomain(), true);
+      },
+      py::arg("arg"));
   nvf_sched.def(
       "cache_after",
       [](FusionDefinition::SchedOperators& self,

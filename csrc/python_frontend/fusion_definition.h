@@ -184,6 +184,11 @@ class NVF_API FusionDefinition : public FusionState {
   //! Finalized use scheduling of a fusion
   //! resets FusionGuard, lowers IR to a kernel, compiles kernel
   NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  //! A hook that gets called right before
+  //! FusionDefinition.multidevice_schedule.
+  NVF_API void setupMultideviceSchedule();
+  //! A hook that gets called right after FusionDefinition.multidevice_schedule.
+  NVF_API void finalizeMultideviceSchedule();
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior
