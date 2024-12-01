@@ -805,79 +805,6 @@ namespace {
 
 class RedundancyChecker : public IRBFS {
  public:
-  static std::vector<IterDomain*> getRedundantIds(
-      const std::vector<IterDomain*>& domain) {
-    if (domain.empty()) {
-      return {};
-    }
-
-    std::vector<IterDomain*> redundant_ids;
-    for (const auto i : c10::irange(domain.size() - 1)) {
-      auto id_to_check = domain.at(i);
-      std::vector<IterDomain*> target_ids{
-          domain.begin() + (int64_t)i + 1, domain.end()};
-
-      bool is_redundant = false;
-
-      // std::cerr << "Checking " << id_to_check << " with " <<
-      // toDelimitedString(target_ids) << "\n";
-
-      // Check if any of target IDs is reachable from this ID. Do this
-      // forward and backward separately
-      for (auto dir : {Direction::Forward, Direction::Backward}) {
-        RedundancyChecker checker(id_to_check, target_ids, dir);
-        checker.traverse();
-        // If any of the target IDs was visited, this ID is redundant
-        if (std::any_of(
-                target_ids.begin(),
-                target_ids.end(),
-                [&](IterDomain* target_id) {
-                  auto b = checker.isVisited(target_id);
-                  if (b) {
-                    std::cerr << "Redundancy found: " << id_to_check->toString()
-                              << ", " << dir << ", " << target_id->toString()
-                              << "\n";
-                  }
-                  return b;
-                })) {
-          is_redundant = true;
-          break;
-        }
-      }
-
-      if (!is_redundant) {
-        RedundancyChecker bi_directional_checker(
-            id_to_check, target_ids, Direction::Undefined);
-        bi_directional_checker.traverse();
-        auto bi_directional_path =
-            bi_directional_checker.getShortestExprPath().first;
-        std::unordered_map<IterDomain*, Expr*> input_use_map;
-        for (const auto& [expr, dir] : bi_directional_path) {
-          // std::cerr << dir << " " << expr->toString();
-          for (auto input : expr->inputs()) {
-            auto [it, inserted] =
-                input_use_map.emplace(input->as<IterDomain>(), expr);
-            if (!inserted && it->second != expr) {
-              std::cerr << "Redundancy found: " << id_to_check->toString()
-                        << ", " << it->second->toString() << expr->toString();
-              is_redundant = true;
-              break;
-            }
-          }
-          if (is_redundant) {
-            break;
-          }
-        }
-      }
-
-      if (is_redundant) {
-        redundant_ids.push_back(id_to_check);
-      }
-    }
-
-    return redundant_ids;
-  }
-
   // TODO: Cleanup
   static std::pair<ExprPath, bool> getExprsBetween(
       const std::vector<IterDomain*>& from,
@@ -949,11 +876,6 @@ class RedundancyChecker : public IRBFS {
 };
 
 } // namespace
-
-std::vector<IterDomain*> getRedundantIds(
-    const std::vector<IterDomain*>& domain) {
-  return RedundancyChecker::getRedundantIds(domain);
-}
 
 CompareDomainWithReferenceResult compareDomainWithReference(
     const std::vector<IterDomain*>& domain,

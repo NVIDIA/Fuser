@@ -444,9 +444,6 @@ bool hasResizedRfactor(const TensorView* tv);
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
-std::vector<IterDomain*> getRedundantIds(
-    const std::vector<IterDomain*>& domain);
-
 struct CompareDomainWithReferenceResult {
   std::vector<IterDomain*> redundant_ids;
   std::vector<IterDomain*> additional_ids;
