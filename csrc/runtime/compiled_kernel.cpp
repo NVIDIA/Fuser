@@ -1051,6 +1051,7 @@ NVF_API CompiledKernel::CompiledKernel(
     : compile_params_(compile_params),
       lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
+  // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : lowering_hooks_) {
     hook(lowered_.get());
   }
@@ -1120,6 +1121,7 @@ void CompiledKernel::compileFusion(
   warp_size_ = properties->warpSize;
   kir::Kernel* kernel = lowered_->kernel();
 
+  // TODO: Should this be pushed to construction
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }

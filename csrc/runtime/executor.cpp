@@ -262,8 +262,8 @@ void KernelExecutor::compile(
 
   auto launch_params = launch_constraints;
   if (!args.empty()) {
-    auto expr_eval = executor_utils::bindInputs(
-        args, compiled_kernel_->lowered()->kernel()->as<Fusion>());
+    auto expr_eval =
+        executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
     NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
         launch_constraints,
@@ -984,7 +984,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
   // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, fusion().get());
+  auto expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
 
   // only allocate outputs when not given
   if (outputs.empty()) {
