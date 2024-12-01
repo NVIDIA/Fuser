@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import math
 import itertools
 from nvfuser import FusionCache, FusionDefinition
 from dataclasses import dataclass, astuple
@@ -11,6 +12,18 @@ from dataclasses import dataclass, astuple
 # ================================ Description ================================
 # This file contains the utility function for autotuning scripts.
 # =============================================================================
+
+
+# Returns the result of a/b rounded to the nearest integer in the direction of
+# positive infinity.
+def ceil_div(a, b):
+    return int(math.ceil(a / b))
+
+
+# Returns the result of a/b rounded to the nearest integer in the direction of
+# negative infinity.
+def floor_div(a, b):
+    return int(math.floor(a / b))
 
 
 @dataclass
