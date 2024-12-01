@@ -72,8 +72,10 @@ class AutotuneInnerReduction:
     class InnerReductionConfiguration:
         # The vectorization factor for inner reduction domain.
         vectorize_factor: int = 1
+        # The unroll factor for the inner reduction domain.
+        reduction_unroll_factor: int = 1
         # The unroll factor for the outer iteration domain.
-        unroll_factor: int = 1
+        iteration_unroll_factor: int = 1
         # The grid size for the outer iteration domain.
         # If grdim > 1, then godim corresponds with y axis of the grid.
         # Otherwise, it is the x axis of the grid.
@@ -121,11 +123,16 @@ class AutotuneInnerReduction:
         reduction_params.vectorize_inner_reduction = (
             scheduler_config.vectorize_factor > 1
         )
+        reduction_params.unroll_factor_top_of_vectorization = (
+            scheduler_config.reduction_unroll_factor
+        )
 
         if scheduler_config.bdimy > 1:
             reduction_params.block_dim_iter_dom = ParallelType.block_y
 
-        reduction_params.unroll_factor_iter_dom = scheduler_config.unroll_factor
+        reduction_params.unroll_factor_iter_dom = (
+            scheduler_config.iteration_unroll_factor
+        )
 
         gdimx = -1
         gdimy = -1
@@ -161,16 +168,27 @@ class AutotuneInnerReduction:
     def generate_scheduler_configurations(self, input_shape):
         threads_per_cta_options = [128, 256, 512, 1024]
         vectorization_factor_options = [1, 2, 4, 8]
-        unroll_factor_options = list(range(1, 11))
+        reduction_unroll_factor_options = list(range(1, 6))
+        iteration_unroll_factor_options = list(range(1, 6))
         warp_size = 32
 
         num_iterations, num_reductions = input_shape
 
-        for threads_per_cta, vectorize_factor, unroll_factor in itertools.product(
-            threads_per_cta_options, vectorization_factor_options, unroll_factor_options
+        for (
+            threads_per_cta,
+            vectorize_factor,
+            reduction_unroll_factor,
+            iteration_unroll_factor,
+        ) in itertools.product(
+            threads_per_cta_options,
+            vectorization_factor_options,
+            reduction_unroll_factor_options,
+            iteration_unroll_factor_options,
         ):
             scheduler_config = self.InnerReductionConfiguration(
-                vectorize_factor=vectorize_factor, unroll_factor=unroll_factor
+                vectorize_factor=vectorize_factor,
+                reduction_unroll_factor=reduction_unroll_factor,
+                iteration_unroll_factor=iteration_unroll_factor,
             )
             scheduler_config.bdimx = min(
                 threads_per_cta,
@@ -184,16 +202,16 @@ class AutotuneInnerReduction:
                 max(1, floor_div(threads_per_cta, scheduler_config.bdimx)),
             )
             scheduler_config.godim = ceil_div(
-                num_iterations, scheduler_config.bdimy * scheduler_config.unroll_factor
+                num_iterations, scheduler_config.bdimy * iteration_unroll_factor
             )
 
             # number of reduction elements not handled by a CTA
             remaining_reduction = ceil_div(
                 num_reductions,
-                (scheduler_config.bdimx * scheduler_config.vectorize_factor),
+                (scheduler_config.bdimx * vectorize_factor * reduction_unroll_factor),
             )
 
-            if unroll_factor == 1 and remaining_reduction > 1:
+            if iteration_unroll_factor == 1 and remaining_reduction > 1:
                 # all remaining reduction goes to grdim
                 scheduler_config.grdim = remaining_reduction
                 yield scheduler_config
