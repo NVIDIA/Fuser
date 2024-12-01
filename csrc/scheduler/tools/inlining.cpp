@@ -93,7 +93,7 @@ bool MaxPosCalculator::isAllowedID(
     std::unordered_set<Val*> logical_dom_set(
         logical_dom.begin(), logical_dom.end());
     auto all_vals =
-        IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
+        getValsBetween<IRBFS>({logical_dom.begin(), logical_dom.end()}, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();

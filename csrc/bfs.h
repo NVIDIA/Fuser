@@ -613,4 +613,88 @@ std::vector<typename BFSType::ValType> getReachableValsFrom(
   return reachable_vals;
 }
 
+// Traverse from a given set of vals to another set of vals and
+// return all vals between them. Note that if none of the Vals in the
+// second set is reachable, nothing will be returned. For example,
+// if a forward Merge needs to be traversed to get to the target Val
+// set, both of the two inputs must be given or reachable from the
+// given starting Val set.
+//
+// NOTE: getValsBetween(from, to) != getValsBetween(to, from). For
+// example, suppose from={i0}, to={i2}, and merge(i0, i1) =
+// i2. Since i1 is missing, nothing will be returned. However, if
+// from={i2} and to={i0}, then the backward merge can be traversed
+// as its sole input is available, so {i0} would be returned.
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getValsBetween(
+    const std::vector<typename BFSType::ValType>& from,
+    const std::vector<typename BFSType::ValType>& to,
+    const AdditionalArgs&... additional_args) {
+  using ValType = typename BFSType::ValType;
+  auto path = getExprsBetween<BFSType>(
+                  from,
+                  to,
+                  /*require_all_to_visited=*/false,
+                  /*allowed_direction=*/Direction::Undefined,
+                  additional_args...)
+                  .first;
+
+  VectorOfUniqueEntries<ValType> unique_vals;
+  for (auto [expr, dir] : path) {
+    unique_vals.pushBack(getInputsOfExpr(
+        expr,
+        dir,
+        // This assumes get_inputs and get_outputs take the same
+        // additional arguments, which is the case with
+        // ValGraphBFS. Revisit if needed.
+        typename BFSType::InputsType(additional_args...),
+        typename BFSType::OutputsType(additional_args...)));
+    unique_vals.pushBack(getOutputsOfExpr(
+        expr,
+        dir,
+        typename BFSType::InputsType(additional_args...),
+        typename BFSType::OutputsType(additional_args...)));
+  }
+
+  // If a val in from is found in to, just copy it to the returned val
+  // set since there's no corresponding expr.
+  for (const auto& from_val : from) {
+    if (std::find(to.begin(), to.end(), from_val) != to.end()) {
+      unique_vals.pushBack(from_val);
+    }
+  }
+
+  return unique_vals.vector();
+}
+
+// Get all dependencies of to in from.
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getDependenciesTo(
+    const std::vector<typename BFSType::ValType>& vals,
+    const std::vector<typename BFSType::ValType>& to) {
+  using ValType = typename BFSType::ValType;
+  auto path = getExprsBetween<BFSType>(
+                  vals,
+                  to,
+                  /*require_all_to_visited=*/true,
+                  /*allowed_direction=*/Direction::Undefined)
+                  .first;
+
+  VectorOfUniqueEntries<ValType> unique_vals;
+
+  std::unordered_set<ValType> val_set{vals.begin(), vals.end()};
+
+  for (const auto& [expr, direction] : path) {
+    auto inputs =
+        (direction == Direction::Forward) ? expr->inputs() : expr->outputs();
+    for (auto val : inputs) {
+      if (val_set.find(val) != val_set.end()) {
+        unique_vals.pushBack(val);
+      }
+    }
+  }
+
+  return unique_vals.vector();
+}
+
 } // namespace nvfuser
