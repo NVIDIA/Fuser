@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/analysis/index_compute.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/schedule.h>
@@ -1688,6 +1689,10 @@ Val* hardCodedIndexGenerationForStMatrix(
       ldst->out()->dtype() == DataType::Half,
       "we only support half type in stmatrix");
 
+  NVF_ERROR(ldst->out()->isA<TensorView>());
+  TensorView* out_tv = ldst->out()->as<TensorView>();
+  NVF_ERROR(getSwizzle(out_tv) == MmaInputSmemSwizzle::None);
+
   auto dtype_size = 2;
 
   // A tile_box can be 16x16, 16x8 [to do: 8x8]
@@ -1832,6 +1837,10 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
       ldst->out()->dtype() == DataType::Half,
       "we only support half type in stmatrix");
 
+  NVF_ERROR(ldst->out()->isA<TensorView>());
+  TensorView* out_tv = ldst->out()->as<TensorView>();
+  NVF_ERROR(getSwizzle(out_tv) == MmaInputSmemSwizzle::B128);
+
   // Constants
   constexpr int64_t dtype_size = 2;
   constexpr int64_t warp_size = 32;
@@ -1947,8 +1956,23 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       auto n = ldst->fusion()->getManaged<int64_t>("st_matrix_n");
 
       // Get the index for the output of stmatrix.
-      out = hardCodedIndexGenerationForStMatrix128BSwizzle(
-          ldst, for_loops_[0], m_tile, n_tile, m, n);
+      NVF_ERROR(ldst->out()->isA<TensorView>());
+      TensorView* out_tv = ldst->out()->as<TensorView>();
+      MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+      switch (swizzle) {
+        case MmaInputSmemSwizzle::None:
+          out = hardCodedIndexGenerationForStMatrix(
+              ldst, for_loops_[0], m_tile, n_tile, m, n);
+          break;
+        case MmaInputSmemSwizzle::B128:
+          out = hardCodedIndexGenerationForStMatrix128BSwizzle(
+              ldst, for_loops_[0], m_tile, n_tile, m, n);
+          break;
+        case MmaInputSmemSwizzle::B32:
+        case MmaInputSmemSwizzle::B64:
+        default:
+          NVF_ERROR("Unsupported Swizzle Type for StMatrix");
+      }
 
       auto num_regs = (m_tile) / 8 * (n_tile) / 8;
       auto as_type = ArrayType{

@@ -21,10 +21,6 @@ namespace nvfuser {
 
 // All ValGroups are in the traversal graph of tensor indexer
 
-int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv);
-
-MmaInputSmemSwizzle getSwizzle(TensorView* tv);
-
 struct TMADim {
   ValGroup partitioned;
   ValGroup box;
@@ -91,5 +87,7 @@ class TMAInfo {
 
 std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     Fusion* fusion);
+
+MmaInputSmemSwizzle getSwizzle(TensorView* tv);
 
 } // namespace nvfuser

@@ -1022,6 +1022,13 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     const int64_t tma_m = getM(params_->mma_macro);
     const int64_t tma_n = getN(params_->mma_macro);
 
+    NVF_ERROR(
+        tma_n >= 64,
+        "Scheduler only supports 128B swizzle that requires N dimension of MMA ",
+        "macro to be >= 64, but received ",
+        tma_n,
+        ".");
+
     fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
     fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
     fusion_->manage("st_matrix_m", tma_m);

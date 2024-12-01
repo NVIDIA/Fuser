@@ -22,25 +22,6 @@
 
 namespace nvfuser {
 
-int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
-  auto exprs = DependencyCheck::getAllExprsBetween(
-      {smem_tv->getLogicalDomain().begin(), smem_tv->getLogicalDomain().end()},
-      {smem_tv->getMaybeAllocationDomain().begin(),
-       smem_tv->getMaybeAllocationDomain().end()});
-  for (auto expr : exprs) {
-    if (auto s = dynamic_cast<Swizzle*>(expr)) {
-      return s->inX()->extent()->evaluate().as<int64_t>();
-    }
-  }
-  return 1;
-}
-
-MmaInputSmemSwizzle getSwizzle(TensorView* tv) {
-  NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
-  return getSwizzleFromBytes(
-      getCpAsyncBulkTensorSwizzleSize(tv) * core_matrix_width_bytes);
-}
-
 std::ostream& operator<<(std::ostream& os, const TMADim& d) {
   os << "TMADim{"
      << "partitioned="
@@ -56,6 +37,19 @@ std::ostream& operator<<(std::ostream& os, const TMADim& d) {
 }
 
 namespace {
+
+int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
+  auto exprs = DependencyCheck::getAllExprsBetween(
+      {smem_tv->getLogicalDomain().begin(), smem_tv->getLogicalDomain().end()},
+      {smem_tv->getMaybeAllocationDomain().begin(),
+       smem_tv->getMaybeAllocationDomain().end()});
+  for (auto expr : exprs) {
+    if (auto s = dynamic_cast<Swizzle*>(expr)) {
+      return s->inX()->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return 1;
+}
 
 // Infer roles (bulk, non-bulk, partitioned, box, tile, and stride) of ValGroups
 // by traversing along the traversal graph of the tensor indexer from the
@@ -1202,6 +1196,12 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     }
   }
   return result;
+}
+
+MmaInputSmemSwizzle getSwizzle(TensorView* tv) {
+  NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
+  return getSwizzleFromBytes(
+      getCpAsyncBulkTensorSwizzleSize(tv) * core_matrix_width_bytes);
 }
 
 } // namespace nvfuser
