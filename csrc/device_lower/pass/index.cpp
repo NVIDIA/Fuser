@@ -1653,7 +1653,7 @@ namespace {
 // *       *       *
 // *       *       *
 // *****************
-// Since there aree 128 threads working on 4 tile boxes.
+// Since there are 128 threads working on 4 tile boxes.
 // Effective threadIdx effective_tidx = tidx.x % 32
 // offset_in_tile_box_m =
 //              (effective_tidx % 16 ) * N * 2 (half)
@@ -1668,7 +1668,7 @@ namespace {
 // an instruction tile work of data.
 // threadIdx.y will provide the multiples of warp groups.
 
-// To account for the threadIdx.y we have to add it to the offest:
+// To account for the threadIdx.y we have to add it to the offset:
 // offset_from_threadIdx.y = threadIdx.y * M * N * 2 (half)
 
 // Final offset: cumulative_offset + offset_from_threadIdx.y
@@ -1821,16 +1821,131 @@ Val* hardCodedIndexGenerationForStMatrix(
   return out;
 }
 
+// Goal: Store (tma_m, tma_n) row-major tile in shared memory using stmatrix
+// (stsm_m_tile, stsm_n_tile)
+//
+// Let shared_memory tile be (tma_m = 64, tma_n = 128).
+// Let StMatrix tile be (stsm_m_tile = 16, stsm_n_tile = 16).
+// Let dtype be fp16 or bf16, so dtype_size is 2B.
+//
+// To avoid shared memory bank conflicts, apply swizzle on stmatrix and
+// tma store operations. Let swizzle be MmaInputSmemSwizzle::B128.
+//
+// For the TMA store, create box for 128B swizzle.
+// Let inner_tile_size = getBytesFromSwizzle(swizzle) / dtype_size = 64.
+//
+// Given shared memory tile [M(64), N(128)], split inner dimension by
+// inner_tile_size and reorder dimensions to get [NO(2), M(64), NI(64)].
+// The TMA Box is [M, NI]. Apply swizzle to the box using swizzleTMABox.
+//
+// Each ThreadIdx.y handles a (tma_m, tma_n) tile.
+// To account for the threadIdx.y, we have to add it to the offset:
+//   offset_from_tdy = threadIdx.y * tma_m * tma_n * 2 (half)
+//
+// Now, lets apply stmatrix tile to the TMA Box.
+// [NO(2), MO(4), MI(16), NIO(4), NII(16)].
+//
+// StMatrix is a warp-level operation. Four StMatrix operations can be issued
+// simultaneously given that a warp group is 128 threads. They are applied on
+// the MO dimension.
+//
+// [NO(2), MO(4) - TDX, MI(16) - StMatrix, NIO(4), NII(16) - StMatrix].
+// Virtually, there are 2 for-loops of size NO(2) and NIO(4).
+//
+// The Input TensorView for StMatrix after scheduleMmaOutputAllocation is
+// [128(TIDx), 8(n), 2, 2]. Given this domain, there is a serial for-loop of
+// size 8.
+//
+// Get indices for virtual for-loops given the serial for-loop:
+//   outer_index = loop->index() / NIO(4)
+//   inner_index = loop->index() % NIO(4)
+//
+// Each outer_index handles a (tma_m, NI(64)) tile.
+// To account for the outer_index, we have to add it to the offset:
+//   offset_from_outer_index = outer_index * tma_m * NI(64) * 2 (half)
+//
+// Since the warp group can launch 4 stmatrix operation in parallel, associate
+// each thread with a warp.
+//   warp_id = TDX / 32
+//
+// Since StMatrix is a warp-level operation, associate each thread with its
+// lane in the warp.
+//   lane_id = TDX % 32
+//
+// The TMA Box is [M(64), NI(64)]. When each warp applies stmatrix.x4, the box
+// is reshaped as such [MO(4) - TDX, MI(16) - STSM, NIO(4), NII(16) - STSM].
+//
+// The four warps handle MI(16) rows of the box. Each iteration of the
+// for-loop handles NII(16) columns of the box.
+//
+//    0       16      32     48       64
+// 0  *********************************
+//    *       *       *       *       *
+//    *       *       *       *       *
+// W0 *  I0   *  I1   *  I2   *   I3  *
+//    *       *       *       *       *
+//    *       *       *       *       *
+// 16 *********************************
+//    *       *       *       *       *
+//    *       *       *       *       *
+// W1 *  I0   *  I1   *  I2   *   I3  *
+//    *       *       *       *       *
+//    *       *       *       *       *
+// 32 *********************************
+//    *       *       *       *       *
+//    *       *       *       *       *
+// W2 *  I0   *  I1   *  I2   *   I3  *
+//    *       *       *       *       *
+//    *       *       *       *       *
+// 48 *********************************
+//    *       *       *       *       *
+//    *       *       *       *       *
+// W3 *  I0   *  I1   *  I2   *   I3  *
+//    *       *       *       *       *
+//    *       *       *       *       *
+// 64 *********************************
+//
+// Calculate row in the TMA Box [M(64), NI(64)]:
+//   row_for_the_warp = warp_id * stsm_m_tile(16)
+//   row_for_the_lane = lane_id % stsm_m_tile(16)
+//   row = row_for_the_warp + row_for_the_lane
+//
+// Calculate column in the TMA Box [M(64), NI(64)]:
+//   column_for_the_lane = lane_id / stsm_n_tile(16)
+//   number_of_columns_per_stsm_x4 = stsm_n_tile(16) / stsm_column_size(8)
+//   column_for_the_nio_loop = inner_index * number_of_columns_per_stsm_x4)
+//   column = column_for_the_lane + column_for_the_nio_loop
+//
+// The 128B swizzle is applied to a (8, 64) matrix of dtype fp16 or bf16.
+// The  size of fp16 and bf16 is 2B. The 64 elements along the inner dimension
+// contain 128B, which fill all 32 4B shared memory banks. Contiguous sections
+// of 8 elements are grouped together into 16B megabanks. The 16B megabank
+// corresponds with the 128-bit vectorized load. The 8 megabanks are swizzled
+// with the 8 rows of the matrix to avoid bank conflicts. This swizzle pattern
+// is repeated along the rows of the TMA box.
+//
+// Swizzle column
+//   row_in_swizzle_pattern = row % swizzle_row_size(8)
+//   swizzle_col = column XOR row_in_swizzle_pattern
+//
+// Calculate Tile Offset
+//   row_offset = row * NI(64) * 2(half)
+//   column_offset = column * stsm_column_size(8) * 2(half)
+//   tile_offset = row_offset + column_offset
+//
+// Get shared memory offset
+//   smem_offset = offset_from_tdy + offset_from_outer_index + tile_offset
 Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
     const LoadStoreOp* ldst,
     const ForLoop* loop,
-    const int64_t m_tile,
-    const int64_t n_tile,
-    const int64_t m,
-    const int64_t n) {
+    const int64_t stsm_m_tile,
+    const int64_t stsm_n_tile,
+    const int64_t tma_m,
+    const int64_t tma_n) {
   NVF_ERROR(
-      (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
-          (m_tile == 16 && n_tile == 16),
+      (stsm_m_tile == 8 && stsm_n_tile == 8) ||
+          (stsm_m_tile == 16 && stsm_n_tile == 8) ||
+          (stsm_m_tile == 16 && stsm_n_tile == 16),
       "size not currently supported for stmatrix");
 
   NVF_ERROR(
@@ -1844,30 +1959,34 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   // Constants
   constexpr int64_t dtype_size = 2;
   constexpr int64_t warp_size = 32;
-  constexpr int64_t swizzle_iter = 4;
+  constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t stsm_column_size = 8;
-  constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
   constexpr int64_t swizzle_n_tile = 64;
-  const int64_t warp_group_tile_stride = swizzle_n_tile * dtype_size;
-  const int64_t n_tile_stride = n_tile / stsm_column_size;
-  const int64_t tile_stride = m * swizzle_n_tile * dtype_size;
-  const int64_t tdy_stride = m * n * dtype_size;
+  constexpr int64_t swizzle_n_iter = 4;
+
+  // Derived constants
+  constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
+  const int64_t swizzle_n_tile_stride = swizzle_n_tile * dtype_size;
+  const int64_t stsm_n_tile_stride = stsm_n_tile / stsm_column_size;
+  const int64_t tile_stride = tma_m * swizzle_n_tile * dtype_size;
+  const int64_t tdy_stride = tma_m * tma_n * dtype_size;
 
   // NvFuser Val for constants
   Val* warp_size_val = IrBuilder::create<Val>(warp_size, DataType::Index);
-  Val* m_tile_val = IrBuilder::create<Val>(m_tile, DataType::Index);
-  Val* n_tile_val = IrBuilder::create<Val>(n_tile, DataType::Index);
-  Val* n_tile_stride_val =
-      IrBuilder::create<Val>(n_tile_stride, DataType::Index);
-  Val* stsm_column_size_val =
-      IrBuilder::create<Val>(stsm_column_size, DataType::Index);
+  Val* stsm_m_tile_val = IrBuilder::create<Val>(stsm_m_tile, DataType::Index);
+  Val* stsm_n_tile_val = IrBuilder::create<Val>(stsm_n_tile, DataType::Index);
+  Val* stsm_n_tile_stride_val =
+      IrBuilder::create<Val>(stsm_n_tile_stride, DataType::Index);
+  Val* swizzle_row_size_val =
+      IrBuilder::create<Val>(swizzle_row_size, DataType::Index);
   Val* stsm_column_stride_val =
       IrBuilder::create<Val>(stsm_column_stride, DataType::Index);
-  Val* warp_group_tile_stride_val =
-      IrBuilder::create<Val>(warp_group_tile_stride, DataType::Index);
+  Val* swizzle_n_tile_stride_val =
+      IrBuilder::create<Val>(swizzle_n_tile_stride, DataType::Index);
   Val* tile_stride_val = IrBuilder::create<Val>(tile_stride, DataType::Index);
   Val* tdy_stride_val = IrBuilder::create<Val>(tdy_stride, DataType::Index);
-  Val* swizzle_iter_val = IrBuilder::create<Val>(swizzle_iter, DataType::Index);
+  Val* swizzle_n_iter_val =
+      IrBuilder::create<Val>(swizzle_n_iter, DataType::Index);
 
   // Derived Constants
   NamedScalar* TDX =
@@ -1877,29 +1996,30 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* warp_id = SimplifyingIrBuilder::divExpr(TDX, warp_size_val);
   Val* lane_id = SimplifyingIrBuilder::modExpr(TDX, warp_size_val);
 
-  Val* inner_index =
-      SimplifyingIrBuilder::modExpr(loop->index(), swizzle_iter_val);
   Val* outer_index =
-      SimplifyingIrBuilder::divExpr(loop->index(), swizzle_iter_val);
+      SimplifyingIrBuilder::divExpr(loop->index(), swizzle_n_iter_val);
+  Val* inner_index =
+      SimplifyingIrBuilder::modExpr(loop->index(), swizzle_n_iter_val);
 
   // Calculate Row
-  Val* warp_row = SimplifyingIrBuilder::mulExpr(warp_id, m_tile_val);
-  Val* lane_row = SimplifyingIrBuilder::modExpr(lane_id, m_tile_val);
+  Val* warp_row = SimplifyingIrBuilder::mulExpr(warp_id, stsm_m_tile_val);
+  Val* lane_row = SimplifyingIrBuilder::modExpr(lane_id, stsm_m_tile_val);
   Val* row = SimplifyingIrBuilder::addExpr(warp_row, lane_row);
 
   // Calculate Column
-  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, n_tile_val);
-  Val* iter_col = SimplifyingIrBuilder::mulExpr(inner_index, n_tile_stride_val);
+  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, stsm_n_tile_val);
+  Val* iter_col =
+      SimplifyingIrBuilder::mulExpr(inner_index, stsm_n_tile_stride_val);
   Val* col = SimplifyingIrBuilder::addExpr(lane_col, iter_col);
 
   // Swizzle Column
-  Val* row_mod_stsm_col =
-      SimplifyingIrBuilder::modExpr(row, stsm_column_size_val);
-  Val* swizzle_col = bitwise_xor(col, row_mod_stsm_col);
+  Val* row_in_swizzle_pattern =
+      SimplifyingIrBuilder::modExpr(row, swizzle_row_size_val);
+  Val* swizzle_col = bitwise_xor(col, row_in_swizzle_pattern);
 
   // Calculate Tile Offset
   Val* row_offset =
-      SimplifyingIrBuilder::mulExpr(row, warp_group_tile_stride_val);
+      SimplifyingIrBuilder::mulExpr(row, swizzle_n_tile_stride_val);
   Val* col_offset =
       SimplifyingIrBuilder::mulExpr(swizzle_col, stsm_column_stride_val);
   Val* offset = SimplifyingIrBuilder::addExpr(row_offset, col_offset);
