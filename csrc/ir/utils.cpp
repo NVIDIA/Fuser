@@ -803,29 +803,18 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
 
 namespace {
 
-class RedundancyChecker : public IRBFS {
+class IRBFSWithPermissiveDependence : public IRBFS {
  public:
-  // TODO: Cleanup
-  static std::pair<ExprPath, bool> getExprsBetween(
-      const std::vector<IterDomain*>& from,
-      const std::vector<IterDomain*>& to,
-      bool require_all_to_visited = true) {
-    RedundancyChecker checker(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
-        require_all_to_visited);
-    checker.traverse();
-    return checker.getShortestExprPath();
-  }
-
-  RedundancyChecker(
+  IRBFSWithPermissiveDependence(
       const std::vector<Val*>& from_ids,
       const std::vector<Val*>& to_ids,
-      bool require_all_to_visited = true)
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
       : IRBFS(
             {from_ids.begin(), from_ids.end()},
             {to_ids.begin(), to_ids.end()},
-            /*require_all_to_visited=*/require_all_to_visited) {}
+            require_all_to_visited,
+            allowed_direction) {}
 
   // Unlike the default behavior, Expr is considered ready to visit as
   // long as one of the inputs or outputs has its dependency met
@@ -877,6 +866,9 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   // mean. Throw an error for now.
   NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
 
+  const std::unordered_set<IterDomain*> reference_set{
+      reference.begin(), reference.end()};
+
   std::vector<IterDomain*> domain_dedup;
   std::vector<IterDomain*> redundant_ids;
   std::unordered_set<IterDomain*> domain_set;
@@ -899,9 +891,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   // Consider the domain itself as produced and consumed if included in
   // reference since there's no expr for that case
   for (const auto id_to_check : domain_dedup) {
-    if (std::find(reference.begin(), reference.end(), id_to_check) !=
-        reference.end()) {
-      // std::cerr << "Adding to both: " << id_to_check->toString() << "\n";
+    if (reference_set.find(id_to_check) != reference_set.end()) {
       produced_ids.insert(id_to_check);
       consumed_ids.insert(id_to_check);
     }
@@ -918,7 +908,6 @@ CompareDomainWithReferenceResult compareDomainWithReference(
       bool already_produced = !produced_ids.insert(output).second;
       if (already_produced) {
         // This output is redundantly produced.
-        // std::cerr << "Already produced: " << output->toString() << "\n";
         if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
             domain_dedup.end()) {
           redundant_ids.push_back(output->as<IterDomain>());
@@ -930,8 +919,6 @@ CompareDomainWithReferenceResult compareDomainWithReference(
               IRInputs(),
               IROutputs());
           for (const auto& input : inputs_of_already_produced_id) {
-            // std::cerr << "Input of redundantly produced id: "
-            //<< input->toString() << "\n";
             redundant_ids.push_back(input->as<IterDomain>());
           }
         }
@@ -970,12 +957,13 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   // required in that case, which is not imlemented since error
   // reporting of this function is best effort.
   if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
-    // std::cerr << "Unused IDs: " << toDelimitedString(unused_ids) << "\n";
     //  RedundancyChecker can traverse as long as one of the inputs or
     //  outputs is visited
     const auto from_remaining_ids =
-        RedundancyChecker::getExprsBetween(
-            unused_ids, reference, /*require_all_to_visited=*/false)
+        getExprsBetween<IRBFSWithPermissiveDependence>(
+            {unused_ids.begin(), unused_ids.end()},
+            {reference.begin(), reference.end()},
+            /*require_all_to_visited=*/false)
             .first;
     if (from_remaining_ids.empty()) {
       additional_ids = unused_ids;
@@ -999,9 +987,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   // reference domain, it's considered an additional ID
   for (const auto output :
        getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
-    if (std::find(
-            reference.begin(), reference.end(), output->as<IterDomain>()) ==
-        reference.end()) {
+    if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
       additional_ids.push_back(output->as<IterDomain>());
     }
   }

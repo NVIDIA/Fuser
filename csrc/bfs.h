@@ -532,6 +532,23 @@ class BFS {
   Direction allowed_direction_ = Direction::Undefined;
 };
 
+template <typename BFSType, typename... AdditionalArgs>
+static std::pair<typename BFSType::ExprPath, bool> getExprsBetween(
+    const std::vector<typename BFSType::ValType>& from,
+    const std::vector<typename BFSType::ValType>& to,
+    bool require_all_to_visited = true,
+    Direction allowed_direction = Direction::Undefined,
+    const AdditionalArgs&... additional_args) {
+  BFSType bfs(
+      additional_args...,
+      {from.begin(), from.end()},
+      {to.begin(), to.end()},
+      require_all_to_visited,
+      allowed_direction);
+  bfs.traverse();
+  return bfs.getShortestExprPath();
+}
+
 template <typename ExprT, typename InputsT, typename OutputsT>
 std::vector<typename GetValType<ExprT>::type> getInputsOfExprPath(
     const std::vector<std::pair<ExprT, Direction>>& path,
