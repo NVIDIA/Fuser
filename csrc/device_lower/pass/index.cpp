@@ -1960,8 +1960,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
       "Matmul with all broadcasting dimension is not supported yet.");
   ValGroup inner = alloc_domain.back();
 
-  auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain).first;
+  auto exprs = getExprsBetween(id_graph, loop_domain, alloc_domain).first;
   while (!exprs.empty()) {
     auto [expr, direction] = exprs.back();
     exprs.pop_back();

@@ -1154,7 +1154,7 @@ std::vector<Val*> IRBFS::getValsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to) {
   auto path =
-      IRBFS::getExprsBetween(from, to, /*require_all_to_visited=*/false).first;
+      getExprsBetween<IRBFS>(from, to, /*require_all_to_visited=*/false).first;
 
   VectorOfUniqueEntries<Val*> unique_vals;
   for (auto [expr, _] : path) {
@@ -1177,7 +1177,7 @@ std::vector<Val*> IRBFS::getDependenciesTo(
     const std::vector<Val*>& vals,
     const std::vector<Val*>& to) {
   auto path =
-      IRBFS::getExprsBetween(vals, to, /*require_all_to_visited=*/true).first;
+      getExprsBetween<IRBFS>(vals, to, /*require_all_to_visited=*/true).first;
 
   VectorOfUniqueEntries<Val*> unique_vals;
 

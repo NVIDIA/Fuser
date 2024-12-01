@@ -216,7 +216,7 @@ std::unordered_set<ValGroup> ValGraphBFS::projectTo(
     Direction allowed_direction) {
   std::unordered_set<ValGroup> projection{from};
   // Reverse order
-  auto exprs = ValGraphBFS::getExprsBetween(
+  auto exprs = getExprsBetween(
                    id_graph,
                    to,
                    {from},

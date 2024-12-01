@@ -880,7 +880,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
     }
   }
 
-  const auto path_to_ref = IRBFS::getExprsBetween(
+  const auto path_to_ref = getExprsBetween<IRBFS>(
                                {domain_dedup.begin(), domain_dedup.end()},
                                {reference.begin(), reference.end()},
                                false)
@@ -913,7 +913,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
           redundant_ids.push_back(output->as<IterDomain>());
         } else {
           auto inputs_of_already_produced_id = getInputsOfExprPath(
-              IRBFS::getExprsBetween(
+              getExprsBetween<IRBFS>(
                   {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
                   .first,
               IRInputs(),
@@ -1021,7 +1021,7 @@ CompareDomainResult compareDomains(
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
   auto exprs =
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
           .first;
 

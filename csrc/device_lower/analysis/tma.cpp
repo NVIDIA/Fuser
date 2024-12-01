@@ -1083,7 +1083,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   std::list<std::pair<ExprGroup, Direction>> exprs = [&]() {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-    auto exprs_vec = ValGraphBFS::getExprsBetween(
+    auto exprs_vec = getExprsBetween(
                          id_graph,
                          id_graph.toGroups(consumer_tv->getLoopDomain()),
                          id_graph.toGroups(gmem_tv->getMaybeAllocationDomain()))

@@ -532,6 +532,10 @@ class BFS {
   Direction allowed_direction_ = Direction::Undefined;
 };
 
+// Find the shortest path from the from vals to the to
+// vals. Dependency between vals and exprs must be satisfied.
+// It is an error if no valid path is found unless
+// require_all_to_visited is false.
 template <typename BFSType, typename... AdditionalArgs>
 static std::pair<typename BFSType::ExprPath, bool> getExprsBetween(
     const std::vector<typename BFSType::ValType>& from,

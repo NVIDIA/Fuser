@@ -603,21 +603,6 @@ class IRBFS
             require_all_to_visited,
             allowed_direction) {}
 
-  // Find the shortest path from the from_groups_ to to_groups_ on a
-  // given graph. Dependency between vals and exprs must be satisfied.
-  // It is an error if no valid path is found.
-  static std::pair<ExprPath, bool> getExprsBetween(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to,
-      bool require_all_to_visited = true) {
-    IRBFS bfs(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
-        require_all_to_visited);
-    bfs.traverse();
-    return bfs.getShortestExprPath();
-  }
-
   // Traverse from a given set of vals to another set of vals and
   // return all vals between them. Note that if none of the Vals in the
   // second set is reachable, nothing will be returned. For example,

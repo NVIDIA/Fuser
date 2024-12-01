@@ -3744,7 +3744,7 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
       if (all_domains[j]->empty()) {
         continue;
       }
-      auto path = IRBFS::getExprsBetween(
+      auto path = getExprsBetween<IRBFS>(
                       {all_domains[i]->begin(), all_domains[i]->end()},
                       {all_domains[j]->begin(), all_domains[j]->end()},
                       false)

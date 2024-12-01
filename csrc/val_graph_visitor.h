@@ -200,38 +200,6 @@ class ValGraphBFS : public BFS<
             require_all_to_visited,
             allowed_direction) {}
 
-  // Find the shortest path from the from_groups_ to to_groups_ on a
-  // given graph. Dependency between vals and exprs must be satisfied.
-  // It is an error if no valid path is found.
-  static std::pair<ExprPath, bool> getExprsBetween(
-      const ValGraph& graph,
-      std::vector<NodeType> from,
-      std::vector<NodeType> to,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined) {
-    ValGraphBFS bfs(
-        graph,
-        std::move(from),
-        std::move(to),
-        require_all_to_visited,
-        allowed_direction);
-    bfs.traverse();
-    return bfs.getShortestExprPath();
-  }
-  static std::pair<ExprPath, bool> getExprsBetween(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined) {
-    return getExprsBetween(
-        graph,
-        std::vector<NodeType>{from.vector().begin(), from.vector().end()},
-        std::vector<NodeType>{to.vector().begin(), to.vector().end()},
-        require_all_to_visited,
-        allowed_direction);
-  }
-
   // Given `from`, project it to `to`. This function will return a subset of
   // `to` that is connected to `from`.
   static std::unordered_set<ValGroup> projectTo(
@@ -240,5 +208,19 @@ class ValGraphBFS : public BFS<
       const ValGroups& to,
       Direction allowed_direction = Direction::Undefined);
 };
+
+static std::pair<ValGraphBFS::ExprPath, bool> getExprsBetween(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& to,
+    bool require_all_to_visited = true,
+    Direction allowed_direction = Direction::Undefined) {
+  return getExprsBetween<ValGraphBFS>(
+      from.vector(),
+      to.vector(),
+      require_all_to_visited,
+      allowed_direction,
+      graph);
+}
 
 } // namespace nvfuser
