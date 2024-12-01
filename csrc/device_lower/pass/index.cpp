@@ -1818,7 +1818,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 
 Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
     const LoadStoreOp* ldst,
-    const ForLoop* outer_loop,
+    const ForLoop* loop,
     const int64_t m_tile,
     const int64_t n_tile,
     const int64_t m,
@@ -1835,11 +1835,14 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   // Constants
   constexpr int64_t dtype_size = 2;
   constexpr int64_t warp_size = 32;
+  constexpr int64_t swizzle_iter = 4;
   constexpr int64_t stsm_column_size = 8;
   constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
-  const int64_t warp_group_tile_stride = n * dtype_size;
+  constexpr int64_t swizzle_n_tile = 64;
+  const int64_t warp_group_tile_stride = swizzle_n_tile * dtype_size;
   const int64_t n_tile_stride = n_tile / stsm_column_size;
-  const int64_t tile_stride = m * n * dtype_size;
+  const int64_t tile_stride = m * swizzle_n_tile * dtype_size;
+  const int64_t tdy_stride = m * n * dtype_size;
 
   // NvFuser Val for constants
   Val* warp_size_val = IrBuilder::create<Val>(warp_size, DataType::Index);
@@ -1854,6 +1857,8 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* warp_group_tile_stride_val =
       IrBuilder::create<Val>(warp_group_tile_stride, DataType::Index);
   Val* tile_stride_val = IrBuilder::create<Val>(tile_stride, DataType::Index);
+  Val* tdy_stride_val = IrBuilder::create<Val>(tdy_stride, DataType::Index);
+  Val* swizzle_iter_val = IrBuilder::create<Val>(swizzle_iter, DataType::Index);
 
   // Derived Constants
   NamedScalar* TDX =
@@ -1863,6 +1868,11 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* warp_id = SimplifyingIrBuilder::divExpr(TDX, warp_size_val);
   Val* lane_id = SimplifyingIrBuilder::modExpr(TDX, warp_size_val);
 
+  Val* inner_index =
+      SimplifyingIrBuilder::modExpr(loop->index(), swizzle_iter_val);
+  Val* outer_index =
+      SimplifyingIrBuilder::divExpr(loop->index(), swizzle_iter_val);
+
   // Calculate Row
   Val* warp_row = SimplifyingIrBuilder::mulExpr(warp_id, m_tile_val);
   Val* lane_row = SimplifyingIrBuilder::modExpr(lane_id, m_tile_val);
@@ -1870,8 +1880,7 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
 
   // Calculate Column
   Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, n_tile_val);
-  Val* iter_col =
-      SimplifyingIrBuilder::mulExpr(outer_loop->index(), n_tile_stride_val);
+  Val* iter_col = SimplifyingIrBuilder::mulExpr(inner_index, n_tile_stride_val);
   Val* col = SimplifyingIrBuilder::addExpr(lane_col, iter_col);
 
   // Swizzle Column
@@ -1886,13 +1895,16 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
       SimplifyingIrBuilder::mulExpr(swizzle_col, stsm_column_stride_val);
   Val* offset = SimplifyingIrBuilder::addExpr(row_offset, col_offset);
 
+  // Calculate Tile offset
+  Val* tile_offset = IrBuilder::mulExpr(outer_index, tile_stride_val);
+
   // Calculate TDY offset
-  Val* threadIdx_y_offset = IrBuilder::mulExpr(TDY, tile_stride_val);
+  Val* tdy_offset = IrBuilder::mulExpr(TDY, tdy_stride_val);
 
   // Create shared memory TensorIndex
   Val* out_index = IrBuilder::addExpr(
       IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-      IrBuilder::addExpr(threadIdx_y_offset, offset));
+      IrBuilder::addExpr(tdy_offset, IrBuilder::addExpr(tile_offset, offset)));
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);
   return out;
