@@ -279,7 +279,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
   // Just between iter domains in the same tensor. Unlike
   // DependencyCheck, the direction doesn't matter
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
         {tv1->getRootDomain().begin(), tv1->getRootDomain().end()});
     std::vector<Val*> ref{
@@ -290,7 +290,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
 
   // The tv2 loop domain is reachable from its logical domain
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref{
@@ -302,7 +302,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
   // If only one of the logical domain is given, only the domain that
   // is dervied from it is returned
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv2->getLogicalDomain().at(0)},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref{tv2->getLoopDomain().at(0)};

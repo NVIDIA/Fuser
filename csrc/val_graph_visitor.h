@@ -172,6 +172,11 @@ class ValGraphOutputs {
   }
 };
 
+template <>
+struct GetValType<ExprGroup> {
+  using type = ValGroup;
+};
+
 class ValGraphBFS : public BFS<
                         ExprGroup,
                         ValGroup,
@@ -179,7 +184,7 @@ class ValGraphBFS : public BFS<
                         ValGraphUses,
                         ValGraphInputs,
                         ValGraphOutputs> {
- protected:
+ public:
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
@@ -195,7 +200,6 @@ class ValGraphBFS : public BFS<
             require_all_to_visited,
             allowed_direction) {}
 
- public:
   // Find the shortest path from the from_groups_ to to_groups_ on a
   // given graph. Dependency between vals and exprs must be satisfied.
   // It is an error if no valid path is found.
@@ -228,13 +232,6 @@ class ValGraphBFS : public BFS<
         allowed_direction);
   }
 
-  // Get all the val groups in vals that are reachable from the from groups
-  static ValGroups getReachableValsFrom(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& vals,
-      Direction allowed_direction = Direction::Undefined);
-
   // Given `from`, project it to `to`. This function will return a subset of
   // `to` that is connected to `from`.
   static std::unordered_set<ValGroup> projectTo(
@@ -243,47 +240,5 @@ class ValGraphBFS : public BFS<
       const ValGroups& to,
       Direction allowed_direction = Direction::Undefined);
 };
-
-inline std::vector<ValGroup> inputGroups(
-    const ValGraph& graph,
-    const ExprGroup& expr,
-    Direction dir) {
-  return dir == Direction::Forward ? graph.inputGroups(expr)
-                                   : graph.outputGroups(expr);
-}
-
-inline std::vector<ValGroup> outputGroups(
-    const ValGraph& graph,
-    const ExprGroup& expr,
-    Direction dir) {
-  return dir == Direction::Forward ? graph.outputGroups(expr)
-                                   : graph.inputGroups(expr);
-}
-
-inline ValGroups getInputsOfExprPath(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& path) {
-  ValGroups inputs;
-  std::unordered_set<ValGroup> all_outputs;
-
-  for (const auto& [expr_g, dir] : path) {
-    for (const auto& inp : inputGroups(graph, expr_g, dir)) {
-      if (all_outputs.find(inp) == all_outputs.end()) {
-        inputs.pushBack(inp);
-      }
-    }
-    for (const auto& out : outputGroups(graph, expr_g, dir)) {
-      all_outputs.emplace(out);
-    }
-  }
-
-  return inputs;
-}
-
-inline ValGroups getOutputsOfExprPath(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& path) {
-  return getInputsOfExprPath(graph, reverse(path));
-}
 
 } // namespace nvfuser

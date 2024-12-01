@@ -581,9 +581,14 @@ struct IROutputs {
   }
 };
 
+template <>
+struct GetValType<Expr*> {
+  using type = Val*;
+};
+
 class IRBFS
     : public BFS<Expr*, Val*, IRDefinitions, IRUses, IRInputs, IROutputs> {
- protected:
+ public:
   IRBFS(
       std::vector<NodeType> from_groups,
       std::vector<NodeType> to_groups,
@@ -598,7 +603,6 @@ class IRBFS
             require_all_to_visited,
             allowed_direction) {}
 
- public:
   // Find the shortest path from the from_groups_ to to_groups_ on a
   // given graph. Dependency between vals and exprs must be satisfied.
   // It is an error if no valid path is found.
@@ -613,11 +617,6 @@ class IRBFS
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
-
-  // Given a set of vals, get all reachable ones from another set of vals
-  static std::vector<Val*> getReachableValsFrom(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& vals);
 
   // Traverse from a given set of vals to another set of vals and
   // return all vals between them. Note that if none of the Vals in the
@@ -639,14 +638,6 @@ class IRBFS
   static std::vector<Val*> getDependenciesTo(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to);
-
-  static std::vector<Val*> getInputsOfExprPath(const ExprPath& path) {
-    return BFS::getInputsOfExprPath(path, IRInputs{}, IROutputs{});
-  }
-
-  static std::vector<Val*> getOutputsOfExprPath(const ExprPath& path) {
-    return BFS::getInputsOfExprPath(reverse(path), IRInputs{}, IROutputs{});
-  }
 };
 
 } // namespace nvfuser

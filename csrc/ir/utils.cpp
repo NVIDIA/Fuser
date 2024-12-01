@@ -1011,10 +1011,12 @@ CompareDomainWithReferenceResult compareDomainWithReference(
             domain_dedup.end()) {
           redundant_ids.push_back(output->as<IterDomain>());
         } else {
-          auto inputs_of_already_produced_id = IRBFS::getInputsOfExprPath(
+          auto inputs_of_already_produced_id = getInputsOfExprPath(
               IRBFS::getExprsBetween(
                   {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
-                  .first);
+                  .first,
+              IRInputs(),
+              IROutputs());
           for (const auto& input : inputs_of_already_produced_id) {
             // std::cerr << "Input of redundantly produced id: "
             //<< input->toString() << "\n";
@@ -1035,9 +1037,6 @@ CompareDomainWithReferenceResult compareDomainWithReference(
       [&](const auto reference_id) {
         return produced_ids.find(reference_id) == produced_ids.end();
       });
-
-  // std::cerr << "Produced IDs: " << toDelimitedString(produced_ids) << "\n";
-  // std::cerr << "Consumed IDs: " << toDelimitedString(consumed_ids) << "\n";
 
   // Check unused IDs, which should be either redundant or additional
   // IDs.
@@ -1070,7 +1069,8 @@ CompareDomainWithReferenceResult compareDomainWithReference(
       additional_ids = unused_ids;
     } else {
       // Inputs are redundant
-      auto inputs = IRBFS::getInputsOfExprPath(from_remaining_ids);
+      auto inputs =
+          getInputsOfExprPath(from_remaining_ids, IRInputs(), IROutputs());
       for (const auto inp : inputs) {
         redundant_ids.push_back(inp->as<IterDomain>());
       }
@@ -1085,7 +1085,8 @@ CompareDomainWithReferenceResult compareDomainWithReference(
 
   // If an output of the path is not used, i.e., not part of the
   // reference domain, it's considered an additional ID
-  for (const auto output : IRBFS::getOutputsOfExprPath(path_to_ref)) {
+  for (const auto output :
+       getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
     if (std::find(
             reference.begin(), reference.end(), output->as<IterDomain>()) ==
         reference.end()) {
@@ -1224,7 +1225,7 @@ CompareDomainResult compareDomains(
         //
         // The second case means id is redundant
         NVF_ERROR(
-            IRBFS::getReachableValsFrom(
+            getReachableValsFrom<IRBFS>(
                 {target_set.begin(), target_set.end()}, {id})
                 .empty(),
             id->toString(),

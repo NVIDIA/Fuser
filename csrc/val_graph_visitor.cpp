@@ -209,31 +209,6 @@ bool isCyclic(const ValGraph& graph) {
   return ValGraphCycleDetector(graph).cycle_detected_;
 }
 
-ValGroups ValGraphBFS::getReachableValsFrom(
-    const ValGraph& graph,
-    const ValGroups& from,
-    const ValGroups& vals,
-    Direction allowed_direction) {
-  ValGraphBFS bfs(
-      graph,
-      {from.begin(), from.end()},
-      {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false,
-      allowed_direction);
-
-  bfs.traverse();
-
-  ValGroups reachable_vals;
-  for (const ValGroup& val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.pushBack(val);
-    }
-  }
-
-  return reachable_vals;
-}
-
 std::unordered_set<ValGroup> ValGraphBFS::projectTo(
     const ValGraph& id_graph,
     const ValGroup& from,

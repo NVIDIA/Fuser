@@ -94,6 +94,28 @@ inline std::string toString(const std::variant<ExprT, ValT>& n) {
   }
 }
 
+template <typename ExprT>
+struct GetValType;
+
+template <typename ExprT, typename InputsT, typename OutputsT>
+std::vector<typename GetValType<ExprT>::type> getInputsOfExpr(
+    const ExprT& expr,
+    Direction dir,
+    InputsT inputs,
+    OutputsT outputs) {
+  NVF_ERROR(dir == Direction::Forward || dir == Direction::Backward);
+  return dir == Direction::Forward ? inputs(expr) : outputs(expr);
+}
+
+template <typename ExprT, typename InputsT, typename OutputsT>
+std::vector<typename GetValType<ExprT>::type> getOutputsOfExpr(
+    const ExprT& expr,
+    Direction dir,
+    InputsT inputs,
+    OutputsT outputs) {
+  return dir == Direction::Forward ? outputs(expr) : inputs(expr);
+}
+
 // Traversal for finding the shortest path from given vals to another
 // vals. For now, the vals are either Val* if we want to traverse IR nodes,
 // or ValGroup if we want to traverse ValGraph. However, this algorithm is
@@ -118,48 +140,10 @@ class BFS {
   using ValType = ValT;
   using NodeType = std::variant<ExprT, ValT>;
   using ExprPath = std::vector<std::pair<ExprT, Direction>>;
+  using InputsType = InputsT;
+  using OutputsType = OutputsT;
 
   virtual ~BFS() = default;
-
-  static std::vector<ValT> getInputsOfExprPath(
-      const ExprPath& path,
-      InputsT get_inputs,
-      OutputsT get_outputs) {
-    std::vector<ValT> inputs;
-    std::unordered_set<ValT> all_outputs;
-
-    auto get_inputs_by_dir = [&](const ExprT& expr, Direction dir) {
-      if (dir == Direction::Forward) {
-        return get_inputs(expr);
-      } else if (dir == Direction::Backward) {
-        return get_outputs(expr);
-      } else {
-        NVF_THROW("Unexpected direction: ", dir);
-      }
-    };
-
-    auto get_outputs_by_dir = [&](const ExprT& expr, Direction dir) {
-      if (dir == Direction::Forward) {
-        return get_outputs(expr);
-      } else if (dir == Direction::Backward) {
-        return get_inputs(expr);
-      } else {
-        NVF_THROW("Unexpected direction: ", dir);
-      }
-    };
-
-    for (const auto& [expr, dir] : path) {
-      for (const auto& inp : get_inputs_by_dir(expr, dir)) {
-        if (all_outputs.find(inp) == all_outputs.end()) {
-          inputs.push_back(inp);
-        }
-      }
-      for (const auto& out : get_outputs_by_dir(expr, dir)) {
-        all_outputs.emplace(out);
-      }
-    }
-    return inputs;
-  }
 
  public:
   BFS(DefinitionT definition,
@@ -548,14 +532,52 @@ class BFS {
   Direction allowed_direction_ = Direction::Undefined;
 };
 
-template <typename BFSType>
+template <typename ExprT, typename InputsT, typename OutputsT>
+std::vector<typename GetValType<ExprT>::type> getInputsOfExprPath(
+    const std::vector<std::pair<ExprT, Direction>>& path,
+    InputsT get_inputs,
+    OutputsT get_outputs) {
+  using ValT = typename GetValType<ExprT>::type;
+  std::vector<ValT> inputs;
+  std::unordered_set<ValT> all_outputs;
+
+  for (const auto& [expr, dir] : path) {
+    for (const auto& inp :
+         getInputsOfExpr(expr, dir, get_inputs, get_outputs)) {
+      if (all_outputs.find(inp) == all_outputs.end()) {
+        inputs.push_back(inp);
+      }
+    }
+    for (const auto& out :
+         getOutputsOfExpr(expr, dir, get_inputs, get_outputs)) {
+      all_outputs.emplace(out);
+    }
+  }
+
+  return inputs;
+}
+
+template <typename ExprT, typename InputsT, typename OutputsT>
+std::vector<typename GetValType<ExprT>::type> getOutputsOfExprPath(
+    const std::vector<std::pair<ExprT, Direction>>& path,
+    InputsT get_inputs,
+    OutputsT get_outputs) {
+  return getInputsOfExprPath(reverse(path), get_inputs, get_outputs);
+}
+
+// Given a set of vals, get all reachable ones from another set of vals
+template <typename BFSType, typename... AdditionalArgs>
 std::vector<typename BFSType::ValType> getReachableValsFrom(
     const std::vector<typename BFSType::ValType>& from,
-    const std::vector<typename BFSType::ValType>& vals) {
+    const std::vector<typename BFSType::ValType>& vals,
+    Direction allowed_direction = Direction::Undefined,
+    const AdditionalArgs&... additional_args) {
   BFSType bfs(
+      additional_args...,
       {from.begin(), from.end()},
       {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false);
+      /*require_all_to_visited=*/false,
+      allowed_direction);
 
   bfs.traverse();
 

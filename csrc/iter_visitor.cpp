@@ -1150,27 +1150,6 @@ bool DeadCodeRemover::modifyFusion() const {
   return modified_fusion;
 }
 
-std::vector<Val*> IRBFS::getReachableValsFrom(
-    const std::vector<Val*>& from,
-    const std::vector<Val*>& vals) {
-  IRBFS bfs(
-      {from.begin(), from.end()},
-      {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false);
-
-  bfs.traverse();
-
-  std::vector<Val*> reachable_vals;
-  for (auto val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.push_back(val);
-    }
-  }
-
-  return reachable_vals;
-}
-
 std::vector<Val*> IRBFS::getValsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to) {
