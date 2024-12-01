@@ -819,16 +819,6 @@ class RedundancyChecker : public IRBFS {
   }
 
   RedundancyChecker(
-      IterDomain* id,
-      const std::vector<IterDomain*>& other_ids,
-      Direction allowed_direction)
-      : IRBFS(
-            {id},
-            {other_ids.begin(), other_ids.end()},
-            /*require_all_to_visited=*/false,
-            allowed_direction) {}
-
-  RedundancyChecker(
       const std::vector<Val*>& from_ids,
       const std::vector<Val*>& to_ids,
       bool require_all_to_visited = true)

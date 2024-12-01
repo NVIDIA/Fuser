@@ -6463,7 +6463,7 @@ TEST_F(NVFuserTest, CompareLogicalAndLoopDomains) {
           "Not all logical IDs are covered by loop domain")));
 }
 
-TEST_F(NVFuserTest, DetectRedundantIdsWithReference1) {
+TEST_F(NVFuserTest, CompareDomainWithReference1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -6527,7 +6527,7 @@ TEST_F(NVFuserTest, DetectRedundantIdsWithReference1) {
 //    I4      I5
 // then [I0, I1, I2, I3] is equivalent to [I4, I5], but [I1, I2, I3] is not
 // equivalent to [I4, I5].
-TEST_F(NVFuserTest, DetectRedundantIdsWithReference2) {
+TEST_F(NVFuserTest, CompareDomainWithReference2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -6561,7 +6561,7 @@ TEST_F(NVFuserTest, DetectRedundantIdsWithReference2) {
 //
 // The second case does not work compareDomainWithReference as none
 // of the two domains is disjoint.
-TEST_F(NVFuserTest, DetectRedundantIdsWithReference3) {
+TEST_F(NVFuserTest, CompareDomainWithReference3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -6613,7 +6613,7 @@ TEST_F(NVFuserTest, DetectRedundantIdsWithReference3) {
 }
 
 // Repro of issue #3502
-TEST_F(NVFuserTest, CompareDomainWithReference) {
+TEST_F(NVFuserTest, CompareDomainWithReference4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

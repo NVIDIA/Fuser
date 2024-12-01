@@ -3671,11 +3671,17 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
   if (!getenv("OLD")) {
+    std::vector<IterDomain*> reference;
+    reference.reserve(logical_domain_.size() + additional_ids_.size());
+    reference.insert(
+        reference.end(), logical_domain_.begin(), logical_domain_.end());
+    reference.insert(
+        reference.end(), additional_ids_.begin(), additional_ids_.end());
     auto [redundant_ids, additional_ids, unreachable_reference_ids] =
-        ir_utils::compareDomainWithReference(new_loop_domain, logical_domain_);
+        ir_utils::compareDomainWithReference(new_loop_domain, reference);
     NVF_ERROR(
         redundant_ids.empty(),
-        "Redundant IDs detected: ",
+        "Trying to set a loop domain with redundant IDs: ",
         toDelimitedString(redundant_ids));
     if (!unreachable_reference_ids.empty()) {
       NVF_ERROR(
