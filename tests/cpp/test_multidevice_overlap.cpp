@@ -51,7 +51,9 @@ using DummyOverlapBenchmarkParams = std::tuple<
     /*M=*/int64_t,
     /*K=*/int64_t,
     /*N=*/int64_t,
-    /*L(communication msgsize)=*/int64_t>;
+    /*L(communication msgsize)=*/int64_t,
+    /*pre_comm=*/bool,
+    /*post_comm=*/bool>;
 
 class DummyOverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<DummyOverlapBenchmarkParams> {
  protected:
@@ -81,7 +83,9 @@ TEST_P(DummyOverlapBenchmark, PipelinedAGMatmulBenchmark) {
         M,
         K,
         N,
-        L] = GetParam();
+        L,
+        pre_comm,
+        post_comm] = GetParam();
 
   std::vector<RankType> all_ranks(communicator_->size());
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
@@ -112,12 +116,19 @@ TEST_P(DummyOverlapBenchmark, PipelinedAGMatmulBenchmark) {
       cudaEventRecord(start);
     }
 
-    setCurrentCUDAStream(communication_stream);
-    world->_allgather_base(dst, src)->wait();
+    if (pre_comm) {
+      setCurrentCUDAStream(communication_stream);
+      world->_allgather_base(dst, src)->wait();
+    }
 
     // compute
     setCurrentCUDAStream(compute_stream);
     torch::matmul_out(tc, ta, tb);
+
+    if (post_comm) {
+      setCurrentCUDAStream(communication_stream);
+      world->_allgather_base(dst, src)->wait();
+    }
 
     if (iteration == iteration_profiler_end) {
       cudaProfilerStop();;
@@ -143,7 +154,9 @@ INSTANTIATE_TEST_SUITE_P(
     /*M=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
     /*K=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
     /*N=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
-    /*L=*/testing::Values(pow(2,10), pow(2,15), pow(2,17))),
+    /*L=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
+    /*pre-comm=*/testing::Bool(),
+    /*post-comm=*/testing::Bool()),
     [](const testing::TestParamInfo<DummyOverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
@@ -151,7 +164,9 @@ INSTANTIATE_TEST_SUITE_P(
          << "M" << std::get<1>(info.param) << "_"
          << "K" << std::get<2>(info.param) << "_"
          << "N" << std::get<3>(info.param) << "_"
-         << "L" << std::get<4>(info.param);
+         << "L" << std::get<4>(info.param)
+         << ((std::get<5>(info.param))? "_pre_comm" : "")
+         << ((std::get<6>(info.param))? "_post_comm" : "");
       return os.str();
     });
 
