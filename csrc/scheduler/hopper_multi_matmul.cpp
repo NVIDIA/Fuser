@@ -995,8 +995,11 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
       auto* dc = d->definition()->input(0)->as<TensorView>();
 
-      blockTileTensors({dc});
-      blockTileTensors({d});
+      // Block Schedule and Parallelize
+      blockTileTensors({dc, d});
+      parallelizeBlocks({dc, d});
+
+      // Apply mma common transformation
       for (auto tv : {dc, d}) {
         // [..., Mo, No, Mi, Ni]
         tv->split(-2, getM(params_->mma_macro));
@@ -1010,8 +1013,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         tv->setLoopDomain(s.as<IterDomain*>());
         tv->axis(-5)->parallelize(ParallelType::TIDy);
       }
-      parallelizeBlocks({dc});
-      parallelizeBlocks({d});
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   } else {
@@ -1039,15 +1040,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
-      // Block Schedule
-      blockTileTensors({dc});
-      blockTileTensors({d_smem});
-      blockTileTensors({d});
-
-      // Block Parallelize
-      parallelizeBlocks({dc});
-      parallelizeBlocks({d_smem});
-      parallelizeBlocks({d});
+      // Block Schedule and Parallelize
+      blockTileTensors({dc, d_smem, d});
+      parallelizeBlocks({dc, d_smem, d});
 
       // Apply mma common transformation
       for (auto tv : {dc, d_smem, d}) {
@@ -1060,7 +1055,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         tv->merge(-4);
         // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
         tv->axis(-3)->parallelize(ParallelType::TIDy);
-        // After TDY: [..., Mo, No, Mio * Nio (TDY), Mii, Nii]
+        // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
       }
 
       // Schedule register cache; Output from epilogue
