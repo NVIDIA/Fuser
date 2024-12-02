@@ -1619,12 +1619,10 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       GpuLower::current()->idModelOptions().consumerIndex()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-    ValGroups logical_indices =
-        indexer.traversalGraph().toGroups(consumer_tv->getLogicalDomain());
     return indexer.getIndexFor(
         consumer_tv->definition(),
         /*as_consumer=*/true,
-        logical_indices,
+        consumer_tv->getLogicalDomain(),
         loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
@@ -1644,12 +1642,10 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-    ValGroups logical_indices =
-        indexer.traversalGraph().toGroups(producer_tv->getLogicalDomain());
     return indexer.getIndexFor(
         consumer_tv->definition(),
         /*as_consumer=*/false,
-        logical_indices,
+        producer_tv->getLogicalDomain(),
         loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
@@ -2655,9 +2651,27 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   ValGroups groups_to_index = tma_info.getTMADomain();
 
+  // TensorIndexer needs IterDomain instead of ValGroup to work around
+  // the resize indexing issue
+  std::vector<IterDomain*> ids_to_index;
+  ids_to_index.reserve(groups_to_index.size());
+  const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                   : producer_tv->domain()->allIDs();
+  for (const auto& group : groups_to_index) {
+    auto it = std::find_if(
+        tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
+          return group->has(gmem_id);
+        });
+    if (it != tma_all_ids.end()) {
+      ids_to_index.push_back(*it);
+    } else {
+      ids_to_index.push_back(group->front()->as<IterDomain>());
+    }
+  }
+
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto indices_inner_to_outer =
-      indexer.getIndexFor(ldst, !is_load, groups_to_index, loops);
+      indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

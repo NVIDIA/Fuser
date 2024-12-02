@@ -6,6 +6,9 @@
  */
 // clang-format on
 
+#include <functional>
+#include <iostream>
+
 #include <debug.h>
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
@@ -14,10 +17,8 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <polymorphic_value.h>
-
-#include <functional>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -143,15 +144,16 @@ void ExpressionEvaluator::bindTensorDomain(
       logical_domain.size(),
       ", but got a tensor of rank ",
       t.dim());
+
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
   for (auto i : c10::irange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
-      // DIDs are ignored for broadcast.
-      bind_(logical_domain[i]->extent(), 1, evaluate_validate);
+      bind_(id->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
-            t.size(i) == 1 || t.stride(i) == 0,
+            logical_sizes[i] == 1 || t.stride(i) == 0,
             "IterDomain ",
             id->toString(),
             " in ",
@@ -159,45 +161,15 @@ void ExpressionEvaluator::bindTensorDomain(
             "TensorView ",
             tv->toString(),
             " has expanded extent but input tensor has size ",
-            t.size(i),
+            logical_sizes[i],
             " and stride ",
             t.stride(i),
             " in dimension ",
             i);
-        bind_(
-            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+        bind_(id->expandedExtent(), logical_sizes[i], evaluate_validate);
       }
     } else {
-      if (logical_domain[i]->isDeviceDim()) {
-        // Currently we have the restrictions:
-        // (1) Devices parallelized axis extent == DeviceMesh's extent
-        // (2) Device parallelized axis cannot be split or merged
-        // Therefore, the device parallelized extents will always be allocated
-        // with size 1, but the symbolic axis extent is binded with the extent
-        // of the DeviceMesh
-        NVF_CHECK(
-            1 == t.size(i),
-            "TensorView ",
-            tv->toString(),
-            getInputPosString(tv),
-            " IterDomain ",
-            id->toString(),
-            "is sharded and must have size 1, but input tensor has size ",
-            t.size(i));
-        NVF_CHECK(
-            tv->hasDeviceMesh(),
-            "TV ",
-            tv->toString(),
-            getInputPosString(tv),
-            " has an empty DeviceMesh with DID parallelization")
-        bind_(
-            logical_domain[i]->extent(),
-            static_cast<int64_t>(
-                tv->getDeviceMesh().size(logical_domain[i]->getParallelType())),
-            evaluate_validate);
-      } else {
-        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
-      }
+      bind_(id->extent(), logical_sizes[i], evaluate_validate);
     }
   }
 }

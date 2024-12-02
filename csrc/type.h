@@ -777,6 +777,32 @@ enum class CircularBufferLoopStage {
   NotApplicable
 };
 
+// The circular buffer load expressions are cloned for these circular buffer
+// loop types.
+// e.g., No additional loads are required for the Epilogue stage.
+inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Prolog ||
+      stage == CircularBufferLoopStage::Main;
+}
+
+// The consuming expressions of circular buffer are cloned for these circular
+// buffer loop types.
+// e.g., No actual computation occurs in the Prologue stage.
+inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::Epilog;
+}
+
+// A loop type may have WAR hazard if any of the following is true:
+// - The load *in this loop type* may overwrite a buffer being read by a
+//   compute somewhere (*may or may not be in this loop*)
+// - The compute *in this loop type* reads circular buffer TVs that, if not
+//   properly handled, could be overwriten by a circular buffer loading
+//   somewhere (*may or may not be in this loop*)
+inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Main;
+}
+
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda
 //!  naming it swizzle_2d to reserve the options to have a swizzle_1d.
