@@ -1937,7 +1937,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 //   smem_offset = offset_from_tdy + offset_from_outer_index + tile_offset
 Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
     const LoadStoreOp* ldst,
-    const ForLoop* loop,
+    ForLoop* loop,
     const int64_t stsm_m_tile,
     const int64_t stsm_n_tile,
     const int64_t tma_m,
@@ -2005,6 +2005,8 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* warp_row = SimplifyingIrBuilder::mulExpr(warp_id, stsm_m_tile_val);
   Val* lane_row = SimplifyingIrBuilder::modExpr(lane_id, stsm_m_tile_val);
   Val* row = SimplifyingIrBuilder::addExpr(warp_row, lane_row);
+  // Hoist row value for reuse and readability
+  row = GpuLower::current()->commonScalarMap().hoistScalar(row, {loop});
 
   // Calculate Column
   Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, stsm_n_tile_val);
