@@ -199,14 +199,6 @@ class ValGraphBFS : public BFS<
             std::move(to_groups),
             require_all_to_visited,
             allowed_direction) {}
-
-  // Given `from`, project it to `to`. This function will return a subset of
-  // `to` that is connected to `from`.
-  static std::unordered_set<ValGroup> projectTo(
-      const ValGraph& id_graph,
-      const ValGroup& from,
-      const ValGroups& to,
-      Direction allowed_direction = Direction::Undefined);
 };
 
 static std::pair<ValGraphBFS::ExprPath, bool> getExprsBetween(

@@ -697,4 +697,55 @@ std::vector<typename BFSType::ValType> getDependenciesTo(
   return unique_vals.vector();
 }
 
+// Given `from`, project it to `to`. This function will return a subset of
+// `to` that is connected to `from`.
+template <typename BFSType, typename... AdditionalArgs>
+std::unordered_set<typename BFSType::ValType> projectTo(
+    const typename BFSType::ValType& from,
+    const std::vector<typename BFSType::ValType>& to,
+    Direction allowed_direction = Direction::Undefined,
+    const AdditionalArgs&... additional_args) {
+  using ValType = typename BFSType::ValType;
+  std::unordered_set<ValType> projection{from};
+  // Reverse order
+  auto exprs = getExprsBetween<BFSType>(
+                   {to},
+                   {from},
+                   /*require_all_to_visited=*/false,
+                   allowed_direction,
+                   additional_args...)
+                   .first;
+  while (!exprs.empty()) {
+    const auto& [expr, direction] = exprs.back();
+    exprs.pop_back();
+    auto from = getOutputsOfExpr(
+        expr,
+        direction,
+        typename BFSType::InputsType(additional_args...),
+        typename BFSType::OutputsType(additional_args...));
+    auto to = getInputsOfExpr(
+        expr,
+        direction,
+        typename BFSType::InputsType(additional_args...),
+        typename BFSType::OutputsType(additional_args...));
+
+    for (const auto& g : from) {
+      if (projection.count(g)) {
+        projection.erase(g);
+        projection.insert(to.begin(), to.end());
+      }
+    }
+  }
+  // Remove items that are not in `to`. This could happen if `from` is not
+  // connected to `to`.
+  for (auto it = projection.begin(); it != projection.end();) {
+    if (std::find(to.begin(), to.end(), *it) == to.end()) {
+      it = projection.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return projection;
+}
+
 } // namespace nvfuser
