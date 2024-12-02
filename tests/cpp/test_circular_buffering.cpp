@@ -1237,10 +1237,6 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv3->setMemoryType(MemoryType::Shared);
 
-  // Load TV1 into shared memory
-  TensorView* tv4 = tv1->cacheAfter();
-  tv4->setMemoryType(MemoryType::Shared);
-
   TensorView* reference = tv2;
 
   // Constants
@@ -1267,6 +1263,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   // specialization.
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    // Load TV1 into shared memory
+    TensorView* tv4 = tv1->cacheAfter();
+    tv4->setMemoryType(MemoryType::Shared);
     tv4->circularBuffer(
         number_of_stages, prefetch_distance, circular_buffer_type);
   }
