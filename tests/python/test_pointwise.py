@@ -421,3 +421,36 @@ def test_single_segment_multi_device():
 
     with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
         _ = fd.execute(inputs)
+
+
+def test_pointwise_issue():
+    inputs = [
+        torch.testing.make_tensor(
+            (1, 2048, 512), dtype=torch.bfloat16, device="cuda:0"
+        ),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        T3 = fd.define_tensor(
+            shape=[1, 2048, 512],
+            contiguity=[None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T33 = fd.ops.reshape(T3, new_shape=[1, 2048, 8, 64])
+        T34 = fd.ops.permute(T33, dims=[0, 2, 1, 3])
+        T185 = fd.ops.broadcast_in_dim(
+            T34, shape=[1, 8, 1, 2048, 64], broadcast_dims=[0, 1, 3, 4]
+        )
+        T192 = fd.ops.broadcast_in_dim(
+            T185, shape=[1, 8, 4, 2048, 64], broadcast_dims=[0, 1, 2, 3, 4]
+        )
+        T198 = fd.ops.reshape(T192, new_shape=[1, 32, 2048, 64])
+        fd.add_output(T34)
+        fd.add_output(T198)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    _ = fd.execute(inputs)
