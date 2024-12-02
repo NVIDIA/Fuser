@@ -1305,4 +1305,46 @@ TensorView* getTvInput(const Expr* expr) {
   return nullptr;
 }
 
+std::vector<IterDomain*> strideOrderToAllocation(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<int64_t>& stride_order) {
+  // Verify that stride_order is valid.
+  std::vector<int64_t> inc_vec(stride_order.size());
+  std::iota(inc_vec.begin(), inc_vec.end(), 0);
+  NVF_CHECK(
+      std::is_permutation(
+          stride_order.begin(), stride_order.end(), inc_vec.begin()),
+      "Stride order is not valid: ",
+      toDelimitedString(stride_order));
+
+  const auto& logical_domain_no_red =
+      TensorDomain::noReductions(logical_domain);
+  NVF_CHECK(stride_order.size() == logical_domain_no_red.size());
+
+  auto rank = stride_order.size();
+  std::vector<IterDomain*> allocation_domain_no_red(rank);
+
+  for (auto idx : c10::irange(rank)) {
+    allocation_domain_no_red[rank - 1 - stride_order[idx]] =
+        logical_domain_no_red[idx];
+  }
+  if (rank == logical_domain.size()) {
+    // No reduction axis is present, return early.
+    return allocation_domain_no_red;
+  }
+
+  // Insert reduction axis at the original index in allocation domain
+  std::vector<IterDomain*> allocation_domain(logical_domain.size());
+  auto idx_no_red = 0;
+  for (auto idx : c10::irange(logical_domain.size())) {
+    if (logical_domain.at(idx)->isReduction()) {
+      allocation_domain[idx] = logical_domain[idx];
+    } else {
+      allocation_domain[idx] = allocation_domain_no_red[idx_no_red];
+      idx_no_red++;
+    }
+  }
+  return allocation_domain;
+}
+
 } // namespace nvfuser::ir_utils
