@@ -3166,7 +3166,7 @@ class HopperMatmulSchedulerTest
 
     mparams.supported_vec_size = {8, 8, 4};
 
-    mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    mparams.mma_macro = MmaMacro::Hopper_64_256_16;
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
@@ -3274,6 +3274,7 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   tref = atMatmul(A.squeeze(), B.squeeze(), layout);
 }
 
+// nsys nvprof ./bin/test_matmul --gtest_filter='HopperMatmulSchedulerTest*KK*_tma_store'
 INSTANTIATE_TEST_SUITE_P(
     ,
     HopperMatmulSchedulerTest,
@@ -3281,9 +3282,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // use_smem_epilogue
         testing::Bool(), // a_k_inner
         testing::Bool(), // b_k_inner
-        testing::Values(512), // M
-        testing::Values(256), // N
-        testing::Values(64) // K
+        testing::Values(2048), // M
+        testing::Values(2048), // N
+        testing::Values(8192) // K
         ),
     hopperTestName);
 
