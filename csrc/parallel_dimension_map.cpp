@@ -150,7 +150,6 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 }
 
 void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
-  std::cout << "Warp specialize on: " << pt << std::endl;
   auto dim_it = dim_map_.find(pt);
   if (dim_it == dim_map_.end()) {
     dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
