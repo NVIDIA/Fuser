@@ -198,7 +198,21 @@ struct WarpSpecialized {
 inline std::ostream& operator<<(
     std::ostream& os,
     const WarpSpecialized& warp_specialized) {
-  return os << "WarpSpecializedOn" << warp_specialized.on;
+  std::string parallel_type_str = "";
+  switch (warp_specialized.on) {
+    case ParallelType::TIDx:
+      parallel_type_str = "TIDx";
+      break;
+    case ParallelType::TIDy:
+      parallel_type_str = "TIDy";
+      break;
+    case ParallelType::TIDz:
+      parallel_type_str = "TIDz";
+      break;
+    default:
+      NVF_THROW("Invalid parallel type");
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str;
 }
 
 using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
