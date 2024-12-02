@@ -1860,7 +1860,11 @@ Val* hardCodedIndexGenerationForStMatrix(
 //   outer_index = loop->index() / NIO(4)
 //   inner_index = loop->index() % NIO(4)
 //
-// Each outer_index handles a (tma_m, NI(64)) tile.
+// The allocation domain of the shared memory tensor must match the loop domain
+// of the global memory tensor when applying swizzle to the TMA store. The loop
+// domain is scheduled as [NO(2), M(64), NI(64)]. Therefore, we must store the
+// data in shared memory in [M(64), NI(64)] contiguous tiles.
+//
 // To account for the outer_index, we have to add it to the offset:
 //   offset_from_outer_index = outer_index * tma_m * NI(64) * 2 (half)
 //
@@ -1913,7 +1917,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 // Calculate column in the TMA Box [M(64), NI(64)]:
 //   column_for_the_lane = lane_id / stsm_n_tile(16)
 //   number_of_columns_per_stsm_x4 = stsm_n_tile(16) / stsm_column_size(8)
-//   column_for_the_nio_loop = inner_index * number_of_columns_per_stsm_x4)
+//   column_for_the_nio_loop = inner_index * number_of_columns_per_stsm_x4
 //   column = column_for_the_lane + column_for_the_nio_loop
 //
 // The 128B swizzle is applied to a (8, 64) matrix of dtype fp16 or bf16.
@@ -1930,7 +1934,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 //
 // Calculate Tile Offset
 //   row_offset = row * NI(64) * 2(half)
-//   column_offset = column * stsm_column_size(8) * 2(half)
+//   column_offset = column * swizzle_size(8) * 2(half)
 //   tile_offset = row_offset + column_offset
 //
 // Get shared memory offset
