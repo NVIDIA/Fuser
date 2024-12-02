@@ -279,7 +279,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
   // Just between iter domains in the same tensor. Unlike
   // DependencyCheck, the direction doesn't matter
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
         {tv1->getRootDomain().begin(), tv1->getRootDomain().end()});
     std::vector<Val*> ref{
@@ -290,7 +290,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
 
   // The tv2 loop domain is reachable from its logical domain
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref{
@@ -302,7 +302,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
   // If only one of the logical domain is given, only the domain that
   // is dervied from it is returned
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv2->getLogicalDomain().at(0)},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref{tv2->getLoopDomain().at(0)};
@@ -341,7 +341,7 @@ TEST_F(BFSTest, IRBFSGetValsBetween) {
   // Unlike DependencyCheck::getAllValsBetween, the direction doesn't
   // matter.
   {
-    auto all_vals = IRBFS::getValsBetween(
+    auto all_vals = getValsBetween<IRBFS>(
         {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref;
@@ -360,7 +360,7 @@ TEST_F(BFSTest, IRBFSGetValsBetween) {
   // Since only one of the logical domain is given, it doesn't reach
   // anywhere, returning an empty vector
   {
-    auto all_vals = IRBFS::getValsBetween(
+    auto all_vals = getValsBetween<IRBFS>(
         {tv2->getLogicalDomain().at(0)},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     EXPECT_TRUE(all_vals.empty());
@@ -386,7 +386,7 @@ TEST_F(BFSTest, FindDependencyWithIRBFSGetValsBetween) {
   tv1->reorder({{0, 1}});
   // [i1*i3, i0*i2]
 
-  auto all_deps = IRBFS::getDependenciesTo(
+  auto all_deps = getDependenciesTo<IRBFS>(
       {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
       {tv1->axis(0)});
 
