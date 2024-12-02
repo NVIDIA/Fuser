@@ -64,7 +64,9 @@ bool canIgnoreIndexedInputDomainID(
     TensorView* input_tv,
     IterDomain* root_id,
     const ComputeAtMap& ca_map) {
-  NVF_ERROR(input_tv->isFusionInput());
+  if (!input_tv->isFusionInput()) {
+    return false;
+  }
   for (auto use : input_tv->uses()) {
     if (auto select = dynamic_cast<SelectOp*>(use)) {
       if (root_id != select->getIndexedID()) {
@@ -242,6 +244,11 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     // TODO: Same backward traversal from tv is done for all input
     // tvs. Consider doing the analysis one for all inputs
     if (!areAllInputIdsMappedTo(input_tv, tv)) {
+      return false;
+    }
+  }
+  for (auto output_tv : ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    if (!areAllInputIdsMappedTo(output_tv, tv)) {
       return false;
     }
   }
