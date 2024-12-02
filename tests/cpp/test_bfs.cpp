@@ -58,7 +58,8 @@ TEST_F(BFSTest, ValGraphBFS1) {
   // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
   ExprPath<ExprGroup> tv1_to_tv0 =
-      getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups).first;
+      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups)
+          .first;
   EXPECT_TRUE(tv1_to_tv0.empty());
 
   // Traversal should fail if not all dependencies are met
@@ -67,7 +68,8 @@ TEST_F(BFSTest, ValGraphBFS1) {
       graph.toGroup(tv1->getLoopDomain().at(0)));
   EXPECT_THAT(
       [&]() {
-        getExprsBetween(graph, incomplete_tv1_loop_groups, tv0_loop_groups);
+        ValGraphBFS::getExprsBetween(
+            graph, incomplete_tv1_loop_groups, tv0_loop_groups);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("BFS traversal could not visit some nodes")));
@@ -78,7 +80,8 @@ TEST_F(BFSTest, ValGraphBFS1) {
   // tv2 loop domain backward to its root and then forward from tv1 root to
   // tv1 loop domain.
   ExprPath<ExprGroup> tv2_to_tv1 =
-      getExprsBetween(graph, tv2_loop_groups, tv1_loop_groups).first;
+      ValGraphBFS::getExprsBetween(graph, tv2_loop_groups, tv1_loop_groups)
+          .first;
 
   ExprPath<ExprGroup> tv2_to_tv1_ref;
   tv2_to_tv1_ref.emplace_back(
@@ -123,7 +126,8 @@ TEST_F(BFSTest, ValGraphBFS2) {
   // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
   ExprPath<ExprGroup> tv1_to_tv0 =
-      getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups).first;
+      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups)
+          .first;
 
   ExprPath<ExprGroup> tv1_to_tv0_ref;
   tv1_to_tv0_ref.emplace_back(
@@ -140,7 +144,8 @@ TEST_F(BFSTest, ValGraphBFS2) {
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(1)));
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(2)));
   ExprPath<ExprGroup> tv1_to_tv0_partial =
-      getExprsBetween(graph, tv1_loop_groups, tv0_partial_groups).first;
+      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_partial_groups)
+          .first;
 
   EXPECT_EQ(tv1_to_tv0_partial, tv1_to_tv0_ref);
 }
@@ -180,7 +185,7 @@ TEST_F(BFSTest, ValGraphBFS3) {
   ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
 
   ExprPath<ExprGroup> tv4_to_tv0 =
-      getExprsBetween(graph, tv4_groups, tv0_groups).first;
+      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups).first;
   ExprPath<ExprGroup> tv4_to_tv0_ref;
   tv4_to_tv0_ref.emplace_back(
       graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
@@ -229,7 +234,7 @@ TEST_F(BFSTest, ValGraphBFS4) {
   // and tv3, but the shortest path should be just one merge for tv1
 
   ExprPath<ExprGroup> tv4_to_tv0 =
-      getExprsBetween(graph, tv4_groups, tv0_groups).first;
+      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups).first;
 
   ExprPath<ExprGroup> tv4_to_tv0_ref;
   tv4_to_tv0_ref.emplace_back(
@@ -422,7 +427,7 @@ TEST_F(BFSTest, TraversalDirection) {
 
   // Shortest path from the input to tv7 should forward the second
   // path and then move one Merge backward
-  auto shortest_path = getExprsBetween(
+  auto shortest_path = ValGraphBFS::getExprsBetween(
                            exact_graph,
                            exact_graph.toGroups(tv0->getLogicalDomain()),
                            exact_graph.toGroups(tv7->getLogicalDomain()),
@@ -438,7 +443,7 @@ TEST_F(BFSTest, TraversalDirection) {
       << ". Actual: " << shortest_path;
 
   // Forward only path should take tv1 through tv7
-  auto forward_path = getExprsBetween(
+  auto forward_path = ValGraphBFS::getExprsBetween(
                           exact_graph,
                           exact_graph.toGroups(tv0->getLogicalDomain()),
                           exact_graph.toGroups(tv7->getLogicalDomain()),
@@ -458,7 +463,7 @@ TEST_F(BFSTest, TraversalDirection) {
       << ". Actual: " << forward_path;
 
   // Backward only path should not find anything
-  auto backward_path = getExprsBetween(
+  auto backward_path = ValGraphBFS::getExprsBetween(
                            exact_graph,
                            exact_graph.toGroups(tv0->getLogicalDomain()),
                            exact_graph.toGroups(tv7->getLogicalDomain()),

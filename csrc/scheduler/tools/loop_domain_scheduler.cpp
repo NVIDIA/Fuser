@@ -123,13 +123,8 @@ class LoopDomainScheduler {
     // getReplayPath.
     std::vector<ValGroup> all_val_groups =
         graph().disjointValSets().disjointSets();
-#if 0
-    all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
-        graph(), ref_id_groups_, all_val_groups, Direction::Backward);
-#else
     all_ancestors_of_ref_ = getReachableValsFrom<ValGraphBFS>(
         ref_id_groups_.vector(), all_val_groups, Direction::Backward, graph());
-#endif
   }
 
   // Create the loop domain of a given tensor as specified by the
@@ -333,7 +328,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
           [&](const ValGroup& tv_target_domain) {
             return all_ancestors_of_ref_.has(tv_target_domain);
           })) {
-    return getExprsBetween(
+    return ValGraphBFS::getExprsBetween(
                graph(),
                ref_id_groups_,
                tv_target_domains,
@@ -343,7 +338,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   }
 
   // Find the forward path from the ancestors to the target tensor
-  auto forward_path = getExprsBetween(
+  auto forward_path = ValGraphBFS::getExprsBetween(
                           graph(),
                           all_ancestors_of_ref_,
                           tv_target_domains,
@@ -352,12 +347,10 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                           .first;
 
   // Find the path from the ref to the forward path.
-  // auto inputs_of_forward_path = getInputsOfExprPath(graph(),
-  // forward_path);
   auto inputs_of_forward_path = getInputsOfExprPath(
       forward_path, ValGraphInputs(graph()), ValGraphOutputs(graph()));
 
-  auto backward_path = getExprsBetween(
+  auto backward_path = ValGraphBFS::getExprsBetween(
                            graph(),
                            ref_id_groups_,
                            inputs_of_forward_path,

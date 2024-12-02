@@ -94,6 +94,8 @@ inline std::string toString(const std::variant<ExprT, ValT>& n) {
   }
 }
 
+// Gives the corresponding Val type (e.g., Val* for Expr* and ValGroup for
+// ExprGroup)
 template <typename ExprT>
 struct GetValType;
 

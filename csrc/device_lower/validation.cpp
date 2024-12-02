@@ -414,7 +414,7 @@ class VectorizeValidator : public OptInDispatch {
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-    auto expr_path = getExprsBetween(
+    auto expr_path = ValGraphBFS::getExprsBetween(
                          graph,
                          graph.toGroups(tv->getMaybeAllocationDomain()),
                          graph.toGroups(std::vector<Val*>{v_id}))

@@ -199,20 +199,21 @@ class ValGraphBFS : public BFS<
             std::move(to_groups),
             require_all_to_visited,
             allowed_direction) {}
-};
 
-static std::pair<ValGraphBFS::ExprPath, bool> getExprsBetween(
-    const ValGraph& graph,
-    const ValGroups& from,
-    const ValGroups& to,
-    bool require_all_to_visited = true,
-    Direction allowed_direction = Direction::Undefined) {
-  return getExprsBetween<ValGraphBFS>(
-      from.vector(),
-      to.vector(),
-      require_all_to_visited,
-      allowed_direction,
-      graph);
-}
+  // Just a shortcut to the generic getExprsBetween
+  static std::pair<ValGraphBFS::ExprPath, bool> getExprsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
+    return getExprsBetween<ValGraphBFS>(
+        from.vector(),
+        to.vector(),
+        require_all_to_visited,
+        allowed_direction,
+        graph);
+  }
+};
 
 } // namespace nvfuser
