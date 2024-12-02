@@ -1259,10 +1259,6 @@ class CircularBufferInserter : private kir::ExprMutator {
             .getCircularBufferOptionsFor(loop->iter_domain())
             .type);
     if (use_warp_specialization) {
-      NVF_ERROR(
-          std::all_of(
-              it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
-          "In order to use warp specialization, all buffers must be loaded by TMA");
       insertTmaWarpSpecialized(loop, it->second);
     } else if (has_cp_async_bulk) {
       insertTmaPipelined(loop, it->second);
