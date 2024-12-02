@@ -246,11 +246,25 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         IrBuilder::create<UnaryOp>(
             UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
 
+        auto load_warp_loop_it =
+            std::find(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+              return fl->circularBufferLoopStage() ==
+                  CircularBufferLoopStage::LoadWarp;
+            });
+
         const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
         Val* first_warp = IrBuilder::ltExpr(
             NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
         for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-          if (pdim_map.has(pt)) {
+          bool in_load_warp_for_pt = load_warp_loop_it != for_loops_.end() &&
+              std::get<WarpSpecialized>(
+                  GpuLower::current()
+                      ->circularBufferInfo()
+                      .getCircularBufferOptionsFor(
+                          (*load_warp_loop_it)->iter_domain())
+                      .type)
+                      .on == pt;
+          if (pdim_map.has(pt) && !in_load_warp_for_pt) {
             first_warp = SimplifyingIrBuilder::logicalAndExpr(
                 first_warp,
                 IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
