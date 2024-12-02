@@ -188,6 +188,8 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 // buffer loading.
 struct WarpSpecialized {
   ParallelType on;
+  explicit WarpSpecialized(ParallelType on) : on(on) {}
+  WarpSpecialized() = default;
   bool operator==(const WarpSpecialized& other) const {
     return on == other.on;
   }

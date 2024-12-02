@@ -1784,7 +1784,7 @@ auto tmaCircularBufferingParams() {
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
   uint32_t lcg_parkmiller = 1;
   const std::vector<CircularBufferType> all_types{
-      Pipelined(false), Pipelined(true)};
+      Pipelined(false), Pipelined(true), WarpSpecialized(ParallelType::TIDy)};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {
