@@ -1042,4 +1042,55 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
       &fusion_copy, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(CombinedSchedulerTest, SharedMemoryPersistentLoadToRegister) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const int dim0 = 1024;
+  const int dim1 = 4096;
+  auto dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv2 = add(tv0, tv0);
+  auto tv3 = broadcast(tv1, {true, false});
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = sum(tv5, {1});
+  auto tv7 = broadcast(tv6, {false, true});
+  auto tv8 = add(tv7, tv5);
+  auto tv9 = add(tv8, tv5);
+  auto tv10 = sum(tv2, {0});
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv10);
+
+  Fusion fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(
+      SchedulerType::InnerOuterPersistent);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+  scheduler->schedule(&fusion, heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        EXPECT_TRUE(isVectorized(consumer));
+      }
+    }
+  }
+  auto cg_outputs =
+      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
