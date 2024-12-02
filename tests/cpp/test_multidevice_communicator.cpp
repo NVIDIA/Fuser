@@ -76,7 +76,9 @@ TEST_P(CommunicatorTest, Barrier) {
         toSeconds(expected_duration + kUnitDuration / 2);
     const auto expected_lower =
         toSeconds(expected_duration - kUnitDuration / 2);
-    EXPECT_THAT(duration, IsBetween(expected_lower, expected_upper));
+    EXPECT_THAT(duration, IsBetween(expected_lower, expected_upper))
+        << "Duration of iteration " << i
+        << " is outside the range of expectation.";
   }
 }
 
