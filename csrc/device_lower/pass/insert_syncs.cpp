@@ -471,7 +471,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       if (!sync_bitmap.hasBID() &&
           std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-                return ir_utils::isCpAsyncBulkLoad(val->definition());
+                return !val->isA<TensorView>() ||
+                    val->as<TensorView>()->getMemoryType() !=
+                    MemoryType::Shared ||
+                    ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
         return;
