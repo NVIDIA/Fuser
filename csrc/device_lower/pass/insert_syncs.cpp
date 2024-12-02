@@ -468,7 +468,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
-      if (std::all_of(
+      if (!sync_bitmap.hasBID() &&
+          std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
                 return ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
