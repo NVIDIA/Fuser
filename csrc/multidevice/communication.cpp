@@ -443,11 +443,12 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   }
 #endif
   std::vector<std::vector<at::Tensor>> input_tensors(1);
-  input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
+  input_tensors[0] = at::tensor_split(
+      input_tensor, communication->team_size(), scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  assertBufferCount(input_tensors[0], communication->team().size());
+  assertBuffersHaveSameSize(input_tensors[0], {});
   return backend->reduce_scatter(
       output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
 }
