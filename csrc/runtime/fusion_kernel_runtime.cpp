@@ -85,7 +85,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     if (!communicator.is_available() || communicator.local_rank() == 0) {
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
-      fusion->printMath();
+      fusion->print();
     }
   }
 

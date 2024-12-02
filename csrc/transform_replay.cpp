@@ -770,11 +770,13 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     new_contiguity.reserve(producer_rank);
 
     for (auto i : c10::irange(producer_rank)) {
-      IterDomain* id = producer->getAllocationDomain()[i];
+      IterDomain* alloc_id = producer->getAllocationDomain()[i];
       // We won't find reduction IterDomains in the map. See
       // AllocationDomainTest.CacheBefore.
-      if (auto it = p2c_map.find(id); it != p2c_map.end()) {
-        new_allocation_domain.push_back(it->second);
+      if (auto it = p2c_map.find(alloc_id); it != p2c_map.end()) {
+        IterDomain* new_alloc_id = it->second;
+        new_alloc_id->parallelize(alloc_id->getParallelType());
+        new_allocation_domain.push_back(new_alloc_id);
         new_contiguity.push_back(producer->getContiguity()[i]);
       }
     }

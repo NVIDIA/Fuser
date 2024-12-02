@@ -35,31 +35,52 @@ int64_t SegmentationState::setupSegmentation(
   IrCloner original_to_cloned_map =
       Fusion::copy(fusion, cloned_original_fusion_.get());
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
-
-  // Step 2) Concretize fusion with input arguments.
-  std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
-      DynamicTransform::concretizeFusion(cloned_original_fusion_.get(), args);
-
-  // Step 3) Given the map_presched_value_to_original_python_index, the IRCloner
-  // returned by Fusion::copy, AND the symbolic_to_concrete map returned by
-  // concretization pass, create a mapping from cloned Vals to original fusion
-  // state indices.
+  // Step 2) Given the map_presched_value_to_original_python_index AND the
+  // IRCloner returned by Fusion::copy, create a mapping from cloned CPP values
+  // to original fusion state indices.
+  std::unordered_map<Val*, int64_t> map_cloned_value_to_original_python_index;
+  map_cloned_value_to_original_python_index.reserve(
+      map_presched_value_to_original_python_index.size());
   std::transform(
       map_presched_value_to_original_python_index.begin(),
       map_presched_value_to_original_python_index.end(),
       std::inserter(
-          map_cloned_concretized_value_to_original_python_index_,
-          map_cloned_concretized_value_to_original_python_index_.end()),
+          map_cloned_value_to_original_python_index,
+          map_cloned_value_to_original_python_index.end()),
       [&](const auto& item) {
         const Val* original_value = item.first;
         int64_t python_index = item.second;
-        Val* cloned_val = original_to_cloned_map.clone(original_value);
-        if (symbolic_to_concrete_map.count(cloned_val)) {
-          cloned_val = symbolic_to_concrete_map.at(cloned_val);
+        Val* cloned_value = original_to_cloned_map.clone(original_value);
+        return std::make_pair(cloned_value, python_index);
+      });
+
+  // Step 3) Concretize fusion with input arguments.
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
+      DynamicTransform::concretizeFusion(cloned_original_fusion_.get(), args);
+
+  // Given the map_cloned_value_to_original_python_index AND the
+  // symbolic_to_concrete map returned by the concretization pass, create a
+  // mapping from cloned, concretized CPP values to original fusion state
+  // indices.
+  map_cloned_concretized_value_to_original_python_index_.reserve(
+      map_cloned_value_to_original_python_index.size());
+  std::transform(
+      map_cloned_value_to_original_python_index.begin(),
+      map_cloned_value_to_original_python_index.end(),
+      std::inserter(
+          map_cloned_concretized_value_to_original_python_index_,
+          map_cloned_concretized_value_to_original_python_index_.end()),
+      [&](const auto& item) {
+        Val* maybe_concretized_value = item.first;
+        int64_t python_index = item.second;
+        if (symbolic_to_concrete_map.count(maybe_concretized_value) > 0) {
+          maybe_concretized_value =
+              symbolic_to_concrete_map.at(maybe_concretized_value);
         }
-        return std::make_pair(cloned_val, python_index);
+        return std::make_pair(maybe_concretized_value, python_index);
       });
 
   // Track the extents for input TensorViews in cloned CPP Fusion.
