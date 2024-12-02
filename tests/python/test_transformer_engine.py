@@ -69,6 +69,7 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
         # benchmark fails to execute on H100 with the default format (SBHD).
         attn_input_format="bshd",
         set_parallel_mode=True,
+        sequence_parallel=True,
         tp_group=dist.group.WORLD,
     )
     transformer_layer.to(dtype).to("cuda")
