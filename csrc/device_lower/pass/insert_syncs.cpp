@@ -468,6 +468,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
+      if (!sync_bitmap.hasBID()) {
+        std::cout << "expr: " << expr->toString() << std::endl;
+      }
+
       // TODO: Explicitly test the 3 cases below
       Expr* sync_expr = nullptr;
       kir::Allocate* maybe_alloc = nullptr;
