@@ -74,7 +74,7 @@ class TVDomainGuard;
 }
 
 // [Circular buffering]
-
+//
 // A non-circle-buffered loop looks like below (assuming both the load and the
 // compute are async ops):
 //   for i in range(data.size):
