@@ -470,7 +470,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
       if (std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-                return ir_utils::isCpAsyncBulkLoad(tv->definition());
+                return ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         return;
       }
