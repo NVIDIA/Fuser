@@ -1280,6 +1280,35 @@ std::string CompiledKernel::disassembledKernelSASS() const {
   return disassembleBinary(compiled_kernel_->cubin, "-fun 1 -c");
 }
 
+void CompiledKernel::createKernelId(
+    SchedulerType scheduler_type,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id) {
+  NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
+  NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
+  NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
+  NVF_ERROR(group_id > -1, "Invalid group_id");
+  scheduler_type_ = scheduler_type;
+  fusion_id_ = fusion_id;
+  concrete_id_ = concrete_id;
+  runtime_id_ = runtime_id;
+  group_id_ = group_id;
+  ++global_fusion_count_;
+  std::stringstream ss;
+  if (isOptionEnabled(EnableOption::StaticFusionCount)) {
+    ss << global_fusion_count_.load();
+  } else {
+    ss << toString(scheduler_type_);
+    ss << "_f" << fusion_id_;
+    ss << "_c" << concrete_id_;
+    ss << "_r" << runtime_id_;
+    ss << "_g" << group_id_;
+  }
+  kernel_id_ = ss.str();
+}
+
 void CompiledKernel::compileRtc(
     const std::string& code,
     const std::string& name,

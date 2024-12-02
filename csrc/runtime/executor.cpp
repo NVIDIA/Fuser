@@ -305,6 +305,9 @@ void KernelExecutor::compile(
   if (dynamic_smem.has_value()) {
     ensureAvailableDynamicSmemSize(dynamic_smem.value());
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopCompile();
+  }
 }
 
 LaunchParams KernelExecutor::computeLaunchParams(

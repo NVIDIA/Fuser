@@ -177,31 +177,7 @@ class CompiledKernel : public NonCopyable {
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
-      int64_t group_id = 0) {
-    NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
-    NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
-    NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
-    NVF_ERROR(group_id > -1, "Invalid group_id");
-
-    scheduler_type_ = scheduler_type;
-    fusion_id_ = fusion_id;
-    concrete_id_ = concrete_id;
-    runtime_id_ = runtime_id;
-    group_id_ = group_id;
-    ++global_fusion_count_;
-
-    std::stringstream ss;
-    if (isOptionEnabled(EnableOption::StaticFusionCount)) {
-      ss << global_fusion_count_.load();
-    } else {
-      ss << toString(scheduler_type_);
-      ss << "_f" << fusion_id_;
-      ss << "_c" << concrete_id_;
-      ss << "_r" << runtime_id_;
-      ss << "_g" << group_id_;
-    }
-    kernel_id_ = ss.str();
-  }
+      int64_t group_id = 0);
 
   std::string kernelName() const {
     NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
