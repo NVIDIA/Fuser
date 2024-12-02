@@ -1393,7 +1393,13 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
 
   // Parallelize
   reference->axis(0)->parallelize(ParallelType::BIDx);
-  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Use block reduce if possible.
+  // Note that block reduce implies block sync, which can cause deadlock when
+  // combined with warp specialization. So we do serial reduction for this test.
+  if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    reference->axis(-1)->parallelize(ParallelType::TIDx);
+  }
 
   // InlineMost automatically handles vectorize and tma dimensions
   inlineMost();
