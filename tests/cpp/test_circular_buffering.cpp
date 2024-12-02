@@ -1257,14 +1257,14 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv3->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  // Circular Buffer with set operation. Note that in order to use warp
-  // specialization, all circilar buffers must be loaded by TMA, so for
-  // this test we disable circular buffering of set op if we are testing warp
-  // specialization.
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  // Circular Buffer with set operation.
+  // Note that in order to use warp specialization, all circilar buffers must be
+  // loaded by TMA, so for this test we disable circular buffering of set op if
+  // we are testing warp specialization.
   if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
     // Load TV1 into shared memory
     TensorView* tv4 = tv1->cacheAfter();
+    tv4->axis(0)->parallelize(ParallelType::BIDx);
     tv4->setMemoryType(MemoryType::Shared);
     tv4->circularBuffer(
         number_of_stages, prefetch_distance, circular_buffer_type);
