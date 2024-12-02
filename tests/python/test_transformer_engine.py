@@ -75,7 +75,7 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
     transformer_layer.to(dtype).to("cuda")
 
     x = torch.randn(
-        batch_size, sequence_length, hidden_size, dtype=dtype, device="cuda"
+        batch_size, sequence_length // size, hidden_size, dtype=dtype, device="cuda"
     )
 
     match compute_type:
@@ -94,7 +94,9 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
 
             # Warmup.
             y = benchmark_fn(False)
-            assert y.size() == torch.Size([batch_size, sequence_length, hidden_size])
+            assert y.size() == torch.Size(
+                [batch_size, sequence_length // size, hidden_size]
+            )
 
             benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
         case ComputeType.BACKWARD:
