@@ -473,6 +473,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
                 return ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
+        // RAW of TMA is handled separately, so skip it here.
         return;
       }
 
