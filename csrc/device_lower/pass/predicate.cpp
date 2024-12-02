@@ -247,7 +247,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
 
         auto load_warp_loop_it =
-            std::find(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+            std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
               return fl->circularBufferLoopStage() ==
                   CircularBufferLoopStage::LoadWarp;
             });
