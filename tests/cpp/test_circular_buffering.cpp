@@ -1261,10 +1261,15 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv3->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  // Circular Buffer with set operation
+  // Circular Buffer with set operation. Note that in order to use warp
+  // specialization, all circilar buffers must be loaded by TMA, so for
+  // this test we disable circular buffering of set op if we are testing warp
+  // specialization.
   tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->circularBuffer(
-      number_of_stages, prefetch_distance, circular_buffer_type);
+  if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    tv4->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
