@@ -1237,6 +1237,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv3->setMemoryType(MemoryType::Shared);
 
+  TensorView* tv4 = tv1->cacheAfter();
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+
   TensorView* reference = tv2;
 
   // Constants
@@ -1247,6 +1250,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Set computeAt position
+  inlineAllAt(tv2, /*pos=*/2);
 
   // Circular Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1260,8 +1266,6 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   // we are testing warp specialization.
   if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
     // Load TV1 into shared memory
-    TensorView* tv4 = tv1->cacheAfter();
-    tv4->axis(0)->parallelize(ParallelType::BIDx);
     tv4->setMemoryType(MemoryType::Shared);
     tv4->circularBuffer(
         number_of_stages, prefetch_distance, circular_buffer_type);
@@ -1271,9 +1275,6 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   reference->split(-1, 32);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
-
-  // Set computeAt position
-  inlineAllAt(tv2, /*pos=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
