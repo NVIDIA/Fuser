@@ -40,7 +40,7 @@ def setup_process_group(mpi_test) -> None:
 # ```bash
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
-# and then display the status using e.g. `nsys stats --report=cuda_gpu_kernel_sum report1.nsys-rep`.
+# and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
