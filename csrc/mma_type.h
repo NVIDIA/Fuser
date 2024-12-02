@@ -67,20 +67,13 @@ struct GemmTile {
 struct MatMulTileOptions {
   GemmTile cta_tile = GemmTile(128, 128, 32);
   GemmTile warp_tile = GemmTile(64, 64, 32);
-  GemmTile instruction_tile = GemmTile(16, 8, 16);
 
   MatMulTileOptions() = default;
-  MatMulTileOptions(
-      GemmTile cta_tile_,
-      GemmTile warp_tile_,
-      GemmTile instruction_tile_)
-      : cta_tile(cta_tile_),
-        warp_tile(warp_tile_),
-        instruction_tile(instruction_tile_) {}
+  MatMulTileOptions(GemmTile cta_tile_, GemmTile warp_tile_)
+      : cta_tile(cta_tile_), warp_tile(warp_tile_) {}
 
   bool operator==(const MatMulTileOptions& other) const {
-    return cta_tile == other.cta_tile && warp_tile == other.warp_tile &&
-        instruction_tile == other.instruction_tile;
+    return cta_tile == other.cta_tile && warp_tile == other.warp_tile;
   }
 };
 

@@ -807,7 +807,8 @@ void AmpereMultipleMatmulScheduler::scheduleMmaOperands(
     // NOTE: this applies to either mma_result _or_ ab/bb since both have the
     // same number of dimensions.
     // TODO: use the version that uses merged_roles instead here
-    mma_utils::scheduleWarpTileWithReduction(operand, params_->tile_sizes);
+    mma_utils::scheduleWarpTileWithReduction(
+        operand, params_->tile_sizes, params_->mma_macro);
 
     // parallelize Mwo, Nwo by thread
     operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
@@ -865,7 +866,8 @@ void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
     // NOTE: this applies to either mma_result _or_ ab/bb since both have the
     // same number of dimensions.
     // TODO: use the version that uses merged_roles instead here
-    mma_utils::scheduleWarpTileWithReduction(mma_result, params_->tile_sizes);
+    mma_utils::scheduleWarpTileWithReduction(
+        mma_result, params_->tile_sizes, params_->mma_macro);
 
     // This does a split-reorder-merge swizzle of the last two M and N
     // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->

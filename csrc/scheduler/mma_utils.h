@@ -47,7 +47,8 @@ NVF_API void scheduleContiguousVectorLoad(
 //! TODO: rewrite this one with makeTile
 NVF_API void scheduleWarpTileWithReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
@@ -55,7 +56,8 @@ NVF_API void scheduleWarpTileWithReduction(
 //! TODO: remove this one eventually.
 NVF_API void scheduleWarpTileWithNoReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.

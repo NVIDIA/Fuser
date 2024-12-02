@@ -138,7 +138,7 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   config->async_gmem_load_operands = mparams->async_gmem_load_operands;
   setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
-  setConfigTile(config->instruction_tile, mparams->tile_sizes.instruction_tile);
+  setConfigTile(config->instruction_tile, getMmaOpShape(mparams->mma_macro));
   config->splitk_factor = mparams->splitk_factor;
   config->grid_swizzle_factor = mparams->grid_swizzle_factor;
   config->cta_order =
@@ -161,11 +161,10 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   };
   setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
-  setGemmTile(mparams->tile_sizes.instruction_tile, config->instruction_tile);
   mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
   mparams->async_gmem_load_operands = config->async_gmem_load_operands;
-  // Update mma macro if necessary to match instruction tile
+  // Update mma macro if necessary to match provided instruction tile
   MmaMacroEncode menc(mparams->mma_macro); // this will record the family
   menc.m = config->instruction_tile[0]; // update instruction tile size
   menc.n = config->instruction_tile[1];
