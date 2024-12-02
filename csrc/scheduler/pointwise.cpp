@@ -43,7 +43,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       if (isValidReference(output_tv) &&
           hasMinimumSize(output_tv, minimum_num_axes) &&
           !output_tv->isFusionInput()) {
-        int64_t n_dims = pointwise_utils::nRootDims(output_tv);
+        int64_t n_dims = pointwise_utils::nLogicalDims(output_tv);
         if (n_dims > max_dims) {
           result = output_tv;
           max_dims = n_dims;
@@ -529,11 +529,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.

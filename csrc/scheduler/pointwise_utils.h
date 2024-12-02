@@ -63,11 +63,11 @@ class DomainMap {
 
 // Returns number of non-reduction/non-broadcas/non-device dims in logical
 // domain
-inline int64_t nRootDims(const TensorView* tv) {
+inline int64_t nLogicalDims(const TensorView* tv) {
   auto logical_dom = tv->getLogicalDomain();
   int64_t tv_n_dims = 0;
   for (auto dim : logical_dom) {
-    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
+    if (!dim->isReduction() && !dim->isBroadcast() && !id->hasExpandedExtent() && !dim->isDeviceDim()) {
       tv_n_dims++;
     }
   }
