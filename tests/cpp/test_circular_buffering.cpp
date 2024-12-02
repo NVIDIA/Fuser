@@ -1248,9 +1248,6 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  // Set computeAt position
-  inlineAllAt(tv2, /*pos=*/2);
-
   // Circular Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
@@ -1274,6 +1271,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   reference->split(-1, 32);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Set computeAt position
+  inlineAllAt(tv2, /*pos=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
