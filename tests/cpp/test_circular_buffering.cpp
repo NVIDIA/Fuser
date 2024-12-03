@@ -1732,7 +1732,7 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   // Parallelize
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::BIDy);
-  tv3->axis(-3)->parallelize(ParallelType::TIDy);
+  tv3->axis(-2)->parallelize(ParallelType::TIDy);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
   scheduler_utils::parallelizeAllLike(tv3);
