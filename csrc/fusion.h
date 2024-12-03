@@ -477,6 +477,12 @@ class NVF_API Fusion : public IrContainer {
   bool all_tv_uses_valid_ = false;
   bool is_during_update_uses_ = false;
 
+  // See note [Fusion managed data]
+  // Stores data of arbitrary type as std::any, and how the data will be cloned
+  // when the fusion is cloned as CloneFn. The primary task that the clone
+  // function does is to update pointers to IR nodes inside the data structure
+  // being managed with new pointers. By default, the clone function will be
+  // the `defaultCloneFunction` below, which just dispatch to IrCloner::clone.
   std::vector<std::pair<std::any, CloneFn>> managed_data_;
   std::unordered_map<std::string, std::pair<std::any, CloneFn>>
       managed_named_data_;
@@ -491,19 +497,29 @@ class NVF_API Fusion : public IrContainer {
 };
 
 template <typename T>
+std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
+  auto cloned_data = cloner.clone(std::any_cast<T>(data));
+  // Adding a static_assert to improve error message. Without this
+  // static_assert, the following cast will still fail, but the error message
+  // will be unreadable.
+  static_assert(
+      std::is_convertible_v<decltype(cloned_data), T>,
+      "IrCloner::clone returns a data type that is not compatible with the original managed data type. "
+      "Likely you will need to check IrCloner::clone for your data type.");
+  // Convert the result of the clone back to T before assigning to std::any.
+  // This ensures the type of the std::any does not change over the clone of
+  // fusion.
+  return std::any((T)cloned_data);
+}
+
+template <typename T>
 size_t Fusion::manage(T data) {
-  std::any a = data;
-  return manage(a, [](IrCloner& cloner, std::any data) {
-    return std::any(cloner.clone(std::any_cast<T>(data)));
-  });
+  return manage(std::any(a), defaultCloneFunction<T>);
 }
 
 template <typename T>
 void Fusion::manage(std::string key, T data) {
-  std::any a = data;
-  manage(key, a, [](IrCloner& cloner, std::any data) {
-    return std::any(cloner.clone(std::any_cast<T>(data)));
-  });
+  return manage(key, std::any(a), defaultCloneFunction<T>);
 }
 
 } // namespace nvfuser
