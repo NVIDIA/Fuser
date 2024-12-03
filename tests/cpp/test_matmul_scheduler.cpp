@@ -3159,10 +3159,10 @@ class HopperMatmulSchedulerTest
     // Create custom Matmul Params
     MatMulTileOptions gemm_tile;
     // TODO cta tile is a multiple of mma macro for hopper.
-    gemm_tile.cta_tile = GemmTile(128, 256, 16);
+    gemm_tile.cta_tile = GemmTile(64, 256, 16);
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
-    gemm_tile.warp_tile = GemmTile(64, 128, 16);
+    gemm_tile.warp_tile = GemmTile(64, 256, 16);
 
     mparams.supported_vec_size = {8, 8, 4};
 
@@ -3274,7 +3274,8 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   tref = atMatmul(A.squeeze(), B.squeeze(), layout);
 }
 
-// nsys nvprof ./bin/test_matmul --gtest_filter='HopperMatmulSchedulerTest*KK*_tma_store'
+// nsys nvprof ./bin/test_matmul
+// --gtest_filter='HopperMatmulSchedulerTest*KK*_tma_store'
 INSTANTIATE_TEST_SUITE_P(
     ,
     HopperMatmulSchedulerTest,
