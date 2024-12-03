@@ -157,7 +157,7 @@ class TVDomainGuard;
 // Main loop (using syncthreads to avoid WAR harzard):
 //   for i in range(data.size - prefetch):
 //     load data[i + prefetch] to buffer[(i + prefetch) % stage]
-//     wait buffer[i % stage] to be ready
+//     wait buffer[i % stage] to be loaded
 //     compute buffer[i % stage]
 //     wait until the first compute in the queue is done
 //       (i.e. stage - prefetch - 1 in flight computes remaining)
@@ -167,7 +167,7 @@ class TVDomainGuard;
 //   for i in range(data.size - prefetch):
 //     wait buffer[(i + prefetch) % stage] to be empty
 //     load data[i + prefetch] to buffer[(i + prefetch) % stage]
-//     wait buffer[i % stage] to be ready
+//     wait buffer[i % stage] to be loaded
 //     compute buffer[i % stage]
 //     wait until the first compute in the queue is done
 //       (i.e. stage - prefetch - 1 in flight computes remaining)
@@ -186,8 +186,28 @@ class TVDomainGuard;
 // we decide to keep them for simplicity.
 //
 // In the warp-specialized approach, we will use different warp/warp-group
-// for loading and consuming circular buffer. We will generate code like:
-
+// for loading and computing. We will generate code like below (assuming warp
+// specialized on TIDy):
+//
+//   if (threadIdx.y == blockDim.y - 1) {
+//     // If we use warp specialization on TIDy, then the blockDim.y of the
+//     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
+//     // last threadIdx.y will be used as load warp
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be empty
+//       load data[i] to buffer[i % stage]
+//   } else {
+//     // Every threadIdx.y other than the last will be used for compute
+//     for i in range(prefetch + 1):
+//       signal that buffer i % stage is empty and ready to load
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be loaded
+//       compute buffer[i % stage]
+//       wait until the first compute in the queue is done
+//         (i.e. stage - prefetch - 1 in flight computes remaining)
+//       signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//         loaded again
+//   }
 
 struct Pipelined {
   bool uses_mbarrier_for_war = false;
@@ -206,8 +226,6 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
   return os << "Pipelined";
 }
 
-// For example, if `on` is TIDy, then will assign additional TIDy for cirular
-// buffer loading.
 struct WarpSpecialized {
   ParallelType on;
   explicit WarpSpecialized(ParallelType on) : on(on) {}
