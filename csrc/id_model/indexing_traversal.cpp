@@ -90,7 +90,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   // used rather than the local model. Here, since we just need to
   // know if there are multiple dependent resize exprs, and loop
   // promotion should not further add resize exprs, it is sufficient
-  // to analyze only the IDs of this expr only.
+  // to analyze only the IDs of this expr.
 
   // Shortcut for a common case to avoid building the graph below
   if (resize_exprs.size() < 2) {
@@ -99,7 +99,15 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
 
   const auto& local_graph = local_model.buildAlmostExactGraph();
 
-  // See if these resize expr groups are connected
+  // See if these resize expr groups are connected. Note that in the
+  // current default scheduling method, any tensor ops using resize
+  // should only show up with a fusion input as its input, so there
+  // must be no chained resize ops. The default scheduling, this
+  // function should not move beyond this point. In the case of the
+  // new resize scheduler that is currently under development will
+  // have multiple chained resize ops, but the scheduler should
+  // explicitly set the loop domain such that no promotion would
+  // happen, thus avoiding hitting the assertion down below.
   ExprGroups resize_groups = local_graph.toGroups(resize_exprs);
   bool single_id_resized_multiple_times = false;
   for (const auto i : c10::irange(resize_groups.size() - 1)) {
