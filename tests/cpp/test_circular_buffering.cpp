@@ -1357,8 +1357,14 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
-TEST_P(TmaCircularBufferingTest, Reduction) {
+TEST_P(TmaCircularBufferingTest, InnerReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    GTEST_SKIP()
+        << "This test uses block reduce, which implies block sync, "
+        << "which can cause deadlock when combined with warp specialization. "
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1394,12 +1400,8 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   // Parallelize
   reference->axis(0)->parallelize(ParallelType::BIDx);
 
-  // Use block reduce if possible.
-  // Note that block reduce implies block sync, which can cause deadlock when
-  // combined with warp specialization. So we do serial reduction for this test.
-  if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    reference->axis(-1)->parallelize(ParallelType::TIDx);
-  }
+  // Use block reduce.
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
 
   // InlineMost automatically handles vectorize and tma dimensions
   inlineMost();
@@ -1413,6 +1415,62 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t1 = sum(t0, {-1});
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
+  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, OuterReduction) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    GTEST_SKIP()
+        << "This test uses block reduce, which implies block sync, "
+        << "which can cause deadlock when combined with warp specialization. "
+  }
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = sum(tv0, {0});
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  constexpr int64_t tile_size = 256;
+
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(1, tile_size);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Parallelize
+  reference->axis(1)->parallelize(ParallelType::BIDx);
+  reference->axis(2)->parallelize(ParallelType::TIDx);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  // Circular Buffer with TMA loads
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = sum(t0, {0});
 
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
