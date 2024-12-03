@@ -1267,19 +1267,19 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transactions (32 threads * 16 bytes per thread / 128 bytes per
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
-      auto cached_buffer = buffer->cacheAfter();
-      smem_consumers.push_back(cached_buffer);
+      auto regs_buffer = buffer->cacheAfter();
+      smem_consumers.push_back(regs_buffer);
       const auto& consumers_of_cached_buffer =
-          ir_utils::consumerTvsOf(cached_buffer);
+          ir_utils::consumerTvsOf(regs_buffer);
       if (std::getenv("USE_MAIN") == nullptr) {
         // buffer (shared memory buffer) was used before & after reduction, so
-        // does the cached buffer (register buffer). Thus, the cached buffer
-        // is also a persistent buffer. To avoid this, we can recompute all the
-        // before-reduction-uses from the shared memory buffer. Then, all the
+        // does the regs_buffer. Thus, the regs_buffer is also a persistent
+        // buffer. To avoid this, we can recompute all the before-reduction-uses
+        // from the shared memory buffer. Then, all the
         // before-and-after-reduction-uses are inlined separately. So the cached
         // buffer is no longer a persistent buffer. This saves register space.
         auto before_redu_replicate =
-            RecomputeTv::recompute(cached_buffer, {buffer});
+            RecomputeTv::recompute(regs_buffer, {buffer});
         smem_consumers.push_back(before_redu_replicate);
         for (auto c_of_cached_buffer : consumers_of_cached_buffer) {
           if (std::any_of(
@@ -1291,10 +1291,32 @@ std::vector<TensorView*> movePersistentBufferToSmem(
                   })) {
             ir_utils::replaceValInExprInputs(
                 c_of_cached_buffer->definition(),
-                cached_buffer,
+                regs_buffer,
                 before_redu_replicate);
           }
         }
+
+        // remove not used smem_consumers. why?
+        // (1) ir_utils::consumerTvsOf() doesn't ensure tvs are used.
+        // (2) after replicate, `regs_buffer` may no longer be used.
+        // When all the consumers of the cached input are inputs to reductions,
+        // they are all recomputed from the shared memory buffer and no longer
+        // used in the fusion. Happened in test
+        // DistributedTransformerTest.Backward
+        std::unordered_set<TensorView*> smem_consumers_set;
+        for (auto val : fusion->usedMathVals()) {
+          if (auto tv = dynamic_cast<TensorView*>(val)) {
+            smem_consumers_set.insert(tv);
+          }
+        }
+        for (auto tv : smem_consumers) {
+          if (smem_consumers_set.count(tv) == 0) {
+            smem_consumers.erase(
+                std::remove(smem_consumers.begin(), smem_consumers.end(), tv),
+                smem_consumers.end());
+          }
+        }
+
       } else {
         for (auto i = 1; i < (int)consumers_of_cached_buffer.size(); i++) {
           auto consumer = consumers_of_cached_buffer.at(i);
@@ -1302,9 +1324,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
           // persistent similar to project to inputs, here we are projecting to
           // the shared memory buffer.
           auto cached_tv_replicate =
-              RecomputeTv::recompute(cached_buffer, {buffer});
+              RecomputeTv::recompute(regs_buffer, {buffer});
           ir_utils::replaceValInExprInputs(
-              consumer->definition(), cached_buffer, cached_tv_replicate);
+              consumer->definition(), regs_buffer, cached_tv_replicate);
           smem_consumers.push_back(cached_tv_replicate);
         }
       }
