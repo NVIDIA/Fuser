@@ -869,14 +869,18 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   const std::unordered_set<IterDomain*> reference_set{
       reference.begin(), reference.end()};
 
-  std::vector<IterDomain*> domain_dedup;
   std::vector<IterDomain*> redundant_ids;
-  std::unordered_set<IterDomain*> domain_set;
-  for (const auto id : domain) {
-    if (domain_set.insert(id).second) {
-      domain_dedup.push_back(id);
-    } else {
-      redundant_ids.push_back(id);
+
+  // In case domain has duplicates
+  std::vector<IterDomain*> domain_dedup;
+  {
+    std::unordered_set<IterDomain*> domain_set;
+    for (const auto id : domain) {
+      if (domain_set.insert(id).second) {
+        domain_dedup.push_back(id);
+      } else {
+        redundant_ids.push_back(id);
+      }
     }
   }
 
@@ -886,7 +890,9 @@ CompareDomainWithReferenceResult compareDomainWithReference(
                                false)
                                .first;
 
+  // All output IDs along the path
   std::unordered_set<Val*> produced_ids;
+  // All used IDs along the path
   std::unordered_set<Val*> consumed_ids;
   // Consider the domain itself as produced and consumed if included in
   // reference since there's no expr for that case
@@ -897,17 +903,19 @@ CompareDomainWithReferenceResult compareDomainWithReference(
     }
   }
 
+  // Find any produced IDs that are produced multiple times
   std::vector<IterDomain*> redundantly_produced_ids;
   for (const auto& [expr, dir] : path_to_ref) {
-    const auto& inputs =
-        dir == Direction::Forward ? expr->inputs() : expr->outputs();
-    const auto& outputs =
-        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+    const auto& inputs = getInputsOfExpr(expr, dir);
+    const auto& outputs = getOutputsOfExpr(expr, dir);
     consumed_ids.insert(inputs.begin(), inputs.end());
     for (const auto& output : outputs) {
       bool already_produced = !produced_ids.insert(output).second;
       if (already_produced) {
-        // This output is redundantly produced.
+        // This output is redundantly produced. If it's in the
+        // original domain, just mark it as a redundant ID. If not,
+        // find the corresnponding IDs out ouf the domain by doing
+        // another BFS analysis
         if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
             domain_dedup.end()) {
           redundant_ids.push_back(output->as<IterDomain>());
@@ -951,24 +959,35 @@ CompareDomainWithReferenceResult compareDomainWithReference(
 
   std::vector<IterDomain*> additional_ids;
 
-  // If there's unreachable reference IDs, the unused IDs may have
+  // If there're unused IDs, they may be redundant or additional
+  // IDs. The latter means the ID has no overlap with any other
+  // ID. This could happen, for example, when we use a concrete loop
+  // ID for a broadcast logical ID.
+  //
+  // If there's unreachable reference IDs, however, the unused IDs may have
   // been unused because of missing dependencies, which should not be
   // considered redundant or additional. Different analysis would be
   // required in that case, which is not imlemented since error
   // reporting of this function is best effort.
   if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
-    //  RedundancyChecker can traverse as long as one of the inputs or
-    //  outputs is visited
+    // In order to understand if an unused ID is redundant or just an
+    //  additional ID, check if the unused ID is connected to any of
+    //  the reference domain. If it's connected even with missing
+    //  dependencies, it should be considered redundant. For this
+    //  reason, a variant of IRBFS with a relaxed dependency condition
+    //  is used. IRBFSWithPermissiveDependence can traverse as long as one of
+    //  the inputs or outputs is visited.
     const auto from_remaining_ids =
         getExprsBetween<IRBFSWithPermissiveDependence>(
             {unused_ids.begin(), unused_ids.end()},
             {reference.begin(), reference.end()},
             /*require_all_to_visited=*/false)
             .first;
+    // Nothing is reachable, which means all of the unused IDs are not redundant
     if (from_remaining_ids.empty()) {
       additional_ids = unused_ids;
     } else {
-      // Inputs are redundant
+      // Inputs of the path are redundant, and the rest are not
       auto inputs =
           getInputsOfExprPath(from_remaining_ids, IRInputs(), IROutputs());
       for (const auto inp : inputs) {
@@ -984,7 +1003,9 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   }
 
   // If an output of the path is not used, i.e., not part of the
-  // reference domain, it's considered an additional ID
+  // reference domain, it's considered an additional ID. For example,
+  // if we have `split i0 -> i1, i2`, and the reference only includes
+  // i1, i2 is considered an additional ID
   for (const auto output :
        getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
     if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
