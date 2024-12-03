@@ -2318,7 +2318,7 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
           exact_graph.toGroups(consumer->getLoopDomain());
       for (auto producer : producers) {
         auto producer_consumer_exprs =
-            ValGraphBFS::getExprsBetween(
+            ValGraphBFS::getExprGroupsBetween(
                 exact_graph,
                 exact_graph.toGroups(producer->getLoopDomain()),
                 consumer_loop_groups,

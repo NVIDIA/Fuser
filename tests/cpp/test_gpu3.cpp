@@ -6502,7 +6502,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
   // This ordering should return nothing as the logical domain does
   // not have i1, thus the merge expr cannot be traversed.
   EXPECT_TRUE(
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
           false)
@@ -6510,7 +6510,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
 
   // This ordering should find two exprs (i.e., the merge and the split).
   EXPECT_EQ(
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
           {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
           false)
@@ -6575,7 +6575,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs2) {
   // the loop domain to the logical domain does not traverse the
   // split, just returning an empty vector.
   EXPECT_TRUE(
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
           {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
           false)
@@ -6583,7 +6583,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs2) {
 
   // From the initial loop to the current loop should find the split expr
   auto exprs_between =
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {tv2->getInitialLoopDomain().begin(),
            tv2->getInitialLoopDomain().end()},
           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},

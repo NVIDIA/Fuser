@@ -114,8 +114,8 @@ class LoopDomainScheduler {
     // getReplayPath.
     std::vector<ValGroup> all_val_groups =
         graph().disjointValSets().disjointSets();
-    all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
-        graph(), ref_id_groups_, all_val_groups, Direction::Backward);
+    all_ancestors_of_ref_ = getReachableValsFrom<ValGraphBFS>(
+        ref_id_groups_.vector(), all_val_groups, Direction::Backward, graph());
   }
 
   // Create the loop domain of a given tensor as specified by the
@@ -232,8 +232,10 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
       continue;
     }
 
-    const auto input_groups = inputGroups(graph(), expr_g, dir);
-    const auto output_groups = outputGroups(graph(), expr_g, dir);
+    const auto input_groups = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph()), ValGraphOutputs(graph()));
+    const auto output_groups = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph()), ValGraphOutputs(graph()));
 
     // All inputs must be already in all_id_groups
     auto inputs_it = std::find_if(
@@ -325,7 +327,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
           [&](const ValGroup& tv_target_domain) {
             return all_ancestors_of_ref_.has(tv_target_domain);
           })) {
-    return ValGraphBFS::getExprsBetween(
+    return ValGraphBFS::getExprGroupsBetween(
                graph(),
                ref_id_groups_,
                tv_target_domains,
@@ -335,7 +337,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   }
 
   // Find the forward path from the ancestors to the target tensor
-  auto forward_path = ValGraphBFS::getExprsBetween(
+  auto forward_path = ValGraphBFS::getExprGroupsBetween(
                           graph(),
                           all_ancestors_of_ref_,
                           tv_target_domains,
@@ -344,18 +346,19 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                           .first;
 
   // Find the path from the ref to the forward path.
-  auto inputs_of_forward_path = getInputsOfExprPath(graph(), forward_path);
+  auto inputs_of_forward_path = getInputsOfExprPath(
+      forward_path, ValGraphInputs(graph()), ValGraphOutputs(graph()));
 
   // If tv_root_domain itself is included in the ancestor set, there's
   // no expr but the backward exprs from the reference to the ancestor
   // are required.
   for (const auto& tv_root_domain : tv_target_domains) {
     if (all_ancestors_of_ref_.has(tv_root_domain)) {
-      inputs_of_forward_path.pushBack(tv_root_domain);
+      inputs_of_forward_path.push_back(tv_root_domain);
     }
   }
 
-  auto backward_path = ValGraphBFS::getExprsBetween(
+  auto backward_path = ValGraphBFS::getExprGroupsBetween(
                            graph(),
                            ref_id_groups_,
                            inputs_of_forward_path,

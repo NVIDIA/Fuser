@@ -213,31 +213,6 @@ ValGroups ValGraphBFS::getReachableValsFrom(
     const ValGraph& graph,
     const ValGroups& from,
     const ValGroups& vals,
-    Direction allowed_direction) {
-  ValGraphBFS bfs(
-      graph,
-      {from.begin(), from.end()},
-      {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false,
-      allowed_direction);
-
-  bfs.traverse();
-
-  ValGroups reachable_vals;
-  for (const ValGroup& val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.pushBack(val);
-    }
-  }
-
-  return reachable_vals;
-}
-
-ValGroups ValGraphBFS::getReachableValsFrom(
-    const ValGraph& graph,
-    const ValGroups& from,
-    const ValGroups& vals,
     const ValGraphBFS::ExprPath& from_to_vals) {
   auto path_vals = getValsOfExprPath(graph, from_to_vals);
 
@@ -268,48 +243,6 @@ ValGroups ValGraphBFS::getUnreachableValsFrom(
   }
 
   return unreachable_vals;
-}
-
-std::unordered_set<ValGroup> ValGraphBFS::projectTo(
-    const ValGraph& id_graph,
-    const ValGroup& from,
-    const ValGroups& to,
-    Direction allowed_direction) {
-  std::unordered_set<ValGroup> projection{from};
-  // Reverse order
-  auto exprs = ValGraphBFS::getExprsBetween(
-                   id_graph,
-                   to,
-                   {from},
-                   /*require_all_to_visited=*/false,
-                   allowed_direction)
-                   .first;
-  while (!exprs.empty()) {
-    const auto [expr, direction] = exprs.back();
-    exprs.pop_back();
-    auto from =
-        (direction == Direction::Backward ? id_graph.inputGroups(expr)
-                                          : id_graph.outputGroups(expr));
-    auto to =
-        (direction == Direction::Backward ? id_graph.outputGroups(expr)
-                                          : id_graph.inputGroups(expr));
-    for (const auto& g : from) {
-      if (projection.count(g)) {
-        projection.erase(g);
-        projection.insert(to.begin(), to.end());
-      }
-    }
-  }
-  // Remove items that are not in `to`. This could happen if `from` is not
-  // connected to `to`.
-  for (auto it = projection.begin(); it != projection.end();) {
-    if (!to.has(*it)) {
-      it = projection.erase(it);
-    } else {
-      ++it;
-    }
-  }
-  return projection;
 }
 
 } // namespace nvfuser
