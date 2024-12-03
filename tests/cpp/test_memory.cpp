@@ -2906,8 +2906,8 @@ INSTANTIATE_TEST_SUITE_P(
         kAllHopperMacros,
         testing::Values(
             // tile_m, tile_n
-            std::vector<int>{16, 8},
-            std::vector<int>{16, 16})),
+            std::vector<int64_t>{16, 8},
+            std::vector<int64_t>{16, 16})),
     testNameStMatrixTest);
 
 TEST_P(LdMatrixTest, Transpose) {
