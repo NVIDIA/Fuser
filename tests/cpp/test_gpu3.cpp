@@ -6798,7 +6798,7 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs2) {
   // reachable to each other with no redundancy
   auto tv2_loop_domain_comparison_results = ir_utils::compareDomains(
       tv2->getInitialLoopDomain(), tv2->getLoopDomain());
-  EXPECT_FALSE(tv2_loop_domain_comparison_results.dom0_has_unaccounted_ids);
+  EXPECT_FALSE(tv2_loop_domain_comparison_results.dom0_has_unreachable_ids);
   EXPECT_FALSE(tv2_loop_domain_comparison_results.dom1_has_unreachable_ids);
 
   // Make sure allIDs finds all the IDs including the extra IDs

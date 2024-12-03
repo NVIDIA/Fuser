@@ -8,8 +8,6 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
-#include <id_model/id_model.h>
-#include <id_model/to_string.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -1047,20 +1045,16 @@ CompareDomainResult compareDomains(
       from = expr->outputs();
       to = expr->inputs();
     }
-#if 0
     if (std::all_of(from.begin(), from.end(), [&](Val* v) {
           return additional_ids_set.count(v);
         })) {
       additional_ids_set.insert(to.begin(), to.end());
       continue;
     }
-#endif
     for (auto v : to) {
-#if 0
       if (additional_ids_set.count(v)) {
         continue;
       }
-#endif
       NVF_ERROR(
           frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
@@ -1150,21 +1144,7 @@ CompareDomainResult compareDomains(
   }
 
   if (!dom1_has_symbolic) {
-    for (auto frontier_val : frontier) {
-      auto frontier_id = frontier_val->as<IterDomain>();
-      if (frontier_id->as<IterDomain>()->getIterType() == IterType::Symbolic ||
-          (ignore_broadcast && frontier_id->as<IterDomain>()->isBroadcast()) ||
-          !dom1_set.count(frontier_id)) {
-        continue;
-      }
-
-      bool frontier_id_unreachable =
-          getReachableValsFrom<IRBFS>({dom1.begin(), dom1.end()}, {frontier_id})
-              .empty();
-
-      // This frontier id isn't in dom1, which should mean
-      result.dom0_has_unaccounted_ids = frontier_id_unreachable;
-    }
+    result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
   }
 
   return result;
@@ -1177,8 +1157,8 @@ void validateDomainEquivalence(
   const auto compare_result = compareDomains(dom0, dom1, additional_ids);
 
   NVF_ERROR(
-      !compare_result.dom0_has_unaccounted_ids,
-      "dom0 has unaccounted IDs. dom0: ",
+      !compare_result.dom0_has_unreachable_ids,
+      "dom0 has unreachable IDs. dom0: ",
       toDelimitedString(dom0),
       ". dom1: ",
       toDelimitedString(dom1));
@@ -1381,7 +1361,7 @@ bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
            tv->getLogicalDomain(),
            /*additional_ids=*/{},
            /*ignore_broadcast=*/false)
-           .dom0_has_unaccounted_ids;
+           .dom0_has_unreachable_ids;
 }
 
 AsyncOpType getAsyncOpType(const Expr* expr) {
@@ -1450,6 +1430,7 @@ bool isRecursivelyDefined(Val* val) {
       }
     }
   }
+
   return false;
 }
 
