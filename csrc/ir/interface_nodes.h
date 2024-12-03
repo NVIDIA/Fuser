@@ -113,7 +113,7 @@ class TVDomainGuard;
 
 //
 //                 /load 0;\                 \.
-//                / load 1; [prefetch = 3]    | [prologue]
+//                / load 1; [prefetch = 3]    | [prefetching]
 //          [stage] load 2;/                 /'
 //          [ = 6 ] load 3;  wait load 0;  compute 0;                  \.
 //                \ load 4;  wait load 1;  compute 1;                   |
@@ -123,7 +123,7 @@ class TVDomainGuard;
 //                  load 2;  wait load 5;  compute 5;  wait compute 3;  |
 //                  load 3;  wait load 0;  compute 0;  wait compute 4;  |
 //                  load 4;  wait load 1;  compute 1;  wait compute 5;  | [main]
-//                  load 5;  wait load 2;  compute 2;  wait compute 0;  | [loop]
+//                  load 5;  wait load 2;  compute 2;  wait compute 0;  |
 //                  ..................................................  |
 //                  ..................................................  |
 //                  ..................................................  |
@@ -132,7 +132,7 @@ class TVDomainGuard;
 //                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
 //                  load  ;  wait load  ;  compute  ;                  /'
 //                          /wait load  ;  compute  ;                      \.
-// [same number as prefetch] wait load  ;  compute  ;                       | [epilogue]
+// [same number as prefetch] wait load  ;  compute  ;                       | [draining]
 //                          \wait load  ;  compute  ;  wait all computes;  /'
 
 // clang-format on
@@ -142,7 +142,13 @@ class TVDomainGuard;
 // load pipeline depth = prefetch + 1
 // compute pipeline depth = stage - prefetch
 //
-// The above timeline can be implemented as the following loop structure:
+// There are two ways to implement the above timeline: pipelined, and
+// warp-specialization.
+//
+// In the pipelined way, the prefetching stage is implemented as a prologue
+// loop, and main stage is implemented as a main loop, and the draining stage is
+// implemented as an epilogue loop. That is, we will have the following loop
+// structure:
 //
 // Prologue loop:
 //   for i in range(prefetch):
@@ -166,6 +172,9 @@ class TVDomainGuard;
 // stage - prefetch - 1 iterations and last iteration of the main loop is
 // redundant. We can remove them to further optimize the performance, but
 // we decide to keep them for simplicity.
+//
+// In the warp-specialized approach, we will use different warp/warp-group
+// that 
 
 struct Pipelined {
   bool uses_mbarrier_for_war = false;

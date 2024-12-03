@@ -256,6 +256,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         Val* first_warp = IrBuilder::ltExpr(
             NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
         for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+          // If we are in a load warp for the warp specialization loop that has
+          // specialization on `pt`, then pt is already predicated by the
+          // warp-dispatch if-then-else, we should not predicate it again here.
           bool in_load_warp_for_pt = load_warp_loop_it != for_loops_.end() &&
               std::get<WarpSpecialized>(
                   GpuLower::current()
