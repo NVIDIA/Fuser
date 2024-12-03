@@ -3762,6 +3762,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
           tv->getLoopDomain());
       tv->setLoopDomain(s.as<IterDomain*>());
     }
+    tv3->axis(-1)->parallelize(ParallelType::Vectorize);
   } else {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv3c->getLoopDomain());
