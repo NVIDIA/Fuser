@@ -6463,6 +6463,208 @@ TEST_F(NVFuserTest, CompareLogicalAndLoopDomains) {
           "Not all logical IDs are covered by loop domain")));
 }
 
+TEST_F(NVFuserTest, CompareDomainWithReference1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  const auto& reference = tv1->getLogicalDomain();
+
+  tv1->merge(0);
+  auto domain = tv1->getLoopDomain();
+  EXPECT_TRUE(ir_utils::compareDomainWithReference(domain, reference).empty());
+
+  // Adding one of the logical domain, which is redundant.
+  domain.push_back(tv1->getLogicalDomain().at(0));
+  auto x = ir_utils::compareDomainWithReference(domain, reference);
+  std::cerr << x.toString() << "\n";
+  EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference).empty());
+
+  tv1->split(0, 4);
+  domain = tv1->getLoopDomain();
+  EXPECT_TRUE(ir_utils::compareDomainWithReference(domain, reference).empty());
+  // Replace one of the loop IDs with a logical ID. Dependency is not
+  // fully satisfied, but it should detect the redundancy
+  domain[0] = tv1->getLogicalDomain()[0];
+  EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference).empty());
+
+  // Check non-leaf intermedaite IDs
+  domain = tv1->getLoopDomain();
+  // Adding a parent ID to the current loop domain. This should be
+  // detected as redundnt.
+  domain.push_back(
+      tv1->getLoopDomain().at(0)->definition()->input(0)->as<IterDomain>());
+  // Create a further IDs to make the above IDs non leaf
+  tv1->merge(0);
+  EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference)
+                   .redundant_ids.empty());
+
+  // Remember the current loop domain
+  domain = tv1->getLoopDomain();
+  // Reset the loop domain
+  tv1->setLoopDomain(tv1->getLogicalDomain());
+  // Schedule the tensor again
+  tv1->merge(0);
+  EXPECT_TRUE(
+      ir_utils::compareDomainWithReference(tv1->getLoopDomain(), reference)
+          .empty());
+  // Combine the previous loop domain and the new loop domain, which
+  // should be detected as redundant
+  domain.push_back(tv1->getLoopDomain()[0]);
+  EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference)
+                   .redundant_ids.empty());
+}
+
+// Pattern to test (see the comment of CompareDomainResult in
+// ir/utils.h)
+// For example, if we have
+//  I0  I1  I2  I3
+//   \  /    \  /
+//    I4      I5
+// then [I0, I1, I2, I3] is equivalent to [I4, I5], but [I1, I2, I3] is not
+// equivalent to [I4, I5].
+TEST_F(NVFuserTest, CompareDomainWithReference2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->merge(1);
+
+  EXPECT_TRUE(ir_utils::compareDomainWithReference(
+                  tv1->getLoopDomain(), tv1->getLogicalDomain())
+                  .empty());
+  EXPECT_FALSE(
+      ir_utils::compareDomainWithReference(
+          {tv1->getLogicalDomain().begin() + 1, tv1->getLogicalDomain().end()},
+          tv1->getLoopDomain())
+          .unreachable_reference_ids.empty());
+}
+
+// Pattern to test (see the comment of CompareDomainResult in ir/utils.h)
+//  I0  I1  I2  I3
+//   \  /    \  /
+//    I4      I5
+//   /  \    /  \.
+//  I6  I7  I8  I9
+// Then [I0, I1, I8, I9] is equivalent to [I6, I7, I2, I3]. [I0, I1, I2, I3] is
+// equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
+// [I6, I7, I2, I9]
+//
+// The second case does not work compareDomainWithReference as none
+// of the two domains is disjoint.
+TEST_F(NVFuserTest, CompareDomainWithReference3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->merge(1);
+
+  tv1->split(0, 3);
+  tv1->split(-1, 4);
+
+  EXPECT_TRUE(ir_utils::compareDomainWithReference(
+                  {tv1->getLogicalDomain().at(0),
+                   tv1->getLogicalDomain().at(1),
+                   tv1->getLoopDomain().at(2),
+                   tv1->getLoopDomain().at(3)},
+                  {tv1->getLoopDomain().at(0),
+                   tv1->getLoopDomain().at(1),
+                   tv1->getLogicalDomain().at(2),
+                   tv1->getLogicalDomain().at(3)})
+                  .empty());
+
+  // Testing [I0, I1, I8, I3]. Logical domain is used as a referene
+  auto result1 = ir_utils::compareDomainWithReference(
+      {tv1->getLogicalDomain().at(0),
+       tv1->getLogicalDomain().at(1),
+       tv1->getLoopDomain().at(2),
+       tv1->getLogicalDomain().at(3)},
+      tv1->getLogicalDomain());
+  // I2 is unreachable
+  EXPECT_EQ(
+      result1.unreachable_reference_ids,
+      std::vector<IterDomain*>{tv1->getLogicalDomain().at(2)});
+
+  // Testing [I6, I7, I2, I9]. Logical domain is used as a referene
+  auto result2 = ir_utils::compareDomainWithReference(
+      {tv1->getLoopDomain().at(0),
+       tv1->getLoopDomain().at(1),
+       tv1->getLogicalDomain().at(2),
+       tv1->getLoopDomain().at(3)},
+      tv1->getLogicalDomain());
+  // I3 is unreachable
+  EXPECT_EQ(
+      result2.unreachable_reference_ids,
+      std::vector<IterDomain*>{tv1->getLogicalDomain().at(3)});
+}
+
+// Repro of issue #3502
+TEST_F(NVFuserTest, CompareDomainWithReference4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0]
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  // [i1, i0]
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  // [i0]
+  auto tv2 = set(tv0);
+  // [b2, i0]
+  auto tv3 = broadcast(tv2, {true, false});
+  // [i1, i0]
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+
+  // [i3]
+  tv4->merge(0);
+
+  // tv2
+  {
+    // Clone i1
+    auto missing_id = tv4->getLogicalDomain().at(0)->cloneWithoutRFactor();
+    std::vector<IterDomain*> new_loop_domain{
+        IterDomain::merge(missing_id, tv2->getLogicalDomain().at(0))};
+    auto result = ir_utils::compareDomainWithReference(
+        new_loop_domain, tv2->getLogicalDomain());
+    EXPECT_TRUE(result.redundant_ids.empty());
+    EXPECT_EQ(result.additional_ids, std::vector<IterDomain*>{missing_id});
+    EXPECT_TRUE(result.unreachable_reference_ids.empty());
+    tv2->setLoopDomain(new_loop_domain);
+  }
+
+  // tv3
+  {
+    // Clone i1
+    auto missing_id = tv4->getLogicalDomain().at(0)->cloneWithoutRFactor();
+    std::vector<IterDomain*> new_loop_domain{
+        IterDomain::merge(missing_id, tv3->getLogicalDomain().at(1))};
+    auto result = ir_utils::compareDomainWithReference(
+        new_loop_domain, tv3->getLogicalDomain());
+    EXPECT_TRUE(result.redundant_ids.empty());
+    EXPECT_EQ(
+        result.unreachable_reference_ids,
+        std::vector<IterDomain*>{tv3->getLogicalDomain().at(0)});
+    tv3->setLoopDomain(new_loop_domain);
+  }
+}
+
 TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
   Fusion fusion;
   FusionGuard fg(&fusion);

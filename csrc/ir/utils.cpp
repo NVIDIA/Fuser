@@ -803,6 +803,200 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
+namespace {
+
+class IRBFSWithPermissiveDependence : public IRBFS {
+ public:
+  IRBFSWithPermissiveDependence(
+      const std::vector<Val*>& from_ids,
+      const std::vector<Val*>& to_ids,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : IRBFS(
+            {from_ids.begin(), from_ids.end()},
+            {to_ids.begin(), to_ids.end()},
+            require_all_to_visited,
+            allowed_direction) {}
+
+  // Unlike the default behavior, Expr is considered ready to visit as
+  // long as one of the inputs or outputs has its dependency met
+  std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
+      const ExprType& expr) const override {
+    // Either all inputs or all outputs must have been visited
+    decltype(auto) inputs = inputs_(expr);
+    if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
+        std::any_of(
+            inputs.begin(), inputs.end(), [&](const ValType& input) -> bool {
+              return isDependencySatisfied(input);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          inputs.begin(),
+          inputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValType& input) -> bool { return isVisited(input); });
+      return std::make_pair(Direction::Forward, prev_nodes);
+    }
+
+    decltype(auto) outputs = outputs_(expr);
+    if (!outputs.empty() && allowed_direction_ != Direction::Forward &&
+        std::any_of(
+            outputs.begin(), outputs.end(), [&](const ValType& output) -> bool {
+              return isDependencySatisfied(output);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          outputs.begin(),
+          outputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValType& output) -> bool { return isVisited(output); });
+      return std::make_pair(Direction::Backward, prev_nodes);
+    }
+    return std::nullopt;
+  }
+};
+
+} // namespace
+
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference) {
+  if (domain.empty()) {
+    return {};
+  }
+  // If domain is not empty but reference is, unclear what it should
+  // mean. Throw an error for now.
+  NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
+
+  const std::unordered_set<IterDomain*> reference_set{
+      reference.begin(), reference.end()};
+
+  std::vector<IterDomain*> domain_dedup;
+  std::vector<IterDomain*> redundant_ids;
+  std::unordered_set<IterDomain*> domain_set;
+  for (const auto id : domain) {
+    if (domain_set.insert(id).second) {
+      domain_dedup.push_back(id);
+    } else {
+      redundant_ids.push_back(id);
+    }
+  }
+
+  const auto path_to_ref = getExprsBetween<IRBFS>(
+                               {domain_dedup.begin(), domain_dedup.end()},
+                               {reference.begin(), reference.end()},
+                               false)
+                               .first;
+
+  std::unordered_set<Val*> produced_ids;
+  std::unordered_set<Val*> consumed_ids;
+  // Consider the domain itself as produced and consumed if included in
+  // reference since there's no expr for that case
+  for (const auto id_to_check : domain_dedup) {
+    if (reference_set.find(id_to_check) != reference_set.end()) {
+      produced_ids.insert(id_to_check);
+      consumed_ids.insert(id_to_check);
+    }
+  }
+
+  std::vector<IterDomain*> redundantly_produced_ids;
+  for (const auto& [expr, dir] : path_to_ref) {
+    const auto& inputs =
+        dir == Direction::Forward ? expr->inputs() : expr->outputs();
+    const auto& outputs =
+        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+    consumed_ids.insert(inputs.begin(), inputs.end());
+    for (const auto& output : outputs) {
+      bool already_produced = !produced_ids.insert(output).second;
+      if (already_produced) {
+        // This output is redundantly produced.
+        if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
+            domain_dedup.end()) {
+          redundant_ids.push_back(output->as<IterDomain>());
+        } else {
+          auto inputs_of_already_produced_id = getInputsOfExprPath(
+              getExprsBetween<IRBFS>(
+                  {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
+                  .first,
+              IRInputs(),
+              IROutputs());
+          for (const auto& input : inputs_of_already_produced_id) {
+            redundant_ids.push_back(input->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // IDs of the reference domain that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+  unreachable_reference_ids.reserve(reference.size());
+  std::copy_if(
+      reference.begin(),
+      reference.end(),
+      std::back_inserter(unreachable_reference_ids),
+      [&](const auto reference_id) {
+        return produced_ids.find(reference_id) == produced_ids.end();
+      });
+
+  // Check unused IDs, which should be either redundant or additional
+  // IDs.
+  std::vector<IterDomain*> unused_ids;
+  unused_ids.reserve(domain_dedup.size());
+  std::copy_if(
+      domain_dedup.begin(),
+      domain_dedup.end(),
+      std::back_inserter(unused_ids),
+      [&](const auto id_to_check) {
+        return consumed_ids.find(id_to_check) == consumed_ids.end();
+      });
+
+  std::vector<IterDomain*> additional_ids;
+
+  // If there's unreachable reference IDs, the unused IDs may have
+  // been unused because of missing dependencies, which should not be
+  // considered redundant or additional. Different analysis would be
+  // required in that case, which is not imlemented since error
+  // reporting of this function is best effort.
+  if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
+    //  RedundancyChecker can traverse as long as one of the inputs or
+    //  outputs is visited
+    const auto from_remaining_ids =
+        getExprsBetween<IRBFSWithPermissiveDependence>(
+            {unused_ids.begin(), unused_ids.end()},
+            {reference.begin(), reference.end()},
+            /*require_all_to_visited=*/false)
+            .first;
+    if (from_remaining_ids.empty()) {
+      additional_ids = unused_ids;
+    } else {
+      // Inputs are redundant
+      auto inputs =
+          getInputsOfExprPath(from_remaining_ids, IRInputs(), IROutputs());
+      for (const auto inp : inputs) {
+        redundant_ids.push_back(inp->as<IterDomain>());
+      }
+      for (const auto unused_id : unused_ids) {
+        if (std::find(inputs.begin(), inputs.end(), unused_id) ==
+            inputs.end()) {
+          additional_ids.push_back(unused_id);
+        }
+      }
+    }
+  }
+
+  // If an output of the path is not used, i.e., not part of the
+  // reference domain, it's considered an additional ID
+  for (const auto output :
+       getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
+    if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
+      additional_ids.push_back(output->as<IterDomain>());
+    }
+  }
+
+  return {redundant_ids, additional_ids, unreachable_reference_ids};
+}
+
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,

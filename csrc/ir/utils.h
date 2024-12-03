@@ -444,6 +444,30 @@ bool hasResizedRfactor(const TensorView* tv);
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
+struct CompareDomainWithReferenceResult {
+  std::vector<IterDomain*> redundant_ids;
+  std::vector<IterDomain*> additional_ids;
+  std::vector<IterDomain*> unreachable_reference_ids;
+
+  bool empty() const {
+    return redundant_ids.empty() && additional_ids.empty() &&
+        unreachable_reference_ids.empty();
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "{redundant_ids: " << toDelimitedString(redundant_ids)
+       << ", additional_ids: " << toDelimitedString(additional_ids)
+       << ", unreachable_reference_ids: "
+       << toDelimitedString(unreachable_reference_ids) << "}";
+    return ss.str();
+  }
+};
+
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference);
+
 //! Check if dom0 and dom1 completely covers each other with no
 //! redundancy. When they are equivalent, we can consider them as a different
 //! view of the each other with affine transformations.
