@@ -1466,7 +1466,7 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   ke.compile(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   // Please note that, serial reduction has larger error than parallel reduction
   // This is the nature of the algorithm, not a bug in the implementation.
   EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
