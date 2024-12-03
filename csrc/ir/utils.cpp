@@ -801,8 +801,6 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-namespace {} // namespace
-
 CompareDomainWithReferenceResult compareDomainWithReference(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& reference) {
