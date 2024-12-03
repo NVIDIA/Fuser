@@ -538,7 +538,32 @@ void HopperMultipleMatmulScheduler::run() {
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
+  // TODO: CLEAN THIS UP
+  // This is necessary because we might replace the output of a pattern which
+  // was also a "dc" i.e. a cached fusion output. But at this point we have
+  // already defined cached_outputs_, so we need to be sure to update that as
+  // well.
+  // To trigger this, just try to run a simple matmul like those in
+  // benchmarks/python/test_matmul.py
+  std::unordered_map<TensorView*, mma_utils::MatmulPattern*> dc_pattern_outputs;
+  std::unordered_set<TensorView*> orig_dcs;
+  for (auto& [dc, d] : cached_outputs_) {
+    orig_dcs.insert(dc);
+  }
+  for (auto& pattern : patterns_) {
+    if (orig_dcs.count(pattern.output)) {
+      dc_pattern_outputs[pattern.output] = &pattern;
+    }
+  }
   translatePatterns();
+  for (auto& [dc, d] : cached_outputs_) {
+    auto it = dc_pattern_outputs.find(dc);
+    if (it != dc_pattern_outputs.end()) {
+      // If we have replaced the output in the pattern, replace it in our
+      // internal list of cached outputs.
+      dc = it->second->output;
+    }
+  }
   findRoles();
 
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
@@ -1011,6 +1036,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     parallelizeBlocks({dc});
     parallelizeBlocks({d});
     d->axis(-1)->parallelize(ParallelType::Vectorize);
+    // Propagate output tensor transformations back to mma_result
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        dc, -1, mma_results_);
   }
   return;
   std::vector<TensorView*> output_tvs;
