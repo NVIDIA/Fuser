@@ -1323,6 +1323,104 @@ void scheduleStMatrixForMmaOutput(
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
+void scheduleSwizzle128BStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n,
+    int64_t tma_m,
+    int64_t tma_n) {
+  NVF_ERROR(
+      ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
+      "We only support 16x16 and 16x16 stmatrix now");
+
+  NVF_ERROR(
+      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
+
+  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
+
+  // Create tma store allocation domain with swizzle
+  scheduleSwizzle128BTMAStoreForMmaOutput(tv, tma_m, tma_n);
+
+  tv->setLoopDomain(s.as<IterDomain*>());
+
+  if (tile_m == 16 && tile_n == 16) {
+    // Let [M, N] be [64, 32]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+    // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+    tv->split(-3, 2);
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+    tv->reorder({{-4, 0}});
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+    tv->merge(-3);
+    tv->merge(-2);
+  } else if (tile_m == 16 && tile_n == 8) {
+    // Let [M, N] be [64, 16]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
+    // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
+    tv->reorder({{-3, 0}});
+    // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
+    tv->merge(-2);
+  }
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
+}
+
+void scheduleSwizzle128BTMAStoreForMmaOutput(
+    TensorView* tv,
+    int64_t m,
+    int64_t n) {
+  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
+  tv->split(-2, m);
+  tv->split(-1, n);
+  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
+  tv->reorder({{-2, -3}});
+
+  // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
+  // skip the first 5 iterDomains
+  int64_t num_ids_to_skip = 5;
+  MmaInputSmemSwizzle swizzle = MmaInputSmemSwizzle::B128;
+
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+    // [Ko, No, K8, N8]
+    num_ids_to_skip += 2;
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+    num_ids_to_skip += 1;
+  }
+
+  // The shared memory producer must have the swizzled allocation domain.
+  // The global memory consumer must have the ParallelType::Bulk iterDomains.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Set the allocation to the loop domain.
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  } else {
+    mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+        tv, num_ids_to_skip);
+  }
+}
+
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {

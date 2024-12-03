@@ -482,6 +482,18 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
       id->toString());
 }
 
+void scheduleSwizzle128BStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n,
+    int64_t tma_m,
+    int64_t tma_n);
+
+void scheduleSwizzle128BTMAStoreForMmaOutput(
+    TensorView* tv,
+    int64_t m,
+    int64_t n);
+
 } // namespace mma_utils
 
 std::string toString(const mma_utils::AbstractMatmulTensor& abten);
