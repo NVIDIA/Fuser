@@ -1452,9 +1452,9 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   // Parallelize
-  reference->axis(1)->parallelize(ParallelType::BIDx);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(2)->parallelize(ParallelType::TIDx);
-  tv2->axis(1)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(2)->parallelize(ParallelType::Bulk);
 
   inlineMost();
