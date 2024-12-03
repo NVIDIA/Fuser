@@ -1427,12 +1427,6 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
 TEST_P(TmaCircularBufferingTest, OuterReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    GTEST_SKIP()
-        << "This test uses block reduce, which implies block sync, "
-        << "which can cause deadlock when combined with warp specialization. "
-  }
-
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
