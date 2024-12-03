@@ -1016,11 +1016,28 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   } else {
-    // TODO: Use stmatrix to load from registers to shared memory
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
-    constexpr int64_t tma_m = 16;
-    constexpr int64_t tma_n = 64;
+
+    // TODO: Support tma tile sizes that are a multiple of mma_macro.
+    // The wgmma operation creates an output matrix of mma_macro size. The TMA
+    // tile is a multiple of the macro size because stmatrix stores results from
+    // wgmma to shared memory. For maximum inlining and to reduce shared memory
+    // usage, the tma tile is mma_macro size.
+    const int64_t tma_m = getM(params_->mma_macro);
+    const int64_t tma_n = getN(params_->mma_macro);
+
+    NVF_ERROR(
+        tma_n >= 64,
+        "Scheduler only supports 128B swizzle that requires N dimension of MMA ",
+        "macro to be >= 64, but received ",
+        tma_n,
+        ".");
+
+    fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
+    fusion_->manage("st_matrix_m", tma_m);
+    fusion_->manage("st_matrix_n", tma_n);
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
@@ -1036,7 +1053,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Set LoadStoreOp
-      // TODO Use LoadStoreOpType::StMatrix on d_smem definition
+      d_smem->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::StMatrix);
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
@@ -1194,11 +1212,15 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
-          params_->circular_buffer_options.smem_circular_buffer_stage);
+          params_->circular_buffer_options.smem_circular_buffer_stage,
+          /*prefetch_distance=*/
+          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
-          params_->circular_buffer_options.smem_circular_buffer_stage);
+          params_->circular_buffer_options.smem_circular_buffer_stage,
+          /*prefetch_distance=*/
+          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
     }
   }
 
@@ -1263,6 +1285,7 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
