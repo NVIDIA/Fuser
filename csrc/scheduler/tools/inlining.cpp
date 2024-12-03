@@ -194,8 +194,12 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    const auto [producer_indexing_ids, consumer_indexing_ids] =
-        lower_utils::getIndexIDs(producer, consumer);
+    std::unordered_set<IterDomain*> producer_indexing_ids,
+        consumer_indexing_ids;
+    if (consumer->definition()->isA<MmaOp>()) {
+      std::tie(producer_indexing_ids, consumer_indexing_ids) =
+          lower_utils::getIndexIDs(producer, consumer);
+    }
 
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
@@ -235,8 +239,9 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       //  indexing, and bS8 is also not used in indexing (it's a loop broadcast)
       //  so we inline past the first ID in that case also. Similarly, we inline
       //  past iS5, iS2, and bS7.
-      if (!(consumer_indexing_ids.count(c_id) == 0 &&
-            producer_indexing_ids.count(p_id) == 0) &&
+      if (!(!consumer_indexing_ids.empty() && !producer_indexing_ids.empty() &&
+            (consumer_indexing_ids.count(c_id) == 0 &&
+             producer_indexing_ids.count(p_id) == 0)) &&
           (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
            !isAllowedID(
                c_id,
