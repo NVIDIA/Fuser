@@ -201,7 +201,7 @@ class ValGraphBFS : public BFS<
             allowed_direction) {}
 
   // Just a shortcut to the generic getExprsBetween
-  static std::pair<ValGraphBFS::ExprPath, bool> getExprsBetween(
+  static std::pair<ValGraphBFS::ExprPath, bool> getExprGroupsBetween(
       const ValGraph& graph,
       const ValGroups& from,
       const ValGroups& to,
