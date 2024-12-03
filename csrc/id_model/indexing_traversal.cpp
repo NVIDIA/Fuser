@@ -83,6 +83,14 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   // domain is resized multiple times. In other words, there must be
   // at least two connected resize exprs. If not, this WAR is not
   // necessary.
+  //
+  // Note that the actual indexing is done from the loop IDs, which
+  // might be promoted to IDs outside of this particular expr. Thus,
+  // to get the true indexing path, the global IdModel may need to be
+  // used rather than the local model. Here, since we just need to
+  // know if there are multiple dependent resize exprs, and loop
+  // promotion should not further add resize exprs, it is sufficient
+  // to analyze only the IDs of this expr only.
 
   // Shortcut for a common case to avoid building the graph below
   if (resize_exprs.size() < 2) {
