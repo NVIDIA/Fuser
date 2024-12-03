@@ -1445,6 +1445,8 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(1, tile_size);
+  // [M, N/bid, bid] -> [N/bid, M, bid]
+  reference->reorder({{1, 0}});
 
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
@@ -1455,8 +1457,7 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   tv2->axis(1)->parallelize(ParallelType::BIDx);
   tv2->axis(2)->parallelize(ParallelType::Bulk);
 
-  inlineAllAt(reference, /*pos=*/1);
-  // TODO: fix inlineMost();
+  inlineMost();
 
   // Circular Buffer with TMA loads
   tv2->circularBuffer(
