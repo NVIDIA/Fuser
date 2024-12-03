@@ -1741,7 +1741,7 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   tv0_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
   // (BSX/TSY * TSY * BSX) = 1024 floats = 4096 bytes * (number of buffers)
-  tv1_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-4)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
