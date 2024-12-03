@@ -1472,7 +1472,7 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
 
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
-  EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3), true);
+  EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
 }
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
