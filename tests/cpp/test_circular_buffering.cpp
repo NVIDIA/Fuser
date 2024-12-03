@@ -1580,6 +1580,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
   constexpr int64_t BSX = 64;
   constexpr int64_t TSX = 32;
+  constexpr int64_t TSY = 16;
 
   // Step 0: [M, K, N]
   // Step 1: [M, K, N/BSX, BSX]
@@ -1594,15 +1595,15 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   // Step 4: [M/BSX, BSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
   tv6->split(0, BSX);
 
-  // Step 5:[M/BSX, BSX/TSX, TSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
-  tv6->split(1, TSX);
+  // Step 5:[M/BSX, BSX/TSY, TSY, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
+  tv6->split(1, TSY);
 
-  // Step 6: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
+  // Step 6: [M/BSX, N/BSX, K/BSX, BSX/TSY, BSX/TSX, TSY, TSX, BSX]
   tv6->reorder(
-      {{4, 7}, {7, 6}, {6, 5}, {2, 4}, {1, 3}, {3, 2}, {5, 1}, {0, 0}});
+      {{4, 7}, {7, 6}, {6, 4}, {2, 5}, {1, 3}, {3, 2}, {5, 1}, {0, 0}});
 
-  // Step 7a: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX (reduce)]
-  // Step 7b: [M/BSX, N/BSX, K/BSX (reduce), BSX/TSX, BSX/TSX, TSX, TSX]
+  // Step 7a: [M/BSX, N/BSX, K/BSX, BSX/TSY, BSX/TSX, TSY, TSX, BSX (reduce)]
+  // Step 7b: [M/BSX, N/BSX, K/BSX (reduce), BSX/TSY, BSX/TSX, TSY, TSX]
   TensorView* tv6_rf = tv6->rFactor({-1});
 
   TransformPropagatorWithCheck propagator(tv6_rf);
@@ -1611,7 +1612,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   // Parallelize
   tv5->axis(0)->parallelize(ParallelType::BIDx);
   tv5->axis(1)->parallelize(ParallelType::BIDy);
-  tv5->axis(-3)->parallelize(ParallelType::TIDy);
+  tv5->axis(-2)->parallelize(ParallelType::TIDy);
   tv5->axis(-1)->parallelize(ParallelType::TIDx);
 
   scheduler_utils::parallelizeAllLike(tv5);
