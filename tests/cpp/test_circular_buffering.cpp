@@ -1478,6 +1478,13 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
 TEST_P(TmaCircularBufferingTest, Persistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
+  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    GTEST_SKIP()
+        << "This test uses block reduce and block broadcast, "
+        << "which implies block sync, "
+        << "which can cause deadlock when combined with warp specialization.";
+  }
+
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
   constexpr int64_t reduction_axis = 1;
