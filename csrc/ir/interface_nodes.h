@@ -154,13 +154,25 @@ class TVDomainGuard;
 //   for i in range(prefetch):
 //     load data[i] to buffer[i]
 //
-// Main loop:
+// Main loop (using syncthreads to avoid WAR harzard):
 //   for i in range(data.size - prefetch):
 //     load data[i + prefetch] to buffer[(i + prefetch) % stage]
 //     wait buffer[i % stage] to be ready
 //     compute buffer[i % stage]
 //     wait until the first compute in the queue is done
 //       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     __syncthreads();
+//
+// Main loop (using mbarrier to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     wait buffer[(i + prefetch) % stage] to be empty
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be ready
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//       loaded again
 //
 // Epilogue loop:
 //   for i in range(data.size - prefetch, data.size):
@@ -174,7 +186,8 @@ class TVDomainGuard;
 // we decide to keep them for simplicity.
 //
 // In the warp-specialized approach, we will use different warp/warp-group
-// that 
+// for loading and consuming circular buffer. We will generate code like:
+
 
 struct Pipelined {
   bool uses_mbarrier_for_war = false;
