@@ -21,7 +21,9 @@ void MultipleMatmulScheduler::findPatterns() {
 void MultipleMatmulScheduler::translatePatterns() {
   mma_results_.reserve(patterns_.size());
   for (mma_utils::MatmulPattern& pattern : patterns_) {
-    MmaOp* mma = pattern.translateToMmaOp();
+    MmaOp* mma = pattern.translateToMmaOp(
+        /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
+        !isTuring(params_->mma_macro));
     mma_results_.push_back(mma->out()->as<TensorView>());
   }
 

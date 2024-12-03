@@ -43,10 +43,10 @@ namespace nvfuser {
 class CombineMulSumAsMmaTest : public NVFuserTest {
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
-    // we are skipping Hopper since the matmul for it is under development.
+    // we are skipping Blackwell since the matmul for it is under development.
     auto lower_major = 8;
     auto lower_minor = 0;
-    auto upper_major = 9;
+    auto upper_major = 10;
     auto upper_minor = 0;
     if (cudaArchGuardShouldSkip(
             lower_major, lower_minor, upper_major, upper_minor)) {
@@ -55,8 +55,14 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
                    << lower_minor << "and " << upper_major << "." << upper_minor
                    << " to run.\n";
     }
+
+    pre_hopper = at::cuda::getCurrentDeviceProperties()->major < 9;
+
     NVFuserTest::SetUp();
   }
+
+ protected:
+  bool pre_hopper;
 };
 
 class CombineMulSumAsMmaTestWithLayout
@@ -66,24 +72,30 @@ class CombineMulSumAsMmaTestWithLayout
   MmaLayout layout;
   void SetUp() override {
     layout = GetParam();
-    // These test are enable for Turing and newer. Temporarily
-    // we are skipping Hopper since the matmul for it is under development.
+    // These test are enable for Turing and newer.
+    // we are skipping Blackwell since the matmul for it is under development.
     auto lower_major = 8;
     auto lower_minor = 0;
-    auto upper_major = 9;
+    auto upper_major = 10;
     auto upper_minor = 0;
     if (cudaArchGuardShouldSkip(
             lower_major, lower_minor, upper_major, upper_minor)) {
-      GTEST_SKIP() << "CombineMulSumAsMmaTest skipped "
+      GTEST_SKIP() << "CombineMulSumAsMmaTestWithLayout skipped "
                    << "Requires GPU capability between  " << lower_major << "."
                    << lower_minor << "and " << upper_major << "." << upper_minor
                    << " to run.\n";
     }
+    pre_hopper = at::cuda::getCurrentDeviceProperties()->major < 9;
     NVFuserTest::SetUp();
   }
+
+  bool pre_hopper;
 };
 
-void performSubstitution(Fusion* fusion, bool should_not_find = false) {
+void performSubstitution(
+    Fusion* fusion,
+    bool avoid_intermediates,
+    bool should_not_find = false) {
   EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -96,14 +108,14 @@ void performSubstitution(Fusion* fusion, bool should_not_find = false) {
   ASSERT_FALSE(patterns.empty());
   EXPECT_EQ(patterns.size(), 1);
 
-  patterns.front().translateToMmaOp();
+  patterns.front().translateToMmaOp(avoid_intermediates);
 
   ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 }
 
 // Test checks to see that the combiner can correctly replace
 // the mul-sum pair with a mma op.
-TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Pass) {
+TEST_P(CombineMulSumAsMmaTestWithLayout, MulSumToMatmul_Pass) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -119,13 +131,13 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Pass) {
 
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion);
+  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
 }
 
 // This test checks that the pattern matcher does not incorrectly identify
 // this mul-sum pair, as the mul is not fed by broadcasts ops; i.e. it is
 // not a matmul.
-TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
+TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_Fail1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeContigTensor(3, DataType::Half);
@@ -138,11 +150,15 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion, /*should_not_find=*/true);
+  performSubstitution(
+      &fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/true);
 }
 
 // This fusion has Broadcast batch axes in each operand.
-TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
+TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
+  // This test expicitly broadcasts and transposes, so we cannot avoid
+  // intermediates on Hopper (yet).
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // Assumes layout is kAllSupportedMmaLayout::NT;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
@@ -170,7 +186,8 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   auto tv3 = sum(tv2, {-1});
   fusion->addOutput(tv3);
 
-  performSubstitution(fusion, /*should_not_find=*/false);
+  performSubstitution(
+      fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/false);
 
   // We test running this fusion also to verify that the broadcast batch
   // dimension does not cause unforeseen issues
@@ -192,6 +209,7 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
 // pair with a mma op, we are able to schedule it as we did with
 // a fusion that had a mma op to begin with.
 TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -209,7 +227,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   fusion.addOutput(tv2);
 
-  performSubstitution(&fusion);
+  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -240,6 +258,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 }
 
 TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   auto fusion = std::make_unique<Fusion>();
@@ -296,7 +315,7 @@ using MatmulNodeTranslationTest =
 // Test that a simple matmul op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const bool enable_fusion = std::get<2>(GetParam());
@@ -345,6 +364,8 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   auto tv4 = castOp(DataType::Half, tv3);
 
   fusion->addOutput(tv4);
+
+  fusion->printMath();
 
   // Verify that we no longer set up MmaOp in matmul()
   ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
@@ -450,7 +471,7 @@ using LinearNodeTranslationTest =
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.

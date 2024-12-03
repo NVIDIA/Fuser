@@ -49,25 +49,41 @@ using ProblemShape = std::array<int64_t, 4>;
 inline std::optional<MmaMacro> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
-  using MacroType = MmaMacro;
+  const int64_t n_extent = problem[(size_t)MatmulDimRole::N];
 
-  // NOTE: A temp condition
-  const ProblemShape::value_type n_extend = problem[(size_t)MatmulDimRole::N];
-  const bool use_small_n = ((n_extend % 8) == 0) && ((n_extend % 16) != 0);
+  MmaMacroEncode macro_encode{MmaMacroEncode::Arch::NoMma, 16, 8, 16};
 
   switch (dev_version) {
     case 75:
-      return (use_small_n) ? MacroType::Turing_16_8_16
-                           : MacroType::Turing_16_16_16;
+      macro_encode.arch = MmaMacroEncode::Arch::Turing;
+      if ((n_extent % 16) != 0) {
+        macro_encode.n = 16;
+      }
+      break;
     case 80:
     case 86:
     case 89:
-    case 90: // NOTE: temp use ampere matmul for hopper
-      return (use_small_n) ? MacroType::Ampere_16_8_16
-                           : MacroType::Ampere_16_16_16;
+      macro_encode.arch = MmaMacroEncode::Arch::Ampere;
+      if ((n_extent % 16) != 0) {
+        macro_encode.n = 16;
+      }
+      break;
+    case 90:
+      macro_encode.arch = MmaMacroEncode::Arch::Hopper;
+      macro_encode.m = 64;
+      // Find the largest instruction tile that divides the problem size
+      macro_encode.n = 256;
+      while (macro_encode.n >= 8) {
+        macro_encode.n -= 8;
+        if (n_extent % macro_encode.n == 0) {
+          break;
+        }
+      }
+      break;
     default:
       return std::nullopt;
   }
+  return macro_encode;
 }
 
 //! Find the number of circular buffer stages for shared memory operands, so
@@ -113,9 +129,9 @@ inline bool initCoreHeuristics(
     // - start with [4, 4, 2] shape, later it should depend on problem
     //   shape and have bigger impact on CTA tile shape
 
-    const DimType m_ratio = 4;
-    const DimType n_ratio = 4;
-    const DimType k_ratio = 2;
+    const DimType m_ratio = isHopper(mparams->mma_macro) ? 1 : 4;
+    const DimType n_ratio = isHopper(mparams->mma_macro) ? 1 : 4;
+    const DimType k_ratio = isHopper(mparams->mma_macro) ? 1 : 2;
 
     warp_tile = {
         instruction_tile.m * m_ratio,
@@ -150,7 +166,7 @@ inline bool initCoreHeuristics(
   // stages and async mem copy
   {
     // NOTE: compilation errors when async is enabled on Turing devices
-    if (isAmpere(mparams->mma_macro)) {
+    if (!isTuring(mparams->mma_macro)) {
       constexpr int stages = 3;
 
       mparams->circular_buffer_options.circular_buffer_smem_write = true;
@@ -169,11 +185,14 @@ inline bool initCoreHeuristics(
     }
     return min_size_bytes;
   };
-  mparams->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
-      mparams,
-      std::min(
-          roleMinDtypeSize(MatmulTensorRole::OPERAND_A),
-          roleMinDtypeSize(MatmulTensorRole::OPERAND_B)));
+  // Use TMA on Hopper+ or cp.async on Ampere if possible
+  mparams->async_gmem_load_operands =
+      isHopper(mparams->mma_macro) ||
+      isCpAsyncOperandLoadSupported(
+          mparams,
+          std::min(
+              roleMinDtypeSize(MatmulTensorRole::OPERAND_A),
+              roleMinDtypeSize(MatmulTensorRole::OPERAND_B)));
 
   if (!mparams->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
