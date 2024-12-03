@@ -81,17 +81,14 @@ class ForwardTraverseFromLogicalToAlloc {
     auto [outer_size, outer_stride] = outer_it->second;
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
-        "The logical domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "merging of discontiguous dimensions is not allowed in allocation domain");
+        "Merging of discontiguous dimensions is not allowed in allocation "
+        "domain. An allocation IterDomain can't have two different strides.");
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
-    NVF_ERROR(active_ids_
-                  .emplace(
-                      out,
-                      std::pair<int64_t, int64_t>{
-                          inner_size * outer_size, inner_stride})
-                  .second);
+    NVF_ERROR(
+        active_ids_
+            .emplace(out, std::make_pair(inner_size * outer_size, inner_stride))
+            .second);
   }
 
   void handle(Expr* expr) {

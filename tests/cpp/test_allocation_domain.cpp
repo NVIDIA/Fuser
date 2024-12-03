@@ -1441,6 +1441,53 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Concrete) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderContiguous) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({6});
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->split(0, 2);
+  in->reorder({{1, 0}});
+  // new_contiguity=True is the problem here. After reordering, the two
+  // IterDomains are no longer contiguous.
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({6}, options);
+  EXPECT_THAT(
+      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+}
+
+TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({6});
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->split(0, 2);
+  in->reorder({{1, 0}});
+  in->merge(0);
+  in->setAllocationDomain(in->getLoopDomain(), false);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({6}, options);
+  EXPECT_THAT(
+      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Merging of discontiguous dimensions")));
+}
+
 // TODO(#3480): the test fails as is. The symbolic IterDomains in
 // loop/allocation are not concretized. I tried to change
 // DynamicTransformConcretizer::mutate to grab all expressions between root and
