@@ -1961,7 +1961,8 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGroup inner = alloc_domain.back();
 
   auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain).first;
+      ValGraphBFS::getExprGroupsBetween(id_graph, loop_domain, alloc_domain)
+          .first;
   while (!exprs.empty()) {
     auto [expr, direction] = exprs.back();
     exprs.pop_back();
@@ -2106,8 +2107,8 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   // Get which group in mma_groups is projected to a concrete ID in the logical
   // domain of tv. There should be exactly one such group.
   auto is_projected_to_concrete = [&](const ValGroup& g) {
-    auto projection_on_logical =
-        ValGraphBFS::projectTo(id_graph, {g}, logical_domain);
+    auto projection_on_logical = projectTo<ValGraphBFS>(
+        g, logical_domain.vector(), Direction::Undefined, id_graph);
     for (auto id : tv->getLogicalDomain()) {
       if (!id->isBroadcast() &&
           projection_on_logical.count(id_graph.toGroup(id))) {
