@@ -89,7 +89,9 @@ Expr* initializeMbarrier(
     // threads in the CTA.
     num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
         DataType::UInt32,
-        GpuLower::current()->parallelDimensionMap().getNumThreadsEachBlockIgnoringWarpSpecialization());
+        GpuLower::current()
+            ->parallelDimensionMap()
+            .getNumComputeThreadsEachBlock());
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread

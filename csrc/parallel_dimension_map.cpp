@@ -182,7 +182,7 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
-Val* ParallelDimensionMap::getNumThreadsEachBlockIgnoringWarpSpecialization() const {
+Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     auto dim = getRaw(pt);
