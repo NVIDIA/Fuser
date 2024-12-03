@@ -514,12 +514,12 @@ std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
 
 template <typename T>
 size_t Fusion::manage(T data) {
-  return manage(std::any(a), defaultCloneFunction<T>);
+  return manage(std::any(data), defaultCloneFunction<T>);
 }
 
 template <typename T>
 void Fusion::manage(std::string key, T data) {
-  return manage(key, std::any(a), defaultCloneFunction<T>);
+  return manage(key, std::any(data), defaultCloneFunction<T>);
 }
 
 } // namespace nvfuser
