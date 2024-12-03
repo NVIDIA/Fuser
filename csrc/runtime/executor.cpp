@@ -855,14 +855,16 @@ void dumpFusionArgs(
 // and outputs passed to KernelExecutor::runFusion, this function
 // dumps those that are passed to a CUDA kernel.
 void dumpKernelArgs(
-    int64_t fusion_id,
+    const int64_t fusion_id,
+    const int64_t group_id,
     const KernelArgumentHolder& args,
     size_t num_inputs,
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
     const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
-  debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
+  debug() << "Arguments for fusion " << fusion_id << " group " << group_id
+          << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
     debug() << "  " << toString(*args[i]) << std::endl;
@@ -1353,6 +1355,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
     dumpKernelArgs(
         fusion_id_,
+        group_id_,
         args,
         num_inputs,
         outputs,
@@ -1363,8 +1366,6 @@ std::vector<at::Tensor> KernelExecutor::run(
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
     debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
-
-  executor_utils::CudaKernelTimer timer(stream);
 
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");

@@ -245,12 +245,15 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       ignore_occupancy_drop);
 }
 
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
@@ -280,12 +283,15 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithNoReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 
@@ -1278,6 +1284,43 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
   // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
   tv->reorder({{-2, -3}});
   mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
+}
+
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n) {
+  NVF_ERROR(
+      ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
+      "We only support 16x16 and 16x16 stmatrix now");
+
+  NVF_ERROR(
+      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
+
+  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
+  tv->setLoopDomain(s.as<IterDomain*>());
+
+  if (tile_m == 16 && tile_n == 16) {
+    // Let [M, N] be [64, 32]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+    // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+    tv->split(-3, 2);
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+    tv->reorder({{-4, 0}});
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+    tv->merge(-3);
+    tv->merge(-2);
+  } else if (tile_m == 16 && tile_n == 8) {
+    // Let [M, N] be [64, 16]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
+    // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
+    tv->reorder({{-3, 0}});
+    // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
+    tv->merge(-2);
+  }
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {

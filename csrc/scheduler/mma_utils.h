@@ -47,7 +47,8 @@ NVF_API void scheduleContiguousVectorLoad(
 //! TODO: rewrite this one with makeTile
 NVF_API void scheduleWarpTileWithReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
@@ -55,7 +56,8 @@ NVF_API void scheduleWarpTileWithReduction(
 //! TODO: remove this one eventually.
 NVF_API void scheduleWarpTileWithNoReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.
@@ -248,6 +250,11 @@ class MmaSwizzler {
 //! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
 //! marked parallel type bulk.
 void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
+
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n);
 
 void checkDimSize(
     TensorView* tv,

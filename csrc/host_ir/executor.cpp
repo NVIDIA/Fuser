@@ -32,9 +32,6 @@ HostIrExecutor::HostIrExecutor(
 
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
-  // if (fusion->isA<hir::HostIrContainer>()) {
-  //   return true;
-  // }
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);

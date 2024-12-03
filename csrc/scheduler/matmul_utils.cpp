@@ -145,7 +145,7 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  mparams->tile_sizes = {cta_tile, warp_tile, instruction_tile};
+  mparams->tile_sizes = {cta_tile, warp_tile};
 
   // stages and async mem copy
   {
@@ -443,6 +443,7 @@ class VectorizationCalculator {
       IterDomain* id = tv->getMaybeAllocationDomain().at(i);
       if (id->isBroadcast()) {
         sizes.push_back(1);
+        concrete_contig.push_back(false);
         continue;
       }
       if (id->isReduction()) {
@@ -464,7 +465,7 @@ class VectorizationCalculator {
     for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
       strides[(size_t)i] = sizes[(size_t)i] == 1 ? 0 : stride;
       stride *= sizes[(size_t)i];
-      if (!concrete_contig[(size_t)i]) {
+      if (!concrete_contig.at((size_t)i)) {
         // pad non-concrete dims to next odd value
         stride |= 1l;
       }
