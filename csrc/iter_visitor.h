@@ -604,11 +604,11 @@ class IRBFS
             allowed_direction) {}
 };
 
-std::vector<Val*> getInputsOfExpr(Expr* expr, Direction dir) {
+inline std::vector<Val*> getInputsOfExpr(Expr* expr, Direction dir) {
   return getInputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
 }
 
-std::vector<Val*> getOutputsOfExpr(Expr* expr, Direction dir) {
+inline std::vector<Val*> getOutputsOfExpr(Expr* expr, Direction dir) {
   return getOutputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
 }
 
