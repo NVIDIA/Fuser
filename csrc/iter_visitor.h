@@ -581,62 +581,27 @@ struct IROutputs {
   }
 };
 
+template <>
+struct GetValType<Expr*> {
+  using type = Val*;
+};
+
 class IRBFS
     : public BFS<Expr*, Val*, IRDefinitions, IRUses, IRInputs, IROutputs> {
- protected:
+ public:
   IRBFS(
       std::vector<NodeType> from_groups,
       std::vector<NodeType> to_groups,
-      bool require_all_to_visited)
+      bool require_all_to_visited,
+      Direction allowed_direction = Direction::Undefined)
       : BFS(IRDefinitions{},
             IRUses{},
             IRInputs{},
             IROutputs{},
             std::move(from_groups),
             std::move(to_groups),
-            require_all_to_visited) {}
-
- public:
-  // Find the shortest path from the from_groups_ to to_groups_ on a
-  // given graph. Dependency between vals and exprs must be satisfied.
-  // It is an error if no valid path is found.
-  static std::pair<ExprPath, bool> getExprsBetween(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to,
-      bool require_all_to_visited = true) {
-    IRBFS bfs(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
-        require_all_to_visited);
-    bfs.traverse();
-    return bfs.getShortestExprPath();
-  }
-
-  // Given a set of vals, get all reachable ones from another set of vals
-  static std::vector<Val*> getReachableValsFrom(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& vals);
-
-  // Traverse from a given set of vals to another set of vals and
-  // return all vals between them. Note that if none of the Vals in the
-  // second set is reachable, nothing will be returned. For example,
-  // if a forward Merge needs to be traversed to get to the target Val
-  // set, both of the two inputs must be given or reachable from the
-  // given starting Val set.
-  //
-  // NOTE: getValsBetween(from, to) != getValsBetween(to, from). For
-  // example, suppose from={i0}, to={i2}, and merge(i0, i1) =
-  // i2. Since i1 is missing, nothing will be returned. However, if
-  // from={i2} and to={i0}, then the backward merge can be traversed
-  // as its sole input is available, so {i0} would be returned.
-  static std::vector<Val*> getValsBetween(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to);
-
-  // Get all dependencies of to in from.
-  static std::vector<Val*> getDependenciesTo(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to);
+            require_all_to_visited,
+            allowed_direction) {}
 };
 
 } // namespace nvfuser
