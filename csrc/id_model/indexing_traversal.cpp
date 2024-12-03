@@ -55,6 +55,10 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   auto consumer_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(consumer_tv != nullptr);
 
+  // First, try to limit the use of this WAR as much as possible since
+  // the WAR itself has a limitation that it assumes the loop domain
+  // is not promoted.
+
   IdModel local_model(
       std::vector<Expr*>{consumer_tv->definition()},
       /*additional_tvs=*/{},
@@ -76,8 +80,9 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   }
 
   // The indexing issue with resize may happen when a single iter
-  // domain is resized multiple times. In other words, if there's only
-  // one resize, there's no problem with the default indexing path.
+  // domain is resized multiple times. In other words, there must be
+  // at least two connected resize exprs. If not, this WAR is not
+  // necessary.
 
   // Shortcut for a common case to avoid building the graph below
   if (resize_exprs.size() < 2) {
@@ -86,8 +91,8 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
 
   const auto& local_graph = local_model.buildAlmostExactGraph();
 
+  // See if these resize expr groups are connected
   ExprGroups resize_groups = local_graph.toGroups(resize_exprs);
-
   bool single_id_resized_multiple_times = false;
   for (const auto i : c10::irange(resize_groups.size() - 1)) {
     const auto resize_i = resize_groups.at(i);
@@ -101,6 +106,8 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     }
   }
 
+  // No connection between the resize exprs is found, which they are
+  // all independent and there's no need to use this WAR
   if (!single_id_resized_multiple_times) {
     return std::nullopt;
   }
