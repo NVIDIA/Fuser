@@ -1455,8 +1455,8 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   tv2->axis(1)->parallelize(ParallelType::BIDx);
   tv2->axis(2)->parallelize(ParallelType::Bulk);
 
-  // InlineMost automatically handles vectorize and tma dimensions
-  inlineMost();
+  inlineAllAt(reference, /*pos=*/1);
+  // TODO: fix inlineMost();
 
   // Circular Buffer with TMA loads
   tv2->circularBuffer(
