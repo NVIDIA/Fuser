@@ -4,10 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES, DEFAULT_EXECUTORS
+from .torch_ops import silu_mul
 
 def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
     T0 = fd.define_tensor(
@@ -56,7 +56,7 @@ def test_silu_mul_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_silu_mul_fwd_baseline_benchmark(
@@ -69,14 +69,11 @@ def test_silu_mul_fwd_baseline_benchmark(
         clear_dynamo_cache()
     inputs = [torch.randn(*size, device="cuda", dtype=dtype) for _ in range(2)]
 
-    benchmark_fn = {
-        "eager": silu_mul_fwd_fn,
-        "torchcompile": torch.compile(silu_mul_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, silu_mul)
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         inputs,
     )
