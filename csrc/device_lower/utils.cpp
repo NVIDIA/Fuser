@@ -1987,81 +1987,33 @@ std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
   return sync_exprs;
 }
 
-std::pair<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>>
-getIndexIDs(
-    TensorView* producer,
-    TensorView* consumer,
-    const std::unordered_map<IterDomain*, IterDomain*>* c2p) {
-  // First we find the consumer root IDs that map to the producer
-  std::unordered_map<IterDomain*, IterDomain*> c2p_tmp;
-  if (c2p == nullptr) {
-    c2p_tmp =
-        PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
-    c2p = &c2p_tmp;
-  }
-  // Track the IDs involved in indexing in both producer and consumer
-  std::unordered_set<IterDomain*> consumer_indexing_ids;
-  std::unordered_set<IterDomain*> producer_indexing_ids;
-  for (IterDomain* id : consumer->getMaybeRootDomain()) {
-    auto it = c2p->find(id);
-    if (it == c2p->end()) {
-      continue;
-    }
-    // These are the immediately mapped consumer root and producer logical
-    // IDs. This is a starting point for our later traversals, which will fill
-    // these sets out.
-    consumer_indexing_ids.insert(it->first);
-    producer_indexing_ids.insert(it->second);
-  }
-
-  // Now traverse from the starting set (which, as noted above is a subset of
-  // either the producer logical or consumer root) to the target which is
-  // either the producer allocation domain or the consumer loop domain. These
-  // are the IDs that will actually affect indexing. Any other IDs can be
-  // skipped.
-  auto traverse = [](std::unordered_set<IterDomain*>& indexing_ids,
-                     const std::vector<IterDomain*>& start_domain,
-                     const std::vector<IterDomain*>& target_domain) {
-    for (auto [expr, dir] : IRBFS::getExprsBetween(
-                                {start_domain.begin(), start_domain.end()},
-                                {target_domain.begin(), target_domain.end()},
-                                /*require_all_to_visited=*/false)
-                                .first) {
-      // If there are any indexing IDs in the inputs, count all outputs as
-      // indexing IDs
-      const auto processExpr = [&indexing_ids](
-                                   const std::vector<Val*>& prev_vals,
-                                   const std::vector<Val*>& next_vals) {
-        if (std::any_of(prev_vals.begin(), prev_vals.end(), [&](Val* prev) {
-              auto* id = dynamic_cast<IterDomain*>(prev);
-              return id && indexing_ids.count(id) != 0;
-            })) {
-          for (Val* v : next_vals) {
-            if (auto* id = dynamic_cast<IterDomain*>(v)) {
-              indexing_ids.insert(id);
-            }
-          }
+std::unordered_set<IterDomain*> getIdsBetween(
+    const std::vector<IterDomain*>& from,
+    const std::vector<IterDomain*>& to) {
+  std::unordered_set<IterDomain*> ids{from.begin(), from.end()};
+  for (auto [expr, dir] : getExprsBetween<IRBFS>(
+                              {from.begin(), from.end()},
+                              {to.begin(), to.end()},
+                              /*require_all_to_visited=*/false)
+                              .first) {
+    const std::vector<Val*>& prev_vals =
+        dir == Direction::Forward ? expr->inputs() : expr->outputs();
+    const std::vector<Val*>& next_vals =
+        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+    // If there are _any_ IDs that were found in prev_vals then we count all the
+    // next vals as found
+    if (std::any_of(prev_vals.begin(), prev_vals.end(), [&](Val* prev) {
+          auto* id = dynamic_cast<IterDomain*>(prev);
+          return id && ids.count(id) != 0;
+        })) {
+      for (Val* v : next_vals) {
+        if (auto* id = dynamic_cast<IterDomain*>(v)) {
+          ids.insert(id);
         }
-      };
-      if (dir == Direction::Forward) {
-        processExpr(expr->inputs(), expr->outputs());
-      } else if (dir == Direction::Backward) {
-        processExpr(expr->outputs(), expr->inputs());
-      } else {
-        NVF_THROW("Found unexpected direction");
       }
     }
-  };
-  traverse(
-      producer_indexing_ids,
-      /*start_domain=*/producer->getLogicalDomain(),
-      /*target_domain=*/producer->getMaybeAllocationDomain());
-  traverse(
-      consumer_indexing_ids,
-      /*start_domain=*/consumer->getMaybeRootDomain(),
-      /*target_domain=*/consumer->getLoopDomain());
-
-  return {producer_indexing_ids, consumer_indexing_ids};
+  }
+  return ids;
 }
 
 } // namespace lower_utils

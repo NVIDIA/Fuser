@@ -188,17 +188,24 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
         BestEffortReplay::replayPasC(
             producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
-    for (auto [c, p] : pairwise_map.mapConsumerToProducer()) {
-      // replayPasC skips mapping after the compute at position
-      c2p[c] = p;
-    }
     std::unordered_set<IterDomain*> consumer_index_ids;
     if (consumer->definition()->isA<MmaOp>()) {
       // NOTE: if consumer_index_ids is empty, it will be ignored. We only fill
       // it for MmaOp for now in order to limit our changes to the only op that
       // currently requires this analysis.
-      consumer_index_ids =
-          lower_utils::getIndexIDs(producer, consumer, &c2p).second;
+
+      // We flow from mapped IDs to the consumer's loop domain
+      std::vector<IterDomain*> mapped_ids;
+      auto root2logical = pairwise_map.mapConsumerToProducer();
+      for (IterDomain* id : consumer->getMaybeRootDomain()) {
+        if (root2logical.find(id) != root2logical.end()) {
+          mapped_ids.push_back(id);
+        }
+      }
+      // This set will omit loop IDs that are not mapped to the producer, such
+      // as N dimensions when the producer is an A operand without broadcasts.
+      consumer_index_ids = lower_utils::getIdsBetween(
+          /*from=*/mapped_ids, /*to=*/consumer->getLoopDomain());
     }
     ProducerConsumerPairAnalyzer analyzer(c2p, consumer_index_ids);
 
