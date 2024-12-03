@@ -1845,9 +1845,9 @@ Val* hardCodedIndexGenerationForStMatrix(
 // Now, lets apply stmatrix tile to the TMA Box.
 // [NO(2), MO(4), MI(16), NIO(4), NII(16)].
 //
-// StMatrix is a warp-level operation. Four StMatrix operations can be issued
-// simultaneously given that a warp group is 128 threads. They are applied on
-// the MO dimension.
+// A warp group of 128 threads contains four warps. StMatrix is a warp-level
+// operation, so four StMatrix operations can be issued simultaneously by the
+// warp group. Those four warps are applied for the MO dimension.
 //
 // [NO(2), MO(4) - TDX, MI(16) - StMatrix, NIO(4), NII(16) - StMatrix].
 // Virtually, there are 2 for-loops of size NO(2) and NIO(4).
@@ -1966,10 +1966,10 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t stsm_column_size = 8;
   constexpr int64_t swizzle_n_tile = 64;
-  constexpr int64_t swizzle_n_iter = 4;
 
   // Derived constants
   constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
+  const int64_t swizzle_n_iter = swizzle_n_tile / stsm_n_tile;
   const int64_t swizzle_n_tile_stride = swizzle_n_tile * dtype_size;
   const int64_t stsm_n_tile_stride = stsm_n_tile / stsm_column_size;
   const int64_t tile_stride = tma_m * swizzle_n_tile * dtype_size;
@@ -2037,9 +2037,10 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* tdy_offset = IrBuilder::mulExpr(TDY, tdy_stride_val);
 
   // Create shared memory TensorIndex
-  Val* out_index = IrBuilder::addExpr(
+  Val* out_index = SimplifyingIrBuilder::addExpr(
       IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-      IrBuilder::addExpr(tdy_offset, IrBuilder::addExpr(tile_offset, offset)));
+      SimplifyingIrBuilder::addExpr(
+          tdy_offset, SimplifyingIrBuilder::addExpr(tile_offset, offset)));
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);
   return out;

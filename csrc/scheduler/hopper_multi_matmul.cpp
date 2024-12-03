@@ -1016,9 +1016,14 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   } else {
-    // TODO: Use stmatrix to load from registers to shared memory
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
+
+    // TODO: Support tma tile sizes that are a multiple of mma_macro.
+    // The wgmma operation creates an output matrix of mma_macro size. The TMA
+    // tile is a multiple of the macro size because stmatrix stores results from
+    // wgmma to shared memory. For maximum inlining and to reduce shared memory
+    // usage, the tma tile is mma_macro size.
     const int64_t tma_m = getM(params_->mma_macro);
     const int64_t tma_n = getN(params_->mma_macro);
 
