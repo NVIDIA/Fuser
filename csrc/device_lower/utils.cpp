@@ -1987,7 +1987,7 @@ std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
   return sync_exprs;
 }
 
-std::unordered_set<IterDomain*> getIdsBetween(
+std::unordered_set<IterDomain*> getIdsAlongPathBetween(
     const std::vector<IterDomain*>& from,
     const std::vector<IterDomain*>& to) {
   std::unordered_set<IterDomain*> ids{from.begin(), from.end()};

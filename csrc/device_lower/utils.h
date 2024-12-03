@@ -373,11 +373,24 @@ std::vector<Expr*> getSyncExprs(
     AsyncOpType async_type,
     int64_t keep_stages = 0);
 
-//! Get a set of IterDomains in TV between two given domains
-//! (inclusive). If `from` is provided, IDs without any producers in `from` will
-//! be omitted.
-//! TODO: example:
-std::unordered_set<IterDomain*> getIdsBetween(
+//! Get a set of IterDomains on a path between two given domains (inclusive).
+//!
+//! For example:
+//!
+//!    i3 = merge(i0, i1)
+//!    i4, i5 = split(i3)
+//!
+//! If we are given
+//!   from = [ i0, i2 ]
+//!   to = [ i4 ]
+//! This will return [ i0, i2, i3, i4, i5 ]
+//!
+//! If we are given
+//!   from = [ i4, i5 ]
+//!   to = [ i1 ]
+//! This will return [ i4, i5, i3, i0, i1 ]
+//!
+std::unordered_set<IterDomain*> getIdsAlongPathBetween(
     const std::vector<IterDomain*>& from,
     const std::vector<IterDomain*>& to);
 

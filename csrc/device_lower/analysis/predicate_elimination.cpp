@@ -204,7 +204,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       }
       // This set will omit loop IDs that are not mapped to the producer, such
       // as N dimensions when the producer is an A operand without broadcasts.
-      consumer_index_ids = lower_utils::getIdsBetween(
+      consumer_index_ids = lower_utils::getIdsAlongPathBetween(
           /*from=*/mapped_ids, /*to=*/consumer->getLoopDomain());
     }
     ProducerConsumerPairAnalyzer analyzer(c2p, consumer_index_ids);
