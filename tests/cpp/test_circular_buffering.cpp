@@ -863,8 +863,11 @@ class TmaCircularBufferingTest
     auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
     auto result_cpu = result_cpu_data.accessor<data_type, 1>();
 
-    constexpr double tolerance = 1e-3;
+    constexpr double abs_tolerance = 1e-3;
+    constexpr double rel_tolerance = 1e-3;
     for (int64_t pos = 0; pos < tensor_dim; ++pos) {
+      double tolerance =
+          abs_tolerance + rel_tolerance * fabs((double)reference_cpu[pos]);
       if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
           tolerance) {
         std::cout << "[" << pos << "] - result: " << result_cpu[pos]
@@ -885,9 +888,12 @@ class TmaCircularBufferingTest
     auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
     auto result_cpu = result_cpu_data.accessor<data_type, 2>();
 
-    constexpr double tolerance = 1e-3;
+    constexpr double abs_tolerance = 1e-3;
+    constexpr double rel_tolerance = 1e-3;
     for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
       for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        double tolerance = abs_tolerance +
+            rel_tolerance * fabs((double)reference_cpu[out_pos][in_pos]);
         if (fabs(
                 (double)reference_cpu[out_pos][in_pos] -
                 (double)result_cpu[out_pos][in_pos]) > tolerance) {
@@ -1471,7 +1477,9 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   ke.compile(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  // compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  // Please note that, serial reduction has larger error than parallel reduction
+  // This is the nature of the algorithm, not a bug in the implementation.
   EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
 }
 
