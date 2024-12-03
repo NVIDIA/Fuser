@@ -588,29 +588,56 @@ std::vector<typename GetValType<ExprT>::type> getOutputsOfExprPath(
   return getInputsOfExprPath(reverse(path), get_inputs, get_outputs);
 }
 
-// Given a set of vals, get all reachable ones from another set of vals
+// Given a set of exprs and vals, get all reachable ones from another set of
+// nodes
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::NodeType> getReachableNodesFrom(
+    const std::vector<typename BFSType::NodeType>& from,
+    const std::vector<typename BFSType::NodeType>& nodes,
+    Direction allowed_direction = Direction::Undefined,
+    const AdditionalArgs&... additional_args) {
+  BFSType bfs(
+      additional_args...,
+      from,
+      nodes,
+      /*require_all_to_visited=*/false,
+      allowed_direction);
+
+  bfs.traverse();
+
+  std::vector<typename BFSType::NodeType> reachable_nodes;
+  for (const auto& node : nodes) {
+    if (bfs.isVisited(node) ||
+        std::find(from.begin(), from.end(), node) != from.end()) {
+      reachable_nodes.push_back(node);
+    }
+  }
+
+  return reachable_nodes;
+}
+
+// Shortcut of getReachableNodesFrom for Vals
 template <typename BFSType, typename... AdditionalArgs>
 std::vector<typename BFSType::ValType> getReachableValsFrom(
     const std::vector<typename BFSType::ValType>& from,
     const std::vector<typename BFSType::ValType>& vals,
     Direction allowed_direction = Direction::Undefined,
     const AdditionalArgs&... additional_args) {
-  BFSType bfs(
-      additional_args...,
+  auto reachable_nodes = getReachableNodesFrom<BFSType, AdditionalArgs...>(
       {from.begin(), from.end()},
       {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false,
-      allowed_direction);
-
-  bfs.traverse();
+      allowed_direction,
+      additional_args...);
 
   std::vector<typename BFSType::ValType> reachable_vals;
-  for (const auto& val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.push_back(val);
-    }
-  }
+  reachable_vals.reserve(reachable_nodes.size());
+  std::transform(
+      reachable_nodes.begin(),
+      reachable_nodes.end(),
+      std::back_inserter(reachable_vals),
+      [](const auto& node) {
+        return std::get<typename BFSType::ValType>(node);
+      });
 
   return reachable_vals;
 }

@@ -62,17 +62,48 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
 
   // If there's no resize in the producer and consumer tensors of this
   // expr, it should not need this WAR.
-  if (std::none_of(
-          local_model.idUses().begin(),
-          local_model.idUses().end(),
-          [](const auto& kv) {
-            const VectorOfUniqueEntries<Expr*>& exprs = kv.second;
-            return !exprs.empty() && exprs.at(0)->isA<Resize>();
-          })) {
+  std::vector<Resize*> resize_exprs;
+  for (const auto& [id, use_exprs] : local_model.idUses()) {
+    for (const auto& use_expr : use_exprs) {
+      if (auto resize = dynamic_cast<Resize*>(use_expr)) {
+        resize_exprs.push_back(resize);
+      }
+    }
+  }
+
+  if (resize_exprs.empty()) {
+    return std::nullopt;
+  }
+
+  // The indexing issue with resize may happen when a single iter
+  // domain is resized multiple times. In other words, if there's only
+  // one resize, there's no problem with the default indexing path.
+
+  // Shortcut for a common case to avoid building the graph below
+  if (resize_exprs.size() < 2) {
     return std::nullopt;
   }
 
   const auto& local_graph = local_model.buildAlmostExactGraph();
+
+  ExprGroups resize_groups = local_graph.toGroups(resize_exprs);
+
+  bool single_id_resized_multiple_times = false;
+  for (const auto i : c10::irange(resize_groups.size() - 1)) {
+    const auto resize_i = resize_groups.at(i);
+    std::vector<ValGraphBFS::NodeType> other_resizes{
+        resize_groups.begin() + i + 1, resize_groups.end()};
+    auto reachable_nodes = getReachableNodesFrom<ValGraphBFS>(
+        {resize_i}, other_resizes, Direction::Undefined, local_graph);
+    if (!reachable_nodes.empty()) {
+      single_id_resized_multiple_times = true;
+      break;
+    }
+  }
+
+  if (!single_id_resized_multiple_times) {
+    return std::nullopt;
+  }
 
   // from_ids are loop domains, which are representative
   // domains of loop groups and not necessarily domains of any
