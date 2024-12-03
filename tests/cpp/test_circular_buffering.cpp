@@ -1266,8 +1266,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv3->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  // Circular Buffer with set operation
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  // Load TV1 into shared memory
+  tv4->setMemoryType(MemoryType::Shared);
   tv4->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
