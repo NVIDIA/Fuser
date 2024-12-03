@@ -1012,6 +1012,27 @@ TEST_F(IfThenElseTest, HostIr) {
   }
 }
 
+using AllocationTest = NVFuserTest;
+
+TEST_F(AllocationTest, HostIr) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* tv = makeConcreteTensor(sizes);
+  tv->setMemoryType(MemoryType::Global);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+  hic->addOutput(tv);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto outputs = hie.runWithInput({});
+
+  EXPECT_EQ(sizes, outputs.at(0).sizes());
+}
+
 } // namespace hir
 
 } // namespace nvfuser
