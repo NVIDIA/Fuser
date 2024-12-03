@@ -863,8 +863,11 @@ class TmaCircularBufferingTest
     auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
     auto result_cpu = result_cpu_data.accessor<data_type, 1>();
 
-    constexpr double tolerance = 1e-3;
+    constexpr double abs_tolerance = 1e-3;
+    constexpr double rel_tolerance = 1e-3;
     for (int64_t pos = 0; pos < tensor_dim; ++pos) {
+      double tolerance =
+          abs_tolerance + rel_tolerance * fabs((double)reference_cpu[pos]);
       if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
           tolerance) {
         std::cout << "[" << pos << "] - result: " << result_cpu[pos]
@@ -885,9 +888,12 @@ class TmaCircularBufferingTest
     auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
     auto result_cpu = result_cpu_data.accessor<data_type, 2>();
 
-    constexpr double tolerance = 1e-3;
+    constexpr double abs_tolerance = 1e-3;
+    constexpr double rel_tolerance = 1e-3;
     for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
       for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        double tolerance = abs_tolerance +
+            rel_tolerance * fabs((double)reference_cpu[out_pos][in_pos]);
         if (fabs(
                 (double)reference_cpu[out_pos][in_pos] -
                 (double)result_cpu[out_pos][in_pos]) > tolerance) {
@@ -1237,9 +1243,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv3->setMemoryType(MemoryType::Shared);
 
-  // Load TV1 into shared memory
   TensorView* tv4 = tv1->cacheAfter();
-  tv4->setMemoryType(MemoryType::Shared);
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
 
   TensorView* reference = tv2;
 
@@ -1262,7 +1267,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Circular Buffer with set operation
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  // Load TV1 into shared memory
+  tv4->setMemoryType(MemoryType::Shared);
   tv4->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
@@ -1352,7 +1358,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
-TEST_P(TmaCircularBufferingTest, Reduction) {
+TEST_P(TmaCircularBufferingTest, InnerReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -1388,6 +1394,8 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
 
   // Parallelize
   reference->axis(0)->parallelize(ParallelType::BIDx);
+
+  // Use block reduce.
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
   // InlineMost automatically handles vectorize and tma dimensions
@@ -1409,6 +1417,59 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, OuterReduction) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = sum(tv0, {0});
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  constexpr int64_t tile_size = 256;
+
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(1, tile_size);
+  // [M, N/bid, bid] -> [N/bid, M, bid]
+  reference->reorder({{1, 0}});
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Parallelize
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(2)->parallelize(ParallelType::TIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+
+  inlineMost();
+
+  // Circular Buffer with TMA loads
+  tv2->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = sum(t0, {0});
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  std::vector<at::Tensor> cg_outputs = ke.run({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  // Please note that, serial reduction has larger error than parallel reduction
+  // This is the nature of the algorithm, not a bug in the implementation.
+  EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
 }
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
