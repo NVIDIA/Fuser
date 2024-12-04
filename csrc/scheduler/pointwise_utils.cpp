@@ -157,25 +157,39 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
 
   std::unordered_set<IterDomain*> covered_concrete_ids;
   for (const auto& exact_set_ptr : all_covered_exact_sets) {
-    auto exact_concrete_id = ca_map_.getConcreteMappedID(
-        exact_set_ptr->front(), IdMappingMode::EXACT);
-    covered_concrete_ids.insert(exact_concrete_id);
+    covered_concrete_ids.insert(exact_set_ptr->front());
   }
 
+  auto producers = ca_map_.idGraph().producers();
   for (auto id : target_tv->getLogicalDomain()) {
-    if (getMappedInputConcreteID(covered_concrete_ids, id) != nullptr) {
-      continue;
-    }
+    std::stack<IterDomain*> frontier;
+    frontier.push_back(id);
 
-    auto inp_id_sets = ca_map_.getAllDisjointSetProducers(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
-    // check if all inp_ids are mapped in covered_concrete_ids
-    for (auto inp_id_set : inp_id_sets) {
-      auto exact_inp_id = ca_map_.getConcreteMappedID(
-          inp_id_set->front(), IdMappingMode::EXACT);
-      if (getMappedInputConcreteID(covered_concrete_ids, exact_inp_id) == nullptr) {
+    while (!frontier.empty()) {
+      IterDomain* t = frontier.back();
+      frontier.pop_back();
+      if (getMappedInputConcreteID(covered_concrete_ids, t) != nullptr) {
+        continue;
+      }
+
+      auto p_iter = producers.find(t);
+      // no definition, mismatch found, we'll return false;
+      if (p_iter == producers.end()) {
         return false;
       }
+
+      std::copy(p_iter->begin(), p_iter->end(), std::back_inserter(frontier));
     }
+
+    // // auto inp_id_sets = ca_map_.getAllDisjointSetProducers({ca_map_.disjointSetOf(id, IdMappingMode::EXACT)});
+    // // check if all inp_ids are mapped in covered_concrete_ids
+    // for (auto inp_id_set : inp_id_sets) {
+    //   // auto exact_inp_id = ca_map_.getConcreteMappedID(
+    //   //     inp_id_set->front(), IdMappingMode::EXACT);
+    //   if (getMappedInputConcreteID(covered_concrete_ids, exact_inp_id) == nullptr) {
+    //     return false;
+    //   }
+    // }
   }
 
   return true;
