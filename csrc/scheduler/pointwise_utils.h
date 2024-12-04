@@ -36,6 +36,10 @@ class DomainMap {
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
       const;
 
+  // Determine if all IterDomains are mapped between input and the given tvs
+  bool areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* reference_tv)
+      const;
+
   virtual IterDomain* getMappedInputConcreteID(
       const std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const;
