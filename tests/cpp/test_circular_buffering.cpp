@@ -1267,7 +1267,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Circular Buffer with set operation.
-  // Note that in order to use warp specialization, all circilar buffers must be
+  // Note that in order to use warp specialization, all circular buffers must be
   // loaded by TMA, so for this test we disable circular buffering of set op if
   // we are testing warp specialization.
   if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
