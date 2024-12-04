@@ -827,7 +827,7 @@ CompareDomainResult compareDomains(
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
   auto exprs =
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
           .first;
 
@@ -929,7 +929,7 @@ CompareDomainResult compareDomains(
         //
         // The second case means id is redundant
         NVF_ERROR(
-            IRBFS::getReachableValsFrom(
+            getReachableValsFrom<IRBFS>(
                 {target_set.begin(), target_set.end()}, {id})
                 .empty(),
             id->toString(),
