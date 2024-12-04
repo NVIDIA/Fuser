@@ -9024,6 +9024,118 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
   ASSERT_TRUE(tidx_dim != nullptr);
 }
 
+using NVFuserTestCpAsyncRace = NVFuserFixtureParamTest<std::pair<bool, bool>>;
+TEST_P(NVFuserTestCpAsyncRace, isInlinedhasTIDy) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int m = 64, n = 96;
+
+  // Use the parameterized value for use_async
+  auto [is_inlined, has_tidy] = GetParam();
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // copy tv0 to shared memory tv2
+  auto tv2 = set(tv0);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+  tv2->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+
+  // copy tv1 to shared memory tv3
+  auto tv3 = set(tv1);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+  tv3->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+
+  auto tv4 = broadcast(tv3, {true, false});
+  auto tv5 = add(tv2, tv4);
+  fusion.addOutput(tv5);
+
+  if (has_tidy) {
+    // has race before issue-3428 is fixed
+    for (auto tv : {tv0, tv2, tv4, tv5}) {
+      tv->split(0, 2);
+      tv->split(0, 5);
+      tv->axis(2)->parallelize(ParallelType::TIDy);
+      tv->axis(1)->parallelize(ParallelType::BIDy);
+    }
+  } else {
+    // No Race if TIDy is not used
+    for (auto tv : {tv0, tv2, tv4, tv5}) {
+      tv->split(0, 5);
+      tv->axis(1)->parallelize(ParallelType::BIDy);
+    }
+  }
+
+  for (auto tv : {tv0, tv1, tv2, tv3, tv4, tv5}) {
+    tv->split(-1, 1, false);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+    tv->axis(-2)->parallelize(ParallelType::Unswitch);
+  }
+
+  // No Race if all tvs are inlined
+  if (is_inlined) {
+    inlineMost();
+  } else {
+    // has race before issue-3428 is fixed
+    inlineMost(std::vector<TensorView*>{tv2, tv4, tv5});
+  }
+
+  const std::string check_str = "cp.async.wait_all";
+  int expected_count = 0;
+  // (1) when not inlined and has tidy, there are two cp.async.wait_all
+  if (!is_inlined && has_tidy) {
+    expected_count = 2;
+  }
+  // (2) when inlined and not has tidy, ideally, there should be only one
+  // cp.async.wait_all since the first copy doesn't need syncthreads(), however,
+  // due to the order of expressions the read from T3 happens before the write
+  // to T2, so the async copy to T3 and T2 can't share the same wait. The pesdo
+  // code is like: async copy to T3 cp.async.wait_all read from T3 async copy to
+  // T2 cp.async.wait_all read from T2
+  // TODO: this exposed an opportunity to optimize the order of expressions
+  else if (is_inlined && !has_tidy) {
+    expected_count = 2;
+  }
+  // when inlined & has tidy, there are four cp.async.wait_all, 2 in each
+  // unswitched block
+  else if (is_inlined && has_tidy) {
+    expected_count = 4;
+  }
+  // when not inlined & not has tidy, there is only one cp.async.wait_all
+  else {
+    expected_count = 1;
+  }
+  EXPECT_EQ(subStringCountInCUDAKernel(&fusion, check_str), expected_count);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+  at::Tensor t1 = at::randn({n}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    NVFuserTestCpAsyncRace,
+    ::testing::Values(
+        std::make_pair(false, false),
+        std::make_pair(false, true),
+        std::make_pair(true, false),
+        std::make_pair(true, true)),
+    [](const testing::TestParamInfo<NVFuserTestCpAsyncRace::ParamType>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "inlined_" << (info.param.first ? "true" : "false") << "_hastidy_"
+         << (info.param.second ? "true" : "false");
+      return sanitizeTestName(ss.str());
+    });
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

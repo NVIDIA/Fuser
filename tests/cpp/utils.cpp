@@ -91,6 +91,19 @@ void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel) {
   }
 }
 
+size_t subStringCountInCUDAKernel(Fusion* fusion, const std::string& substr) {
+  GpuLower gpulw(fusion);
+  const std::string str = "\n" + codegen::generateCudaKernel(gpulw.run());
+
+  size_t count = 0;
+  size_t pos = str.find(substr);
+  while (pos != std::string::npos) {
+    count++;
+    pos = str.find(substr, pos + substr.length());
+  }
+  return count;
+}
+
 namespace sass {
 
 // For SASS instruction definitions, see:

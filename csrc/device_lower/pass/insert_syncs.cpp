@@ -481,7 +481,17 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       } else {
         sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
       }
-
+      // cpasync_wait_before_ only handles async copy without thread predicate.
+      // For async copy with thread predicate, need to insert async with before
+      // the sync threads to avoid race. See
+      // https://github.com/NVIDIA/Fuser/issues/3428
+      if (std::any_of(last_writes.begin(), last_writes.end(), [](Expr* e) {
+            return ir_utils::isCpAsyncOp(e);
+          })) {
+        auto async_sync_expr =
+            IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync);
+        insertSyncExpr(last_writes, expr, async_sync_expr, nullptr);
+      }
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
     }
   }
@@ -586,11 +596,20 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   std::unordered_set<Expr*> isModifiedSharedMemory(
       const std::unordered_map<Val*, Expr*>& smem,
       const std::vector<Val*>& tvs,
-      bool check_sync_map = true) const {
+      bool is_async_copy) const {
     std::unordered_set<Expr*> last_writes;
     for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
-      if (check_sync_map &&
+      // For non-async copy, only insert sync if there's a need for raw sync
+      if (!is_async_copy &&
           GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
+        continue;
+      }
+      // For async copy with thread predicate, leave to raw sync. Raw sync
+      // inserts an async wait & sync threads, otherwise, there may have race
+      // condition if sync threads is inserted before the async
+      // wait. See https://github.com/NVIDIA/Fuser/issues/3428
+      if (is_async_copy &&
+          GpuLower::current()->syncMap()->needsRawSync(tv).hasTID()) {
         continue;
       }
       if (tv->getMemoryType() != MemoryType::Shared) {
@@ -655,9 +674,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         gmem.clear();
       }
 
-      auto last_smem_writes = isModifiedSharedMemory(smem, expr->inputs());
+      auto last_smem_writes =
+          isModifiedSharedMemory(smem, expr->inputs(), false);
       auto last_async_smem_writes =
-          isModifiedSharedMemory(smem_async, expr->inputs(), false);
+          isModifiedSharedMemory(smem_async, expr->inputs(), true);
 
       // Keep track of async smem writes before the current
       //  expr, following largely the same logic as block sync.
