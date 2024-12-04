@@ -27,51 +27,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-// returns a copied fusion where the original outputs have been replaced by
-// the ones given as argument
-std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
-    Fusion* fusion,
-    const std::vector<Val*>& outputs) {
-  std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
-  std::unordered_map<Val*, Val*> copy_to_original_map;
-  auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
-
-  auto original_outputs = fusion_copy->outputs();
-
-  // Remove original outputs
-  std::for_each(
-      original_outputs.begin(), original_outputs.end(), [&](auto& output) {
-        fusion_copy->removeOutput(output);
-      });
-
-  // Add new outputs
-  std::for_each(outputs.begin(), outputs.end(), [&](Val* const& output) {
-    fusion_copy->addOutput(original_to_copy_cloner.clone(output));
-  });
-
-  return fusion_copy;
-}
-
-// Used in distributed setting where we only want to allocate output space and
-// receive output data from a different rank instead of computing them.
-std::vector<at::Tensor> allocateOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("multidevice::executor::allocateOutputSpace");
-  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
-
-  auto output_info =
-      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
-
-  return allocateOutputs(fusion, output_info, device, expr_eval);
-}
-
-} // namespace
-
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
@@ -138,8 +93,14 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       std::vector<Communication*> communications =
           lowerCommunication(ir_cloner.clone(group->exprs().at(0)));
       for (Communication* communication : communications) {
-        auto wait = IrBuilder::create<hir::Wait>(communication);
+        // Allocate the recv buffers of communications
+        TensorView* tv = communication->out();
+        if (tv->getDeviceMesh().has(comm_.deviceId())) {
+          auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          hic->pushBackTopLevelExprs(allocate);
+        }
         hic->pushBackTopLevelExprs(communication);
+        auto wait = IrBuilder::create<hir::Wait>(communication);
         hic->pushBackTopLevelExprs(wait);
       }
     } else {
@@ -160,27 +121,6 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
       std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
-
-  // Allocator setup
-  // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
-  // which correspond to the destination buffers of interdevice communications.
-  // TODO: reuse allocated buffers and support inplace collectives
-  // TODO: handle allocation as Host Ir
-  for (SegmentedGroup* group : staged_fusion->groups()) {
-    if (isResharding(group->exprs().at(0))) {
-      NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
-      auto val = group->exprs().at(0)->outputs().at(0);
-      NVF_ERROR(val->isA<TensorView>());
-      auto tv = val->as<TensorView>();
-      NVF_ERROR(tv->hasDeviceMesh());
-      if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate_.push_back(val);
-      }
-    }
-  }
-  allocator_fusion_ = copyFusionAndChangeOutputs(
-      staged_fusion->completeFusion(), vals_to_allocate_);
-  vals_to_allocate_ = clone(vals_to_allocate_);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
@@ -201,13 +141,6 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   for (auto input_idx : c10::irange(inputs.size())) {
     val_to_IValue[host_ir_executor_->inputs().at(input_idx)] =
         inputs.at(input_idx);
-  }
-
-  auto allocations =
-      allocateOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
-  NVF_ERROR(vals_to_allocate_.size() == allocations.size());
-  for (auto i : c10::irange(allocations.size())) {
-    val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
   return host_ir_executor_->runWithInput(val_to_IValue);

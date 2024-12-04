@@ -238,6 +238,9 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
   auto* input_tv = c->input(0)->as<TensorView>();
   auto* output_tv = c->output(0)->as<TensorView>();
 
+  input_tv->setMemoryType(MemoryType::Global);
+  output_tv->setMemoryType(MemoryType::Global);
+
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const bool same_mesh = sender_mesh == receiver_mesh;
