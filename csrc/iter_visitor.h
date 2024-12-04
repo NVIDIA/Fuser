@@ -629,7 +629,7 @@ class IRBFSWithPermissiveDependence : public IRBFS {
 
   std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
       const ExprType& expr) const override {
-    // Either all inputs or all outputs must have been visited
+    // Either any inputs or any outputs must have been visited
     decltype(auto) inputs = inputs_(expr);
     if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
         std::any_of(
