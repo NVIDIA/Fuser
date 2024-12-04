@@ -41,13 +41,10 @@ ContigIDGroups::ContigIDGroups(
   for (const auto index_domain_i : c10::irange(alloc_domains_.size())) {
     IterDomain* index_domain = alloc_domains_.at(index_domain_i);
 
-    // TODO: Why is this assertion? Due to resize, it can be broadcast
-#if 0
     NVF_ERROR(
         !index_domain->isBroadcast(),
         "Broadcast domain should not be an index domain: ",
         index_domain->toString());
-#endif
 
     alloc_to_contig_ids_[index_domain] = graph_.toGroup(index_domain);
 

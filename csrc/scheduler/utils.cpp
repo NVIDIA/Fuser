@@ -2306,39 +2306,14 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
       tvs.emplace_back(index_select->lookupTv(), consumer);
     } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
       tvs.emplace_back(select->lookupTv(), consumer);
-    } else {
+    } else if (ir_utils::hasResizedRfactor(consumer)) {
       // Exprs based on ResizeOp, e.g., slice
       auto producers = ir_utils::producerTvsOf(consumer);
-      IdModel id_model(
-          {consumer->definition()},
-          /*additional_tvs=*/{},
-          /*build_graphs=*/false);
-      const auto& exact_graph = id_model.buildExactGraph();
-      const auto consumer_loop_groups =
-          exact_graph.toGroups(consumer->getLoopDomain());
-      for (auto producer : producers) {
-        auto producer_consumer_exprs =
-            ValGraphBFS::getExprGroupsBetween(
-                exact_graph,
-                exact_graph.toGroups(producer->getLoopDomain()),
-                consumer_loop_groups,
-                /*require_all_to_visited=*/false)
-                .first;
-        if (std::any_of(
-                producer_consumer_exprs.begin(),
-                producer_consumer_exprs.end(),
-                [](const auto& path_node) {
-                  return path_node.first->front()->template isA<Resize>();
-                })) {
-          std::cerr << "Resize detected between " << producer->toString()
-                    << " and " << consumer->toString() << "\n";
-          for (const auto& [eg, dir] : producer_consumer_exprs) {
-            std::cerr << dir << ": " << eg->front()->toString();
-          }
-
-          tvs.emplace_back(producer, consumer);
-        }
-      }
+      NVF_ERROR(
+          producers.size() == 1,
+          "Unexpected number of inputs of the defining expression: ",
+          consumer->definition()->toString());
+      tvs.emplace_back(producers.at(0), consumer);
     }
   }
 
@@ -2418,8 +2393,6 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
   std::unordered_map<TensorView*, TensorView*> producer_copy_map;
 
   for (auto& [producer, consumer] : non_pwise_pairs) {
-    std::cerr << "Non-pwise pair: " << producer->toString() << ", "
-              << consumer->toString() << "\n";
     // At this point, all tensors should be either on Global or Local
     NVF_ERROR(
         producer->getMemoryType() == MemoryType::Local ||

@@ -15,7 +15,6 @@
 #include <ir/cloner.h>
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/tools/maxinfo_propagator.h>
-#include <val_graph.h>
 #include <visibility.h>
 
 namespace nvfuser {
