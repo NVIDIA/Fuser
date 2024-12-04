@@ -155,41 +155,34 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
   });
   all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
 
-  std::unordered_set<IterDomain*> covered_concrete_ids;
+  std::unordered_set<IterDomain*> covered_expanded_ids;
   for (const auto& exact_set_ptr : all_covered_exact_sets) {
-    covered_concrete_ids.insert(exact_set_ptr->front());
+    IterDomain* id = exact_set_ptr->front();
+    if (id->hasExpandedExtent()) {
+      covered_expanded_ids.insert(exact_set_ptr->front());
+    }
+  }
+  // stand alone expanded id can be left alone without causing replay issue.
+  for (auto id : target_tv->getLogicalDomain()) {
+    if (id->hasExpandedExtent()) {
+      covered_expanded_ids.insert(exact_set_ptr->front());
+    }
   }
 
-  auto producers = ca_map_.idGraph().producers();
-  for (auto id : target_tv->getLogicalDomain()) {
-    std::vector<IterDomain*> frontier;
-    frontier.push_back(id);
+  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      all_expected_exact_sets;
+  std::for_each(target_tv->getLogicalDomain().begin(), target_tv->getLogicalDomain().end(), [&](IterDomain* id) {
+    all_expected_exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+  });
+  all_expected_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_expected_exact_sets));
 
-    while (!frontier.empty()) {
-      IterDomain* t = frontier.back();
-      frontier.pop_back();
-      if (getMappedInputConcreteID(covered_concrete_ids, t) != nullptr) {
-        continue;
-      }
-
-      auto p_iter = producers.find(t);
-      // no definition, mismatch found, we'll return false;
-      if (p_iter == producers.end() || p_iter->second.empty()) {
+  for (const auto& exact_set_ptr : all_expected_exact_sets) {
+    IterDomain* id = exact_set_ptr->front();
+    if (id->hasExpandedExtent()) {
+      if (!getMappedInputConcreteID(covered_expanded_ids, id)) {
         return false;
       }
-
-      std::copy(p_iter->second.begin(), p_iter->second.end(), std::back_inserter(frontier));
     }
-
-    // // auto inp_id_sets = ca_map_.getAllDisjointSetProducers({ca_map_.disjointSetOf(id, IdMappingMode::EXACT)});
-    // // check if all inp_ids are mapped in covered_concrete_ids
-    // for (auto inp_id_set : inp_id_sets) {
-    //   // auto exact_inp_id = ca_map_.getConcreteMappedID(
-    //   //     inp_id_set->front(), IdMappingMode::EXACT);
-    //   if (getMappedInputConcreteID(covered_concrete_ids, exact_inp_id) == nullptr) {
-    //     return false;
-    //   }
-    // }
   }
 
   return true;
