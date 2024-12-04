@@ -144,7 +144,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
-bool DomainMap::areAllProducerIdsMappedTo(TensorView* target, TensorView* reference_tv)
+bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* reference_tv)
     const {
 
   // reverse traversal to collect all producer ids of reference_tv
@@ -155,7 +155,7 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target, TensorView* refere
   });
   all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
 
-  for (auto id : target->getLogicalDomain()) {
+  for (auto id : target_tv->getLogicalDomain()) {
     auto inp_ids = getInputDisjointSetsOf(id);
     // check if all inp_ids are mapped in all_covered_exact_sets
   }
