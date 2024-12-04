@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -112,14 +112,11 @@ def test_bcast_add_baseline_benchmark(
         x = x.t()
     assert x.is_contiguous() == contiguous
 
-    benchmark_fn = {
-        "eager": bcast_add_fwd_fn,
-        "torchcompile": torch.compile(bcast_add_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, bcast_add_fwd_fn)
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [bias, x, bcast_axis],
     )

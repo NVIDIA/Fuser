@@ -9,9 +9,11 @@ from .core import (
     clear_dynamo_cache,
     unary_bwd_torch,
     compute_total_iobytes,
+    with_executor,
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import dropout_rmsnorm
 
 
 def dropout_rmsnorm_bwd_fusion(
@@ -186,16 +188,9 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
-    def dropout_rmsnorm_fwd():
-        x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
-        output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
-        return output
-
-    fwd_fn = {
-        "eager": dropout_rmsnorm_fwd,
-        "torchcompile": torch.compile(dropout_rmsnorm_fwd),
-    }
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, dropout_rmsnorm)
+    fwd_inputs = [input1, input2, weights, dropout_p]
+    outputs = fwd_fn(fwd_inputs)
 
     run_benchmark(
         benchmark,

@@ -4,10 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
+from .torch_ops import layernorm
 
 
 def layernorm_bwd_fusion(
@@ -163,19 +164,9 @@ def test_layernorm_bwd_baseline_benchmark(
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    def layernorm_fwd():
-        return torch.nn.functional.layer_norm(
-            inputs,
-            inputs.shape[1:],
-            weight=weights,
-            bias=bias,
-        )
-
-    fwd_fn = {
-        "eager": layernorm_fwd,
-        "torchcompile": torch.compile(layernorm_fwd),
-    }
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, layernorm)
+    fwd_inputs = [inputs, weights, bias]
+    outputs = fwd_fn(fwd_inputs)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(

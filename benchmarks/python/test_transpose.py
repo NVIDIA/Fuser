@@ -6,7 +6,12 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .global_params import (
+    generate_input_sizes,
+    FLOAT_DTYPES,
+    PROMOTE_DTYPES,
+    with_executor,
+)
 
 
 def transpose_fusion(
@@ -90,14 +95,11 @@ def test_transpose_baseline_benchmark(
     input1 = torch.randn(size, device="cuda", dtype=dtype)
     input2 = torch.randn(size, device="cuda", dtype=dtype)
 
-    benchmark_fn = {
-        "eager": transpose_fwd_fn,
-        "torchcompile": torch.compile(transpose_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, transpose_fwd_fn)
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [input1, input2, axes[0], axes[1]],
     )
