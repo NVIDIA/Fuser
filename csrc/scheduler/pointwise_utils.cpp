@@ -162,7 +162,7 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
 
   auto producers = ca_map_.idGraph().producers();
   for (auto id : target_tv->getLogicalDomain()) {
-    std::stack<IterDomain*> frontier;
+    std::vector<IterDomain*> frontier;
     frontier.push_back(id);
 
     while (!frontier.empty()) {
@@ -174,11 +174,11 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
 
       auto p_iter = producers.find(t);
       // no definition, mismatch found, we'll return false;
-      if (p_iter == producers.end()) {
+      if (p_iter == producers.end() || p_iter->second.empty()) {
         return false;
       }
 
-      std::copy(p_iter->begin(), p_iter->end(), std::back_inserter(frontier));
+      std::copy(p_iter->second.begin(), p_iter->second.end(), std::back_inserter(frontier));
     }
 
     // // auto inp_id_sets = ca_map_.getAllDisjointSetProducers({ca_map_.disjointSetOf(id, IdMappingMode::EXACT)});
