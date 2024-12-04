@@ -215,36 +215,6 @@ class ValGraphBFS : public BFS<
         graph);
   }
 
-  static ValGroups getReachableValsFrom(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& vals,
-      const ValGraphBFS::ExprPath& from_to_vals);
-
-  static ValGroups getUnreachableValsFrom(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& vals,
-      const ValGraphBFS::ExprPath& from_to_vals);
 };
-
-inline ValGroups getValsOfExprPath(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& path) {
-  ValGroups vals;
-
-  for (const auto& [expr_g, dir] : path) {
-    for (const auto& inp : getInputsOfExpr(
-             expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph))) {
-      vals.pushBack(inp);
-    }
-    for (const auto& out : getOutputsOfExpr(
-             expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph))) {
-      vals.pushBack(out);
-    }
-  }
-
-  return vals;
-}
 
 } // namespace nvfuser
