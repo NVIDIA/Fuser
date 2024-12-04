@@ -98,17 +98,27 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 namespace {
 
 // Check if all the domains of each loop group are exactly mapped. If
-// so, the full promotion analysis should not be necessary.
+// so, the full promotion analysis should not be necessary. Only the
+// loop groups of the loop domains need to be checked as loop
+// promotion does not matter for the other domains.
 bool isLoopGraphUniform(const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
-  return std::all_of(
-      loop_graph.disjointValSets().disjointSets().begin(),
-      loop_graph.disjointValSets().disjointSets().end(),
-      [&](const ValGroup& loop_group) -> bool {
-        return id_model.idGraph(IdMappingMode::EXACT)
-                   .toGroups(*loop_group)
-                   .size() == 1;
-      });
+  for (const auto tv : id_model.tvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (const auto loop_id : tv->getLoopDomain()) {
+      const auto& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+      const auto all_exact_groups =
+          id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
+      if (all_exact_groups.size() > 1) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 } // namespace
