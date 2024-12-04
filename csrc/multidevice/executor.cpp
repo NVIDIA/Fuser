@@ -96,7 +96,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         // Allocate the recv buffers of communications
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(comm_.deviceId())) {
-          auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
           hic->pushBackTopLevelExprs(allocate);
         }
         hic->pushBackTopLevelExprs(communication);
