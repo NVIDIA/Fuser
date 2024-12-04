@@ -143,6 +143,22 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
   }
   return parallel_type_to_id;
 }
+
+std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
+    const std::vector<IterDomain*>& domain) {
+  std::unordered_map<IterDomain*, int64_t> id_to_axis;
+  int64_t axis = 0;
+  for (auto* id : domain) {
+    // Reduction IterDomains are not materialized as an at::Tensor axis.
+    if (id->isReduction()) {
+      continue;
+    }
+    id_to_axis[id] = axis;
+    axis++;
+  }
+  return id_to_axis;
+}
+
 } // namespace
 
 int64_t getShardedAxis(const TensorView* tv, const ParallelType parallel_type) {
@@ -153,32 +169,42 @@ int64_t getShardedAxis(const TensorView* tv, const ParallelType parallel_type) {
     return -1;
   }
 
-  const auto inputs = IterVisitor::getInputsTo(
-      {alloc_id},
-      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-  NVF_ERROR(
-      !inputs.empty(),
-      "IterVisitor::getInputsTo shouldn't return empty unless `of` is empty.");
-  NVF_ERROR(
-      inputs.size() == 1,
-      "Failed to find the single logical input to ",
-      alloc_id,
-      ". This is likely because there's a Merge expression from logical to allocation, which isn't supported. Inputs are: ",
-      toDelimitedString(inputs));
+  std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
+      mapIterDomainToTensorAxis(tv->getLogicalDomain());
+  IterDomain* id = alloc_id;
+  while (logical_id_to_axis.count(id) == 0) {
+    Expr* def = id->definition();
+    NVF_ERROR(
+        def != nullptr,
+        "Failed to find a non-reduction logical IterDomain that produces ",
+        alloc_id);
+    if (auto* split = dynamic_cast<Split*>(def)) {
+      // FIXME: comment
+      NVF_ERROR(
+          split->outer() == id,
+          "Currently, we don't support DID on inner splits: ",
+          split);
+      id = split->in();
+    } else if (auto* merge = dynamic_cast<Merge*>(def)) {
+      // For example,
+      //
+      //   t = makeContigTensor(2);
+      //   t->merge(0, 1);
+      //   t->axis(0)->parallelize(DIDx);
+      //
+      // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
+      // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
+      NVF_THROW(
+          "Failed to attribute the sharding to a single tensor axis and therefore bailed out: ",
+          merge);
+    } else {
+      NVF_THROW(
+          "Unexpected transforms from logical to a DID-parallel allocation IterDomain: ",
+          def);
+    }
+  }
 
-  const auto iter = std::find(
-      tv->getLogicalDomain().begin(), tv->getLogicalDomain().end(), inputs[0]);
-  NVF_ERROR(
-      iter != tv->getLogicalDomain().end(),
-      "The found input IterDomain isn't logical. This is likely because logical doesn't dominate allocation: ",
-      inputs[0]);
-
-  // Count the number of non-reduction IterDomains before `iter`. Reduction
-  // IterDomains are not materialized in the at::Tensor's shape.
-  return std::count_if(
-      tv->getLogicalDomain().begin(), iter, [](IterDomain* id) -> bool {
-        return !id->isReduction();
-      });
+  return logical_id_to_axis.at(id);
 }
 
 std::vector<int64_t> unshardedSizes(
