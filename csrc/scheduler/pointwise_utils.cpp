@@ -155,11 +155,11 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
   });
   all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
 
-  std::vector<IterDomain*> covered_concrete_ids;
+  std::unordered_set<IterDomain*> covered_concrete_ids;
   for (const auto& exact_set_ptr : all_covered_exact_sets) {
     auto exact_concrete_id = ca_map_.getConcreteMappedID(
         exact_set_ptr->front(), IdMappingMode::EXACT);
-    covered_concrete_ids.push_back(exact_concrete_id);
+    covered_concrete_ids.insert(exact_concrete_id);
   }
 
   for (auto id : target_tv->getLogicalDomain()) {
@@ -167,7 +167,7 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
       continue;
     }
 
-    auto inp_id_sets = ca_map_.getInputDisjointSetsOf(id);
+    auto inp_id_sets = ca_map_.getAllDisjointSetProducers(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
     // check if all inp_ids are mapped in covered_concrete_ids
     for (auto inp_id_set : inp_id_sets) {
       auto exact_inp_id = ca_map_.getConcreteMappedID(
