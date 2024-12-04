@@ -144,6 +144,57 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
+bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* reference_tv)
+    const {
+
+  // reverse traversal to collect all producer ids of reference_tv
+  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      all_covered_exact_sets;
+  std::for_each(reference_tv->getLogicalDomain().begin(), reference_tv->getLogicalDomain().end(), [&](IterDomain* id) {
+    all_covered_exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+  });
+  all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
+
+  std::unordered_set<IterDomain*> covered_concrete_ids;
+  for (const auto& exact_set_ptr : all_covered_exact_sets) {
+    covered_concrete_ids.insert(exact_set_ptr->front());
+  }
+
+  auto producers = ca_map_.idGraph().producers();
+  for (auto id : target_tv->getLogicalDomain()) {
+    std::vector<IterDomain*> frontier;
+    frontier.push_back(id);
+
+    while (!frontier.empty()) {
+      IterDomain* t = frontier.back();
+      frontier.pop_back();
+      if (getMappedInputConcreteID(covered_concrete_ids, t) != nullptr) {
+        continue;
+      }
+
+      auto p_iter = producers.find(t);
+      // no definition, mismatch found, we'll return false;
+      if (p_iter == producers.end() || p_iter->second.empty()) {
+        return false;
+      }
+
+      std::copy(p_iter->second.begin(), p_iter->second.end(), std::back_inserter(frontier));
+    }
+
+    // // auto inp_id_sets = ca_map_.getAllDisjointSetProducers({ca_map_.disjointSetOf(id, IdMappingMode::EXACT)});
+    // // check if all inp_ids are mapped in covered_concrete_ids
+    // for (auto inp_id_set : inp_id_sets) {
+    //   // auto exact_inp_id = ca_map_.getConcreteMappedID(
+    //   //     inp_id_set->front(), IdMappingMode::EXACT);
+    //   if (getMappedInputConcreteID(covered_concrete_ids, exact_inp_id) == nullptr) {
+    //     return false;
+    //   }
+    // }
+  }
+
+  return true;
+}
+
 // Reference domains must exactly match with the input domains. See
 // also PR #661
 IterDomain* DomainMap::getMappedInputConcreteID(
@@ -252,7 +303,7 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage) con
       if (output_tv == tv) {
         continue;
       }
-      if (DependencyCheck::isDependencyOf(tv, output_tv)) {
+      if (!areAllProducerIdsMappedTo(output_tv, tv)) {
         return false;
       }
     }
