@@ -268,11 +268,12 @@ getReferenceTensors(Fusion* fusion) {
       std::cerr << "Comparing " << out_tv_i->toString() << " and "
                 << out_tv_j->toString() << ": " << same_loop_domain << "\n";
       if (!same_loop_domain) {
-        auto [path_from_i_to_j, all_visited] = ValGraphBFS::getExprGroupsBetween(
-            broadcast_graph,
-            out_tv_i_loop_groups,
-            out_tv_j_loop_groups,
-            /*require_all_to_visited=*/false);
+        auto [path_from_i_to_j, all_visited] =
+            ValGraphBFS::getExprGroupsBetween(
+                broadcast_graph,
+                out_tv_i_loop_groups,
+                out_tv_j_loop_groups,
+                /*require_all_to_visited=*/false);
         if (!all_visited) {
           // There are some unreachable loop groups
           continue;

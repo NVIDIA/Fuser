@@ -234,10 +234,12 @@ inline ValGroups getValsOfExprPath(
   ValGroups vals;
 
   for (const auto& [expr_g, dir] : path) {
-    for (const auto& inp : getInputsOfExpr(expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph))) {
+    for (const auto& inp : getInputsOfExpr(
+             expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph))) {
       vals.pushBack(inp);
     }
-    for (const auto& out : getOutputsOfExpr(expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph))) {
+    for (const auto& out : getOutputsOfExpr(
+             expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph))) {
       vals.pushBack(out);
     }
   }
