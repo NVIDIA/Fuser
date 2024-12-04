@@ -144,6 +144,25 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
+bool DomainMap::areAllProducerIdsMappedTo(TensorView* target, TensorView* reference_tv)
+    const {
+
+  // reverse traversal to collect all producer ids of reference_tv
+  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      all_covered_exact_sets;
+  std::for_each(reference_tv->getLogicalDomain().begin(), reference_tv->getLogicalDomain().end(), [&](IterDomain* id) {
+    all_covered_exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+  });
+  all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
+
+  for (auto id : target->getLogicalDomain()) {
+    auto inp_ids = getInputDisjointSetsOf(id);
+    // check if all inp_ids are mapped in all_covered_exact_sets
+  }
+
+  return true;
+}
+
 // Reference domains must exactly match with the input domains. See
 // also PR #661
 IterDomain* DomainMap::getMappedInputConcreteID(
@@ -236,7 +255,7 @@ IterDomain* DomainMap::anyMapped(
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
 // The reference tensor must map to all the iterDomains in each input.
-bool DomainMap::isValidReference(TensorView* tv) const {
+bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage) const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
       continue;
@@ -247,9 +266,14 @@ bool DomainMap::isValidReference(TensorView* tv) const {
       return false;
     }
   }
-  for (auto output_tv : ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-    if (!areAllInputIdsMappedTo(output_tv, tv)) {
-      return false;
+  if (check_output_coverage) {
+    for (auto output_tv : ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+      if (output_tv == tv) {
+        continue;
+      }
+      if (!areAllProducerIdsMappedTo(output_tv, tv)) {
+        return false;
+      }
     }
   }
   return true;
