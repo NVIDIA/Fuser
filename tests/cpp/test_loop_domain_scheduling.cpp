@@ -317,4 +317,67 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
   }
 }
 
+// Testing scheduleLoopDomainsBy with a trivial fusion
+TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = unaryOp(UnaryOpType::Sin, tv0);
+  auto tv2 = unaryOp(UnaryOpType::Cos, tv1);
+  auto tv3 =
+      slice(tv2, {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
+  auto tv4 = unaryOp(UnaryOpType::Exp, tv3);
+
+  fusion.addOutput(tv4);
+
+  auto resize = tv3->getLogicalDomain().at(0)->definition()->as<Resize>();
+
+  scheduler_tools::scheduleLoopDomainsBy({tv1, tv2, tv4}, resize);
+
+  // tv1 and tv2 should have the same loop domain as tv3's loop domain
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+  EXPECT_EQ(
+      exact_graph.toGroups(tv1->getLoopDomain()),
+      exact_graph.toGroups(tv3->getLoopDomain()));
+  EXPECT_EQ(
+      exact_graph.toGroups(tv2->getLoopDomain()),
+      exact_graph.toGroups(tv3->getLoopDomain()));
+  // In the case of tv4, its logical ID is mapped with the resize
+  // output ID, so the resize op is replayed such that the logical ID
+  // is produced by the resize op. The loop domain is then set to the
+  // input ID of the resize op, so the tv4 loop domain should be equal
+  // to the root domain of tv3.
+  auto tv4_resize =
+      dynamic_cast<Resize*>(tv4->getLogicalDomain().at(0)->definition());
+  EXPECT_NE(tv4_resize, nullptr);
+  EXPECT_EQ(
+      exact_graph.toGroups(tv4->getLoopDomain()),
+      exact_graph.toGroups(tv3->getRootDomain()));
+
+  // Reset the loop domains
+  tv1->setLoopDomain(tv1->getLogicalDomain());
+  tv2->setLoopDomain(tv2->getLogicalDomain());
+  tv4->setLoopDomain(tv4->getLogicalDomain());
+
+  // This time, apply some scheduling to tv1 and tv2 before using
+  // scheduleLoopDomainsBy. The resize op should not be replayed as
+  // their loop domains no longer match with any of the resize input
+  // or output IDs.
+  tv1->split(0, 4);
+  auto tv1_loop_domain = tv1->getLoopDomain();
+  tv2->split(0, 2);
+  auto tv2_loop_domain = tv2->getLoopDomain();
+  scheduler_tools::scheduleLoopDomainsBy({tv1, tv2}, resize);
+
+  EXPECT_EQ(tv1->getLoopDomain(), tv1_loop_domain);
+  EXPECT_EQ(tv2->getLoopDomain(), tv2_loop_domain);
+}
+
 } // namespace nvfuser

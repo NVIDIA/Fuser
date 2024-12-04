@@ -385,5 +385,102 @@ void scheduleLoopDomainsLike(
   }
 }
 
+void scheduleLoopDomainsBy(
+    const std::vector<TensorView*>& tvs,
+    Expr* transform) {
+  Fusion* fusion = transform->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const ValGraph& exact_graph = id_model.buildExactGraph();
+
+  const ValGroups input_groups = exact_graph.toGroups(transform->inputs());
+  const ValGroups output_groups = exact_graph.toGroups(transform->outputs());
+
+  for (auto tv : tvs) {
+    const ValGroups loop_groups = exact_graph.toGroups(tv->getLoopDomain());
+
+    // Check if either the inputs or the outputs are mapped with the
+    // loop domain.
+
+    std::vector<IterDomain*> input_ids;
+    input_ids.reserve(transform->inputs().size());
+    for (const auto& input_g : input_groups) {
+      for (const auto loop_id : tv->getLoopDomain()) {
+        if (input_g->has(loop_id)) {
+          input_ids.push_back(loop_id);
+        }
+      }
+    }
+
+    std::vector<IterDomain*> output_ids;
+    output_ids.reserve(transform->outputs().size());
+    for (const auto& output_g : output_groups) {
+      for (const auto loop_id : tv->getLoopDomain()) {
+        if (output_g->has(loop_id)) {
+          output_ids.push_back(loop_id);
+        }
+      }
+    }
+
+    Direction replay_dir = Direction::Undefined;
+
+    // It should be either: all of the inputs found and none of the
+    // outputs found, or none of the inputs found and all of the
+    // outputs found.
+    if (input_ids.size() == transform->inputs().size()) {
+      NVF_ERROR(output_ids.empty());
+      replay_dir = Direction::Forward;
+    } else if (output_ids.size() == transform->outputs().size()) {
+      NVF_ERROR(input_ids.empty());
+      replay_dir = Direction::Backward;
+    } else {
+      // Replay not possible since none of inputs nor outputs are connected with
+      // the transform
+      continue;
+    }
+
+    const auto& existing_ids =
+        replay_dir == Direction::Forward ? input_ids : output_ids;
+
+    // Clone inputs or outputs
+    auto& new_ids = replay_dir == Direction::Forward ? output_ids : input_ids;
+    const auto& ref_of_ids_to_generate = replay_dir == Direction::Forward
+        ? transform->outputs()
+        : transform->inputs();
+
+    for (const auto& ref_id : ref_of_ids_to_generate) {
+      auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
+      new_ids.push_back(clone);
+    }
+
+    // In the case of replaying the transform expr backward,
+    // the definition of the output IDs will be set to the newly
+    // created expr. This is only allowed when the output IDs have no
+    // definition yet.
+    LoopDomainSchedulerReplayTransform::replayAs(
+        input_ids, output_ids, transform);
+
+    // Replace the inputs of the transform with the outputs
+    auto new_loop_domain = tv->getLoopDomain();
+    auto outermost_pos = (int64_t)tv->getLoopDomain().size();
+    for (const auto& existing_id : existing_ids) {
+      auto it = std::find(
+          new_loop_domain.begin(), new_loop_domain.end(), existing_id);
+      NVF_ERROR(it != new_loop_domain.end());
+      auto pos = (int64_t)std::distance(new_loop_domain.begin(), it);
+      outermost_pos = std::min(outermost_pos, pos);
+      new_loop_domain.erase(it);
+    }
+
+    for (auto it = new_ids.rbegin(); it != new_ids.rend(); ++it) {
+      IterDomain* new_id = *it;
+      new_loop_domain.insert(new_loop_domain.begin() + outermost_pos, new_id);
+    }
+
+    tv->setLoopDomain(new_loop_domain);
+  }
+
+  return;
+}
+
 } // namespace scheduler_tools
 } // namespace nvfuser

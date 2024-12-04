@@ -11,6 +11,7 @@
 
 namespace nvfuser {
 
+class Expr;
 class TensorView;
 class IterDomain;
 
@@ -22,6 +23,18 @@ namespace scheduler_tools {
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom);
+
+// Replay a transform expr on the loop domain of each of the given
+// tensors. If the input of the transform matches with the loop
+// domain, the transform is replayed as a forward op. If the output
+// matches with the loop domain, it's replayed as a backward
+// op. The loop domain of each tensor is updated with the replayed
+// transform expr. If it's replayed as a forward op, the outputs
+// replace the inputs in the loop domain. If it's replayed as a
+// backward op, the inputs replace the outputs in the loop domain.
+void scheduleLoopDomainsBy(
+    const std::vector<TensorView*>& tvs,
+    Expr* transform);
 
 } // namespace scheduler_tools
 } // namespace nvfuser
