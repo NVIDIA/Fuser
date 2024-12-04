@@ -251,23 +251,27 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               return fl->circularBufferLoopStage() ==
                   CircularBufferLoopStage::LoadWarp;
             });
+        ParallelType load_warp_on = ParallelType::Serial;
+        if (load_warp_loop_it != for_loops_.end()) {
+          load_warp_on = std::get<WarpSpecialized>(
+                             GpuLower::current()
+                                 ->circularBufferInfo()
+                                 .getCircularBufferOptionsFor(
+                                     (*load_warp_loop_it)->iter_domain())
+                                 .type)
+                             .on;
+        }
 
+        // If we are in a load warp, then the warp-dispatching IfThenElse already
+        // selects on `load_warp_on`, so we should not generate predicates for
+        // it here.
         const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-        Val* first_warp = IrBuilder::ltExpr(
-            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+        Val* first_warp = load_warp_on == ParallelType::TIDx
+            ? pred->fusion()->trueVal()
+            : IrBuilder::ltExpr(
+                  NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
         for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-          // If we are in a load warp for the warp specialization loop that has
-          // specialization on `pt`, then pt is already predicated by the
-          // warp-dispatch if-then-else, we should not predicate it again here.
-          bool in_load_warp_for_pt = load_warp_loop_it != for_loops_.end() &&
-              std::get<WarpSpecialized>(
-                  GpuLower::current()
-                      ->circularBufferInfo()
-                      .getCircularBufferOptionsFor(
-                          (*load_warp_loop_it)->iter_domain())
-                      .type)
-                      .on == pt;
-          if (pdim_map.has(pt) && !in_load_warp_for_pt) {
+          if (pdim_map.has(pt) && load_warp_on != pt) {
             first_warp = SimplifyingIrBuilder::logicalAndExpr(
                 first_warp,
                 IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
