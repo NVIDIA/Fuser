@@ -102,7 +102,6 @@ namespace {
 // loop groups of the loop domains need to be checked as loop
 // promotion does not matter for the other domains.
 bool isLoopGraphUniform(const IdModel& id_model) {
-  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   for (const auto tv : id_model.tvs()) {
     if (tv->isFusionInput()) {
       continue;
