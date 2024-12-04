@@ -98,7 +98,7 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
 }
 
 void propagateSqueezedSliceToOutputs(Fusion* fusion) {
-  IdModel id_model(fusion, /*build_models=*/false);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildExactGraph();
 
   auto squeezed_slices = getSqueezedSlices(fusion);

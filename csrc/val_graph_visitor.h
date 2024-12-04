@@ -214,7 +214,6 @@ class ValGraphBFS : public BFS<
         allowed_direction,
         graph);
   }
-
 };
 
 } // namespace nvfuser

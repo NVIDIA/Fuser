@@ -56,7 +56,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   // TODO: Reject padding of unsqueezeed broadcast IDs. Backward propagation
   // would fail otherwise.
 
-  IdModel id_model(fusion, /*build_models=*/false);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildExactGraph();
 
   std::vector<Expr*> resize_ops =
@@ -296,7 +296,7 @@ getReferenceTensors(Fusion* fusion) {
     TensorView* ref_tv = nullptr;
     // TensorView* input_tv = nullptr;
     std::unordered_set<TensorView*> resize_op_outputs;
-#if 0    
+#if 0
     for (TensorView* tv : *disjoint_set) {
       // All of the slice/pad/cat output tensors should have the same
       // loop domain. Any of them can be equally used as the reference
