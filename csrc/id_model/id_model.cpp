@@ -22,7 +22,6 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
-#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -363,13 +362,6 @@ ValGraph& IdModel::buildExactGraph() {
   }
 
   graph.validateConsistency();
-
-  {
-    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-    auto dot_string = graph.toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
-  }
 
   return graph;
 }

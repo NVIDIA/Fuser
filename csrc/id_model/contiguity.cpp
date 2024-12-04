@@ -40,7 +40,6 @@ ContigIDGroups::ContigIDGroups(
 
   for (const auto index_domain_i : c10::irange(alloc_domains_.size())) {
     IterDomain* index_domain = alloc_domains_.at(index_domain_i);
-
     NVF_ERROR(
         !index_domain->isBroadcast(),
         "Broadcast domain should not be an index domain: ",
