@@ -262,14 +262,17 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
                              .on;
         }
 
-        // If we are in a load warp, then the warp-dispatching IfThenElse already
-        // selects on `load_warp_on`, so we should not generate predicates for
-        // it here.
+        // If we are in a load warp, then the warp-dispatching IfThenElse
+        // already selects on `load_warp_on`, so we should not generate
+        // predicates for it here.
         const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
         Val* first_warp = load_warp_on == ParallelType::TIDx
             ? pred->fusion()->trueVal()
-            : IrBuilder::ltExpr(
-                  NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+            : SimplifyingIrBuilder::logicalAndExpr(
+                  elect_sync_val,
+                  IrBuilder::ltExpr(
+                      NamedScalar::getParallelIndex(ParallelType::TIDx),
+                      warp_size));
         for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
           if (pdim_map.has(pt) && load_warp_on != pt) {
             first_warp = SimplifyingIrBuilder::logicalAndExpr(
@@ -277,7 +280,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
                 IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
           }
         }
-        return SimplifyingIrBuilder::logicalAndExpr(first_warp, elect_sync_val);
       }
       default:
         break;
