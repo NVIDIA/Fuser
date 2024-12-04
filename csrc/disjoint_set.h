@@ -336,6 +336,7 @@ class DisjointSets {
   typename DisjointSetMap::const_iterator end() const {
     return disjoint_set_maps_.end();
   }
+
   // Return the entire disjoint set of provided entry
   const VectorOfUniqueEntries<T, Hash>& getDisjointSetOf(T entry) const {
     auto set_it = disjoint_set_maps_.find(entry);

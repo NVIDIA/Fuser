@@ -3670,10 +3670,14 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+  // Check if new_loop_domain is a valid domain with no
+  // redundancy. The logical domain is used as a reference to find if
+  // there's any ID that's not covered by the new loop domain.
   std::vector<IterDomain*> reference;
   reference.reserve(logical_domain_.size() + additional_ids_.size());
   reference.insert(
       reference.end(), logical_domain_.begin(), logical_domain_.end());
+  // additional_ids_ are also considered part of the refernece domain
   reference.insert(
       reference.end(), additional_ids_.begin(), additional_ids_.end());
   auto [redundant_ids, additional_ids, unreachable_reference_ids] =
