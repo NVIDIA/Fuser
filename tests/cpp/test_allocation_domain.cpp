@@ -850,8 +850,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
 
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "merging of discontiguous dimensions is not allowed in allocation domain")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Merging of discontiguous dimensions")));
 
   auto cg_outputs = ke.run({t0});
 
