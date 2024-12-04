@@ -1368,7 +1368,7 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
 
   if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
     GTEST_SKIP()
-        << "This test uses block reduce, which implies block sync, "
+        << "This test uses block reduce, which uses hard-coded blockDim, "
         << "which can cause deadlock when combined with warp specialization.";
   }
 
@@ -1489,7 +1489,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
     GTEST_SKIP()
         << "This test uses block reduce and block broadcast, "
-        << "which implies block sync, "
+        << "which has hard-coded blockDim, "
         << "which can cause deadlock when combined with warp specialization.";
   }
 
