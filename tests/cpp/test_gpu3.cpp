@@ -6481,7 +6481,6 @@ TEST_F(NVFuserTest, CompareDomainWithReference1) {
   // Adding one of the logical domain, which is redundant.
   domain.push_back(tv1->getLogicalDomain().at(0));
   auto x = ir_utils::compareDomainWithReference(domain, reference);
-  std::cerr << x.toString() << "\n";
   EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference).empty());
 
   tv1->split(0, 4);

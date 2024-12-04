@@ -805,7 +805,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& reference) {
   if (domain.empty()) {
-    return {};
+    return {{}, {}, reference};
   }
   // If domain is not empty but reference is, unclear what it should
   // mean. Throw an error for now.
@@ -859,7 +859,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
       if (already_produced) {
         // This output is redundantly produced. If it's in the
         // original domain, just mark it as a redundant ID. If not,
-        // find the corresnponding IDs out ouf the domain by doing
+        // find the corresnponding IDs out of the domain by doing
         // another BFS analysis
         if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
             domain_dedup.end()) {
@@ -912,7 +912,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   // If there's unreachable reference IDs, however, the unused IDs may have
   // been unused because of missing dependencies, which should not be
   // considered redundant or additional. Different analysis would be
-  // required in that case, which is not imlemented since error
+  // required in that case, which is not implemented since error
   // reporting of this function is best effort.
   if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
     // In order to understand if an unused ID is redundant or just an
@@ -950,7 +950,7 @@ CompareDomainWithReferenceResult compareDomainWithReference(
   // If an output of the path is not used, i.e., not part of the
   // reference domain, it's considered an additional ID. For example,
   // if we have `split i0 -> i1, i2`, and the reference only includes
-  // i1, i2 is considered an additional ID
+  // i1, then i2 is considered an additional ID
   for (const auto output :
        getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
     if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
