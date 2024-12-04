@@ -56,6 +56,8 @@
 #include <sstream>
 #include "parallel_dimension_map.h"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
 namespace nvfuser {
 
 using namespace at::indexing;
@@ -9022,6 +9024,26 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
 
   Val* tidx_dim = gpulw.parallelDimensionMap().get(ParallelType::TIDx);
   ASSERT_TRUE(tidx_dim != nullptr);
+}
+
+TEST_F(NVFuserTest, cuStreamWriteValue32) {
+  constexpr cuuint32_t value = 3;
+  constexpr size_t size = sizeof(cuuint32_t);
+  cudaError_t error;
+  CUdeviceptr pDevice;
+
+  error = cudaMalloc((void**)&pDevice, size);
+  ASSERT_EQ(error, 0);
+
+  cudaStream_t stream;
+  error = cudaStreamCreate(&stream);
+  ASSERT_EQ(error, 0);
+
+  CUresult st;
+  st = cuStreamWriteValue32(stream, pDevice, value, /*flag=*/0);
+  ASSERT_EQ(st, 0);
+
+  torch::cuda::synchronize();
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
