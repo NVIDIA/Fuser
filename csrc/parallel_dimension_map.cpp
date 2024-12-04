@@ -38,9 +38,17 @@ struct hash<PAndID> {
 namespace nvfuser {
 
 void ParallelDimensionMap::build(Fusion* fusion) {
+  VectorOfUniqueEntries<ParallelType> warp_specialized_types;
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
+    if (tv->isCircularBuffered() &&
+        std::holds_alternative<WarpSpecialized>(
+            tv->circularBufferOptions().type)) {
+      const auto& warp_specialized =
+          std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+      warp_specialized_types.pushBack(warp_specialized.on);
+    }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
       if (!isParallelTypeThread(ptype)) {
@@ -83,6 +91,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
+
+  for (auto pt : warp_specialized_types) {
+    setWarpSpecializeOn(pt);
+  }
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
@@ -137,6 +149,18 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
+void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
+  std::cout << "Warp specialize on: " << pt << std::endl;
+  auto dim_it = dim_map_.find(pt);
+  if (dim_it == dim_map_.end()) {
+    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
+  } else {
+    dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_it->second, 1);
+  }
+  exact_types_.erase(pt);
+  warp_specialized_types_.insert(pt);
+}
+
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
   NVF_ERROR(isParallelTypeThread(pt), "Invalid ParallelType: ", pt);
   auto it = dim_map_.find(pt);
@@ -159,12 +183,15 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
-Val* ParallelDimensionMap::getNumThreadsEachBlock() const {
+Val* ParallelDimensionMap::getNumThreadsEachBlockIgnoringWarpSpecialization() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     auto dim = getRaw(pt);
     if (dim == nullptr) {
       continue;
+    }
+    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
+      dim = SimplifyingIrBuilder::addExpr(dim, -1);
     }
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }

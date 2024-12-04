@@ -249,7 +249,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
         Val* first_warp = IrBuilder::ltExpr(
             NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
-        for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+        for (auto pt : {/*ParallelType::TIDy,*/ ParallelType::TIDz}) {
           if (pdim_map.has(pt)) {
             first_warp = SimplifyingIrBuilder::logicalAndExpr(
                 first_warp,

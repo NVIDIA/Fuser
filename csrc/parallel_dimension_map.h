@@ -41,7 +41,7 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
-  Val* getNumThreadsEachBlock() const;
+  Val* getNumThreadsEachBlockIgnoringWarpSpecialization() const;
 
   bool has(ParallelType pt) const {
     return dim_map_.count(pt) > 0;
@@ -52,6 +52,8 @@ class ParallelDimensionMap {
   //! multiple of the warp size.
   void adjustMappingsForWarpPadding();
 
+  void setWarpSpecializeOn(ParallelType pt);
+
  private:
   //! Maps from parallel types to dimensions, which are constant if
   //! a unique value is found.
@@ -59,6 +61,7 @@ class ParallelDimensionMap {
   //! Set of parallel types whose dimensions are identified to be
   //! exactly the same as extents of mapped domains.
   std::unordered_set<ParallelType> exact_types_;
+  std::unordered_set<ParallelType> warp_specialized_types_;
 };
 
 } // namespace nvfuser

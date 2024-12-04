@@ -1464,6 +1464,12 @@ std::ostream& operator<<(
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
       break;
+    case CircularBufferLoopStage::LoadWarp:
+      os << "{LoadWarp}";
+      break;
+    case CircularBufferLoopStage::ComputeWarp:
+      os << "{ComputeWarp}";
+      break;
     default:
       NVF_THROW("unknown circular buffer stage");
   }

@@ -74,7 +74,7 @@ class TVDomainGuard;
 }
 
 // [Circular buffering]
-//
+
 // A non-circle-buffered loop looks like below (assuming both the load and the
 // compute are async ops):
 //   for i in range(data.size):
@@ -184,7 +184,22 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
   return os << "Pipelined";
 }
 
-using CircularBufferType = std::variant<Pipelined>;
+// For example, if `on` is TIDy, then will assign additional TIDy for cirular
+// buffer loading.
+struct WarpSpecialized {
+  ParallelType on;
+  bool operator==(const WarpSpecialized& other) const {
+    return on == other.on;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const WarpSpecialized& warp_specialized) {
+  return os << "WarpSpecializedOn" << warp_specialized.on;
+}
+
+using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
 
 inline std::ostream& operator<<(
     std::ostream& os,
@@ -207,8 +222,9 @@ struct CircularBufferOptions {
   }
 
   bool usesMBarrierForWAR() const {
-    return std::holds_alternative<Pipelined>(type) &&
-        std::get<Pipelined>(type).uses_mbarrier_for_war;
+    return (std::holds_alternative<Pipelined>(type) &&
+            std::get<Pipelined>(type).uses_mbarrier_for_war) ||
+        std::holds_alternative<WarpSpecialized>(type);
     return false;
   }
 

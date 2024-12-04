@@ -3738,6 +3738,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv2->reorder({{-4, -3}});
     tv2->merge(-5);
     tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    std::cout << tv2->axis(-4)->toString() << std::endl;
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         tv2,
         -1,
@@ -3784,8 +3785,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   inlineMost();
 
-  tv0c->circularBuffer(stages, prefetch);
-  tv1c->circularBuffer(stages, prefetch);
+  tv0c->circularBuffer(stages, prefetch, WarpSpecialized{.on=ParallelType::TIDy});
+  tv1c->circularBuffer(stages, prefetch, WarpSpecialized{.on=ParallelType::TIDy});
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
