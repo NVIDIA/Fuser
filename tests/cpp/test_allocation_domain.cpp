@@ -1475,8 +1475,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {
   fusion->addOutput(out);
 
   in->split(0, 2);
-  in->reorder({{1, 0}});
-  in->merge(0);
+  in->merge(1, 0);
   in->setAllocationDomain(in->getLoopDomain(), false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
