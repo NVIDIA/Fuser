@@ -340,6 +340,76 @@ TEST_F(MultiDeviceTest, Transpose) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
+TEST_F(MultiDeviceTest, LoopSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigConcreteTensor({num_devices * 3});
+  in->setDeviceMesh(mesh);
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  for (auto* tv : {in, out}) {
+    tv->split(0, num_devices, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor in_tensor = at::randn({3}, tensor_options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, LoopSplitWithReorder) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigConcreteTensor({2, num_devices * 3});
+  in->setDeviceMesh(mesh);
+  fusion->addInput(in);
+
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  // logical: i{2}, i{3D}
+  // allocation: iDIDx{D}, i{3}, i{2}
+  in->split(1, num_devices, /*inner_split=*/false);
+  in->reorder({{0, -1}});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->split(1, num_devices, /*inner_split=*/false);
+  out->axis(1)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  at::Tensor in_tensor = at::randn({3, 2}, tensor_options).t();
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
 class MultiDeviceBroadcastTest : public MultiDeviceTest,
                                  public testing::WithParamInterface<bool> {};
 
@@ -392,20 +462,28 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
   TensorView* in = TensorViewBuilder()
                        .dtype(DataType::Float)
                        .contiguity({std::nullopt, true})
-                       .shape({3, -1})
+                       .shape({num_devices * 3, -1})
                        .expanded({true, false})
                        .build();
   in->setDeviceMesh(mesh);
-  if (parallelizes_broadcast) {
-    in->axis(0)->parallelize(ParallelType::DIDx);
-  }
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
+  if (parallelizes_broadcast) {
+    for (auto* tv : {in, out}) {
+      tv->split(0, num_devices, /*inner_split=*/false);
+      tv->axis(0)->parallelize(ParallelType::DIDx);
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+    }
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn({8}, options).as_strided({3, 8}, {0, 1});
+  at::Tensor in_tensor =
+      at::randn({8}, options)
+          .as_strided(
+              {parallelizes_broadcast ? 3 : num_devices * 3, 8}, {0, 1});
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);

@@ -40,7 +40,7 @@ def setup_process_group(mpi_test) -> None:
 # ```bash
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
-# and then display the status using e.g. `nsys stats --report=cuda_gpu_kernel_sum report1.nsys-rep`.
+# and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
@@ -65,6 +65,9 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
         hidden_size,
         ffn_hidden_size,
         num_heads,
+        # https://github.com/NVIDIA/TransformerEngine/issues/1350: the
+        # benchmark fails to execute on H100 with the default format (SBHD).
+        attn_input_format="bshd",
         set_parallel_mode=True,
         tp_group=dist.group.WORLD,
     )

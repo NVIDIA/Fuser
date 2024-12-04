@@ -586,12 +586,8 @@ struct DimsOpRecord : RecordFunctor {
       auto arg =
           fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = set(arg);
-      int rank = static_cast<int>(dims_.size());
-      std::vector<IterDomain*> allocation_domain(rank);
-      for (int i : c10::irange(rank)) {
-        allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
-            output->axis(i);
-      }
+      std::vector<IterDomain*> allocation_domain =
+          ir_utils::strideOrderToAllocation(output->getLogicalDomain(), dims_);
       output->setAllocationDomain(allocation_domain, true);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
@@ -1538,11 +1534,9 @@ struct OutputRecord : RecordFunctor {
       if constexpr (std::is_same_v<OutputType, TensorView>) {
         auto tv_output = output->template as<TensorView>();
         if (!stride_order_.empty()) {
-          size_t rank = stride_order_.size();
-          std::vector<IterDomain*> allocation_domain(rank);
-          for (auto i : c10::irange(rank)) {
-            allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
-          }
+          auto logical_domain = tv_output->getLogicalDomain();
+          std::vector<IterDomain*> allocation_domain =
+              ir_utils::strideOrderToAllocation(logical_domain, stride_order_);
           tv_output->setAllocationDomain(allocation_domain, true);
         }
         fd.addOutput(tv_output, args_.at(0).index);

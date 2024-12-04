@@ -3114,6 +3114,7 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
 }
 
 using HopperMatmulSchedulerTestParams = std::tuple<
+    bool, // use_smem_epilogue
     bool, // a_k_inner
     bool, // b_k_inner
     int64_t, // M
@@ -3124,12 +3125,16 @@ using HopperMatmulSchedulerTestParams = std::tuple<
 std::string hopperTestName(
     const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
   std::ostringstream os;
+  bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
-  std::tie(a_k_inner, b_k_inner, M, N, K) = info.param;
+  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = info.param;
   os << (a_k_inner ? "K" : "M");
   os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
+  if (use_smem_epilogue) {
+    os << "_tma_store";
+  }
   return os.str();
 }
 
@@ -3139,7 +3144,7 @@ class HopperMatmulSchedulerTest
   void SetUp() {
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
-    std::tie(a_k_inner, b_k_inner, M, N, K) = GetParam();
+    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = GetParam();
 
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
@@ -3162,6 +3167,8 @@ class HopperMatmulSchedulerTest
     mparams.supported_vec_size = {8, 8, 4};
 
     mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+
+    mparams.use_smem_epilogue = use_smem_epilogue;
 
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
@@ -3193,6 +3200,7 @@ class HopperMatmulSchedulerTest
   }
 
  protected:
+  bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
   std::unique_ptr<Fusion> fusion_up;
@@ -3270,6 +3278,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     HopperMatmulSchedulerTest,
     testing::Combine(
+        testing::Bool(), // use_smem_epilogue
         testing::Bool(), // a_k_inner
         testing::Bool(), // b_k_inner
         testing::Values(512), // M

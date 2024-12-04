@@ -1883,7 +1883,12 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       std::vector<IterDomain*> new_alloc;
       new_alloc.reserve(tv->getAllocationDomain().size());
       for (IterDomain* alloc_id : tv->getAllocationDomain()) {
-        new_alloc.push_back(replay.getReplay().at(alloc_id));
+        IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
+        // ReplayTransformations replay transforms but not paralelization, so
+        // we have to manually parallelize the new allocation ID. In other
+        // places, parallelization is usually done through parallelizeAllLike.
+        new_alloc_id->parallelize(alloc_id->getParallelType());
+        new_alloc.push_back(new_alloc_id);
       }
 
       std::vector<IterDomain*> new_loop;
