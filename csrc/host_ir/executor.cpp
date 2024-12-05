@@ -12,7 +12,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
-#include <multidevice/lower_communication.h>
+#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -34,14 +34,14 @@ bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && isLowerableToCommunication(e);
+        return isResharding(e) && HostIrLower::canLower(e);
       })) {
     NVF_ERROR(
         std::all_of(
             exprs.begin(),
             exprs.end(),
             [](Expr* e) {
-              return isResharding(e) && isLowerableToCommunication(e);
+              return isResharding(e) && HostIrLower::canLower(e);
             }),
         "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
     return true;
@@ -68,7 +68,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
       std::vector<Communication*> communications =
-          lowerCommunication(cloner.clone(e));
+          HostIrLower::lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }

@@ -10,7 +10,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <multidevice/device_mesh.h>
-#include <multidevice/lower_communication.h>
+#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <limits>
@@ -226,7 +226,7 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<Communication*> lowerCommunication(Expr* c) {
+std::vector<Communication*> HostIrLower::lower(Expr* c) {
   FusionGuard fg(c->fusion());
 
   std::vector<Communication*> comms;
@@ -251,7 +251,7 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
       isSharded(output_tv) && receiver_mesh.size() > 1;
 
   NVF_ERROR(
-      isLowerableToCommunication(c),
+      HostIrLower::canLower(c),
       "Lowering expression ",
       c->toString(),
       " to communication is not supported");
@@ -296,7 +296,7 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
   return comms;
 }
 
-bool isLowerableToCommunication(Expr* expr) {
+bool HostIrLower::canLower(Expr* expr) {
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }

@@ -13,11 +13,14 @@
 
 namespace nvfuser {
 
-// Returns whether we support transforming a given expression into a series
-// of communication.
-bool isLowerableToCommunication(Expr* expr);
+class HostIrLower {
+ public:
+  // Returns whether we support transforming a given expression into a series
+  // of communication.
+  static bool canLower(Expr* expr);
 
-// Lower a PipelineCommunication into a series of Communication.
-std::vector<Communication*> lowerCommunication(Expr* c);
+  // Lower a sharded Expr into a series of Communication.
+  static std::vector<Communication*> lower(Expr* c);
+};
 
 } // namespace nvfuser

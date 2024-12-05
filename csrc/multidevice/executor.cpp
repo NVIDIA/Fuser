@@ -16,7 +16,7 @@
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
-#include <multidevice/lower_communication.h>
+#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/make_resharding_contiguous.h>
@@ -91,7 +91,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
       std::vector<Communication*> communications =
-          lowerCommunication(ir_cloner.clone(group->exprs().at(0)));
+          HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)));
       for (Communication* communication : communications) {
         // Allocate the recv buffers of communications
         TensorView* tv = communication->out();

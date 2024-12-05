@@ -13,7 +13,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <multidevice/lower_communication.h>
+#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>

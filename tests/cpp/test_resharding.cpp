@@ -13,7 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
-#include <multidevice/lower_communication.h>
+#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/insert_reshardings.h>
@@ -40,7 +40,7 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     // FusionExecutorCache, simplify validation by using
     // FusionExecutorCache::getMostRecentKernelRuntime()->fusionSegments()->groups().
     for (auto expr : fusion_->exprs()) {
-      EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
+      EXPECT_TRUE(!isResharding(expr) || HostIrLower::canLower(expr))
           << "on expr=" << expr;
     }
 

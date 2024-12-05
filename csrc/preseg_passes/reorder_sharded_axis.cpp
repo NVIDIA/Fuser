@@ -12,7 +12,7 @@
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
-#include <multidevice/lower_communication.h>
+#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
