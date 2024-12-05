@@ -28,7 +28,11 @@ __device__ void warpReduceTIDX(
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   constexpr int WARP_SIZE = 32;
 
   // Assume input padded to multiples of a warp
@@ -49,9 +53,9 @@ __device__ void warpReduceTIDX(
   if (!SINGLE_WARP) {
     unsigned int warp_idx = threadIdx.x / WARP_SIZE;
     unsigned int lane_idx = threadIdx.x % WARP_SIZE;
-    unsigned int reduce_group_id = threadIdx.z * blockDim.y + threadIdx.y;
+    unsigned int reduce_group_id = threadIdx.z * block_dim.y + threadIdx.y;
     bool is_warp_head = lane_idx == 0;
-    unsigned int reduction_size = blockDim.x;
+    unsigned int reduction_size = block_dim.x;
     unsigned int num_of_warps = reduction_size / WARP_SIZE;
     unsigned int smem_offset = reduce_group_id * num_of_warps;
 

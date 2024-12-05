@@ -127,24 +127,28 @@ __inline__ __device__ void blockWelford(
     TN* shared_mem_N,
     bool read_pred,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   // If this thread will output a final result
   bool should_write =
       index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
 
   // Size of the reduction segments
   unsigned int reduction_size =
-      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(blockDim);
+      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(block_dim);
 
   // Index into the reduction segment
   unsigned int reduction_tid =
       index_utils::maskedOffset<X_REDUCE, Y_REDUCE, Z_REDUCE>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Index of the reduction segment
   unsigned int reduction_idx =
       index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Offset into smem for the current thread
   unsigned int smem_offset = reduction_idx * reduction_size + reduction_tid;
@@ -230,6 +234,10 @@ __inline__ __device__ void blockWelford(
     const T& in_avg,
     const T& in_M2,
     const TN& in_N,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim,
     T* shared_mem_avg,
     T* shared_mem_M2,
     TN* shared_mem_N,
@@ -242,6 +250,7 @@ __inline__ __device__ void blockWelford(
       in_avg,
       in_M2,
       in_N,
+      block_dim,
       shared_mem_avg,
       shared_mem_M2,
       shared_mem_N,
@@ -273,6 +282,10 @@ __device__ void gridWelfordLastBlock(
                                      // grid reduce dimensions
     const nvfuser_index_t
         block_reduction_segment_size, // Number of reductions across the block
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim,
     T* shared_buf_avg,
     T* shared_buf_M2,
     TN* shared_buf_N,
@@ -286,18 +299,18 @@ __device__ void gridWelfordLastBlock(
   // Find the reduction id of the participating threads
   const auto block_reduction_segment_idx =
       index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Find an id associated within a reduction segment for all
   // "non-participating" threads, which will parallelize the reductions for the
   // "participating" threads
   const auto id_in_block_segment =
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Stride by the "non-participating" threads
   const auto input_stride_for_thread_in_segment =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   T inp_avg = init_val;
   T inp_M2 = init_val;
@@ -329,6 +342,7 @@ __device__ void gridWelfordLastBlock(
       inp_avg,
       inp_M2,
       inp_N,
+      block_dim,
       shared_buf_avg,
       shared_buf_M2,
       shared_buf_N,
@@ -371,7 +385,11 @@ __device__ void gridWelford(
     bool write_pred,
     T init_val,
     const nvfuser_index_t entrance_ind,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   // entrance index only matters for non-persistent re-entrant grid reductions.
   const nvfuser_index_t entrance_ind_ = PERSISTENT_REDUCTION ? 0 : entrance_ind;
   const nvfuser_index_t n_entrances_ = PERSISTENT_REDUCTION ? 1 : n_entrances;
@@ -389,7 +407,7 @@ __device__ void gridWelford(
   // Number of threads we can use in final reduction, Seems to assume all
   // threads in the block participate
   const auto block_reduction_segment_size =
-      index_utils::maskedSize<X_THREAD, Y_THREAD, Z_THREAD>(blockDim);
+      index_utils::maskedSize<X_THREAD, Y_THREAD, Z_THREAD>(block_dim);
 
   // Number of reductions in the grid
   const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
@@ -411,7 +429,7 @@ __device__ void gridWelford(
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
         index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
     auto work_buf_offset =
         block_offset * block_reduction_segment_size + thread_offset;
     if (read_pred) {
@@ -449,6 +467,7 @@ __device__ void gridWelford(
         work_buf_N,
         grid_reduction_segment_size,
         block_reduction_segment_size,
+        block_dim,
         shared_buf_avg,
         shared_buf_M2,
         shared_buf_N,

@@ -21,13 +21,17 @@ __device__ void blockBroadcast(
     T& out,
     const T& inp_val,
     T* shared_mem,
-    bool read_write_pred) {
+    bool read_write_pred,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   const bool has_valid_data = (!X_THREAD || threadIdx.x == 0) &&
       (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
 
   const auto shared_offset =
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   if (has_valid_data && read_write_pred) {
     shared_mem[shared_offset] = inp_val;

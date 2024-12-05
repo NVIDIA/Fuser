@@ -229,6 +229,10 @@ __device__ __inline__ void ParallelReduce<
         const DataType in_avg[NumVals],
         const DataType in_var[NumVals],
         nvfuser_index_t in_N,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         DataType* global_buf_avg,
         DataType* global_buf_var,
         nvfuser_index_t* global_buf_N,
@@ -258,7 +262,7 @@ __device__ __inline__ void ParallelReduce<
 
   auto iter_tid = index_utils::
       maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   auto per_block_result =
       impl::blockWelfordOuter<Aligned, NumVals, DataType, BDIMX, BDIMY>(
@@ -321,6 +325,7 @@ __device__ __inline__ void ParallelReduce<
           partial_results.avg_.array,
           partial_results.var_.array,
           partial_results.N_,
+          block_dim,
           shared_buf);
 
   // At this point, each thread of the groups with tid_in_group=0
@@ -378,6 +383,10 @@ __device__ __inline__ void ParallelReduce<
         const DataType in_avg[NumVals],
         const DataType in_var[NumVals],
         nvfuser_index_t in_N,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         DataType* global_buf_avg,
         DataType* global_buf_var,
         nvfuser_index_t* global_buf_N,
@@ -402,6 +411,7 @@ __device__ __inline__ void ParallelReduce<
       global_buf_avg,
       global_buf_var,
       global_buf_N,
+      block_dim,
       shared_buf,
       global_sync_buffer);
 

@@ -34,7 +34,11 @@ __device__ void broadcast(
     const T& inp_val,
     volatile T* work_buf,
     Tensor<int64_t, 1> sync_flags,
-    bool read_write_pred) {
+    bool read_write_pred,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   // Number of values broadcasted in the grid dimensions
   const auto grid_seg_size =
       index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
@@ -47,13 +51,13 @@ __device__ void broadcast(
   // Number of threads not participating in a broadcast dimension, this is the
   // number of thread entries to expect in the work buffer, therefore a striding
   const auto block_stride =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   // Which broadcast in the block this is to line up the entry with the work
   // buffer
   const auto thread_offset =
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   const bool has_valid_data = (!X_BLOCK || blockIdx.x == gridDim.x - 1) &&
       (!Y_BLOCK || blockIdx.y == gridDim.y - 1) &&

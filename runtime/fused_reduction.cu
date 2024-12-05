@@ -477,6 +477,10 @@ class ParallelReduce {
       bool read_pred, // Prevent reading from out of bounds memory
       bool write_pred, // Prevent from writing out of bounds
       const LocalTuple<Types...>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       Func reduction_op);
 
   //! Profiled version
@@ -491,6 +495,10 @@ class ParallelReduce {
       bool read_pred, // Prevent reading from out of bounds memory
       bool write_pred, // Prevent from writing out of bounds
       const LocalTuple<Types...>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       Func reduction_op,
       int64_t& cycles,
       int64_t& count);
@@ -513,6 +521,10 @@ class ParallelReduce {
       const ConstRefTuple<DataTypes...>& inp,
       VolatilePtrTuple<DataTypes...> global_work_buffer,
       const LocalTuple<DataTypes...>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       int64_t* global_sync_buffer,
       void* shared_mem,
       const LocalTuple<BoolTypes...>& read_preds,
@@ -530,6 +542,10 @@ class ParallelReduce {
       const ConstRefTuple<DataTypes...>& inp,
       VolatilePtrTuple<DataTypes...> global_work_buffer,
       const LocalTuple<DataTypes...>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       int64_t* global_sync_buffer,
       void* shared_mem,
       const LocalTuple<BoolTypes...>& read_preds,
@@ -568,6 +584,10 @@ class ParallelReduce {
           global_work_buffer_var,
       typename MakeVolatilePtrTuple<NumArgs, IndexType>::type
           global_work_buffer_N,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       int64_t* global_sync_buffer,
       PtrTuple<DataType, DataType, IndexType> shared_buf,
       const typename MakeLocalTuple<NumArgs, bool>::type& read_preds,
@@ -591,6 +611,10 @@ class ParallelReduce {
           global_work_buffer_var,
       typename MakeVolatilePtrTuple<NumArgs, IndexType>::type
           global_work_buffer_N,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       int64_t* global_sync_buffer,
       PtrTuple<DataType, DataType, IndexType> shared_buf,
       const typename MakeLocalTuple<NumArgs, bool>::type& read_preds,
@@ -609,6 +633,10 @@ class ParallelReduce {
       const DataType in_avg[NumVals],
       const DataType in_var[NumVals],
       nvfuser_index_t in_N,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       DataType* global_buf_avg,
       DataType* global_buf_var,
       nvfuser_index_t* global_buf_N,
@@ -627,6 +655,10 @@ class ParallelReduce {
       DataType* global_buf_avg,
       DataType* global_buf_var,
       nvfuser_index_t* global_buf_N,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       DataType* shared_buf,
       int64_t* global_sync_buffer,
       int64_t& cycles,
@@ -657,6 +689,10 @@ class ParallelReduce {
   __device__ __inline__ static LocalTuple<DataTypes...> reduceGroupBlock(
       const ConstRefTuple<DataTypes...>& inp,
       const LocalTuple<DataTypes...>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       void* shared_mem,
       const LocalTuple<BoolTypes...>& read_preds,
       bool block_reduce_participate,
@@ -675,6 +711,10 @@ class ParallelReduce {
       RefTuple<DataTypes...>& out,
       const VolatilePtrTuple<DataTypes...>& global_work_buffer,
       const LocalTuple<DataTypes...>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       void* shared_mem,
       nvfuser_index_t block_red_idx_offset,
       nvfuser_index_t num_thread_iters,
@@ -698,7 +738,11 @@ class ParallelReduce {
       const ConstRefWelfordTripletTuple<NumVals, DataType, IndexType>& inp,
       PtrTuple<DataType, DataType, IndexType> shared_buf,
       const typename MakeLocalTuple<NumVals, bool>::type& read_preds,
-      bool block_reduce_participate);
+      bool block_reduce_participate,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim);
 
   //! Welford version of reduceGrouplLastBlock
   template <bool Aligned, int NumVals, typename DataType, typename IndexType>
@@ -715,7 +759,11 @@ class ParallelReduce {
       nvfuser_index_t grid_red_size,
       const typename MakeLocalTuple<NumVals, bool>::type& write_preds,
       bool block_reduce_participate,
-      bool grid_reduce_participate);
+      bool grid_reduce_participate,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim);
 
   // End Parallel reduce class
 };
@@ -749,6 +797,10 @@ __device__ __inline__ void ParallelReduce<
         bool read_pred, // Prevent reading from out of bounds memory
         bool write_pred, // Prevent from writing out of bounds
         const LocalTuple<Types...>& init_val,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         Func reduction_op) {
   // If no reduction needed, just return input
   if (!BLOCK_REDUCE && !GRID_REDUCE) {
@@ -785,14 +837,14 @@ __device__ __inline__ void ParallelReduce<
     // to number of threads
     int block_reduction_size = index_utils::
         maskedSize<isReduce(X_THREAD), isReduce(Y_THREAD), isReduce(Z_THREAD)>(
-            blockDim);
+            block_dim);
 
     // Index in the reduction segment, can be an int since it's limited to
     // number of threads
     int tid_in_block_reduction = index_utils::maskedOffset<
         isReduce(X_THREAD),
         isReduce(Y_THREAD),
-        isReduce(Z_THREAD)>(threadIdx, blockDim);
+        isReduce(Z_THREAD)>(threadIdx, block_dim);
 
     // ID of the block reduction this thread is participating in
     //
@@ -802,7 +854,7 @@ __device__ __inline__ void ParallelReduce<
     // dimension
     int block_reduction_idx = index_utils::
         maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
 
     // Shared memory buffer is 2D
     // [iter dimension, reduction dimension]
@@ -929,7 +981,7 @@ __device__ __inline__ void ParallelReduce<
                 gridDim) *
         index_utils::
             maskedSize<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-                blockDim) *
+                block_dim) *
         grid_red_size;
     global_work_buffer += global_buffer_size;
   }
@@ -948,13 +1000,13 @@ __device__ __inline__ void ParallelReduce<
   // How many grid reductions have to be performed, in the block dimension
   const auto num_thread_iters = index_utils::
       maskedSize<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          blockDim);
+          block_dim);
 
   // Which grid reduction does this thread participate in, in the block
   // dimension
   const auto thread_red_idx_offset = index_utils::
       maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // 3D buffer of reductions:
   //    [reduction_offset(grid), iter_offset(grid), iter_offset(block)]
@@ -1011,12 +1063,12 @@ __device__ __inline__ void ParallelReduce<
     int tid_in_block_reduction_2 = index_utils::maskedOffset<
         activeNotIter(X_THREAD),
         activeNotIter(Y_THREAD),
-        activeNotIter(Z_THREAD)>(threadIdx, blockDim);
+        activeNotIter(Z_THREAD)>(threadIdx, block_dim);
 
     int block_reduction_size_2 = index_utils::maskedSize<
         activeNotIter(X_THREAD),
         activeNotIter(Y_THREAD),
-        activeNotIter(Z_THREAD)>(blockDim);
+        activeNotIter(Z_THREAD)>(block_dim);
 
     // 3D buffer of reductions:
     //    [reduction_offset(grid), iter_offset(grid), iter_offset(block)]
@@ -1049,7 +1101,7 @@ __device__ __inline__ void ParallelReduce<
     // Which block reduction this thread is participating in
     int block_reduction_idx = index_utils::
         maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
 
     // Offset in smem for this thread's result
     auto smem_offset =
@@ -1167,6 +1219,10 @@ __device__ __inline__ void ParallelReduce<
         bool read_pred, // Prevent reading from out of bounds memory
         bool write_pred, // Prevent from writing out of bounds
         const LocalTuple<Types...>& init_val,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         Func reduction_op,
         int64_t& cycles,
         int64_t& count) {
@@ -1186,6 +1242,7 @@ __device__ __inline__ void ParallelReduce<
       read_pred,
       write_pred,
       init_val,
+      block_dim,
       reduction_op);
 
   if (isLastBlockInGrid() &&
@@ -1223,6 +1280,10 @@ __device__ __inline__ void ParallelReduce<
         const ConstRefTuple<DataTypes...>& inp,
         VolatilePtrTuple<DataTypes...> global_work_buffer,
         const LocalTuple<DataTypes...>& init_val,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         int64_t* global_sync_buffer,
         void* shared_mem,
         const LocalTuple<BoolTypes...>& read_preds,
@@ -1309,13 +1370,13 @@ __device__ __inline__ void ParallelReduce<
   // How many grid reductions have to be performed, in the block dimension
   const auto num_thread_iters = index_utils::
       maskedSize<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          blockDim);
+          block_dim);
 
   // Which grid reduction does this thread participate in, in the block
   // dimension
   const auto thread_red_idx_offset = index_utils::
       maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // 3D buffer of reductions:
   //    [reduction_offset(grid), iter_offset(grid), iter_offset(block)]
@@ -1336,7 +1397,7 @@ __device__ __inline__ void ParallelReduce<
                 gridDim) *
         index_utils::
             maskedSize<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-                blockDim) *
+                block_dim) *
         grid_red_size;
     global_work_buffer += global_buffer_size;
   }
@@ -1370,6 +1431,7 @@ __device__ __inline__ void ParallelReduce<
       out,
       global_work_buffer,
       init_val,
+      block_dim,
       shared_mem,
       block_red_idx_offset,
       num_thread_iters,
@@ -1413,6 +1475,10 @@ __device__ __inline__ void ParallelReduce<
         const ConstRefTuple<DataTypes...>& inp,
         VolatilePtrTuple<DataTypes...> global_work_buffer,
         const LocalTuple<DataTypes...>& init_val,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         int64_t* global_sync_buffer,
         void* shared_mem,
         const LocalTuple<BoolTypes...>& read_preds,
@@ -1432,6 +1498,7 @@ __device__ __inline__ void ParallelReduce<
       inp,
       global_work_buffer,
       init_val,
+      block_dim,
       global_sync_buffer,
       shared_mem,
       read_preds,
@@ -1472,6 +1539,10 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
     reduceGroupBlock(
         const ConstRefTuple<DataTypes...>& inp,
         const LocalTuple<DataTypes...>& init_val,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         void* shared_mem,
         const LocalTuple<BoolTypes...>& read_preds,
         bool block_reduce_participate,
@@ -1489,13 +1560,13 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
   // to number of threads
   const int block_reduction_size = index_utils::
       maskedSize<isReduce(X_THREAD), isReduce(Y_THREAD), isReduce(Z_THREAD)>(
-          blockDim);
+          block_dim);
 
   // Index in the reduction segment, can be an int since it's limited to
   // number of threads
   const int tid_in_block_reduction = index_utils::
       maskedOffset<isReduce(X_THREAD), isReduce(Y_THREAD), isReduce(Z_THREAD)>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // ID of the block reduction this thread is participating in
   //
@@ -1505,7 +1576,7 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
   // dimension
   const int block_reduction_idx = index_utils::
       maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Do not protect the smem buffer as it's not always necessary.
   impl::blockReduceEach<
@@ -1516,6 +1587,7 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
       Funcs...>(
       block_result,
       block_result,
+      block_dim,
       shared_mem,
       has_block_result,
       tid_in_block_reduction,
@@ -1554,6 +1626,10 @@ __device__ __inline__ void ParallelReduce<
         RefTuple<DataTypes...>& out,
         const VolatilePtrTuple<DataTypes...>& global_work_buffer,
         const LocalTuple<DataTypes...>& init_val,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         void* shared_mem,
         nvfuser_index_t block_red_idx_offset,
         nvfuser_index_t num_thread_iters,
@@ -1583,12 +1659,12 @@ __device__ __inline__ void ParallelReduce<
     int tid_in_block_reduction = index_utils::maskedOffset<
         activeNotIter(X_THREAD),
         activeNotIter(Y_THREAD),
-        activeNotIter(Z_THREAD)>(threadIdx, blockDim);
+        activeNotIter(Z_THREAD)>(threadIdx, block_dim);
 
     int block_reduction_size = index_utils::maskedSize<
         activeNotIter(X_THREAD),
         activeNotIter(Y_THREAD),
-        activeNotIter(Z_THREAD)>(blockDim);
+        activeNotIter(Z_THREAD)>(block_dim);
 
     bool has_block_result = index_utils::maskedIsZero<
         activeNotIter(X_THREAD),
@@ -1620,7 +1696,7 @@ __device__ __inline__ void ParallelReduce<
     // Which block reduction this thread is participating in
     int block_reduction_idx = index_utils::
         maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
 
     impl::blockReduceEach<
         BROADCAST,
@@ -1630,6 +1706,7 @@ __device__ __inline__ void ParallelReduce<
         Funcs...>(
         last_block_result,
         last_block_result,
+        block_dim,
         shared_mem,
         has_block_result,
         tid_in_block_reduction,
