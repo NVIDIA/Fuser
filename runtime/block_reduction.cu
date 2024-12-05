@@ -116,7 +116,7 @@ __device__ void blockReduce(
   } else {
     shared_mem[smem_offset] = init_val;
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Reduce down to nearest power of 2 for the tree reduction:
   int np2 = 1 << (31 - __clz(reduction_size));
@@ -133,7 +133,7 @@ __device__ void blockReduce(
     }
     reduction_op(shared_mem[smem_offset], shared_mem[peer_offset]);
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
@@ -150,7 +150,7 @@ __device__ void blockReduce(
       }
       reduction_op(shared_mem[smem_offset], shared_mem[peer_offset]);
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 
   if (should_write && write_pred) {
@@ -161,7 +161,7 @@ __device__ void blockReduce(
     }
     out = result;
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Use the same pred for both reads and writes
@@ -255,7 +255,7 @@ __device__ void blockIterGroupedYdimReduce(
         shared_mem + smem_offset_inter * i + smem_offset_intra,
         const_cast<T*>(inp_val) + i * elements_per_load);
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Reduce down to nearest power of 2 for the tree reduction:
   // Perform parallel reduction for each element in the array
@@ -286,7 +286,7 @@ __device__ void blockIterGroupedYdimReduce(
           shared_mem + self_offset, self + i * elements_per_load);
     }
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Tree reduction
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
@@ -316,7 +316,7 @@ __device__ void blockIterGroupedYdimReduce(
             shared_mem + self_offset, self + i * elements_per_load);
       }
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 
   // last reduction
@@ -361,7 +361,7 @@ __device__ void blockIterGroupedYdimReduce(
       out[i] = result[i];
     }
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Use the same pred for both reads and writes
