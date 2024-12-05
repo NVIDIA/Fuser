@@ -18,6 +18,7 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include "id_model/utils.h"
 #include "val_graph_visitor.h"
 
 namespace nvfuser {
@@ -208,51 +209,29 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     if (consumer->definition()->isA<MmaOp>()) {
       // Fill ValGraph and grab all ValGroups on path from producer alloc to
       // consumer loop.
-      IdModel& id_model = GpuLower::current()->idModel();
-      id_model.maybeBuildGraph(IdMappingMode::LOOP);
-      const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+
+      const IdModel& id_model = GpuLower::current()->idModel();
+      graph = &GpuLower::current()->tensorIndexer().traversalGraph();
 
       // We flow from mapped IDs to the consumer's loop domain
-      ValGroups alloc_groups;
+      std::vector<ValGroup> alloc_groups;
       for (IterDomain* id : producer->getMaybeAllocationDomain()) {
+        id = getLoopPromotion(id, id_model);
         if (!id->isBroadcast() && !id->isReduction()) {
-          alloc_groups.pushBack(loop_graph.toGroup(id));
+          alloc_groups.push_back(graph->toGroup(id));
         }
       }
-      ValGroups loop_groups;
+      std::vector<ValGroup> loop_groups;
       for (IterDomain* id : consumer->getLoopDomain()) {
-        loop_groups.pushBack(loop_graph.toGroup(id));
+        id = getLoopPromotion(id, id_model);
+        loop_groups.push_back(graph->toGroup(id));
       }
 
-      const auto [path, all_reached] = ValGraphBFS::getExprGroupsBetween(
-          loop_graph,
-          /*from=*/alloc_groups,
-          /*to=*/loop_groups,
-          /*require_all_to_visited=*/false);
+      std::vector<ValGroup> indexing_groups =
+          getValsBetween<ValGraphBFS>(alloc_groups, loop_groups, *graph);
 
-      if (!all_reached) {
-        // If we reached all loop groups, there's no need to perform this check
-        graph = &loop_graph;
-        alloc_to_loop_groups.insert(alloc_groups.begin(), alloc_groups.end());
-        for (const auto& [expr_group, direction] : path) {
-          const std::vector<ValGroup> prev_groups =
-              direction == Direction::Forward
-              ? loop_graph.inputGroups(expr_group)
-              : loop_graph.outputGroups(expr_group);
-          const std::vector<ValGroup> next_groups =
-              direction == Direction::Forward
-              ? loop_graph.outputGroups(expr_group)
-              : loop_graph.inputGroups(expr_group);
-          if (std::any_of(
-                  prev_groups.begin(),
-                  prev_groups.end(),
-                  [&alloc_to_loop_groups](const ValGroup& group) {
-                    return alloc_to_loop_groups.count(group) > 0;
-                  })) {
-            alloc_to_loop_groups.insert(next_groups.begin(), next_groups.end());
-          }
-        }
-      }
+      alloc_to_loop_groups.insert(
+          indexing_groups.begin(), indexing_groups.end());
     }
     ProducerConsumerPairAnalyzer analyzer(c2p, graph, alloc_to_loop_groups);
 
