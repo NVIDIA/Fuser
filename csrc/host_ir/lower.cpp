@@ -6,21 +6,20 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
+#include <fusion_segmenter.h>
+#include <host_ir/lower.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <multidevice/device_mesh.h>
-#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <limits>
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
-#include <fusion_segmenter.h>
 #include <runtime/fusion_kernel_runtime.h>
-
+#include <limits>
 
 namespace nvfuser {
 
@@ -332,7 +331,9 @@ bool HostIrLower::canLower(Expr* expr) {
   }
 }
 
-std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(std::unique_ptr<Fusion> fusion, int64_t my_device_index) {
+std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
+    std::unique_ptr<Fusion> fusion,
+    int64_t my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
   preseg_passes::OptimizationPass<
@@ -341,8 +342,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(std::unique_ptr<Fusion>
       preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
       preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<preseg_passes::MakeReshardingContiguousPass>::
-      runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::MakeReshardingContiguousPass>::runPass(fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
@@ -355,8 +356,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(std::unique_ptr<Fusion>
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
   std::unique_ptr<SegmentedFusion> staged_fusion =
-      SegmentCandidateFinder::segment(
-          std::move(fusion), nullptr, options);
+      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
   RuntimeWorkSpace workspace;
@@ -391,9 +391,13 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(std::unique_ptr<Fusion>
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
-      for (auto* expr : HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
+      for (auto* expr :
+           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
         // Allocate the recv buffers of communications
-        NVF_ERROR(expr->isA<Communication>(), "Expected a Communication but got ", expr);
+        NVF_ERROR(
+            expr->isA<Communication>(),
+            "Expected a Communication but got ",
+            expr);
         auto* communication = expr->as<Communication>();
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(my_device_index)) {

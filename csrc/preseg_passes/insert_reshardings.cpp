@@ -9,11 +9,11 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/lower.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 

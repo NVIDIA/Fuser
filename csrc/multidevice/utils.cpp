@@ -7,13 +7,13 @@
 // clang-format on
 
 #include <device_lower/utils.h>
+#include <host_ir/lower.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>

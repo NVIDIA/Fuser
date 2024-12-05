@@ -7,8 +7,8 @@
 // clang-format on
 
 #include <alias_analysis.h>
-#include <ir/utils.h>
 #include <host_ir/lower.h>
+#include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>

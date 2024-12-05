@@ -14,7 +14,6 @@
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
-#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <runtime/allocations.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -26,8 +25,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     Communicator& comm,
     hir::HostIrEvaluatorParams params)
     : comm_(comm) {
-
-  std::unique_ptr<hir::HostIrContainer> hic = HostIrLower::lower(std::move(fusion), comm.deviceId());
+  std::unique_ptr<hir::HostIrContainer> hic =
+      HostIrLower::lower(std::move(fusion), comm.deviceId());
   // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
       std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);

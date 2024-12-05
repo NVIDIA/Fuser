@@ -11,10 +11,10 @@
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
-#include <host_ir/lower.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -69,8 +69,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications =
-          HostIrLower::lower(cloner.clone(e));
+      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -236,10 +235,9 @@ std::string HostIrEvaluator::canRun() const {
   }
 
   if (requested_n_gpus > communicator_->size()) {
-    return "the fusion requests " +
-        std::to_string(requested_n_gpus) +
-        " GPUs to run, but there are only " + std::to_string(communicator_->size()) +
-        " ranks in the communicator";
+    return "the fusion requests " + std::to_string(requested_n_gpus) +
+        " GPUs to run, but there are only " +
+        std::to_string(communicator_->size()) + " ranks in the communicator";
   }
 
   if (communicator_->local_size() > at::cuda::getNumGPUs()) {

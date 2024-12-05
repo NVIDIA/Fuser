@@ -85,8 +85,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
   ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
   for (int i : c10::irange(fusion->outputs().size())) {
     ASSERT_TRUE(fusion->outputs().at(i)->isA<TensorView>());
-    auto output_tv =
-        fusion->outputs().at(i)->as<TensorView>();
+    auto output_tv = fusion->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
@@ -126,7 +125,9 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::make_unique<Fusion>(*fusion), *communicator_, host_ir_executor_params);
+      std::make_unique<Fusion>(*fusion),
+      *communicator_,
+      host_ir_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
