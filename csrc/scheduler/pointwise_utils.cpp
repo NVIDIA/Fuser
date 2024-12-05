@@ -155,17 +155,18 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
   });
   all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
 
-  std::unordered_set<IterDomain*> covered_expanded_ids;
+  std::unordered_set<IterDomain*> covered_source_ids;
   for (const auto& exact_set_ptr : all_covered_exact_sets) {
     IterDomain* id = exact_set_ptr->front();
-    if (id->hasExpandedExtent()) {
-      covered_expanded_ids.insert(exact_set_ptr->front());
+    // if (id->hasExpandedExtent()) {
+    if (ca_map_.uniqueExactDefinitions(id).empty()) {
+      covered_source_ids.insert(id);
     }
   }
   // stand alone expanded id can be left alone without causing replay issue.
   for (auto id : target_tv->getLogicalDomain()) {
-    if (id->hasExpandedExtent()) {
-      covered_expanded_ids.insert(exact_set_ptr->front());
+    if (ca_map_.uniqueExactDefinitions(id).empty()) {
+      covered_source_ids.insert(id);
     }
   }
 
@@ -178,8 +179,8 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
 
   for (const auto& exact_set_ptr : all_expected_exact_sets) {
     IterDomain* id = exact_set_ptr->front();
-    if (id->hasExpandedExtent()) {
-      if (!getMappedInputConcreteID(covered_expanded_ids, id)) {
+    if (ca_map_.uniqueExactDefinitions(id).empty()) {
+      if (!getMappedInputConcreteID(covered_source_ids, id)) {
         return false;
       }
     }
