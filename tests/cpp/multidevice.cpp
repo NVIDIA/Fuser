@@ -145,6 +145,9 @@ at::Tensor MultiDeviceTest::shardTensor(
   auto stride = extent / nslices;
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
+  // The following slicing is problematic when DID is on an inner split (cf.
+  // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
+  // it's enforced by getShardedAxis.
   return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
 }
 
