@@ -211,9 +211,12 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       // consumer loop.
 
       const IdModel& id_model = GpuLower::current()->idModel();
-      graph = &id_model.idGraph(TensorIndexer::traversalIndexType());
+      graph = &id_model.idGraph(TensorIndexer::traversalGraphType());
 
-      // We flow from mapped IDs to the consumer's loop domain
+      // We flow from the producer's allocation domain to the consumer's loop
+      // domain. Here we assume that producer->getMaybeAllocationDomain()
+      // returns the actual indexed IDs, which is not always the case in
+      // general. However, it is always the case for MmaOp.
       std::vector<ValGroup> alloc_groups;
       for (IterDomain* id : producer->getMaybeAllocationDomain()) {
         if (!id->isBroadcast() && !id->isReduction()) {
