@@ -3765,6 +3765,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
           tv->getLoopDomain());
       tv->setLoopDomain(s.as<IterDomain*>());
     }
+    tv3->axis(-1)->parallelize(ParallelType::Vectorize);
   } else {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv3c->getLoopDomain());
@@ -3772,8 +3773,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
 
     // We'll use stmatrix.x4 to store from reg to shared memory
-    fusion.manage("st_matrix_m_tile", 16);
-    fusion.manage("st_matrix_n_tile", 16);
+    fusion.manage("st_matrix_m_tile", (int64_t)16);
+    fusion.manage("st_matrix_n_tile", (int64_t)16);
     fusion.manage("st_matrix_m", getM(macro));
     fusion.manage("st_matrix_n", getN(macro));
 

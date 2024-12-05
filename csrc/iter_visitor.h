@@ -604,4 +604,63 @@ class IRBFS
             allowed_direction) {}
 };
 
+inline std::vector<Val*> getInputsOfExpr(Expr* expr, Direction dir) {
+  return getInputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
+}
+
+inline std::vector<Val*> getOutputsOfExpr(Expr* expr, Direction dir) {
+  return getOutputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
+}
+
+// Unlike the default IRBFS behavior, Expr is considered ready to
+// visit as long as one of the inputs or outputs has its dependency met
+class IRBFSWithPermissiveDependence : public IRBFS {
+ public:
+  IRBFSWithPermissiveDependence(
+      const std::vector<Val*>& from_ids,
+      const std::vector<Val*>& to_ids,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : IRBFS(
+            {from_ids.begin(), from_ids.end()},
+            {to_ids.begin(), to_ids.end()},
+            require_all_to_visited,
+            allowed_direction) {}
+
+  std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
+      const ExprType& expr) const override {
+    // Either any inputs or any outputs must have been visited
+    decltype(auto) inputs = inputs_(expr);
+    if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
+        std::any_of(
+            inputs.begin(), inputs.end(), [&](const ValType& input) -> bool {
+              return isDependencySatisfied(input);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          inputs.begin(),
+          inputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValType& input) -> bool { return isVisited(input); });
+      return std::make_pair(Direction::Forward, prev_nodes);
+    }
+
+    decltype(auto) outputs = outputs_(expr);
+    if (!outputs.empty() && allowed_direction_ != Direction::Forward &&
+        std::any_of(
+            outputs.begin(), outputs.end(), [&](const ValType& output) -> bool {
+              return isDependencySatisfied(output);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          outputs.begin(),
+          outputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValType& output) -> bool { return isVisited(output); });
+      return std::make_pair(Direction::Backward, prev_nodes);
+    }
+    return std::nullopt;
+  }
+};
+
 } // namespace nvfuser

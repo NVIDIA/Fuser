@@ -55,6 +55,10 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   auto consumer_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(consumer_tv != nullptr);
 
+  // First, try to limit the use of this WAR as much as possible since
+  // the WAR itself has a limitation that it assumes the loop domain
+  // is not promoted.
+
   IdModel local_model(
       std::vector<Expr*>{consumer_tv->definition()},
       /*additional_tvs=*/{},
@@ -62,17 +66,67 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
 
   // If there's no resize in the producer and consumer tensors of this
   // expr, it should not need this WAR.
-  if (std::none_of(
-          local_model.idUses().begin(),
-          local_model.idUses().end(),
-          [](const auto& kv) {
-            const VectorOfUniqueEntries<Expr*>& exprs = kv.second;
-            return !exprs.empty() && exprs.at(0)->isA<Resize>();
-          })) {
+  std::vector<Resize*> resize_exprs;
+  for (const auto& [id, use_exprs] : local_model.idUses()) {
+    for (const auto& use_expr : use_exprs) {
+      if (auto resize = dynamic_cast<Resize*>(use_expr)) {
+        resize_exprs.push_back(resize);
+      }
+    }
+  }
+
+  if (resize_exprs.empty()) {
+    return std::nullopt;
+  }
+
+  // The indexing issue with resize may happen when a single iter
+  // domain is resized multiple times. In other words, there must be
+  // at least two connected resize exprs. If not, this WAR is not
+  // necessary.
+  //
+  // Note that the actual indexing is done from the loop IDs, which
+  // might be promoted to IDs outside of this particular expr. Thus,
+  // to get the true indexing path, the global IdModel may need to be
+  // used rather than the local model. Here, since we just need to
+  // know if there are multiple dependent resize exprs, and loop
+  // promotion should not further add resize exprs, it is sufficient
+  // to analyze only the IDs of this expr.
+
+  // Shortcut for a common case to avoid building the graph below
+  if (resize_exprs.size() < 2) {
     return std::nullopt;
   }
 
   const auto& local_graph = local_model.buildAlmostExactGraph();
+
+  // See if these resize expr groups are connected. Note that in the
+  // current default scheduling method, any tensor ops using resize
+  // should only show up with a fusion input as its input, so there
+  // must be no chained resize ops. The default scheduling, this
+  // function should not move beyond this point. In the case of the
+  // new resize scheduler that is currently under development will
+  // have multiple chained resize ops, but the scheduler should
+  // explicitly set the loop domain such that no promotion would
+  // happen, thus avoiding hitting the assertion down below.
+  ExprGroups resize_groups = local_graph.toGroups(resize_exprs);
+  bool single_id_resized_multiple_times = false;
+  for (const auto i : c10::irange(resize_groups.size() - 1)) {
+    const auto resize_i = resize_groups.at(i);
+    std::vector<ValGraphBFS::NodeType> other_resizes{
+        resize_groups.begin() + i + 1, resize_groups.end()};
+    auto reachable_nodes = getReachableNodesFrom<ValGraphBFS>(
+        {resize_i}, other_resizes, Direction::Undefined, local_graph);
+    if (!reachable_nodes.empty()) {
+      single_id_resized_multiple_times = true;
+      break;
+    }
+  }
+
+  // No connection between the resize exprs is found, which they are
+  // all independent and there's no need to use this WAR
+  if (!single_id_resized_multiple_times) {
+    return std::nullopt;
+  }
 
   // from_ids are loop domains, which are representative
   // domains of loop groups and not necessarily domains of any

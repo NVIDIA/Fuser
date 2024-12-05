@@ -474,4 +474,67 @@ TEST_F(BFSTest, TraversalDirection) {
   EXPECT_TRUE(backward_path.empty()) << "Actual: " << backward_path;
 }
 
+// A simple test for IRBFSWithPermissiveDependence
+TEST_F(BFSTest, IRBFSPermissiveTraversal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0, i1]
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+
+  auto tv3 = set(tv1);
+  fusion.addOutput(tv3);
+
+  auto i0 = tv2->getLogicalDomain().at(0);
+  [[maybe_unused]] auto i1 = tv2->getLogicalDomain().at(0);
+
+  auto i2 = tv3->getLogicalDomain().at(0);
+
+  // i3 = merge(i0, i1)
+  tv2->flatten();
+  [[maybe_unused]] auto i3 = tv2->axis(0);
+  // i4, i5 = split(i3)
+  tv2->split(0, 4);
+  [[maybe_unused]] auto i4 = tv2->axis(0);
+  [[maybe_unused]] auto i5 = tv2->axis(1);
+
+  // from: [i0, i2]
+  // to: [i4]
+  // -> forward merge, forward split
+  {
+    auto path = getExprsBetween<IRBFSWithPermissiveDependence>(
+                    {i0, i2}, {i4}, /*require_all_to_visited=*/false)
+                    .first;
+    EXPECT_EQ(path.size(), 2);
+    // fwd merge
+    EXPECT_EQ(path.at(0).first, i3->definition());
+    EXPECT_EQ(path.at(0).second, Direction::Forward);
+    // fwd split
+    EXPECT_EQ(path.at(1).first, i4->definition());
+    EXPECT_EQ(path.at(1).second, Direction::Forward);
+  }
+
+  // from: [i4, i5]
+  // to: [i1]
+  // -> bwd split, bwd merge
+  {
+    auto path = getExprsBetween<IRBFSWithPermissiveDependence>(
+                    {i4, i5}, {i1}, /*require_all_to_visited=*/false)
+                    .first;
+    EXPECT_EQ(path.size(), 2);
+    // bwd split
+    EXPECT_EQ(path.at(0).first, i4->definition());
+    EXPECT_EQ(path.at(0).second, Direction::Backward);
+    // bwd merge
+    EXPECT_EQ(path.at(1).first, i3->definition());
+    EXPECT_EQ(path.at(1).second, Direction::Backward);
+  }
+}
+
 } // namespace nvfuser
