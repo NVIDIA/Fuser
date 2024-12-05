@@ -188,7 +188,7 @@ bool DomainMap::areAllOutputIdsMappedTo(
     TensorView* reference_tv) const {
   // traverse back to collect all disjoint set producers from the logical domain
   // of tv.
-  auto get_source_producers = [&ca_map_](TensorView* tv) {
+  auto get_source_producers = [this](TensorView* tv) {
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
     std::for_each(
@@ -202,14 +202,16 @@ bool DomainMap::areAllOutputIdsMappedTo(
         ca_map_.getAllDisjointSetProducers(all_producer_sets));
 
     std::vector<IterDomain*> source_ids;
-    std::copy_if(
-        all_producer_sets.begin(),
-        all_producer_sets.end(),
-        std::back_inserter(source_ids),
-        [&ca_map_](const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
-                       producer_set_ptr) {
+    std::for_each(
+        all_producer_sets.vector().begin(),
+        all_producer_sets.vector().end(),
+        [&source_ids,
+         this](const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
+                   producer_set_ptr) {
           IterDomain* id = producer_set_ptr->front();
-          return ca_map_.uniqueExactDefinitions(id).empty();
+          if (ca_map_.uniqueExactDefinitions(id).empty()) {
+            source_ids.push_back(id);
+          }
         });
     return source_ids;
   };
