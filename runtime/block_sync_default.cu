@@ -17,7 +17,8 @@ __forceinline__ __device__ void sync(dim3 block_dim={}) {
   if constexpr (aligned) {
     __syncthreads();
   } else {
-    __barrier_sync(0, block_dim.x * block_dim.y * block_dim.z);
+    uint32_t num_threads = block_dim.x * block_dim.y * block_dim.z;
+    asm volatile("bar.sync 0, %1;" : : "r"(name), "r"(num_threads) : "memory");
   }
 }
 
