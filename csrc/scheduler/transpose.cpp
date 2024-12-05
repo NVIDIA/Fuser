@@ -166,9 +166,7 @@ class DomainMap : public pointwise_utils::DomainMap {
   // be a traversal path to an input. This type of analysis is
   // expected to be possible much more easily with the new indexing
   // graph (#32), so we should revisit once it becomes available.
-  TensorView* findReferenceFor(
-      const std::vector<TensorView*>& group,
-      bool check_output = true) const {
+  TensorView* findReferenceFor(const std::vector<TensorView*>& group) const {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
     for (auto tv : group) {
@@ -204,7 +202,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       return false;
     }
     auto ref1 = domain_map.findReferenceFor(grouped_inputs_outputs[0]);
-    auto ref2 = domain_map.findReferenceFor(grouped_inputs_outputs[1], false);
+    auto ref2 = domain_map.findReferenceFor(grouped_inputs_outputs[1]);
     if (ref1 == nullptr || ref2 == nullptr) {
       return false;
     }

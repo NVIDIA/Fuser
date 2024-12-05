@@ -144,58 +144,99 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
-bool DomainMap::areAllProducerIdsMappedTo(
-    TensorView* target_tv,
+// Note: ideally we would want to chck that reference_tv contains (not
+// necessarily maps) all iter domain in output_tv, so that transformation
+// applied on reference_tv can be propagated to output_tv. But we don't have
+// an easy way to check that.
+// Instead of that, this function checks that all source iter domains involved
+// in transformation on output_tv is covered by reference_tv. We do so by
+// traverse all disjoint set producers on both tvs and filter them with
+// `ca_map_.uniqueExactDefinitions(id).empty()`.
+//
+// ------
+//
+// e.g 0.
+//   T34 [i0, i1]
+//   T185 [i0, b2, i1]     = broadcast(T34)
+//   T192 [i0, b3(ex), i1] = expand(T185)
+//   T198 [i0, b3(ex)*i1]  = reshape(T192)
+//   output(T34)
+//   output(T198)
+//
+// if we consider taking T34 as reference_tv. T198 is the output_tv. We can't
+// replay T34's transform of merging all the dimensions to T198, since b3(ex)*i1
+// can't be reversed. The check in this function would give us T34 with source
+// i0, i1; where T198 would have source i0, b3, i1, where b3 isn't contained in
+// T34. Hence we'll reject this referenc_tv.
+//
+// ------
+//
+// e.g 1.
+//   T0 [i0, i1]
+//   T1 [i2, i0, i1]
+//   T2 [i0*i1]      = reshape(T0)
+//   T3 [b3, i0, i1] = broadcast(T0)
+//   T4 [i2, i0, i1] = add(T1, T3)
+//   output(T2)
+//   output(T4)
+//
+// the example above should be able to pick T4 as reference_tv. T2's source i0,
+// i1 are both contained by the source of T4, so this example could be scheduled
+// as a single fusion.
+bool DomainMap::areAllOutputIdsMappedTo(
+    TensorView* output_tv,
     TensorView* reference_tv) const {
-  // reverse traversal to collect all producer ids of reference_tv
-  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      all_covered_exact_sets;
-  std::for_each(
-      reference_tv->getLogicalDomain().begin(),
-      reference_tv->getLogicalDomain().end(),
-      [&](IterDomain* id) {
-        all_covered_exact_sets.pushBack(
-            ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
-      });
-  all_covered_exact_sets.pushBack(
-      ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
+  // traverse back to collect all disjoint set producers from the logical domain
+  // of tv.
+  auto get_source_producers = [&ca_map_](TensorView* tv) {
+    VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+        all_producer_sets;
+    std::for_each(
+        tv->getLogicalDomain().begin(),
+        tv->getLogicalDomain().end(),
+        [&](IterDomain* id) {
+          all_producer_sets.pushBack(
+              ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+        });
+    all_producer_sets.pushBack(
+        ca_map_.getAllDisjointSetProducers(all_producer_sets));
 
+    std::vector<IterDomain*> source_ids;
+    std::copy_if(
+        all_producer_sets.begin(),
+        all_producer_sets.end(),
+        std::back_inserter(source_ids),
+        [&ca_map_](const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
+                       producer_set_ptr) {
+          IterDomain* id = producer_set_ptr->front();
+          return ca_map_.uniqueExactDefinitions(id).empty();
+        });
+    return source_ids;
+  };
+
+  // this contains all source iter domain that's covered by reference_tv, so
+  // it's safe for output_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
-  for (const auto& exact_set_ptr : all_covered_exact_sets) {
-    IterDomain* id = exact_set_ptr->front();
-    // if (id->hasExpandedExtent()) {
+  for (IterDomain* id : get_source_producers(reference_tv)) {
+    covered_source_ids.insert(id);
+  }
+  // it's safe to have source iter domain on output_tv that's not in
+  // reference_tv, since they are not involved in any transforms.
+  for (auto id : output_tv->getLogicalDomain()) {
     if (ca_map_.uniqueExactDefinitions(id).empty()) {
       covered_source_ids.insert(id);
     }
   }
-  // stand alone expanded id can be left alone without causing replay issue.
-  for (auto id : target_tv->getLogicalDomain()) {
-    if (ca_map_.uniqueExactDefinitions(id).empty()) {
-      covered_source_ids.insert(id);
+
+  // Check all source iter domain involved in producing output_tv
+  for (IterDomain* id : get_source_producers(output_tv)) {
+    // if we find any source id that's not contained, it's possible our
+    // propagation would fail since transformation involving this iter domain
+    // can't be resolved.
+    if (!getMappedInputConcreteID(covered_source_ids, id)) {
+      return false;
     }
   }
-
-  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      all_expected_exact_sets;
-  std::for_each(
-      target_tv->getLogicalDomain().begin(),
-      target_tv->getLogicalDomain().end(),
-      [&](IterDomain* id) {
-        all_expected_exact_sets.pushBack(
-            ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
-      });
-  all_expected_exact_sets.pushBack(
-      ca_map_.getAllDisjointSetProducers(all_expected_exact_sets));
-
-  for (const auto& exact_set_ptr : all_expected_exact_sets) {
-    IterDomain* id = exact_set_ptr->front();
-    if (ca_map_.uniqueExactDefinitions(id).empty()) {
-      if (!getMappedInputConcreteID(covered_source_ids, id)) {
-        return false;
-      }
-    }
-  }
-
   return true;
 }
 
@@ -290,9 +331,9 @@ IterDomain* DomainMap::anyMapped(
 }
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input.
-bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage)
-    const {
+// The reference tensor must map to all the iterDomains in each input and
+// output.
+bool DomainMap::isValidReference(TensorView* tv) const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
       continue;
@@ -303,15 +344,14 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage)
       return false;
     }
   }
-  if (check_output_coverage) {
-    for (auto output_tv :
-         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-      if (output_tv == tv) {
-        continue;
-      }
-      if (!areAllProducerIdsMappedTo(output_tv, tv)) {
-        return false;
-      }
+  for (auto output_tv :
+       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    // no need to check for self.
+    if (output_tv == tv) {
+      continue;
+    }
+    if (!areAllOutputIdsMappedTo(output_tv, tv)) {
+      return false;
     }
   }
   return true;

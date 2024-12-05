@@ -423,13 +423,17 @@ def test_single_segment_multi_device():
         _ = fd.execute(inputs)
 
 
-def test_pointwise_issue():
+def test_pointwise_issue_3512():
     inputs = [
         torch.testing.make_tensor(
             (1, 2048, 512), dtype=torch.bfloat16, device="cuda:0"
         ),
     ]
 
+    # T34 and T198 are both candidate for reference tv in pointwise scheduler.
+    # We can only pick T198 for scheduling though, because a expanded dimension
+    # is merged by the reshape that produces T198, which means transformation
+    # on T34 wouldn't be able to propagate from T192 to T198.
     def fusion_func(fd: FusionDefinition):
         T3 = fd.define_tensor(
             shape=[1, 2048, 512],
