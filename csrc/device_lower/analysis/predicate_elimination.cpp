@@ -18,6 +18,8 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include "id_model/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
@@ -185,10 +187,55 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+        BestEffortReplay::replayPasC(
+            producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
 
-    ProducerConsumerPairAnalyzer analyzer(c2p);
+    // The variables graph and alloc_to_loop_groups are used to check whether we
+    // need to check a particular consumer ID. The alloc_to_loop_groups set
+    // constaints ValGroups along a shortest path in the loop graph from
+    // non-trivial dimensions in the allocation domain of the producer to the
+    // consumer's loop domain. Other domains might exist in the loop domain of
+    // the consumer: for example, for MmaOp we sometimes do not map the N
+    // dimension of the output logical domain to any ID in the A operand. We
+    // use this set to avoid performing unnecessary checks on these types of
+    // irrelevant consumer IDs.
+    //
+    // NOTE: if graph is nullptr, it will be
+    // ignored. We only fill it for MmaOp for now in order to limit our changes
+    // to the only op that currently requires this analysis.
+    const ValGraph* graph = nullptr;
+    std::unordered_set<ValGroup> alloc_to_loop_groups;
+    if (consumer->definition()->isA<MmaOp>()) {
+      // Fill ValGraph and grab all ValGroups on path from producer alloc to
+      // consumer loop.
+
+      const IdModel& id_model = GpuLower::current()->idModel();
+      graph = &id_model.idGraph(TensorIndexer::traversalGraphType());
+
+      // We flow from the producer's allocation domain to the consumer's loop
+      // domain. Here we assume that producer->getMaybeAllocationDomain()
+      // returns the actual indexed IDs, which is not always the case in
+      // general. However, it is always the case for MmaOp.
+      std::vector<ValGroup> alloc_groups;
+      for (IterDomain* id : producer->getMaybeAllocationDomain()) {
+        if (!id->isBroadcast() && !id->isReduction()) {
+          alloc_groups.push_back(graph->toGroup(id));
+        }
+      }
+      std::vector<ValGroup> loop_groups;
+      for (IterDomain* id : consumer->getLoopDomain()) {
+        id = getLoopPromotion(id, id_model);
+        loop_groups.push_back(graph->toGroup(id));
+      }
+
+      std::vector<ValGroup> indexing_groups =
+          getValsBetween<ValGraphBFS>(alloc_groups, loop_groups, *graph);
+
+      alloc_to_loop_groups.insert(
+          indexing_groups.begin(), indexing_groups.end());
+    }
+    ProducerConsumerPairAnalyzer analyzer(c2p, graph, alloc_to_loop_groups);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -201,18 +248,31 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
  private:
   ProducerConsumerPairAnalyzer(
-      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
-      : c2p_(c2p) {}
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p,
+      const ValGraph* graph,
+      const std::unordered_set<ValGroup> alloc_to_loop_groups)
+      : c2p_(c2p), graph_(graph), alloc_to_loop_groups_(alloc_to_loop_groups) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
   bool needsPredicate(IterDomain* consumer_id) {
+    // Check that this consumer_id is actually involved in indexing the
+    // producer. If it is not connected to the producer allocation domain in
+    // the indexing graph, then we can skip processing it.
+    if (graph_ != nullptr &&
+        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
+      return false;
+    }
     needs_predicate_ = false;
     handle(consumer_id);
     return needs_predicate_;
   }
 
   void handle(IterDomain* consumer_id) override {
+    if (graph_ != nullptr &&
+        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
+      return;
+    }
     // The traversal should have ended if needs_predicate_ was true
     NVF_ERROR(!needs_predicate_);
 
@@ -297,6 +357,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
+  const ValGraph* graph_ = nullptr;
+  const std::unordered_set<ValGroup> alloc_to_loop_groups_;
 };
 
 class PredicateChcker : public IterVisitor {
