@@ -12,6 +12,7 @@
 #include <logical_domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <utility>
 
@@ -194,11 +195,19 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    std::unordered_set<IterDomain*> producer_indexing_ids,
-        consumer_indexing_ids;
+    std::unordered_set<ValGroup> loop_path_groups;
     if (consumer->definition()->isA<MmaOp>()) {
-      std::tie(producer_indexing_ids, consumer_indexing_ids) =
-          lower_utils::getIndexIDs(producer, consumer);
+      // Get ValGroups between producer and consumer loop in the inlining graph
+      std::vector<ValGroup> producer_loop_groups, consumer_loop_groups;
+      for (IterDomain* id : producer->getLoopDomain()) {
+        producer_loop_groups.push_back(inliningGraph().toGroup(id));
+      }
+      for (IterDomain* id : consumer->getLoopDomain()) {
+        consumer_loop_groups.push_back(inliningGraph().toGroup(id));
+      }
+      std::vector<ValGroup> group_path = getValsBetween<ValGraphBFS>(
+          producer_loop_groups, consumer_loop_groups, inliningGraph());
+      loop_path_groups.insert(group_path.begin(), group_path.end());
     }
 
     auto consumer_it = consumer->getLoopDomain().begin();
@@ -220,9 +229,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
 
       IterDomain* c_id = *consumer_it;
 
-      // If either ID is involved in indexing then we need to make sure they're
-      // both mapped in the inlining graph or that this is a special case
-      // covered by isAllowedID.
+      // We can inline past consumer IDs that are not connected to the producer.
       //
       // For example, an MmaOp with no broadcasts could contain the following:
       //  tv0:
@@ -236,12 +243,11 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       //
       //  iS4 maps to iS0 so when producer==tv0 we inline past iS0. When
       //  producer==tv1, iS4 doesn't map to anything in tv1 and is not used for
-      //  indexing, and bS8 is also not used in indexing (it's a loop broadcast)
-      //  so we inline past the first ID in that case also. Similarly, we inline
-      //  past iS5, iS2, and bS7.
-      if (!(!consumer_indexing_ids.empty() && !producer_indexing_ids.empty() &&
-            (consumer_indexing_ids.count(c_id) == 0 &&
-             producer_indexing_ids.count(p_id) == 0)) &&
+      //  indexing, and bS8 is a loop broadcast so we inline past the first ID
+      //  in that case also. Similarly, we inline past iS5, iS2, and bS7.
+      if ((loop_path_groups.empty() ||
+           loop_path_groups.count(inliningGraph().toGroup(p_id)) ||
+           loop_path_groups.count(inliningGraph().toGroup(c_id))) &&
           (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
            !isAllowedID(
                c_id,
