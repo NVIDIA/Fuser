@@ -310,6 +310,16 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
+// Holding information needed for vectorization factor check specific for resize
+// operation. Currently we only checks strides for alignment. The offset changed
+// by resize is enforced through the propagation.
+struct TensorResizeAlignmentInfo {
+  // SchedulerRuntimeInfo::getInputAllocationSizes use this to check alignment
+  // of strides on dimensions that becomes non-contiguous after resize
+  // operations.
+  std::vector<int64_t> non_contig_idx_alloc;
+};
+
 // logical_reorder_map is provided to assume reference_tv will be reordered per
 // the map, hence changing the order of IterDomain in the reference
 int64_t getVectorizationFactor(
