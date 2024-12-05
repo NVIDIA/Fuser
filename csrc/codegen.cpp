@@ -1257,6 +1257,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return;
   }
 
+  std::string genComputeBlockDim() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    ss << "dim3(" << genInline(pdim_map.getRawCompute(ParallelType::TIDx))
+       << ", " << genInline(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
+       << genInline(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+  }
+
   void genWarpReduction(
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
@@ -1337,6 +1345,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(write_pred));
     }
     func_args.arg(genCall(data_type, genInline(init)));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }

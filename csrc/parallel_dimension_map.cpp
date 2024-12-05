@@ -182,15 +182,20 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
+Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
+  Val* raw = getRaw(pt);
+  if (warp_specialized_types_.count(pt)) {
+    return SimplifyingIrBuilder::addExpr(raw, -1);
+  }
+  return raw;
+}
+
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
-    auto dim = getRaw(pt);
+    auto dim = getRawCompute(pt);
     if (dim == nullptr) {
       continue;
-    }
-    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
-      dim = SimplifyingIrBuilder::addExpr(dim, -1);
     }
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }

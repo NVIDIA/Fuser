@@ -41,6 +41,8 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
+  Val* getRawCompute(ParallelType pt) const;
+
   //! Get the number of threads per each CTA used for computation. When there is
   //! no warp specialization, the result is trivial: it is just the product of
   //! parallel dimensions of TIDx, TIDy and TIDz. If we do have warp
