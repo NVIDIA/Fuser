@@ -163,7 +163,7 @@ __inline__ __device__ void blockWelford(
     shared_mem_N[smem_offset] = 0;
   }
 
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
   // Reduce down to nearest power of 2:
   int np2 = 1 << (31 - __clz(reduction_size));
 
@@ -176,7 +176,7 @@ __inline__ __device__ void blockWelford(
         shared_mem_M2[smem_offset + np2],
         shared_mem_N[smem_offset + np2]);
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
@@ -189,7 +189,7 @@ __inline__ __device__ void blockWelford(
           shared_mem_M2[smem_offset + factor],
           shared_mem_N[smem_offset + factor]);
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 
   if (should_write && write_pred) {
@@ -216,7 +216,7 @@ __inline__ __device__ void blockWelford(
     out_M2 = res_M2;
     out_N = res_N;
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Use the same pred for both reads and writes

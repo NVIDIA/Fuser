@@ -130,7 +130,7 @@ struct BlockWelfordEach {
       copyTuple(shared_buf, smem_offset, block_result_i);
     }
 
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
     if (tid_in_reduction < np2 &&
         tid_in_reduction + np2 < num_elements_per_reduction) {
       impl::reduceTuple(
@@ -146,7 +146,7 @@ struct BlockWelfordEach {
     }
 
     // Always sync when communicating across smem
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     // Reduce down to 2 values, last thread will do the final reduction and
     // can save a syncthreads this way
@@ -159,7 +159,7 @@ struct BlockWelfordEach {
             smem_offset + factor,
             welfordCombine<DataType, IndexType>);
       }
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
     }
 
     copyTuple(block_result_i, shared_buf, smem_offset);
@@ -185,7 +185,7 @@ struct BlockWelfordEach {
       }
 
       // Sync threads to make sure result is in smem
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
 
       copyTuple(
           block_result_i,
@@ -198,7 +198,7 @@ struct BlockWelfordEach {
     block_result.N.val<idx>(0) = block_result_i.val<2>(0);
 
     if (FORWARD_PROTECT_SMEM) {
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
     }
   }
 };
@@ -375,7 +375,7 @@ __device__ __inline__ void ParallelReduce<
     // forward-protect the smem buffer. This block sync is not
     // necessary when a grid reduction follows since a block sync is
     // done just before the grid sync.
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
     return;
   }
 
@@ -489,7 +489,7 @@ __device__ __inline__ void ParallelReduce<
       grid_reduce_participate);
 
   // Forward protect the smem buffer
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 template <

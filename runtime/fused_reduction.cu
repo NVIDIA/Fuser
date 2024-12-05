@@ -252,7 +252,7 @@ struct BlockReduceEach {
       copyTuple(shared_buf, smem_offset, block_result_i);
     }
 
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     if (tid_in_reduction < np2 &&
         tid_in_reduction + np2 < num_elements_per_reduction) {
@@ -265,7 +265,7 @@ struct BlockReduceEach {
     }
 
     // Always sync when communicating across smem
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     // Reduce down to 2 values, last thread will do the final reduction and
     // can save a syncthreads this way
@@ -278,7 +278,7 @@ struct BlockReduceEach {
             smem_offset + factor,
             funcs...);
       }
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
     }
 
     copyTuple(block_result_i, shared_buf, smem_offset);
@@ -300,7 +300,7 @@ struct BlockReduceEach {
       }
 
       // Sync threads to make sure result is in smem
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
 
       copyTuple(
           block_result_i,
@@ -311,7 +311,7 @@ struct BlockReduceEach {
     block_result.val<idx>(0) = block_result_i.val<0>(0);
 
     if (FORWARD_PROTECT_SMEM) {
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
     }
   }
 };
@@ -869,7 +869,7 @@ __device__ __inline__ void ParallelReduce<
     }
 
     // Sync to make sure smem is completely initialized
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     // Round reduction size down to nearest power of 2
     int np2 = 1 << (31 - __clz(block_reduction_size));
@@ -886,7 +886,7 @@ __device__ __inline__ void ParallelReduce<
     }
 
     // Always need to sync while operating on shared memory
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     // Reduce down until 2 values, leaving 2 values allows us to manually
     // perform the last reduction and avoid a syncthreads
@@ -899,7 +899,7 @@ __device__ __inline__ void ParallelReduce<
             block_reduce_smem_offset + factor,
             reduction_op);
       }
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
     }
 
     // Accumulate that last valid result
@@ -935,7 +935,7 @@ __device__ __inline__ void ParallelReduce<
         }
 
         // Sync threads to make sure result is in smem
-        block_sync::sync<Aligned>();
+        block_sync::sync<Aligned>(block_dim);
         // If the thread is participating, and is not attempting to write out
         // of bounds, return the broadcasted value.
         if (block_reduce_participate && write_pred) {
@@ -950,7 +950,7 @@ __device__ __inline__ void ParallelReduce<
       //
       // This could be avoided in some cases if we added thread syncs from
       // block reductions in the syncthread insertion pass.
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
       return;
     }
   }
@@ -1116,7 +1116,7 @@ __device__ __inline__ void ParallelReduce<
       copyTuple(shared_buf, smem_offset, last_block_result);
     }
 
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     if (tid_in_block_reduction_2 < np2 &&
         tid_in_block_reduction_2 + np2 <
@@ -1130,7 +1130,7 @@ __device__ __inline__ void ParallelReduce<
     }
 
     // Always sync when communicating across smem
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     // Reduce down to 2 values, last thread will do the final reduction and
     // can save a syncthreads this way
@@ -1143,7 +1143,7 @@ __device__ __inline__ void ParallelReduce<
             smem_offset + factor,
             reduction_op);
       }
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
     }
 
     // If this thread in each block has the final result before broadcasting
@@ -1165,7 +1165,7 @@ __device__ __inline__ void ParallelReduce<
     if (grid_reduce_participate && PERSISTENT_REDUCTION) {
       // If persistent reduction, always broadcast reduced values
       copyTuple(shared_buf, smem_offset, last_block_result);
-      block_sync::sync<Aligned>();
+      block_sync::sync<Aligned>(block_dim);
       if (write_pred && block_reduce_participate) {
         copyTuple(
             out, shared_buf, block_reduction_idx * block_reduction_size_2);
@@ -1185,7 +1185,7 @@ __device__ __inline__ void ParallelReduce<
       }
     }
     // Forward protect the smem used in this reduction
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 }
 
@@ -1334,7 +1334,7 @@ __device__ __inline__ void ParallelReduce<
     // forward-protect the smem buffer. This block sync is not
     // necessary when a grid reduction follows since a block sync is
     // done just before the grid sync.
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
     return;
   }
 
@@ -1444,7 +1444,7 @@ __device__ __inline__ void ParallelReduce<
       funcs...);
 
   // Forward protect the smem buffer
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 template <

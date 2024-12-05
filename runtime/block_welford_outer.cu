@@ -188,7 +188,7 @@ __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     }
   }
 
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // The next step is to let each thread of a warp independently
   // accumulate the partial results on the shared memory
@@ -245,7 +245,7 @@ __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     }
   }
 
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Nothing to do for warps whose wid is larger than NunVals
   if (wid >= NumVals) {

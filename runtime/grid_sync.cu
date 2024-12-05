@@ -38,7 +38,7 @@ __device__ void sync(
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -78,7 +78,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 template <
@@ -114,7 +114,7 @@ __device__ void sync(
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -147,7 +147,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Non-blocking function to read the semaphore value in each calling thread

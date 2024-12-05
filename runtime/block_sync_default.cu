@@ -13,7 +13,7 @@ __forceinline__ __device__ void init() {}
 
 // Thread-block synchronization
 template <bool aligned>
-__forceinline__ __device__ void sync(dim3 block_dim={}) {
+__forceinline__ __device__ void sync(dim3 block_dim) {
   if constexpr (aligned) {
     __syncthreads();
   } else {

@@ -59,13 +59,13 @@ __device__ void warpReduceTIDX(
     unsigned int num_of_warps = reduction_size / WARP_SIZE;
     unsigned int smem_offset = reduce_group_id * num_of_warps;
 
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     if (is_warp_head) {
       shared_mem[smem_offset + warp_idx] = reduce_val;
     }
 
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     if (warp_idx == 0) {
       // This assumes num_of_warps will be < 32, meaning < 1024 threads.
@@ -86,7 +86,7 @@ __device__ void warpReduceTIDX(
     }
     // needs sync, otherwise other warps may access shared memory before this
     // reduction is done.
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   } else {
     reduction_op(out, reduce_val);
   }
@@ -122,11 +122,11 @@ __device__ void warpReduceTIDXY(
     unsigned int idx = threadIdx.x + threadIdx.y * BDIMX;
     unsigned int warp_idx = idx / WARP_SIZE;
     unsigned int lane_idx = idx % WARP_SIZE;
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
     if (lane_idx == 0) {
       shared_mem[warp_idx] = reduce_val;
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
 
     if (warp_idx == 0) {
       reduce_val = lane_idx < num_of_warps ? shared_mem[lane_idx] : init_val;
@@ -141,7 +141,7 @@ __device__ void warpReduceTIDXY(
     }
     // needs sync, otherwise other warps may access shared memory before this
     // reduction is done.
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   } else {
     reduction_op(out, reduce_val);
   }
