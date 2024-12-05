@@ -1987,35 +1987,6 @@ std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
   return sync_exprs;
 }
 
-std::unordered_set<IterDomain*> getIdsAlongPathBetween(
-    const std::vector<IterDomain*>& from,
-    const std::vector<IterDomain*>& to) {
-  std::unordered_set<IterDomain*> ids{from.begin(), from.end()};
-  for (auto [expr, dir] : getExprsBetween<IRBFS>(
-                              {from.begin(), from.end()},
-                              {to.begin(), to.end()},
-                              /*require_all_to_visited=*/false)
-                              .first) {
-    const std::vector<Val*>& prev_vals =
-        dir == Direction::Forward ? expr->inputs() : expr->outputs();
-    const std::vector<Val*>& next_vals =
-        dir == Direction::Forward ? expr->outputs() : expr->inputs();
-    // If there are _any_ IDs that were found in prev_vals then we count all the
-    // next vals as found
-    if (std::any_of(prev_vals.begin(), prev_vals.end(), [&](Val* prev) {
-          auto* id = dynamic_cast<IterDomain*>(prev);
-          return id && ids.count(id) != 0;
-        })) {
-      for (Val* v : next_vals) {
-        if (auto* id = dynamic_cast<IterDomain*>(v)) {
-          ids.insert(id);
-        }
-      }
-    }
-  }
-  return ids;
-}
-
 } // namespace lower_utils
 
 } // namespace nvfuser
