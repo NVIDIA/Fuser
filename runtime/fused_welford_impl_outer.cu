@@ -408,10 +408,10 @@ __device__ __inline__ void ParallelReduce<
       in_avg,
       in_var,
       in_N,
+      block_dim,
       global_buf_avg,
       global_buf_var,
       global_buf_N,
-      block_dim,
       shared_buf,
       global_sync_buffer);
 

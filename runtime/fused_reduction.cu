@@ -652,13 +652,13 @@ class ParallelReduce {
       const DataType in_avg[NumVals],
       const DataType in_var[NumVals],
       nvfuser_index_t in_N,
-      DataType* global_buf_avg,
-      DataType* global_buf_var,
-      nvfuser_index_t* global_buf_N,
       // block_dim is basically just blockDim if there is no warp specialization
       // in the kernel. If there is warp specialization, block_dim is the
       // the dimension of the compute warps.
       dim3 block_dim,
+      DataType* global_buf_avg,
+      DataType* global_buf_var,
+      nvfuser_index_t* global_buf_N,
       DataType* shared_buf,
       int64_t* global_sync_buffer,
       int64_t& cycles,
