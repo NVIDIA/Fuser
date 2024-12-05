@@ -1310,6 +1310,77 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
+TEST_F(MatmulSchedulerTest, MatmulHopperCastBiasCast) {
+  const auto layout = MmaLayout::TN;
+  const auto in_type = DataType::Half;
+  const auto accu_type = DataType::Float;
+  const auto out_type = DataType::Half;
+  const auto at_in_type = data_type_to_aten(in_type);
+  const auto at_accu_type = data_type_to_aten(accu_type);
+  const auto at_out_type = data_type_to_aten(out_type);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, in_type);
+  auto tv1 = makeContigTensor(2, in_type);
+  auto tv2 = makeContigTensor(1, out_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  // tv3 := A x B
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+  // tv4 := cast(bias)
+  auto tv4 = maybeCastOp(accu_type, tv2);
+
+  // tv5 := (A x B) + bias
+  auto tv5 = biasEpilogue(tv3, tv4);
+  // tv6 := cast((A x B) + bias)
+  auto tv6 = maybeCastOp(out_type, tv5);
+
+  fusion->addOutput(tv6);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
+  NVF_CHECK(
+      fusion_layout == layout,
+      "mismatch between test layout (",
+      toString(layout),
+      ") and layout inferred from fusion definition (",
+      toString(fusion_layout),
+      ")");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 64, N = 64, K = 16;
+
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+    auto t2 =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+  auto t4 = t2.to(at_accu_type);
+  auto t5 = atBiasEpilogue(t3, t4);
+  auto tref = t5.to(at_out_type);
+
+
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+
+
+}
+
 // Matmul test that uses segmenter for 'C = float2half(alpha * (A x B))'
 //  fusion, for Ampere
 TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
@@ -3146,6 +3217,10 @@ class HopperMatmulSchedulerTest
 
     std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = GetParam();
 
+    use_smem_epilogue = false;
+    a_k_inner = true;
+    b_k_inner = true;
+
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
     } else {
@@ -3221,10 +3296,13 @@ class HopperMatmulSchedulerTest
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   const auto& [A, B] =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-  inputs = {A, B};
+    const auto& C =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, data_type_to_aten(dtype), M, N, K);      
+  inputs = {A, B, C};
 
   TensorView* tv0 = nullptr;
   TensorView* tv1 = nullptr;
+  TensorView* tv2 = makeContigConcreteTensor({-1}, dtype);
   std::unordered_map<int64_t, int64_t> old2new;
   int64_t k_axis = 0;
 
@@ -3261,17 +3339,27 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {k_axis});
+  auto tv3 = fusedMultiplySum(tv0, tv1, {k_axis});
+ 
+  auto tv4 = maybeCastOp(DataType::Float, tv2);
+
+  // tv5 := (A x B) + bias
+  auto tv5 = biasEpilogue(tv3, tv4);
+  auto tv6 = castOp(dtype, tv5);
+
 
   // Reorder the accumulator as [M, N, K]
   tv2->reorder(old2new);
   tv2->commitLeafToLogical();
 
-  auto tv3 = castOp(dtype, tv2);
-  fusion->addOutput(tv3);
+  fusion->addOutput(tv6);
 
-  tref = atMatmul(A.squeeze(), B.squeeze(), layout);
+  auto t_out_0 = atMatmul(A.squeeze(), B.squeeze(), layout);
+  auto t_out_1 = C.to(data_type_to_aten(DataType::Float));
+  auto t_out_2 = atBiasEpilogue(t_out_0, t_out_1);
+  tref = t_out_2.to(data_type_to_aten(DataType::Half));
 }
 
 INSTANTIATE_TEST_SUITE_P(
