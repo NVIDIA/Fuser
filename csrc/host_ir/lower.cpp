@@ -14,6 +14,13 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <limits>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/propagate_shardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
+#include <fusion_segmenter.h>
+#include <runtime/fusion_kernel_runtime.h>
+
 
 namespace nvfuser {
 
@@ -323,6 +330,97 @@ bool HostIrLower::canLower(Expr* expr) {
     return expr->isA<LoadStoreOp>() &&
         (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
   }
+}
+
+std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(std::unique_ptr<Fusion> fusion, int64_t my_device_index) {
+  // Sharding PreSegmenter passes.
+  // Note: passes run before PreSegmenter optimization passes.
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<preseg_passes::MakeReshardingContiguousPass>::
+      runPass(fusion.get());
+
+  // Performs segmentation at the inter-device communications
+  // Each SegmentedGroup represents a pipeline's stage, and can be either
+  // 1) a Fusion which doesn't involve inter-device communication
+  // 2) a Fusion comprised of one Expr, representing inter-device communication
+  SegmentCandidateFinderOptions options{
+      .run_translate_welford = false,
+      .run_combine_reductions = false,
+      .run_herrmann_merge = true,
+      .run_final_merge = true,
+      .only_segment_resharding_exprs = true};
+  std::unique_ptr<SegmentedFusion> staged_fusion =
+      SegmentCandidateFinder::segment(
+          std::move(fusion), nullptr, options);
+  // Infer a topologically ordered traversal of the segmented fusion to
+  // determine the order for launching the kernels/comms
+  RuntimeWorkSpace workspace;
+  prepareRuntimeOrder(staged_fusion.get(), workspace);
+
+  // Create the HostIrContainer representing the host program. Each segment of
+  // the segmented fusion will be translated to a HostIR
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+  IrCloner ir_cloner(hic.get());
+  auto clone =
+      [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
+    std::vector<Val*> cloned_vals(vals.size());
+    std::transform(
+        vals.begin(), vals.end(), cloned_vals.begin(), [&ir_cloner](Val* val) {
+          return ir_cloner.clone(val);
+        });
+    return cloned_vals;
+  };
+
+  for (auto group : workspace.group_run_order) {
+    std::vector<Expr*> host_exprs;
+    NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
+    if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
+      continue;
+    }
+    const bool is_resharding = std::any_of(
+        group->exprs().begin(), group->exprs().end(), [](auto expr) {
+          return isResharding(expr);
+        });
+    if (is_resharding) {
+      NVF_ERROR(
+          group->exprs().size() == 1,
+          "Communication segments must contain only one Expr");
+      for (auto* expr : HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
+        // Allocate the recv buffers of communications
+        NVF_ERROR(expr->isA<Communication>(), "Expected a Communication but got ", expr);
+        auto* communication = expr->as<Communication>();
+        TensorView* tv = communication->out();
+        if (tv->getDeviceMesh().has(my_device_index)) {
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          hic->pushBackTopLevelExprs(allocate);
+        }
+        hic->pushBackTopLevelExprs(communication);
+        auto wait = IrBuilder::create<hir::Wait>(communication);
+        hic->pushBackTopLevelExprs(wait);
+      }
+    } else {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
+    }
+  }
+  for (auto input : staged_fusion->inputs()) {
+    hic->addInput(ir_cloner.clone(input));
+  }
+  for (auto output : staged_fusion->outputs()) {
+    hic->addOutput(ir_cloner.clone(output));
+  }
+
+  return hic;
 }
 
 } // namespace nvfuser

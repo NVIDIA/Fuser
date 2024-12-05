@@ -6,6 +6,8 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
@@ -216,6 +218,37 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
+std::string HostIrEvaluator::canRun() const {
+  const int64_t requested_n_gpus = requestedNumberOfDevices(container_.get());
+
+  if (requested_n_gpus == 1) {
+    return "";
+  }
+
+  if (communicator_ == nullptr) {
+    return "A communicator must be provided";
+  }
+
+  if (!communicator_->is_available()) {
+    return "distributed configuration required";
+  }
+
+  if (requested_n_gpus > communicator_->size()) {
+    return "the fusion requests " +
+        std::to_string(requested_n_gpus) +
+        " GPUs to run, but there are only " + std::to_string(communicator_->size()) +
+        " ranks in the communicator";
+  }
+
+  if (communicator_->local_size() > at::cuda::getNumGPUs()) {
+    return std::to_string(communicator_->local_size()) +
+        " processes are spawn on the node but only " +
+        std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";
+  }
+
+  return "";
 }
 
 c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
