@@ -141,8 +141,7 @@ class MatmulParams : public HeuristicParams {
   //! (Ampere+) Use cp.async to load operands.
   bool async_gmem_load_operands = false;
 
-  //! Specifies the tiling hierarchy on block,
-  //!  warp, and instruction levels.
+  //! Specifies the tiling hierarchy on block and warp levels.
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.

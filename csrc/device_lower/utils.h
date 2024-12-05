@@ -19,7 +19,6 @@
 
 #include <bitset>
 #include <map>
-#include "logical_domain_map.h"
 
 // Provides utilities for dealing with nested ForLoop and IfThenElse scopes
 
@@ -373,14 +372,6 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 std::vector<Expr*> getSyncExprs(
     AsyncOpType async_type,
     int64_t keep_stages = 0);
-
-//! Get the set of IterDomains on the shortest path from the producer allocation
-//! domain to the consumer loop domain.
-std::pair<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>>
-getIndexIDs(
-    TensorView* producer,
-    TensorView* consumer,
-    const std::unordered_map<IterDomain*, IterDomain*>* c2p = nullptr);
 
 } // namespace lower_utils
 

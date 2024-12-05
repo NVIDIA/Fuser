@@ -575,8 +575,7 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
   scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
 
   // Cache and fork outputs
-  cached_outputs_ =
-      scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
+  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
 }
 
 void HopperMultipleMatmulScheduler::defineOperandCaches() {
@@ -990,79 +989,91 @@ void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   // TODO: schedule epilogue by propagation backward from dc
-  // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
-  // then TMA
-  for (auto& [dc, d] : cached_outputs_) {
-    blockTileTensors({dc});
-    blockTileTensors({d});
-    for (auto tv : {dc, d}) {
-      // [..., Mo, No, Mi, Ni]
-      tv->split(-2, getM(params_->mma_macro));
-      tv->split(-1, getN(params_->mma_macro));
-      // [..., Mo, No, Mio, Mii, Nio, Nii]
-      // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-      tv->reorder({{-3, -2}});
-      tv->merge(-4);
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          tv->getLoopDomain());
-      tv->setLoopDomain(s.as<IterDomain*>());
-      tv->axis(-5)->parallelize(ParallelType::TIDy);
-    }
-    parallelizeBlocks({dc});
-    parallelizeBlocks({d});
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-  return;
-  std::vector<TensorView*> output_tvs;
-  for (Val* v : fusion_->outputs()) {
-    if (auto tv = dynamic_cast<TensorView*>(v)) {
-      output_tvs.push_back(tv);
-    }
-  }
-  if (params_->use_smem_epilogue) {
-    blockTileTensors(output_tvs);
-    for (auto [dc, d] : cached_outputs_) {
-      // Schedule output tensor differently for better global memory access
-      // pattern.
-      scheduleOutputTensor(d);
-      d->axis(-1)->parallelize(ParallelType::Vectorize);
+  if (!params_->use_smem_epilogue) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
+      NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+      auto* dc = d->definition()->input(0)->as<TensorView>();
 
-      // Propagate output tensor transformations back to smem_epilogue
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          d, -1, smem_epilogues_);
-    }
-  } else {
-    for (TensorView* mma_result : mma_results_) {
-      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-          mma_result,
-          -1,
-          output_tvs,
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType()
-              .propagateToBoundary());
-    }
-    for (auto [dc, d] : cached_outputs_) {
-      // We might propagate an inner dimension that is not compatible with the
-      // output or bias-like inputs. In those cases, we will further split
-      // this dimension with an outer unrolled loop to achieve the proper
-      // vectorization as specified by params.supported_vec_size.epilogue.
-      NVF_ERROR(d->axis(-1)->extent()->isConst());
-      int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
-      if (d_extent > params_->supported_vec_size.epilogue) {
-        // Should always be a divisible split
-        NVF_ERROR(d_extent % params_->supported_vec_size.epilogue == 0);
-        d->split(
-            -1, params_->supported_vec_size.epilogue, /*inner_split=*/true);
-        d->axis(-2)->parallelize(ParallelType::Unroll);
+      // Block Schedule and Parallelize
+      blockTileTensors({dc, d});
+      parallelizeBlocks({dc, d});
+
+      // Apply mma common transformation
+      for (auto tv : {dc, d}) {
+        // [..., Mo, No, Mi, Ni]
+        tv->split(-2, getM(params_->mma_macro));
+        tv->split(-1, getN(params_->mma_macro));
+        // [..., Mo, No, Mio, Mii, Nio, Nii]
+        // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+        tv->reorder({{-3, -2}});
+        tv->merge(-4);
+        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+            tv->getLoopDomain());
+        tv->setLoopDomain(s.as<IterDomain*>());
+        tv->axis(-5)->parallelize(ParallelType::TIDy);
       }
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
-  }
+  } else {
+    // TODO: Use stmatrix to load from registers to shared memory
+    constexpr int64_t stmatrix_tile_m = 16;
+    constexpr int64_t stmatrix_tile_n = 16;
+    constexpr int64_t tma_m = 16;
+    constexpr int64_t tma_n = 64;
 
-  // propagate output transformations to all inputs that are part of epilogue
-  //  operations, input tvs with non-core roles
-  //  core roles: essential for matmul, for example mma inputs' producers
-  scheduleFusionInputsForEpilogue();
+    // Manually schedule register cache and output TensorView
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
+      NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+      auto* dc = d->definition()->input(0)->as<TensorView>();
+
+      // NOTE: cacheBefore does not work with blockTileTensors
+      TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
+
+      // Set MemoryType
+      dc->setMemoryType(MemoryType::Local);
+      d_smem->setMemoryType(MemoryType::Shared);
+
+      // Set LoadStoreOp
+      // TODO Use LoadStoreOpType::StMatrix on d_smem definition
+      d->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+
+      // Block Schedule and Parallelize
+      blockTileTensors({dc, d_smem, d});
+      parallelizeBlocks({dc, d_smem, d});
+
+      // Apply mma common transformation
+      for (auto tv : {dc, d_smem, d}) {
+        // Original: [..., Mo, No, Mi, Ni]
+        tv->split(-2, getM(params_->mma_macro));
+        tv->split(-1, getN(params_->mma_macro));
+        // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+        tv->reorder({{-3, -2}});
+        // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+        tv->merge(-4);
+        // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+        tv->axis(-3)->parallelize(ParallelType::TIDy);
+        // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+      }
+
+      // Schedule register cache; Output from epilogue
+      {
+        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+            dc->getLoopDomain());
+        dc->setLoopDomain(s.as<IterDomain*>());
+        dc->setAllocationDomain(s.as<IterDomain*>(), true);
+      }
+
+      // Schedule shared memory cache; Output from StMatrix
+      scheduleStMatrixForMmaOutput(
+          d_smem, stmatrix_tile_m, stmatrix_tile_n, tma_m, tma_n);
+
+      // Schedule global memory output; Output from TMA Store
+      scheduleTMAStoreForMmaOutput(d, tma_m, tma_n);
+    }
+  }
 }
 
 //! Propagates transformations from fusion output to fusion tv inputs that are
@@ -1210,6 +1221,103 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         all_smem_loads);
   }
   */
+}
+
+void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n,
+    int64_t tma_m,
+    int64_t tma_n) {
+  NVF_ERROR(
+      ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
+      "We only support 16x16 and 16x16 stmatrix now");
+
+  NVF_ERROR(
+      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
+
+  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
+
+  // Create tma store allocation domain with swizzle
+  scheduleTMAStoreForMmaOutput(tv, tma_m, tma_n);
+
+  tv->setLoopDomain(s.as<IterDomain*>());
+
+  if (tile_m == 16 && tile_n == 16) {
+    // Let [M, N] be [64, 32]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+    // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+    tv->split(-3, 2);
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+    tv->reorder({{-4, 0}});
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+    tv->merge(-3);
+    tv->merge(-2);
+  } else if (tile_m == 16 && tile_n == 8) {
+    // Let [M, N] be [64, 16]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
+    // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
+    tv->reorder({{-3, 0}});
+    // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
+    tv->merge(-2);
+  }
+}
+
+void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
+    TensorView* tv,
+    int64_t m,
+    int64_t n) {
+  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
+  tv->split(-2, m);
+  tv->split(-1, n);
+  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
+  tv->reorder({{-2, -3}});
+
+  // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
+  // skip the first 5 iterDomains
+  int64_t num_ids_to_skip = 5;
+  MmaInputSmemSwizzle swizzle = MmaInputSmemSwizzle::B128;
+
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+    // [Ko, No, K8, N8]
+    num_ids_to_skip += 2;
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+    num_ids_to_skip += 1;
+  }
+
+  // The shared memory producer must have the swizzled allocation domain.
+  // The global memory consumer must have the ParallelType::Bulk iterDomains.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Set the allocation to the loop domain.
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  } else {
+    mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+        tv, num_ids_to_skip);
+  }
 }
 
 } // namespace nvfuser

@@ -3238,24 +3238,21 @@ bool TensorDomain::sameAs(
 std::string TensorDomain::toString(const int indent_size, const bool loop_only)
     const {
   std::stringstream ss;
-  if (nDims() == 0) {
-    indent(ss, indent_size) << "[ ]";
-    return ss.str();
-  }
-  indent(ss, indent_size) << "[ " << toDelimitedString(loop()) << " ]";
-  if (!loop_only) {
+  if (loop_only) {
+    indent(ss, indent_size) << "[" << toDelimitedString(loop()) << "]";
+  } else {
+    indent(ss, indent_size)
+        << "logical=[" << toDelimitedString(logical()) << "]" << std::endl;
     if (hasRoot()) {
-      ss << "," << std::endl;
       indent(ss, indent_size + 1)
-          << "root=[ " << toDelimitedString(root()) << " ]";
+          << "root=[" << toDelimitedString(root()) << "]" << std::endl;
     }
-    ss << "," << std::endl;
     indent(ss, indent_size + 1)
-        << "rfactor=[ " << toDelimitedString(logical()) << " ]";
-    if (!allocation_domain_.empty()) {
-      ss << "," << std::endl;
+        << "loop=[" << toDelimitedString(loop()) << "]" << std::endl;
+    if (hasAllocation()) {
       indent(ss, indent_size + 1)
-          << "allocation=[ " << toDelimitedString(allocation()) << " ]";
+          << "allocation=[" << toDelimitedString(allocation()) << "]"
+          << std::endl;
     }
   }
   return ss.str();
@@ -3721,7 +3718,7 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
       if (all_domains[j]->empty()) {
         continue;
       }
-      auto path = IRBFS::getExprsBetween(
+      auto path = getExprsBetween<IRBFS>(
                       {all_domains[i]->begin(), all_domains[i]->end()},
                       {all_domains[j]->begin(), all_domains[j]->end()},
                       false)
