@@ -751,6 +751,10 @@ class ParallelReduce {
       const VolatilePtrWelfordTripletTuple<NumVals, DataType, IndexType>&
           global_work_buffer,
       const LocalWelfordTripletTuple<NumVals, DataType, IndexType>& init_val,
+      // block_dim is basically just blockDim if there is no warp specialization
+      // in the kernel. If there is warp specialization, block_dim is the
+      // the dimension of the compute warps.
+      dim3 block_dim,
       PtrTuple<DataType, DataType, IndexType> shared_buf,
       nvfuser_index_t block_red_idx_offset,
       nvfuser_index_t num_thread_iters,
@@ -759,11 +763,7 @@ class ParallelReduce {
       nvfuser_index_t grid_red_size,
       const typename MakeLocalTuple<NumVals, bool>::type& write_preds,
       bool block_reduce_participate,
-      bool grid_reduce_participate,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim);
+      bool grid_reduce_participate);
 
   // End Parallel reduce class
 };

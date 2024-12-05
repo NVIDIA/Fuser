@@ -477,6 +477,7 @@ __device__ __inline__ void ParallelReduce<
       global_work_buffer,
       LocalWelfordTripletTuple<NumArgs, DataType, IndexType>(
           init_avg, init_var, init_N),
+      block_dim,
       shared_buf,
       block_red_idx_offset,
       num_thread_iters,
@@ -485,8 +486,7 @@ __device__ __inline__ void ParallelReduce<
       grid_red_size,
       write_preds,
       block_reduce_participate,
-      grid_reduce_participate,
-      block_dim);
+      grid_reduce_participate);
 
   // Forward protect the smem buffer
   block_sync::sync<Aligned>();
