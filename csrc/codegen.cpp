@@ -1263,6 +1263,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ss << "dim3(" << genInline(pdim_map.getRawCompute(ParallelType::TIDx))
        << ", " << genInline(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
        << genInline(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+    return ss.str();
   }
 
   void genWarpReduction(
