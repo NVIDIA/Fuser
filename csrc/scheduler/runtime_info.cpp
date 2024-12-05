@@ -10,7 +10,6 @@
 #include <runtime/executor_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
-#include <scheduler/vectorize_helper.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {
@@ -135,12 +134,7 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
   return alignment_size;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(
-    TensorView* tv,
-    int64_t datatype_size,
-    const std::unordered_map<
-        TensorView*,
-        vectorize_helper::TensorResizeAlignmentInfo>& resize_alignment_map) {
+size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
   auto alignment_entry = alignment_map_.find(tv);
   if (alignment_entry != alignment_map_.end()) {
     return alignment_entry->second;
@@ -154,23 +148,6 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(
           alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
     }
   }
-
-  // resize operation has special checks on alignment sizes.
-  auto resize_id_it = resize_alignment_map.find(tv);
-  if (resize_id_it != resize_alignment_map.end()) {
-    // get tensor stride
-    auto strides = getInputAllocationStrides(tv);
-    // resize, specifically negative resize (slicing), makes its outer dimension
-    // non-contiguous, `non_contig_idx_alloc` is the index for allocation domain
-    // that needs alignment check on its stride.
-    for (int64_t alloc_idx : resize_id_it->second.non_contig_idx_alloc) {
-      alignment_size = std::min(
-          alignment_size,
-          SchedulerRuntimeInfo::computeAlignmentSize(
-              strides[alloc_idx] * datatype_size));
-    }
-  }
-
   alignment_map_[tv] = alignment_size;
   return alignment_size;
 }
