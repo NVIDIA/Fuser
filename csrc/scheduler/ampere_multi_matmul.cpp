@@ -10,6 +10,7 @@
 #include <id_model/schedule.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <ir/graphviz.h>
 #include <scheduler/ampere_multi_matmul.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
@@ -1137,6 +1138,8 @@ void AmpereMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
 
 void AmpereMultipleMatmulScheduler::scheduleEpilogue() {
   std::vector<TensorView*> output_tvs;
+  IrGraphGenerator::print(
+      fusion_, "a_amp.dot", IrGraphGenerator::DetailLevel::Basic);
   for (Val* v : fusion_->outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(v)) {
       output_tvs.push_back(tv);

@@ -9,6 +9,7 @@
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -552,6 +553,8 @@ void HopperMultipleMatmulScheduler::run() {
   // schedule mma instruction output (mma_result)
   scheduleMmaResults();
 
+  IrGraphGenerator::print(
+      fusion_, "a.dot", IrGraphGenerator::DetailLevel::Basic);
   // schedule epilogue
   scheduleEpilogue();
 
@@ -995,12 +998,72 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
       auto* dc = d->definition()->input(0)->as<TensorView>();
 
-      // Block Schedule and Parallelize
-      blockTileTensors({dc, d});
-      parallelizeBlocks({dc, d});
+      auto op_uni = dc->definition()->input(0)->as<TensorView>();
+      std::cout << op_uni->toString() << std::endl;
 
+      auto bin_inputs = dc->definition()->inputs();
+      std::vector<TensorView*> inps = {};
+      for (auto in : bin_inputs) {
+        if (!in->definition()->isA<MmaOp>()) {
+          inps.push_back(in->as<TensorView>());
+          std::cout << "pushing in:  " << in->as<TensorView>()->toString()
+                    << std::endl;
+        }
+      }
+
+      while (inps.back()->definition() != nullptr) {
+        auto ins = inps.back()->definition()->inputs();
+        for (auto ii : ins) {
+          if (!ii->definition()->isA<MmaOp>()) {
+            inps.push_back(ii->as<TensorView>());
+          }
+        }
+      }
+
+      for (auto t : inps) {
+        std::cout << "printing out inps" << std::endl;
+        std::cout << t->toInlineString() << std::endl;
+      }
+
+      inps.insert(inps.begin(), {dc, d});
+      std::vector vecs_to_schedule = {dc, d};
+
+      // Block Schedule and Parallelize
+      // blockTileTensors({dc, d});
+      // parallelizeBlocks({dc, d});
+
+      for (auto t : inps) {
+        std::cout << "printing out inps" << std::endl;
+        t->printTransforms();
+      }
+
+      auto t3 = inps[inps.size() -1];
+      auto t2 = inps[inps.size() -2];
+      auto t1 = inps[inps.size() -3];
+
+      inps.resize(inps.size() - 3);
+      blockTileTensors(inps);
+      parallelizeBlocks(inps);
+
+
+      for (auto t: {t3, t2, t1}){
+        t->split(0, 256);
+        t->split(0, 128);
+        t->split(0, 1);
+        t->axis(0)->parallelize(ParallelType::BIDx);
+        t->axis(0)->parallelize(ParallelType::BIDx);
+      }
+
+
+      for (auto t : inps) {
+        std::cout << "printing out inps2::  " << std::endl;
+        t->printTransforms();
+      }
+
+      inps.insert(inps.end(), {t1, t2, t3});
       // Apply mma common transformation
-      for (auto tv : {dc, d}) {
+      // for (auto tv : {dc, d}) {
+      for (auto tv : inps) {
         // [..., Mo, No, Mi, Ni]
         tv->split(-2, getM(params_->mma_macro));
         tv->split(-1, getN(params_->mma_macro));
