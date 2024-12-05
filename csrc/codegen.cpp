@@ -1260,9 +1260,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string genComputeBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-    ss << "dim3(" << genInline(pdim_map.getRawCompute(ParallelType::TIDx))
-       << ", " << genInline(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
-       << genInline(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+    auto gen_or_one = [&](Val* v) { return v == nullptr ? "1" : genInline(v); };
+    ss << "dim3(" << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDx))
+       << ", " << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
+       << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
     return ss.str();
   }
 
