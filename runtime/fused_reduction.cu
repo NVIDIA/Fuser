@@ -736,13 +736,13 @@ class ParallelReduce {
   __device__ __inline__ static void welfordGroupBlock(
       LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
       const ConstRefWelfordTripletTuple<NumVals, DataType, IndexType>& inp,
-      PtrTuple<DataType, DataType, IndexType> shared_buf,
-      const typename MakeLocalTuple<NumVals, bool>::type& read_preds,
-      bool block_reduce_participate,
       // block_dim is basically just blockDim if there is no warp specialization
       // in the kernel. If there is warp specialization, block_dim is the
       // the dimension of the compute warps.
-      dim3 block_dim);
+      dim3 block_dim,
+      PtrTuple<DataType, DataType, IndexType> shared_buf,
+      const typename MakeLocalTuple<NumVals, bool>::type& read_preds,
+      bool block_reduce_participate);
 
   //! Welford version of reduceGrouplLastBlock
   template <bool Aligned, int NumVals, typename DataType, typename IndexType>

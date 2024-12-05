@@ -358,10 +358,10 @@ __device__ __inline__ void ParallelReduce<
       IndexType>(
       block_result,
       inp,
+      block_dim,
       shared_buf,
       read_preds,
-      block_reduce_participate,
-      block_dim);
+      block_reduce_participate);
 
   // If block reduction only, save to out and exit
   if (!GRID_REDUCE) {
