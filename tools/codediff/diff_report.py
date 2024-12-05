@@ -14,13 +14,7 @@ Example usage:
             codegen_comparison/{$commit1,$commit2}/binary_tests
 """
 
-from dataclasses import asdict, dataclass, field, InitVar
-import difflib
-from enum import Enum
 import os
-import re
-import subprocess
-import sys
 
 from codediff import TestRun, TestDifferences
 
