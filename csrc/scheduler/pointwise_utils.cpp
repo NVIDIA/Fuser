@@ -144,16 +144,21 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
-bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* reference_tv)
-    const {
-
+bool DomainMap::areAllProducerIdsMappedTo(
+    TensorView* target_tv,
+    TensorView* reference_tv) const {
   // reverse traversal to collect all producer ids of reference_tv
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       all_covered_exact_sets;
-  std::for_each(reference_tv->getLogicalDomain().begin(), reference_tv->getLogicalDomain().end(), [&](IterDomain* id) {
-    all_covered_exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
-  });
-  all_covered_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
+  std::for_each(
+      reference_tv->getLogicalDomain().begin(),
+      reference_tv->getLogicalDomain().end(),
+      [&](IterDomain* id) {
+        all_covered_exact_sets.pushBack(
+            ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+      });
+  all_covered_exact_sets.pushBack(
+      ca_map_.getAllDisjointSetProducers(all_covered_exact_sets));
 
   std::unordered_set<IterDomain*> covered_source_ids;
   for (const auto& exact_set_ptr : all_covered_exact_sets) {
@@ -172,10 +177,15 @@ bool DomainMap::areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* ref
 
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       all_expected_exact_sets;
-  std::for_each(target_tv->getLogicalDomain().begin(), target_tv->getLogicalDomain().end(), [&](IterDomain* id) {
-    all_expected_exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
-  });
-  all_expected_exact_sets.pushBack(ca_map_.getAllDisjointSetProducers(all_expected_exact_sets));
+  std::for_each(
+      target_tv->getLogicalDomain().begin(),
+      target_tv->getLogicalDomain().end(),
+      [&](IterDomain* id) {
+        all_expected_exact_sets.pushBack(
+            ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+      });
+  all_expected_exact_sets.pushBack(
+      ca_map_.getAllDisjointSetProducers(all_expected_exact_sets));
 
   for (const auto& exact_set_ptr : all_expected_exact_sets) {
     IterDomain* id = exact_set_ptr->front();
@@ -281,7 +291,8 @@ IterDomain* DomainMap::anyMapped(
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
 // The reference tensor must map to all the iterDomains in each input.
-bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage) const {
+bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage)
+    const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
       continue;
@@ -293,7 +304,8 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_output_coverage) con
     }
   }
   if (check_output_coverage) {
-    for (auto output_tv : ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    for (auto output_tv :
+         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
       if (output_tv == tv) {
         continue;
       }

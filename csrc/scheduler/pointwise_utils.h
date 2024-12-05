@@ -29,7 +29,8 @@ class DomainMap {
 
   // Determine if a TensorView is a valid reference tensor for this fusion.
   // The reference tensor must map to all the iterDomains in each input.
-  bool isValidReference(TensorView* tv, bool check_output_coverage=true) const;
+  bool isValidReference(TensorView* tv, bool check_output_coverage = true)
+      const;
 
  protected:
   // Determine if all IterDomains are mapped between input and the given tvs
@@ -37,8 +38,9 @@ class DomainMap {
       const;
 
   // Determine if all IterDomains are mapped between input and the given tvs
-  bool areAllProducerIdsMappedTo(TensorView* target_tv, TensorView* reference_tv)
-      const;
+  bool areAllProducerIdsMappedTo(
+      TensorView* target_tv,
+      TensorView* reference_tv) const;
 
   virtual IterDomain* getMappedInputConcreteID(
       const std::unordered_set<IterDomain*>& in_concrete_ids,
