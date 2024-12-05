@@ -946,7 +946,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   int64_t number_of_steps_per_ring_, number_of_rings_;
   std::vector<int64_t> all_devices_;
   at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
-  at::Tensor tb_;
+  at::Tensor ta_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -954,7 +954,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   std::vector<int64_t> ta_unsharded_sizes;
   std::vector<int64_t> tb_unsharded_sizes;
   std::vector<int64_t> tc_unsharded_sizes;
-  std::vector<int64_t> tb_sizes;
+  std::vector<int64_t> ta_sizes;
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -981,25 +981,29 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
       debug() << params << std::endl;
     }
 
-    // A(M, K)
-    // B(K, sharded(N))
+    // A(sharded(M), K)
+    // B(K, N)
     // C(M, N)
-    ta_unsharded_sizes = std::vector<int64_t>{params.M, params.K};
+    // We use a full allocation of A on each device for algorithm simplicity
+    // TODO: use only 2 buffers instead of a full allocation
+    ta_unsharded_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / (number_of_steps_per_ring_ * number_of_rings_),
+        params.K};
+    ta_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / (number_of_steps_per_ring_ * number_of_rings_),
+        params.K};
     tb_unsharded_sizes = std::vector<int64_t>{
-        number_of_steps_per_ring_,
-        number_of_rings_,
         params.K,
-        params.N / (number_of_steps_per_ring_ * number_of_rings_)};
-    tb_sizes = std::vector<int64_t>{
-        number_of_steps_per_ring_,
-        number_of_rings_,
-        params.K,
-        params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+        params.N};
     tc_unsharded_sizes = std::vector<int64_t>{
         number_of_steps_per_ring_,
         number_of_rings_,
-        params.M,
-        params.N / (number_of_steps_per_ring_ * number_of_rings_)};
+        params.M / (number_of_steps_per_ring_ * number_of_rings_),
+        params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -1009,35 +1013,35 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     auto cpu_options = at::TensorOptions().dtype(at::kFloat);
     at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
 
-    ta_unsharded_ = at::empty(ta_unsharded_sizes, gpu_options);
-    tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, gpu_options);
     tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
-    tb_ = at::empty(tb_sizes, gpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
       debug() << "ta_unsharded_sizes()=" << ta_unsharded_.sizes() << std::endl
               << "tb_unsharded_sizes()=" << tb_unsharded_.sizes() << std::endl
               << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl
-              << "tb_.sizes()=" << tb_.sizes() << std::endl;
+              << "ta_.sizes()=" << ta_.sizes() << std::endl;
     }
   }
 
   // Each rank calls uniform_ and gets the same values for ta_ and tb_ because
   // the random seed is initialized the same Therefore, we do not need to have
-  // one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
+  // one rank generate A and B and broadcast it to the rest of the ranks
   void initializeIO() {
     ta_unsharded_.uniform_();
     tb_unsharded_.uniform_();
-    // we have allocated the full B matrix, but only copy the sharded portion
-    tb_.select(0, my_device_index_)
-        .copy_(tb_unsharded_.select(0, my_device_index_));
+    // we have allocated the full A matrix, but only copy the sharded portion
+    ta_.select(0, my_device_index_)
+        .copy_(ta_unsharded_.select(0, my_device_index_));
   }
 
   void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ =
-        torch::matmul(ta_unsharded_.cpu(), tb_unsharded_);
+        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
     EXPECT_TRUE(
         tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
@@ -1070,8 +1074,8 @@ TEST_F(
         auto next_slice_index =
             (my_device_index_ - j - 1 + number_of_steps_per_ring_) %
             number_of_steps_per_ring_;
-        auto tb_j_curr_slice = tb_.select(0, slice_index).select(0, i);
-        auto tb_j_next_slice = tb_.select(0, next_slice_index).select(0, i);
+        auto ta_j_curr_slice = ta_.select(0, slice_index).select(0, i);
+        auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
         if (comms_req) {
@@ -1080,9 +1084,9 @@ TEST_F(
         }
 
         // send & matmul current index
-        std::vector<at::Tensor> src = {tb_j_curr_slice};
-        std::vector<at::Tensor> dst = {tb_j_next_slice};
-        torch::matmul_out(tc_j, ta_unsharded_, tb_j_curr_slice);
+        std::vector<at::Tensor> src = {ta_j_curr_slice};
+        std::vector<at::Tensor> dst = {ta_j_next_slice};
+        torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
         if (j < number_of_steps_per_ring_ - 1) {
           world_communicator_->startCoalescing();
           world_communicator_->send(src, send_rank, 0);
