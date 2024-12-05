@@ -996,9 +996,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
         number_of_rings_,
         params.M / (number_of_steps_per_ring_ * number_of_rings_),
         params.K};
-    tb_unsharded_sizes = std::vector<int64_t>{
-        params.K,
-        params.N};
+    tb_unsharded_sizes = std::vector<int64_t>{params.K, params.N};
     tc_unsharded_sizes = std::vector<int64_t>{
         number_of_steps_per_ring_,
         number_of_rings_,
