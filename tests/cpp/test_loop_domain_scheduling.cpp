@@ -216,7 +216,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
 
   // Validate the history of tv5 loop IDs
   auto tv5_loop_to_logical =
-      IRBFS::getExprsBetween(
+      getExprsBetween<IRBFS>(
           {tv5->getLoopDomain().begin(), tv5->getLoopDomain().end()},
           {tv5->getLogicalDomain().begin(), tv5->getLogicalDomain().end()})
           .first;

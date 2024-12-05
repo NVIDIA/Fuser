@@ -5406,6 +5406,52 @@ TEST_F(IndexingTest, ResizeRotation) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// Repro of issue #3505. The indexing WAR for resize triggered an
+// assertion due to loop promotion.
+TEST_F(IndexingTest, Issue3505) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 2;
+  const int64_t i1 = 4;
+  const int64_t i2 = 8;
+  const auto zero = fusion.zeroVal();
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({i1, i2});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({i0, i1 / 2, i2 / 2});
+  fusion.addInput(tv1);
+
+  // One slice can reproduce the error but just to trigger the
+  // reachability check between multiple resize ops
+  auto tv2 = slice(
+      tv0,
+      {{zero, IrBuilder::create<Val>(i1 / 2)},
+       {zero, IrBuilder::create<Val>(i2 / 2)}});
+  auto tv3 = broadcast(tv2, {true, false, false});
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : {tv2, tv3, tv4}) {
+    tv->flatten();
+  }
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i1, i2}, options);
+  auto t1 = at::randn({i0, i1 / 2, i2 / 2}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});

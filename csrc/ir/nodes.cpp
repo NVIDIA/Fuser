@@ -3670,14 +3670,33 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
-      logical_domain_, new_loop_domain, additional_ids_);
+  // Check if new_loop_domain is a valid domain with no
+  // redundancy. The logical domain is used as a reference to find if
+  // there's any ID that's not covered by the new loop domain.
+  std::vector<IterDomain*> reference;
+  reference.reserve(logical_domain_.size() + additional_ids_.size());
+  reference.insert(
+      reference.end(), logical_domain_.begin(), logical_domain_.end());
+  // additional_ids_ are also considered part of the refernece domain
+  reference.insert(
+      reference.end(), additional_ids_.begin(), additional_ids_.end());
+  auto [redundant_ids, additional_ids, unreachable_reference_ids] =
+      ir_utils::compareDomainWithReference(new_loop_domain, reference);
   NVF_ERROR(
-      !logical_unreachable,
-      "Not all logical IDs are covered by loop domain. Loop: ",
-      toDelimitedString(new_loop_domain),
-      ". Logical: ",
-      toDelimitedString(logical_domain_));
+      redundant_ids.empty(),
+      "Trying to set a loop domain with redundant IDs: ",
+      toDelimitedString(redundant_ids));
+  if (!unreachable_reference_ids.empty()) {
+    NVF_ERROR(
+        std::all_of(
+            unreachable_reference_ids.begin(),
+            unreachable_reference_ids.end(),
+            [](const auto id) { return id->isBroadcast(); }),
+        "Not all logical IDs are covered by loop domain. Loop: ",
+        toDelimitedString(new_loop_domain),
+        ". Unreachable logical IDs: ",
+        toDelimitedString(unreachable_reference_ids));
+  }
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
@@ -3718,7 +3737,7 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
       if (all_domains[j]->empty()) {
         continue;
       }
-      auto path = IRBFS::getExprsBetween(
+      auto path = getExprsBetween<IRBFS>(
                       {all_domains[i]->begin(), all_domains[i]->end()},
                       {all_domains[j]->begin(), all_domains[j]->end()},
                       false)

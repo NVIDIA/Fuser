@@ -58,7 +58,7 @@ TEST_F(BFSTest, ValGraphBFS1) {
   // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
   ExprPath<ExprGroup> tv1_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups)
+      ValGraphBFS::getExprGroupsBetween(graph, tv1_loop_groups, tv0_loop_groups)
           .first;
   EXPECT_TRUE(tv1_to_tv0.empty());
 
@@ -68,7 +68,7 @@ TEST_F(BFSTest, ValGraphBFS1) {
       graph.toGroup(tv1->getLoopDomain().at(0)));
   EXPECT_THAT(
       [&]() {
-        ValGraphBFS::getExprsBetween(
+        ValGraphBFS::getExprGroupsBetween(
             graph, incomplete_tv1_loop_groups, tv0_loop_groups);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
@@ -80,7 +80,7 @@ TEST_F(BFSTest, ValGraphBFS1) {
   // tv2 loop domain backward to its root and then forward from tv1 root to
   // tv1 loop domain.
   ExprPath<ExprGroup> tv2_to_tv1 =
-      ValGraphBFS::getExprsBetween(graph, tv2_loop_groups, tv1_loop_groups)
+      ValGraphBFS::getExprGroupsBetween(graph, tv2_loop_groups, tv1_loop_groups)
           .first;
 
   ExprPath<ExprGroup> tv2_to_tv1_ref;
@@ -126,7 +126,7 @@ TEST_F(BFSTest, ValGraphBFS2) {
   // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
   ExprPath<ExprGroup> tv1_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups)
+      ValGraphBFS::getExprGroupsBetween(graph, tv1_loop_groups, tv0_loop_groups)
           .first;
 
   ExprPath<ExprGroup> tv1_to_tv0_ref;
@@ -144,7 +144,8 @@ TEST_F(BFSTest, ValGraphBFS2) {
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(1)));
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(2)));
   ExprPath<ExprGroup> tv1_to_tv0_partial =
-      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_partial_groups)
+      ValGraphBFS::getExprGroupsBetween(
+          graph, tv1_loop_groups, tv0_partial_groups)
           .first;
 
   EXPECT_EQ(tv1_to_tv0_partial, tv1_to_tv0_ref);
@@ -185,7 +186,7 @@ TEST_F(BFSTest, ValGraphBFS3) {
   ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
 
   ExprPath<ExprGroup> tv4_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups).first;
+      ValGraphBFS::getExprGroupsBetween(graph, tv4_groups, tv0_groups).first;
   ExprPath<ExprGroup> tv4_to_tv0_ref;
   tv4_to_tv0_ref.emplace_back(
       graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
@@ -234,7 +235,7 @@ TEST_F(BFSTest, ValGraphBFS4) {
   // and tv3, but the shortest path should be just one merge for tv1
 
   ExprPath<ExprGroup> tv4_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups).first;
+      ValGraphBFS::getExprGroupsBetween(graph, tv4_groups, tv0_groups).first;
 
   ExprPath<ExprGroup> tv4_to_tv0_ref;
   tv4_to_tv0_ref.emplace_back(
@@ -279,7 +280,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
   // Just between iter domains in the same tensor. Unlike
   // DependencyCheck, the direction doesn't matter
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
         {tv1->getRootDomain().begin(), tv1->getRootDomain().end()});
     std::vector<Val*> ref{
@@ -290,7 +291,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
 
   // The tv2 loop domain is reachable from its logical domain
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref{
@@ -302,7 +303,7 @@ TEST_F(BFSTest, IRBFSGetReachableValsFrom) {
   // If only one of the logical domain is given, only the domain that
   // is dervied from it is returned
   {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
+    auto reachable_vals = getReachableValsFrom<IRBFS>(
         {tv2->getLogicalDomain().at(0)},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref{tv2->getLoopDomain().at(0)};
@@ -341,7 +342,7 @@ TEST_F(BFSTest, IRBFSGetValsBetween) {
   // Unlike DependencyCheck::getAllValsBetween, the direction doesn't
   // matter.
   {
-    auto all_vals = IRBFS::getValsBetween(
+    auto all_vals = getValsBetween<IRBFS>(
         {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     std::vector<Val*> ref;
@@ -360,7 +361,7 @@ TEST_F(BFSTest, IRBFSGetValsBetween) {
   // Since only one of the logical domain is given, it doesn't reach
   // anywhere, returning an empty vector
   {
-    auto all_vals = IRBFS::getValsBetween(
+    auto all_vals = getValsBetween<IRBFS>(
         {tv2->getLogicalDomain().at(0)},
         {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
     EXPECT_TRUE(all_vals.empty());
@@ -386,7 +387,7 @@ TEST_F(BFSTest, FindDependencyWithIRBFSGetValsBetween) {
   tv1->reorder({{0, 1}});
   // [i1*i3, i0*i2]
 
-  auto all_deps = IRBFS::getDependenciesTo(
+  auto all_deps = getDependenciesTo<IRBFS>(
       {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
       {tv1->axis(0)});
 
@@ -427,7 +428,7 @@ TEST_F(BFSTest, TraversalDirection) {
 
   // Shortest path from the input to tv7 should forward the second
   // path and then move one Merge backward
-  auto shortest_path = ValGraphBFS::getExprsBetween(
+  auto shortest_path = ValGraphBFS::getExprGroupsBetween(
                            exact_graph,
                            exact_graph.toGroups(tv0->getLogicalDomain()),
                            exact_graph.toGroups(tv7->getLogicalDomain()),
@@ -443,7 +444,7 @@ TEST_F(BFSTest, TraversalDirection) {
       << ". Actual: " << shortest_path;
 
   // Forward only path should take tv1 through tv7
-  auto forward_path = ValGraphBFS::getExprsBetween(
+  auto forward_path = ValGraphBFS::getExprGroupsBetween(
                           exact_graph,
                           exact_graph.toGroups(tv0->getLogicalDomain()),
                           exact_graph.toGroups(tv7->getLogicalDomain()),
@@ -463,7 +464,7 @@ TEST_F(BFSTest, TraversalDirection) {
       << ". Actual: " << forward_path;
 
   // Backward only path should not find anything
-  auto backward_path = ValGraphBFS::getExprsBetween(
+  auto backward_path = ValGraphBFS::getExprGroupsBetween(
                            exact_graph,
                            exact_graph.toGroups(tv0->getLogicalDomain()),
                            exact_graph.toGroups(tv7->getLogicalDomain()),
@@ -471,6 +472,69 @@ TEST_F(BFSTest, TraversalDirection) {
                            Direction::Backward)
                            .first;
   EXPECT_TRUE(backward_path.empty()) << "Actual: " << backward_path;
+}
+
+// A simple test for IRBFSWithPermissiveDependence
+TEST_F(BFSTest, IRBFSPermissiveTraversal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0, i1]
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+
+  auto tv3 = set(tv1);
+  fusion.addOutput(tv3);
+
+  auto i0 = tv2->getLogicalDomain().at(0);
+  [[maybe_unused]] auto i1 = tv2->getLogicalDomain().at(0);
+
+  auto i2 = tv3->getLogicalDomain().at(0);
+
+  // i3 = merge(i0, i1)
+  tv2->flatten();
+  [[maybe_unused]] auto i3 = tv2->axis(0);
+  // i4, i5 = split(i3)
+  tv2->split(0, 4);
+  [[maybe_unused]] auto i4 = tv2->axis(0);
+  [[maybe_unused]] auto i5 = tv2->axis(1);
+
+  // from: [i0, i2]
+  // to: [i4]
+  // -> forward merge, forward split
+  {
+    auto path = getExprsBetween<IRBFSWithPermissiveDependence>(
+                    {i0, i2}, {i4}, /*require_all_to_visited=*/false)
+                    .first;
+    EXPECT_EQ(path.size(), 2);
+    // fwd merge
+    EXPECT_EQ(path.at(0).first, i3->definition());
+    EXPECT_EQ(path.at(0).second, Direction::Forward);
+    // fwd split
+    EXPECT_EQ(path.at(1).first, i4->definition());
+    EXPECT_EQ(path.at(1).second, Direction::Forward);
+  }
+
+  // from: [i4, i5]
+  // to: [i1]
+  // -> bwd split, bwd merge
+  {
+    auto path = getExprsBetween<IRBFSWithPermissiveDependence>(
+                    {i4, i5}, {i1}, /*require_all_to_visited=*/false)
+                    .first;
+    EXPECT_EQ(path.size(), 2);
+    // bwd split
+    EXPECT_EQ(path.at(0).first, i4->definition());
+    EXPECT_EQ(path.at(0).second, Direction::Backward);
+    // bwd merge
+    EXPECT_EQ(path.at(1).first, i3->definition());
+    EXPECT_EQ(path.at(1).second, Direction::Backward);
+  }
 }
 
 } // namespace nvfuser

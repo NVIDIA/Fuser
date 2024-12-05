@@ -196,17 +196,17 @@ inline bool isHopper(MmaMacro macro) {
 }
 
 //! Get the m size from macro type
-inline int getM(MmaMacro macro) {
+inline int64_t getM(MmaMacro macro) {
   return MmaMacroEncode(macro).m;
 }
 
 //! Get the n size from macro type
-inline int getN(MmaMacro macro) {
+inline int64_t getN(MmaMacro macro) {
   return MmaMacroEncode(macro).n;
 }
 
 //! Get the k size from macro type
-inline int getK(MmaMacro macro) {
+inline int64_t getK(MmaMacro macro) {
   return MmaMacroEncode(macro).k;
 }
 

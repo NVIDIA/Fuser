@@ -398,6 +398,17 @@ void Fusion::validateInputs() {
 std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     const {
   FUSER_PERF_SCOPE("Fusion::print");
+
+  debug() << "Inputs:" << std::endl;
+  for (auto inp : inputs()) {
+    debug() << "  " << inp << std::endl;
+  }
+
+  debug() << "Outputs:" << std::endl;
+  for (auto out : outputs()) {
+    debug() << "  " << out << std::endl;
+  }
+
   os << "\n%kernel {\n";
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
