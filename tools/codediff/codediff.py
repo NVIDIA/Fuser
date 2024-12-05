@@ -612,6 +612,56 @@ class TestRun:
             pass
         return kern
 
+    def join(self, other: "TestRun"):
+        """Concatenate other with self"""
+        # Stuff that has to match
+        assert self.git == other.git
+        assert self.preamble_size_lines == other.preamble_size_lines
+        assert self.preamble == other.preamble
+        assert self.command_type == other.command_type
+
+        # don't update name of this command
+
+        # Append differing nvcc versions as new rows, otherwise keep equal
+        if other.nvcc_version != self.nvcc_version:
+            self.nvcc_version += other.nvcc_version
+
+        # We expect the env to differ since we are probably joining after
+        # running multiple shards on different nodes in parallel. So just
+        # concatenate the envs, with a blank line between
+        if other.env != self.env:
+            self.env += f"\n{other.env}"
+
+        # keep a list of all GPUs involved
+        self.gpu_names += other.gpu_names
+
+        # concatenate command as if we ran the commands in sequence
+        self.command += f" && {other.command}"
+
+        # if one of the inputs is an error (non-zero), preserve it
+        self.exit_code += other.exit_code
+
+        # now merge the kernel maps with one another
+        for test_name, test_obj in other.kernel_map.items():
+            assert test_obj.name == test_name
+            if test_name == "Ungrouped Kernels":
+                if test_name in self.kernel_map:
+                    self.kernel_map[test_name].kernels += test_obj.kernels
+                    if not test_obj.passed:
+                        self.kernel_map[test_name].passed = False
+                    # Don't merge benchmark results. We should not have
+                    # ungrouped kernels with these fields anyway, since we
+                    # expect all kernels to fall under some benchmark if the
+                    # command_type is known to be a benchmark
+                    assert self.kernel_map[test_name].benchmark_result is None
+                    assert test_obj.benchmark_result is None
+                    continue
+            else:
+                assert (
+                    test_name not in self.kernel_map
+                ), f"Cannot join test runs containing the same test {test_name}"
+            self.kernel_map[test_name] = test_obj
+
 
 @dataclass_json
 @dataclass
@@ -911,21 +961,32 @@ if __name__ == "__main__":
 
     parse_parser.set_defaults(func=parse_dir)
 
-    merge_parser = subparsers.add_parser(
-        "merge",
-        help='Merge multiple command JSONs as if they were from a single command. This is useful for "unsharding" jobs that are computed using run_command.sh on multiple shards',
+    join_parser = subparsers.add_parser(
+        "join",
+        help='Concatenate multiple command JSONs as if they were from a single command. This is useful for "unsharding" jobs that are computed using run_command.sh on multiple shards',
     )
-    merge_parser.add_argument(
-        "-o", "--output", help="Location to write merged JSON file"
+    join_parser.add_argument(
+        "-o", "--output", help="Location to write concatenated JSON file"
     )
-    merge_parser.add_argument(
-        "input_jsons", nargs="+", help="Location of first JSON file"
+    join_parser.add_argument(
+        "input_jsons", nargs="+", help="Location of incoming JSON files"
     )
 
-    def merge_jsons(args: dict):
-        raise NotImplementedError("JSON merging is not yet implemented")
+    def join_jsons(args: dict):
+        assert len(args.input_jsons) > 0
 
-    merge_parser.set_defaults(func=merge_jsons)
+        with open(args.input_jsons[0], "r") as f:
+            td = TestRun.from_json(f.read())
+
+        for filename in args.input_jsons[1:]:
+            with open(filename, "r") as f:
+                td_other = TestRun.from_json(f.read())
+            td.join(td_other)
+
+        with open(args.output, "w") as f:
+            f.write(td.to_json())
+
+    join_parser.set_defaults(func=join_jsons)
 
     diff_parser = subparsers.add_parser(
         "diff", help="Compute the difference between two parsed command outputs"
