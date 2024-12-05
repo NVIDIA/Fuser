@@ -129,7 +129,9 @@ at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
   }
   NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   return shardTensor(
-      tensor, getShardedAxis(tv, ParallelType::DIDx), tv->getDeviceMesh());
+      tensor,
+      getShardedLogicalAxis(tv, ParallelType::DIDx),
+      tv->getDeviceMesh());
 }
 
 at::Tensor MultiDeviceTest::shardTensor(
@@ -147,7 +149,7 @@ at::Tensor MultiDeviceTest::shardTensor(
   i = (i < 0) ? 0 : i;
   // The following slicing is problematic when DID is on an inner split (cf.
   // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
-  // it's enforced by getShardedAxis.
+  // it's enforced by getShardedLogicalAxis.
   return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
 }
 

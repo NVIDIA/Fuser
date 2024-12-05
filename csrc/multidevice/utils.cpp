@@ -161,7 +161,9 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 
 } // namespace
 
-int64_t getShardedAxis(const TensorView* tv, const ParallelType parallel_type) {
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
       mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
@@ -212,7 +214,7 @@ std::vector<int64_t> unshardedSizes(
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
   for (ParallelType parallel_type : kParallelTypeDIDs) {
-    const int64_t sharded_axis = getShardedAxis(tv, parallel_type);
+    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
     if (sharded_axis == -1) {
       continue;
     }

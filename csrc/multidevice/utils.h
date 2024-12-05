@@ -126,7 +126,7 @@ void unshard(TensorView*);
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
 // type, returns -1.
-int64_t getShardedAxis(const TensorView* tv, ParallelType parallel_type);
+int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
 void reorderDIDToFront(TensorView*);
