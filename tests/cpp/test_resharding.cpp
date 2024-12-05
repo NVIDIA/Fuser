@@ -40,8 +40,7 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     // FusionExecutorCache, simplify validation by using
     // FusionExecutorCache::getMostRecentKernelRuntime()->fusionSegments()->groups().
     for (auto expr : fusion_->exprs()) {
-      EXPECT_TRUE(!isResharding(expr) || HostIrLower::canLower(expr))
-          << "on expr=" << expr;
+      EXPECT_TRUE(HostIrLower::canLower(expr)) << "on expr=" << expr;
     }
 
     SegmentCandidateFinderOptions options{

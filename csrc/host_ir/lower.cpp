@@ -303,6 +303,9 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
 }
 
 bool HostIrLower::canLower(Expr* expr) {
+  if (!isResharding(expr)) {
+    return true;
+  }
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }

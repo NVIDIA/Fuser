@@ -16,8 +16,6 @@ namespace nvfuser {
 
 class HostIrLower {
  public:
-  // Returns whether we support transforming a given expression into a series
-  // of communication.
   static bool canLower(Expr* expr);
 
   // Lower a sharded Expr into a series of Communication.
