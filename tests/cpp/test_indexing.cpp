@@ -5408,7 +5408,7 @@ TEST_F(IndexingTest, ResizeRotation) {
 
 // Repro of issue #3505. The indexing WAR for resize triggered an
 // assertion due to loop promotion.
-TEST_F(IndexingTest, Issue3505) {
+TEST_F(IndexingTest, Issue3505Repro1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5443,6 +5443,54 @@ TEST_F(IndexingTest, Issue3505) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i1, i2}, options);
   auto t1 = at::randn({i0, i1 / 2, i2 / 2}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Another repro of issue #3505
+TEST_F(IndexingTest, Issue3505Repro2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 8;
+  const int64_t i1 = 2;
+  const auto zero = fusion.zeroVal();
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({i1, i0 / 2});
+  fusion.addInput(tv1);
+
+  // Left half
+  auto tv2 = slice(tv0, {{zero, IrBuilder::create<Val>(i0 / 2)}});
+  // Right half
+  auto tv3 = slice(
+      tv0, {{IrBuilder::create<Val>(i0 / 2), IrBuilder::create<Val>(i0)}});
+
+  // The two inputs of this add expression have a resize of the same
+  // ID, but this should not mean the resize war path is required.
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = broadcast(tv4, {true, false});
+  auto tv6 = add(tv1, tv5);
+  fusion.addOutput(tv6);
+
+  // Make loop promotion required
+  for (auto tv : {tv2, tv3, tv4, tv5, tv6}) {
+    tv->flatten();
+  }
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  auto t1 = at::randn({i1, i0 / 2}, options);
   std::vector<c10::IValue> inputs{t0, t1};
 
   KernelExecutor ke;
