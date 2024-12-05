@@ -211,7 +211,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       // consumer loop.
 
       const IdModel& id_model = GpuLower::current()->idModel();
-      graph = &GpuLower::current()->tensorIndexer().traversalGraph();
+      graph = &id_model.idGraph(TensorIndexer::traversalIndexType());
 
       // We flow from mapped IDs to the consumer's loop domain
       std::vector<ValGroup> alloc_groups;
