@@ -12,6 +12,7 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <runtime/executor_kernel_arg.h>
+#include <scheduler/vectorize_helper.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -57,10 +58,16 @@ class SchedulerRuntimeInfo : public NonCopyable {
       const at::ArrayRef<c10::IValue>& aten_inputs);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
-  //!  actual alignment info for input tensors to the complete fusion,
-  //!  and for other intermediate/fuser-allocated tensors will
-  //!  return max_alignment_size_in_byte.
-  size_t getAlignmentSize(TensorView* tv);
+  //! actual alignment info for input tensors to the complete fusion,
+  //! and for other intermediate/fuser-allocated tensors will
+  //! return max_alignment_size_in_byte. datatype_size needs to be passed here
+  //! because index dtype could be undefined during compile time.
+  size_t getAlignmentSize(
+      TensorView* tv,
+      int64_t datatype_size,
+      const std::unordered_map<
+          TensorView*,
+          vectorize_helper::TensorResizeAlignmentInfo>& resize_alignment_map);
 
   //! Returns sizes of tensor dimensions in same order as allocation domain,
   //! ignoring any IterType::Reduction domains in the allocation domain. This
