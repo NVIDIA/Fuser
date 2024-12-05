@@ -395,31 +395,25 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
         });
       }
 
-      // resize extent == 0: no resizing, return the factor as-is
-      // resize extent  > 0: padding, take gcd(factor, extent)
-      // resize extent  < 0: slicing, we ignore the resize when slicing on right
-      // (return factor as-is), but we take gcd(abs(factor), extent) when
-      // slicing on left. This is a conservative analysis of the offset for data
-      // accessing. A better approach needs to consider the actual start pointer
-      // address and handle it in alignment analysis in runtime info.
-      // Translating this to code:
-      // if (extent == 0 || (extent < 0 && !is_left)) {
-      //   return factor;
+      // resize_extent == 0: no resizing, return the projected_extent as-is
+      // resize_extent != 0: slicing/padding, return gcd(projected_extent,
+      // abs(resize_extent)) This is a conservative analysis of the offset for
+      // data accessing. A better approach needs to consider the actual start
+      // pointer address and handle it in alignment analysis in runtime info. We
+      // also need to consider multiple resize stacked together and how they
+      // could interact with each other. Translating this to code: if
+      // (resize_extent == 0) {
+      //   return projected_extent;
       // } else {
-      //   gcd(factor, abs(extent));
+      //   gcd(projected_extent, abs(resize_extent));
       // }
-      auto comp = [](Val* factor, Val* extent, bool is_left) {
+      auto comp = [](Val* projected_extent, Val* resize_extent, bool is_left) {
         return SimplifyingIrBuilder::whereExpr(
-            SimplifyingIrBuilder::logicalOrExpr(
-                SimplifyingIrBuilder::eqExpr(
-                    extent, extent->container()->zeroVal()),
-
-                SimplifyingIrBuilder::logicalAndExpr(
-                    SimplifyingIrBuilder::ltExpr(
-                        extent, extent->container()->zeroVal()),
-                    IrBuilder::create<Val>(!is_left))),
-            factor,
-            SimplifyingIrBuilder::gcdExpr(factor, IrBuilder::absExpr(extent)));
+            SimplifyingIrBuilder::eqExpr(
+                resize_extent, resize_extent->container()->zeroVal()),
+            projected_extent,
+            SimplifyingIrBuilder::gcdExpr(
+                projected_extent, IrBuilder::absExpr(resize_extent)));
       };
       projected_extent = comp(projected_extent, resize_op->leftExpand(), true);
       projected_extent =
@@ -847,84 +841,6 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
-// The returns a map of input to their resize alignment info. This function
-// currently checks the alignment requirement on contiguous iterdomain in
-// allocation domain that *could be* broken by resize. This function returns a
-// map for TensorView, containing the index in their allocation domain whose
-// stride needs to be checked in alignment. e.g. For TensorView with size {4,
-// 1025}, assuming it's contiguous on all dimensions. If we slice the second
-// dimension with slice(0, 1024, 1). The output tensor would have shape {4,
-// 1024}. The slice prevents us from collapsing the indexing on its outer
-// dimension. At this point, due to the resize operation on dimension-1024, we
-// now need to check the stride on dimension-4 for alignment. NOTE: This is a
-// conservative check, not all resize breaks the contiguity of its inner
-// dimension, i.e. think about a combination of pad/slice that cancels out each
-// other;
-std::unordered_map<TensorView*, TensorResizeAlignmentInfo>
-mapResizeAlignmentToInputs(TensorView* ref) {
-  std::unordered_map<TensorView*, TensorResizeAlignmentInfo> res;
-  auto id_model =
-      std::make_unique<IdModel>(ref->fusion(), /*build_graphs=*/false);
-  id_model->buildExactGraph();
-  auto& exact_graph = id_model->idGraph(IdMappingMode::EXACT);
-
-  // ref_target_domains is the scheduling tensor
-  ValGroups ref_target_domains = exact_graph.toGroups(ref->getLogicalDomain());
-
-  // propagate from input to ref_target_domains
-  auto in_tvs = ir_utils::filterByType<TensorView>(ref->fusion()->inputs());
-  for (auto inp : in_tvs) {
-    auto inp_alloc_dom = inp->getMaybeAllocationDomain();
-
-    if (inp_alloc_dom.size() <= 1) {
-      continue;
-    }
-
-    const std::vector<std::optional<bool>>& contiguity = inp->getContiguity();
-    for (int64_t i = 0; i < (int64_t)inp_alloc_dom.size() - 1; ++i) {
-      // skip non-collapsable IDs.
-      if (!contiguity[i].has_value() || !contiguity[i].value()) {
-        continue;
-      }
-
-      int64_t inner_i = i + 1;
-      while (inner_i < (int64_t)contiguity.size() &&
-             !contiguity[inner_i].has_value()) {
-        ++inner_i;
-      }
-
-      if (inner_i == (int64_t)contiguity.size()) {
-        break;
-      }
-
-      // Get path from inner ID to ref target domains
-      auto fwd_path = ValGraphBFS::getExprsBetween(
-                          exact_graph,
-                          {exact_graph.toGroup(inp_alloc_dom[inner_i])},
-                          ref_target_domains,
-                          /*require_all_to_visited=*/false,
-                          Direction::Forward)
-                          .first;
-
-      // if resize is found, we need to addd current index `i`
-      for (const auto& [expr_g, dir] : fwd_path) {
-        Expr* expr = expr_g->front();
-        if (expr->isA<Resize>()) {
-          // inner i is resized, we need to push `i` for alignment check
-          res[inp].non_contig_idx_alloc.push_back(i);
-          break;
-        }
-      }
-
-      // skip non contiguous IDs.
-      i = inner_i;
-    }
-  }
-  // TODO: we need to do the same for outputs. But currently we don't have any
-  // scheduler goes from producer to consumer yet.
-  return res;
-}
-
 } // namespace
 
 int64_t getVectorizationFactor(
@@ -945,10 +861,6 @@ int64_t getVectorizationFactor(
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
 
-  if (vectorizable_inputs_outputs.empty()) {
-    return 1;
-  }
-
   auto vectorize_maps_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
           data_cache, [&reference_tv, &logical_reorder_map]() {
@@ -958,18 +870,14 @@ int64_t getVectorizationFactor(
                     reference_tv, logical_reorder_map));
           });
 
+  if (vectorizable_inputs_outputs.empty()) {
+    return 1;
+  }
+
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
     return 1;
   }
-
-  auto resize_alignment_maps_entry = HeuristicDataCacheEntry<
-      HeuristicCompileTime::TvToResizeAlignmentInfoMaps>(
-      data_cache, [&reference_tv]() {
-        return std::make_unique<
-            std::unordered_map<TensorView*, TensorResizeAlignmentInfo>>(
-            mapResizeAlignmentToInputs(reference_tv));
-      });
 
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
@@ -983,11 +891,7 @@ int64_t getVectorizationFactor(
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
 
     // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(
-        inp_or_out, dtype_size, resize_alignment_maps_entry.get());
-    if (alignment_size == 1) {
-      return 1;
-    }
+    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
     NVF_ERROR(alignment_size % dtype_size == 0);
     max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
 

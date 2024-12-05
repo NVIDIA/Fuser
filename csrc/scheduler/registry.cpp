@@ -213,8 +213,6 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::TvToContigInnerSizeMaps>;
 template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::TvToResizeAlignmentInfoMaps>;
-template class HeuristicDataCacheEntry<
     HeuristicCompileTime::InputsOutputsInnerDimGroups>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::UnrollableInputsAndOutputs>;
