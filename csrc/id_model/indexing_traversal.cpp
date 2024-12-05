@@ -52,10 +52,18 @@ IndexingTraversal::IndexingTraversal(
       continue;
     }
 
-    if (graph.inputGroups(expr_g).size() == 1 &&
-        graph.outputGroups(expr_g).size() == 1) {
-      resize_paths_.insert(resize);
+    auto input_groups = graph.inputGroups(expr_g);
+    auto output_groups = graph.outputGroups(expr_g);
+    if (input_groups.size() != 1 || output_groups.size() != 1) {
+      continue;
     }
+
+    if (graph.getUses(input_groups[0]).size() != 1 ||
+        graph.getDefinitions(output_groups[0]).size() != 1) {
+      continue;
+    }
+
+    resize_paths_.insert(resize);
   }
 }
 
