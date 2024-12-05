@@ -216,7 +216,6 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       // We flow from mapped IDs to the consumer's loop domain
       std::vector<ValGroup> alloc_groups;
       for (IterDomain* id : producer->getMaybeAllocationDomain()) {
-        id = getLoopPromotion(id, id_model);
         if (!id->isBroadcast() && !id->isReduction()) {
           alloc_groups.push_back(graph->toGroup(id));
         }
