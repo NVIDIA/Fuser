@@ -90,10 +90,10 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
-      std::vector<Communication*> communications =
-          HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)));
-      for (Communication* communication : communications) {
+      for (auto* expr : HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
         // Allocate the recv buffers of communications
+        NVF_ERROR(expr->isA<Communication>(), "Expected a Communication but got ", expr);
+        auto* communication = expr->as<Communication>();
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(comm_.deviceId())) {
           auto* allocate =

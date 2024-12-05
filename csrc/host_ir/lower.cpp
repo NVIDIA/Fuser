@@ -47,7 +47,7 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
 void lowerToScatter(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   auto root = input_tv->getDeviceMesh().at(0);
@@ -68,7 +68,7 @@ need multiple Gather if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   for (auto root : output_tv->getDeviceMesh().vector()) {
@@ -85,7 +85,7 @@ void lowerToGather(
 void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allgather, output_tv, input_tv, mesh.vector()));
@@ -96,7 +96,7 @@ void lowerToBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     DeviceIdxType root,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
   Team team = mesh.vector();
   if (!mesh.has(root)) {
@@ -113,7 +113,7 @@ void lowerToBroadcast(
 void lowerToBroadcastOrSendRecv(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
@@ -154,7 +154,7 @@ void lowerToReduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const auto reduce_op_type = getC10dReduceOpType(op_type);
@@ -178,7 +178,7 @@ void lowerToAllreduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allreduce,
@@ -193,7 +193,7 @@ void lowerToReduceScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedAxis(output_tv);
@@ -226,10 +226,10 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<Communication*> HostIrLower::lower(Expr* c) {
+std::vector<Expr*> HostIrLower::lower(Expr* c) {
   FusionGuard fg(c->fusion());
 
-  std::vector<Communication*> comms;
+  std::vector<Expr*> comms;
   NVF_ERROR(
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
