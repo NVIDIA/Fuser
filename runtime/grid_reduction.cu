@@ -267,13 +267,16 @@ __device__ void gridReduce(
   }
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
 
   } else {
     // Use a different sync flag for each call
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
-        grid_reduction_segment_size);
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -297,7 +300,9 @@ __device__ void gridReduce(
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 
@@ -531,11 +536,14 @@ __device__ void gridReduceGroup(
 
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   } else {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
-        grid_reduction_segment_size);
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -569,7 +577,9 @@ __device__ void gridReduceGroup(
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 
@@ -1001,12 +1011,16 @@ __device__ void iterGroupedGridReduce(
 
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
 
   } else {
     // there is only one vectorized call
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -1037,7 +1051,9 @@ __device__ void iterGroupedGridReduce(
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 } // namespace reduction

@@ -71,7 +71,7 @@ __device__ void broadcast(
   }
 
   grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, true, Aligned>(
-      sync_flags[grid_seg_idx], grid_seg_size);
+      sync_flags[grid_seg_idx], grid_seg_size, block_dim);
 
   if (read_write_pred) {
     out = work_buf[grid_seg_idx * block_stride + thread_offset];
@@ -80,6 +80,6 @@ __device__ void broadcast(
   // Make sure everyone has read from the buffer before continuing the kernel
   // and potentially overwriting
   grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, true, Aligned>(
-      sync_flags[grid_seg_idx], grid_seg_size);
+      sync_flags[grid_seg_idx], grid_seg_size, block_dim);
 }
 } // namespace grid_broadcast

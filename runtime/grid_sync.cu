@@ -33,7 +33,11 @@ template <
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    const bool last_block) {
+    const bool last_block,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 

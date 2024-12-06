@@ -468,7 +468,10 @@ __device__ __inline__ void ParallelReduce<
         isReduce(Z_BLOCK),
         PERSISTENT_REDUCTION,
         Aligned>(
-        global_sync_buffer[block_red_idx_offset], grid_red_size, last_block);
+        global_sync_buffer[block_red_idx_offset],
+        grid_red_size,
+        last_block,
+        block_dim);
   }
 
   // -- START BLOCK CLEANUP -- //

@@ -314,7 +314,8 @@ __device__ __inline__ void ParallelReduce<
       isReduce(Y_BLOCK),
       isReduce(Z_BLOCK),
       PERSISTENT_REDUCTION,
-      Aligned>(global_sync_buffer[blockIdx.x], gridDim.y, last_block);
+      Aligned>(
+      global_sync_buffer[blockIdx.x], gridDim.y, last_block, block_dim);
 
   auto partial_results =
       welfordGroupAccumulateGlobalBuffer<NumVals, DataType, BDIMX, BDIMY>(
