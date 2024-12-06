@@ -144,8 +144,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
-// Note: ideally we would want to chck that reference_tv contains (not
-// necessarily maps) all iter domain in output_tv, so that transformation
+// Note: ideally we would want to check that reference_tv contains (not
+// necessarily maps) all iter domains in output_tv, so that transformation
 // applied on reference_tv can be propagated to output_tv. But we don't have
 // an easy way to check that.
 // Instead of that, this function checks that all source iter domains involved
@@ -167,7 +167,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 // replay T34's transform of merging all the dimensions to T198, since b3(ex)*i1
 // can't be reversed. The check in this function would give us T34 with source
 // i0, i1; where T198 would have source i0, b3, i1, where b3 isn't contained in
-// T34. Hence we'll reject this referenc_tv.
+// T34. Hence we'll reject this reference_tv.
 //
 // ------
 //
