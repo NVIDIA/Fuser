@@ -91,11 +91,18 @@ template <
     bool Z_BLOCK,
     bool PERSISTENT,
     bool Aligned>
-__device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
+__device__ void sync(
+    int64_t& semaphore,
+    const uint64_t& segment_size,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, Aligned>(
       semaphore,
       segment_size,
-      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim));
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim),
+      block_dim);
 }
 
 // Grid sync that can be called multiple times in the same kernel without all
@@ -113,7 +120,11 @@ template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool Aligned>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
