@@ -66,12 +66,15 @@ void assertBuffersHaveSameSize(
   if (bufs1.empty() && bufs2.empty()) {
     return;
   }
-  const auto numel = (bufs1.empty() ? bufs2 : bufs1).at(0).numel();
+  const auto shape = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (const auto& bufs : {bufs1, bufs2}) {
     for (const auto& buf : bufs) {
       NVF_ERROR(
-          buf.numel() == numel,
-          "all buffers must have the same number of elements");
+          buf.sizes() == shape,
+          "all buffers must have the same shape, but got: ",
+          buf.sizes(),
+          " vs ",
+          shape);
     }
   }
 }
