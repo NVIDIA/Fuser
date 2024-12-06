@@ -3601,7 +3601,7 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
           createInt(3));
 
       return andExpr(
-          geExpr(start_idx, zero),
+          geExpr(start_idx, tv->fusion()->zeroVal()),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
