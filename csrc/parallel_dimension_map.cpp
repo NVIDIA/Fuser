@@ -154,7 +154,17 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
   if (dim_it == dim_map_.end()) {
     dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
   } else {
-    dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_it->second, 1);
+    // Intentionally not using SimplifyingIrBuilder::addExpr here so that
+    // we still have access to the pointer to the original IR node.
+    // We need the pointer to the original IR node because we want getRawCompute
+    // to be callable in an environment without FusionGuard, that is, when the
+    // IR container is read-only. In such an environment, we can't create new IR
+    // nodes for (x - 1). By using IrBuilder::addExpr, we can always create IR
+    // nodes like addExpr(x, 1), and SimplifyingIrBuilder::addExpr in
+    // getRawCompute will be able to simplify find the x when we do
+    // addExpr(addExpr(x, 1) - 1).
+    dim_map_[pt] =
+        IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
   }
   exact_types_.erase(pt);
   warp_specialized_types_.insert(pt);
@@ -182,15 +192,20 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
+Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
+  Val* raw = getRaw(pt);
+  if (warp_specialized_types_.count(pt)) {
+    return SimplifyingIrBuilder::addExpr(raw, -1);
+  }
+  return raw;
+}
+
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
-    auto dim = getRaw(pt);
+    auto dim = getRawCompute(pt);
     if (dim == nullptr) {
       continue;
-    }
-    if (warp_specialized_types_.find(pt) != warp_specialized_types_.end()) {
-      dim = SimplifyingIrBuilder::addExpr(dim, -1);
     }
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
