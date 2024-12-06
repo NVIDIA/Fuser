@@ -3413,11 +3413,8 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
       // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      // NOTE: Expression Simplification is disabled in PredicateIndexValidator,
-      // so trivial addition appears in the expression.
-      // Start index: i0 * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(0));
+      // Start index: i0 * 4
+      Val* start_idx = IrBuilder::mulExpr(loop_indices.at(0), createInt(4));
 
       // Stop index: i0 * 4 + 4
       // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
@@ -3490,8 +3487,6 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto zero = tv->fusion()->zeroVal();
-
       // The base index is:
       //
       // (i0 * 128 + i2) * 4 + i3
@@ -3500,13 +3495,10 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3595,8 +3587,6 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto zero = tv->fusion()->zeroVal();
-
       // The base index is:
       //
       // (i0 * 128 + i2) * 4 + i3
@@ -3605,13 +3595,9 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128) * 4
+      Val* start_idx =
+          mulExpr(mulExpr(loop_indices.at(0), createInt(128)), createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
