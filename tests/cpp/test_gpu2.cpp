@@ -2253,7 +2253,8 @@ __global__ void kernel1(
         threadIdx.x<out_var.logical_size[0],
         0.f,
         0,
-        1);
+        1,
+        blockDim);
     if(blockIdx.x == gridDim.x - 1 && blockIdx.y == gridDim.y - 1){
         out_avg[threadIdx.x*out_avg.alloc_stride[0]]=tmp_avg;
         out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/tmp_N;
