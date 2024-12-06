@@ -234,15 +234,15 @@ __inline__ __device__ void blockWelford(
     const T& in_avg,
     const T& in_M2,
     const TN& in_N,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim,
     T* shared_mem_avg,
     T* shared_mem_M2,
     TN* shared_mem_N,
     bool read_write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim if there is no warp specialization
+    // in the kernel. If there is warp specialization, block_dim is the
+    // the dimension of the compute warps.
+    dim3 block_dim) {
   blockWelford<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, TN>(
       out_avg,
       out_M2,
@@ -250,13 +250,13 @@ __inline__ __device__ void blockWelford(
       in_avg,
       in_M2,
       in_N,
-      block_dim,
       shared_mem_avg,
       shared_mem_M2,
       shared_mem_N,
       read_write_pred,
       read_write_pred,
-      init_val);
+      init_val,
+      block_dim);
 }
 // -----------------------------------------------------------------------------------------------
 //  Grid Welford Prototype
