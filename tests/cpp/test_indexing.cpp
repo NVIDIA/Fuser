@@ -1382,13 +1382,11 @@ TEST_F(IndexingTest, SimpleVectorize) {
           // vectorized domain with zero, which doesn't go through the
           // simplification of SimplifyingIrBuilder. We could use simplifyExpr,
           // but for the sake of testing, just use IrBuilder::addExpr.
-          return IrBuilder::addExpr(
-              mulExpr(
-                  addExpr(
-                      mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-                      loop_indices.at(1)),
-                  tv->axis(2)->extent()),
-              tv->fusion()->zeroVal());
+          return mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent());
         case 1:
           return tv->fusion()->zeroVal();
         default:
@@ -2896,13 +2894,11 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto start_idx = IrBuilder::addExpr(
-          mulExpr(
-              addExpr(
-                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-                  loop_indices.at(1)),
-              tv->axis(2)->extent()),
-          tv->fusion()->zeroVal());
+      auto start_idx = mulExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->axis(2)->extent());
       auto stop_idx = addExpr(
           mulExpr(
               addExpr(
@@ -2911,7 +2907,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
               tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
 
-      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 0 )>= 0 ) &&
+      // ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) >= 0 ) &&
       // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 3 ) < ( (( ((
       // getMetaData(T0) )).logical_size ))[0] ) ) )
       return andExpr(
