@@ -107,12 +107,6 @@ class MultiDeviceExecutor {
   std::unique_ptr<Fusion> complete_fusion_;
   // holds the HostIrEvaluator used for execution
   std::unique_ptr<hir::HostIrEvaluator> host_ir_executor_;
-  // Cached objects used for MultiDevice allocation
-  // TODO: remove and handle the allocation through Host Irs
-  std::unique_ptr<Fusion> allocator_fusion_;
-  // Cache the tensors that need to be allocated at runtime, which correspond to
-  // the destination buffers of interdevice communications.
-  std::vector<Val*> vals_to_allocate_;
 };
 
 } // namespace nvfuser
