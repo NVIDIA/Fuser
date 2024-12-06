@@ -127,7 +127,7 @@ __device__ void gridReduceLastBlock(
   // Block reduce the per thread values into per "participating" thread values
   T inp_tmp = init_val;
   blockReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
-      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val, block_dim);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
@@ -223,7 +223,8 @@ __device__ void gridReduce(
         shared_buf,
         read_pred,
         true,
-        init_val);
+        init_val,
+        block_dim);
   } else if (read_pred) {
     block_reduction_val = inp_val;
   }
