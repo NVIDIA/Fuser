@@ -359,7 +359,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
           std::stringstream smem_buf_size_ss;
-          const auto& pdim_map = kernel_->summary().parallel_dim_map;
+          const auto& pdim_map = kernel_->summary().parallel_dimension_map;
           auto bdimx = genInline(pdim_map->getRawCompute(ParallelType::TIDx));
           auto bdimy = genInline(pdim_map->getRawCompute(ParallelType::TIDy));
           auto bdimz = genInline(pdim_map->getRawCompute(ParallelType::TIDz));
