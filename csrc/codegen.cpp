@@ -359,7 +359,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
           std::stringstream smem_buf_size_ss;
-          smem_buf_size_ss << "blockDim.x * blockDim.y * blockDim.z * sizeof("
+          const auto& pdim_map = kernel_->summary().parallel_dim_map;
+          auto bdimx = genInline(pdim_map->getRawCompute(ParallelType::TIDx));
+          auto bdimy = genInline(pdim_map->getRawCompute(ParallelType::TIDy));
+          auto bdimz = genInline(pdim_map->getRawCompute(ParallelType::TIDz));
+          smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
+                           << " * sizeof("
                            << kernel_summary.largest_smem_data_type << ")";
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
