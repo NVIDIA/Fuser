@@ -254,8 +254,7 @@ class IndexValidator : public kir::IrVisitor {
     Val* actual = ti->index();
     Val* ref = get_ref_.getLinearIndex(tv, maybe_consumer);
     if (ref != nullptr) {
-      Val* is_equal = IrBuilder::eqExpr(actual, ref);
-      EXPECT_TRUE(simplifyExpr(is_equal)->isTrue())
+      EXPECT_TRUE(actual->sameAs(ref))
           << "Validation failure of " << ti->view()->toString() << " as "
           << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref->toInlineString()
@@ -285,9 +284,9 @@ class IndexValidator : public kir::IrVisitor {
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"consumer_index", "producer_index"});
 
-    // Disable index hoisting to make the pattern matching of
-    // simplifyExpr(actual, ref)->isTrue() work
+    // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
     DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
     // Magic zero is not yet supported
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
@@ -381,8 +380,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
     TensorView* tv = ti->view();
     Val* ref = get_ref_.getInlinePredicate(tv);
     if (ref != nullptr) {
-      Val* is_equal = IrBuilder::eqExpr(actual, ref);
-      EXPECT_TRUE(simplifyExpr(is_equal)->isTrue())
+      EXPECT_TRUE(actual->sameAs(ref))
           << "Validation failure of inline predicate for "
           << ti->view()->toString() << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
@@ -404,8 +402,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
         loop_stage_msg << " in " << loop_stage;
       }
       std::stringstream actual_str;
-      Val* is_equal = IrBuilder::eqExpr(actual, ref);
-      EXPECT_TRUE(simplifyExpr(is_equal)->isTrue())
+      EXPECT_TRUE(actual->sameAs(ref))
           << "Validation failure of outer predicate for "
           << ti->view()->toString() << loop_stage_msg.str() << "\nRef:\n"
           << prettyPrintPredicate(ref) << "Actual:\n"
@@ -425,9 +422,9 @@ class PredicateIndexValidator : public kir::IrVisitor {
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"predicate"});
 
-    // Disable index hoisting to make the pattern matching of
-    // simplifyExpr(actual, ref)->isTrue() work
+    // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
     DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
     // Magic zero is not yet supported
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
@@ -3485,6 +3482,8 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
+      auto zero = tv->fusion()->zeroVal();
+
       // The base index is:
       //
       // (i0 * 128 + i2) * 4 + i3
@@ -3493,9 +3492,13 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128) * 4
-      Val* start_idx =
-          mulExpr(mulExpr(loop_indices.at(0), createInt(128)), createInt(4));
+      // Start index: (i0 * 128 + 0) * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), zero),
+              createInt(4)),
+          zero);
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3505,7 +3508,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
           createInt(3));
 
       return andExpr(
-          geExpr(start_idx, tv->fusion()->zeroVal()),
+          geExpr(start_idx, zero),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
@@ -3584,6 +3587,8 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
+      auto zero = tv->fusion()->zeroVal();
+
       // The base index is:
       //
       // (i0 * 128 + i2) * 4 + i3
@@ -3592,9 +3597,13 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128) * 4
-      Val* start_idx =
-          mulExpr(mulExpr(loop_indices.at(0), createInt(128)), createInt(4));
+      // Start index: (i0 * 128 + 0) * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), zero),
+              createInt(4)),
+          zero);
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3604,7 +3613,7 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
           createInt(3));
 
       return andExpr(
-          geExpr(start_idx, tv->fusion()->zeroVal()),
+          geExpr(start_idx, zero),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
@@ -5201,6 +5210,7 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
   DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
 
   GpuLower lower(&fusion);
