@@ -1248,6 +1248,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
              << ";\n";
