@@ -1210,6 +1210,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  std::string genComputeBlockDim() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    auto gen_or_one = [&](Val* v) { return v == nullptr ? "1" : genInline(v); };
+    ss << "dim3(" << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDx))
+       << ", " << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
+       << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+    return ss.str();
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "
@@ -1264,16 +1274,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     reduction_op_type, output->dtype(), gen_out, gen(input))
              << ";\n";
     return;
-  }
-
-  std::string genComputeBlockDim() {
-    std::stringstream ss;
-    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-    auto gen_or_one = [&](Val* v) { return v == nullptr ? "1" : genInline(v); };
-    ss << "dim3(" << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDx))
-       << ", " << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
-       << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
-    return ss.str();
   }
 
   void genWarpReduction(
