@@ -64,9 +64,7 @@ bool canIgnoreIndexedInputDomainID(
     TensorView* input_tv,
     IterDomain* root_id,
     const ComputeAtMap& ca_map) {
-  if (!input_tv->isFusionInput()) {
-    return false;
-  }
+  NVF_ERROR(input_tv->isFusionInput());
   for (auto use : input_tv->uses()) {
     if (auto select = dynamic_cast<SelectOp*>(use)) {
       if (root_id != select->getIndexedID()) {
