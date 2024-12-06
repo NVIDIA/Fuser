@@ -443,6 +443,35 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
   }
 }
 
+// Check that mma op is not predicated.
+class PredicateChecker : public kir::IrVisitor {
+ public:
+  using kir::IrVisitor::handle;
+  bool found_mma = false;
+
+ private:
+  void handle(kir::Asm* asm_) final {
+#if IS_CPP20
+    if (!asm_->code().starts_with("mma") &&
+        !asm_->code().starts_with("wgmma")) {
+#else
+    if (asm_->code().substr(0, 3) != "mma" &&
+        asm_->code().substr(0, 5) != "wgmma") {
+#endif
+      return;
+    }
+    found_mma = true;
+    for (auto expr : scope_exprs_) {
+      NVF_CHECK(
+          !expr->isA<kir::IfThenElse>() ||
+              expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
+          "MmaOp should't be predicated!",
+          " Get predicate ",
+          expr->as<kir::IfThenElse>()->predicate()->toInlineString());
+    }
+  }
+};
+
 // Matmul test for Ampere MMA: checking CTA Swizzles
 TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
@@ -542,35 +571,9 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
       runtime = 0;
     }
 
-    // Check that mma op is not predicated. This is a regression test for
-    // https://github.com/NVIDIA/Fuser/issues/95
-    class PredicateChecker : public kir::IrVisitor {
-     public:
-      using kir::IrVisitor::handle;
-      bool found_mma = false;
-
-     private:
-      void handle(kir::Asm* asm_) final {
-#if IS_CPP20
-        if (!asm_->code().starts_with("mma")) {
-#else
-        if (asm_->code().substr(0, 3) != "mma") {
-#endif
-          return;
-        }
-        found_mma = true;
-        for (auto expr : scope_exprs_) {
-          NVF_CHECK(
-              !expr->isA<kir::IfThenElse>() ||
-                  expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
-              "MmaOp should't be predicated!",
-              " Get predicate ",
-              expr->as<kir::IfThenElse>()->predicate()->toInlineString());
-        }
-      }
-    } pred_checker;
-
+    // This is a regression test for https://github.com/NVIDIA/Fuser/issues/95
     GpuLower gpulw(&fusion);
+    PredicateChecker pred_checker;
     pred_checker.handle(gpulw.run()->topLevelExprs());
     ASSERT_TRUE(pred_checker.found_mma);
   };
@@ -3796,6 +3799,152 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+// Test scheduling a Hopper matmul where the operands are 2D
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // constexpr int64_t M = 2048, N = 2048, K = 8192;
+  constexpr auto macro = MmaMacro::Hopper_64_256_16;
+  // constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+  constexpr auto swizzle = MmaInputSmemSwizzle::B128;
+  const auto dtype = DataType::Half;
+
+  constexpr int64_t stages = 1;
+  constexpr int64_t prefetch = 3;
+  const int64_t cta_m = 2 * getM(macro);
+  const int64_t cta_n = 1 * getN(macro);
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // [K, M]
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // [K, N]
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // The output is [M, N, K] (no reordering needed)
+  MmaOp::AxisMapping axis_mapping{.a_axes = {1, -1, 0}, .b_axes = {-1, 1, 0}};
+  auto tv2 =
+      fusedMultiplySum(tv0, tv1, /*axes=*/{-1}, /*init=*/nullptr, axis_mapping);
+
+  auto tv3 = castOp(DataType::Half, tv2);
+
+  fusion.addOutput(tv3);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  // gmem [K, M] x gmem [K, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> gmem [M, N]
+
+  auto tv0c = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0c->setMemoryType(MemoryType::Shared);
+  auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1c->setMemoryType(MemoryType::Shared);
+  auto tv3c = tv3->cacheBefore();
+
+  tv0c->broadcast(-1); // [K, M] -> [K, M, 1]
+  tv1c->broadcast(-2); // [K, N] -> [K, 1, N]
+
+  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
+  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
+  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
+
+  // Create tiles
+  tv2->split(-3, cta_m);
+  tv2->split(-2, cta_n);
+  tv2->split(-1, getK(macro));
+  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+  tv2->reorder({{-5, -3}, {-3, -2}});
+  tv2->axis(0)->parallelize(ParallelType::BIDy);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+  // NOTE: since in this case we do not have "proper" broadcast in the inputs,
+  // we cannot simply propagate transforms to the operands. Instead, we
+  // propagate forward to the outputs and manually schedule the smem operands.
+  scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+      tv2,
+      -1,
+      {tv3},
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+          .propagateParallelType()
+          .propagateToBoundary());
+
+  // Schedule operands
+  for (TensorView* tv : {tv0c, tv1c}) {
+    tv->reorder({{-3, -1}}); // [K, M, N] -> [M, N, K]
+    // NOTE: above axes are given in MNK order, but inputs are in KMN
+    tv->split(-3, cta_m);
+    tv->split(-2, cta_n);
+    tv->split(-1, getK(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    // [Ko, Ki, Mo, Mi, No, Ni] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv->reorder({{-5, -3}, {-3, -2}});
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+  }
+
+  // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
+  tv0c->reorder({{-3, -1}});
+  tv0c->applyMmaSwizzleForTMALoad(swizzle);
+  // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
+  tv1c->reorder({{-1, -2}});
+  tv1c->applyMmaSwizzleForTMALoad(swizzle);
+
+  {
+    tv2->split(-3, getM(macro));
+    tv2->split(-2, getN(macro));
+    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
+    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    tv2->reorder({{-4, -3}});
+    tv2->merge(-5);
+    tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+        tv2,
+        -1,
+        {tv3},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+  for (auto tv : {tv3c, tv3}) {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
+  }
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  if (stages > 1) {
+    tv0c->circularBuffer(stages, prefetch);
+    tv1c->circularBuffer(stages, prefetch);
+  }
+
+  // Test that predicate elimination works when the MmaOp's operands have no
+  // logical broadcasts
+  GpuLower gpulw(&fusion);
+  kir::Kernel* kernel = gpulw.run();
+  PredicateChecker pred_checker;
+  pred_checker.handle(kernel->topLevelExprs());
+  ASSERT_TRUE(pred_checker.found_mma);
+
+  // TODO: compile and run kernel once inlining is fixed
 }
 
 } // namespace nvfuser

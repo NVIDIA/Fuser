@@ -203,7 +203,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
       if (def == nullptr) {
         continue;
       }
-
+#if 0
       // If any of the inputs is not included in the all ID set, do
       // not include the definition in the model. Note that it is
       // possible that some are included but not all since a single ID
