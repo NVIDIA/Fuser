@@ -19,6 +19,8 @@ __forceinline__ __device__ void sync(dim3 block_dim) {
   } else {
     uint32_t num_threads = block_dim.x * block_dim.y * block_dim.z;
     if (num_threads % 32 == 0) {
+      // bar.sync specifying the number of threads must be a multiple
+      // of warp size (32)
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
     } else {
       __barrier_sync(0);
