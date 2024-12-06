@@ -3401,8 +3401,6 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto zero = tv->fusion()->zeroVal();
-
       // The base index is:
       //
       // i0 * 4 + i2
@@ -3421,7 +3419,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
           IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
-          geExpr(start_idx, zero),
+          geExpr(start_idx, tv->fusion()->zeroVal()),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
@@ -3504,7 +3502,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
           createInt(3));
 
       return andExpr(
-          geExpr(start_idx, zero),
+          geExpr(start_idx, tv->fusion()->zeroVal()),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
