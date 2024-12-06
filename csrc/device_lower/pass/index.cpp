@@ -1958,16 +1958,18 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
-  NVF_ERROR(getSwizzle(out_tv) == MmaInputSmemSwizzle::B128);
+  MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+  int64_t swizzle_bytes = getBytesFromSwizzle(swizzle);
 
   // Constants
   constexpr int64_t dtype_size = 2;
   constexpr int64_t warp_size = 32;
-  constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t stsm_column_size = 8;
-  constexpr int64_t swizzle_n_tile = 64;
+  constexpr int64_t megabank_size_bytes = 16;
 
   // Derived constants
+  const int64_t swizzle_n_tile = swizzle_bytes / dtype_size;
+  const int64_t swizzle_row_size = swizzle_bytes / megabank_size_bytes;
   constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
   const int64_t swizzle_n_iter = swizzle_n_tile / stsm_n_tile;
   const int64_t swizzle_n_tile_stride = swizzle_n_tile * dtype_size;
@@ -2092,11 +2094,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
               ldst, for_loops_[0], m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
+        case MmaInputSmemSwizzle::B64:
+        case MmaInputSmemSwizzle::B32:
           out = hardCodedIndexGenerationForStMatrix128BSwizzle(
               ldst, for_loops_[0], m_tile, n_tile, m, n);
           break;
-        case MmaInputSmemSwizzle::B32:
-        case MmaInputSmemSwizzle::B64:
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
       }
