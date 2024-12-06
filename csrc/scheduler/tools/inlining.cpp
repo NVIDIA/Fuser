@@ -5,12 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <utility>
 
@@ -193,6 +195,21 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
+    std::unordered_set<ValGroup> loop_path_groups;
+    if (consumer->definition()->isA<MmaOp>()) {
+      // Get ValGroups between producer and consumer loop in the inlining graph
+      std::vector<ValGroup> producer_loop_groups, consumer_loop_groups;
+      for (IterDomain* id : producer->getLoopDomain()) {
+        producer_loop_groups.push_back(inliningGraph().toGroup(id));
+      }
+      for (IterDomain* id : consumer->getLoopDomain()) {
+        consumer_loop_groups.push_back(inliningGraph().toGroup(id));
+      }
+      std::vector<ValGroup> group_path = getValsBetween<ValGraphBFS>(
+          producer_loop_groups, consumer_loop_groups, inliningGraph());
+      loop_path_groups.insert(group_path.begin(), group_path.end());
+    }
+
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
@@ -211,8 +228,34 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       }
 
       IterDomain* c_id = *consumer_it;
-      if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
-          !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+
+      // We can inline past consumer IDs that are not connected to the producer.
+      //
+      // For example, an MmaOp with no broadcasts could contain the following:
+      //  tv0:
+      //    root/logical: [ iS0, iS1 ]
+      //    loop: [ iS0, bS7, iS1 ]
+      //  tv1:
+      //    root/logical: [ iS2, iS3 ]
+      //    loop: [ bS8, iS2, iS3 ]
+      //  tv2:
+      //    root/logical/loop: [ iS4, iS5, rS6 ]
+      //
+      //  iS4 maps to iS0 so when producer==tv0 we inline past iS0. When
+      //  producer==tv1, iS4 doesn't map to anything in tv1 and is not used for
+      //  indexing, and bS8 is a loop broadcast so we inline past the first ID
+      //  in that case also. Similarly, we inline past iS5, iS2, and bS7.
+      if ((loop_path_groups.empty() ||
+           loop_path_groups.count(inliningGraph().toGroup(p_id)) ||
+           loop_path_groups.count(inliningGraph().toGroup(c_id))) &&
+          (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
+           !isAllowedID(
+               c_id,
+               consumer,
+               best_effort,
+               /*allow_reduction=*/true,
+               /*allow_vectorize=*/false,
+               /*allow_unmappable=*/true))) {
         return producer_pos;
       }
 
