@@ -3327,6 +3327,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(sync_idx)
         .append("]");
     sync_call_args.arg(sync_segment_size);
+    sync_call_args.arg(genComputeBlockDim());
 
     auto sync_call =
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
