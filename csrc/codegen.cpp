@@ -1587,6 +1587,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(wop->writePredicate()));
     }
     func_args.arg(genStaticCast(data_type, 0));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("blockWelford", template_args, func_args) << ";\n";
   }
