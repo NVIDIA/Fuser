@@ -5201,7 +5201,6 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   DisableOptionsGuard disable_options_guard;
-  DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
   DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
 
   GpuLower lower(&fusion);
