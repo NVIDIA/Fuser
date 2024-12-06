@@ -50,8 +50,9 @@ bool hasVectorizationCache(TensorView* tv) {
   return false;
 }
 
-class DomainMapUnitTest : public : pointwise_utils::DomainMap {
+class DomainMapUnitTest : public pointwise_utils::DomainMap {
  public:
+  DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion){};
   bool testOutputMapping(TensorView* output_tv, TensorView* reference_tv)
       const {
     return areAllOutputIdsMappedTo(output_tv, reference_tv);
@@ -795,9 +796,9 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   auto tv2 = broadcast(tv1, {false, true, false});
   auto tv3 = expand(
       tv2,
-      {tv1->axis(0)->extent(),
+      {tv2->axis(0)->extent(),
        IrBuilder::create<Val>(4),
-       tv1->axis(2)->extent()});
+       tv2->axis(2)->extent()});
   auto tv4 = reshape(tv3, {2, 4, 3}, {2, 12});
   fusion->addOutput(tv4);
 
@@ -813,6 +814,36 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
 
   // tv1 is not a valid reference
   EXPECT_FALSE(domain_map.isValidReference(tv1));
+
+  // tv4 is a valid reference
+  EXPECT_TRUE(domain_map.isValidReference(tv4));
+}
+
+TEST_F(PointwiseTest, DomainMapTestEg1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  TensorView* tv1 = makeContigTensor(3);
+  fusion->addInput(tv1);
+  auto tv2 = reshape(tv0, {2, 4}, {8});
+  fusion->addOutput(tv2);
+
+  auto tv3 = broadcast(tv0, {true, false, false});
+  auto tv4 = add(tv1, tv3);
+  fusion->addOutput(tv4);
+
+  DomainMapUnitTest domain_map(fusion);
+  // tv2 can't map to tv4
+  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv2));
+
+  // tv2 can map to tv4
+  EXPECT_TRUE(domain_map.testOutputMapping(tv2, tv4));
+
+  // tv2 is not a valid reference
+  EXPECT_FALSE(domain_map.isValidReference(tv2));
 
   // tv4 is a valid reference
   EXPECT_TRUE(domain_map.isValidReference(tv4));
