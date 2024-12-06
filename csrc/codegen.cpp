@@ -2663,6 +2663,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genStaticCast(data_type, 0));
     func_args.arg(genInline(gwop->entrance_index()));
     func_args.arg(genInline(gwop->entrances()));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("welford::gridWelford", template_args, func_args)
              << ";\n";
