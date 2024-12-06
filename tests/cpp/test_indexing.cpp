@@ -3492,13 +3492,10 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128 + 0) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3597,13 +3594,10 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128 + 0) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
