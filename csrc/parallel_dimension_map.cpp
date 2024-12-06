@@ -154,7 +154,15 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
   if (dim_it == dim_map_.end()) {
     dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
   } else {
-    dim_map_[pt] = SimplifyingIrBuilder::addExpr(dim_it->second, 1);
+    // Intentionally not using SimplifyingIrBuilder::addExpr here so that
+    // we still have access to the pointer to the original IR node.
+    // We need the pointer to the original IR node because we want getRawCompute
+    // to be callable in an environment without FusionGuard, that is, when the
+    // IR container is read-only. In such an environment, we can't create new IR
+    // nodes for (x - 1). By using IrBuilder::addExpr, we can always create IR
+    // nodes like addExpr(x, 1), and SimplifyingIrBuilder::addExpr in getRawCompute
+    // will be able to simplify find the x when we do addExpr(addExpr(x, 1) - 1).
+    dim_map_[pt] = IrBuilder::addExpr(dim_it->second, 1);
   }
   exact_types_.erase(pt);
   warp_specialized_types_.insert(pt);
