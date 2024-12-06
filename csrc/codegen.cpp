@@ -1291,6 +1291,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+    func_args.arg(genComputeBlockDim());
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
