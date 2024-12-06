@@ -254,7 +254,8 @@ class IndexValidator : public kir::IrVisitor {
     Val* actual = ti->index();
     Val* ref = get_ref_.getLinearIndex(tv, maybe_consumer);
     if (ref != nullptr) {
-      EXPECT_TRUE(actual->sameAs(ref))
+      Val* is_equal = IrBuilder::eqExpr(actual, ref);
+      EXPECT_TRUE(simplifyExpr(is_equal)->isTrue())
           << "Validation failure of " << ti->view()->toString() << " as "
           << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref->toInlineString()
@@ -380,7 +381,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
     TensorView* tv = ti->view();
     Val* ref = get_ref_.getInlinePredicate(tv);
     if (ref != nullptr) {
-      EXPECT_TRUE(actual->sameAs(ref))
+      Val* is_equal = IrBuilder::eqExpr(actual, ref);
+      EXPECT_TRUE(simplifyExpr(is_equal)->isTrue())
           << "Validation failure of inline predicate for "
           << ti->view()->toString() << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
@@ -402,7 +404,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
         loop_stage_msg << " in " << loop_stage;
       }
       std::stringstream actual_str;
-      EXPECT_TRUE(actual->sameAs(ref))
+      Val* is_equal = IrBuilder::eqExpr(actual, ref);
+      EXPECT_TRUE(simplifyExpr(is_equal)->isTrue())
           << "Validation failure of outer predicate for "
           << ti->view()->toString() << loop_stage_msg.str() << "\nRef:\n"
           << prettyPrintPredicate(ref) << "Actual:\n"
