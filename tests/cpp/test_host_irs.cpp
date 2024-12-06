@@ -1052,13 +1052,16 @@ TEST_F(AllocationTest, inHostForLoop) {
       CircularBufferLoopStage::NotApplicable,
       /*circular_buffer_loop_stage_depth=*/0);
 
-  auto* tv = makeConcreteTensor(sizes);
-  tv->setMemoryType(MemoryType::Global);
-  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-  hic->addOutput(tv);
+  TensorView* tv0 = makeConcreteTensor(sizes);
+  tv0->setMemoryType(MemoryType::Global);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
+  TensorView* tv1 = abs(tv0);
 
   for_loop->body().push_back(allocate);
+  for_loop->body().push_back(tv1->definition());
+
   hic->pushBackTopLevelExprs(for_loop);
+  hic->addOutput(tv1);
 
   HostIrEvaluator hie(std::move(hic));
 
