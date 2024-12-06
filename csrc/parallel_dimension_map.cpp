@@ -184,7 +184,9 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 
 Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
-  std::cout << "raw: " << raw->toInlineString() << std::endl;
+  if (raw != nullptr) {
+    std::cout << "raw: " << raw->toInlineString() << std::endl;
+  }
   if (warp_specialized_types_.count(pt)) {
     return SimplifyingIrBuilder::addExpr(raw, -1);
   }
