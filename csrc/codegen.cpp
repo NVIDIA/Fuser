@@ -1926,6 +1926,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(read_pred).arg(write_pred);
     // init_val
     func_args.arg(genCall("LocalTuple", data_type, genInline(grop->init())));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
     // reduction_op
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
