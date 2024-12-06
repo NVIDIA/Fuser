@@ -126,6 +126,12 @@ void unshard(TensorView*);
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
 // type, returns -1.
+//
+// This is used to correlate `tv` and its corresponding at::Tensor, e.g., by
+// `unshardedSizes` and `shardTensor`. `at::Tensor::sizes` and
+// `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
+// `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
+// extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
