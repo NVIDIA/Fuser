@@ -9,11 +9,11 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/lower.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 
@@ -33,7 +33,7 @@ void insertReshardingsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
+    if (HostIrLower::canLower(expr) || shouldReshardAfter(expr)) {
       continue;
     }
 
@@ -85,7 +85,7 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
+    if (HostIrLower::canLower(expr) || !shouldReshardAfter(expr)) {
       continue;
     }
 

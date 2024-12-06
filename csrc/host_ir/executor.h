@@ -89,6 +89,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->inputs();
   }
 
+  const std::vector<Val*>& outputs() {
+    return container_->outputs();
+  }
+
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
@@ -100,6 +104,10 @@ class HostIrEvaluator final : public OptOutDispatch {
   const auto& getCudaStreams() {
     return streams_;
   }
+
+  // check if the runtime is valid returns an error msg.
+  // An empty message means that the runtime is valid
+  std::string canRun() const;
 
  private:
   using OptOutDispatch::handle;
@@ -114,6 +122,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(EndCoalescing* end_coalescing) override;
   void handle(kir::IfThenElse* if_then_else) override;
   void handle(MatmulOp* matmul) override;
+  void handle(kir::Allocate* allocate) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);

@@ -11,9 +11,9 @@
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
@@ -1010,6 +1010,27 @@ TEST_F(IfThenElseTest, HostIr) {
         at::ones_like(input_buffer_c10.toTensor()) + (1 + (int)boolean);
     EXPECT_TRUE(outputs.at(0).equal(ref_output));
   }
+}
+
+using AllocationTest = NVFuserTest;
+
+TEST_F(AllocationTest, HostIr) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* tv = makeConcreteTensor(sizes);
+  tv->setMemoryType(MemoryType::Global);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+  hic->addOutput(tv);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto outputs = hie.runWithInput({});
+
+  EXPECT_EQ(sizes, outputs.at(0).sizes());
 }
 
 } // namespace hir
