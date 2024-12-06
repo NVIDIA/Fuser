@@ -720,14 +720,14 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
   std::vector<c10::IValue> inputs = {
       x,
-      shardTensor(w0, 0, mesh),
-      shardTensor(b0, 0, mesh),
-      shardTensor(w1, 1, mesh),
+      shardTensor(w0, 0, mesh).unsqueeze(0),
+      shardTensor(b0, 0, mesh).unsqueeze(0),
+      shardTensor(w1, 1, mesh).unsqueeze(0),
       b1};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0], 1, mesh),
-      shardTensor(reference_outs[1], 1, mesh),
+      shardTensor(reference_outs[0], 1, mesh).unsqueeze(0),
+      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
       reference_outs[2],
       reference_outs[3]};
 
@@ -801,17 +801,17 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   auto mask_ = reference_outs[4];
 
   std::vector<c10::IValue> inputs = {
-      shardTensor(x_, 0, mesh),
-      shardTensor(w0_, 0, mesh),
-      shardTensor(b0_, 0, mesh),
-      shardTensor(w1_, 1, mesh),
+      shardTensor(x_, 0, mesh).unsqueeze(0),
+      shardTensor(w0_, 0, mesh).unsqueeze(0),
+      shardTensor(b0_, 0, mesh).unsqueeze(0),
+      shardTensor(w1_, 1, mesh).unsqueeze(0),
       b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0], 1, mesh),
-      shardTensor(reference_outs[1], 1, mesh),
-      shardTensor(reference_outs[2], 0, mesh),
-      shardTensor(reference_outs[3], 0, mesh)};
+      shardTensor(reference_outs[0], 1, mesh).unsqueeze(0),
+      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
+      shardTensor(reference_outs[2], 0, mesh).unsqueeze(0),
+      shardTensor(reference_outs[3], 0, mesh).unsqueeze(0)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
@@ -866,12 +866,12 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
       x,
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(w1, 1, mesh),
+      shardTensor(w1, 1, mesh).unsqueeze(0),
       b1};
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(reference_outs[0].view({B * S, 3, E}), 2, mesh)
           .view({1, B * S, 3 * E / D}),
-      shardTensor(reference_outs[1], 1, mesh),
+      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
       reference_outs[2],
       reference_outs[3]};
 
@@ -929,17 +929,17 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha(x, w0, b0, w1, b1);
   std::vector<c10::IValue> inputs = {
-      shardTensor(x, 0, mesh),
+      shardTensor(x, 0, mesh).unsqueeze(0),
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(w1, 1, mesh),
+      shardTensor(w1, 1, mesh).unsqueeze(0),
       b1};
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(reference_outs[0].view({B * S, 3, E}), 2, mesh)
           .view({1, B * S, 3 * E / D}),
-      shardTensor(reference_outs[1], 1, mesh),
-      shardTensor(reference_outs[2], 0, mesh),
-      shardTensor(reference_outs[3], 0, mesh)};
+      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
+      shardTensor(reference_outs[2], 0, mesh).unsqueeze(0),
+      shardTensor(reference_outs[3], 0, mesh).unsqueeze(0)};
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
@@ -1003,16 +1003,16 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       grad_,
       x_,
       mask_,
-      shardTensor(mlp_w0_, 0, mesh),
-      shardTensor(mlp_w1_, 1, mesh),
-      shardTensor(linear0_, 1, mesh)};
+      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
+      shardTensor(linear0_, 1, mesh).unsqueeze(0)};
   std::vector<at::Tensor> expected_outputs = {
       outs[0], // dropout grad
-      shardTensor(outs[1], 1, mesh), // linear1 weight grad
+      shardTensor(outs[1], 1, mesh).unsqueeze(0), // linear1 weight grad
       outs[2], // linear1 bias grad
-      shardTensor(outs[3], 1, mesh), // gelu grad
-      shardTensor(outs[4], 0, mesh), // linear0 weight grad
-      shardTensor(outs[5], 0, mesh), // linear0 bias grad
+      shardTensor(outs[3], 1, mesh).unsqueeze(0), // gelu grad
+      shardTensor(outs[4], 0, mesh).unsqueeze(0), // linear0 weight grad
+      shardTensor(outs[5], 0, mesh).unsqueeze(0), // linear0 bias grad
       outs[6]}; // linear0 grad x
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1094,22 +1094,23 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   std::vector<c10::IValue> inputs = {
       x,
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(w1, 1, mesh),
+      shardTensor(w1, 1, mesh).unsqueeze(0),
       grad,
       mask,
-      shardTensor(reference_outs[0], 1, mesh), // sdpa.output
-      shardTensor(reference_outs[1], 1, mesh), // sdpa.log_sumexp
+      shardTensor(reference_outs[0], 1, mesh).unsqueeze(0), // sdpa.output
+      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0), // sdpa.log_sumexp
       reference_outs[2], // sdpa.seed
       reference_outs[3], // sdpa.offset
-      shardTensor(reference_outs[13], 1, mesh) // linear0
+      shardTensor(reference_outs[13], 1, mesh).unsqueeze(0) // linear0
   };
   std::vector<at::Tensor> expected_outputs = {
       reference_outs[4], // dropout grad
-      shardTensor(reference_outs[5], 1, mesh), // linear1 weight grad
+      shardTensor(reference_outs[5], 1, mesh)
+          .unsqueeze(0), // linear1 weight grad
       reference_outs[6], // linear1 bias grad
-      shardTensor(reference_outs[7], 1, mesh), // q grad
-      shardTensor(reference_outs[8], 1, mesh), // k grad
-      shardTensor(reference_outs[9], 1, mesh), // v grad
+      shardTensor(reference_outs[7], 1, mesh).unsqueeze(0), // q grad
+      shardTensor(reference_outs[8], 1, mesh).unsqueeze(0), // k grad
+      shardTensor(reference_outs[9], 1, mesh).unsqueeze(0), // v grad
       shardTensor(reference_outs[10].view({3, E, E}), 1, mesh)
           .view({1, 3 * E / D, E}), // linear0 weight grad
       shardTensor(reference_outs[11].view({3, E}), 1, mesh)
@@ -1234,26 +1235,26 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
   auto at_out = (resid0_ + mlp_out_).to(at_dtype);
 
   std::vector<c10::IValue> inputs = {
-      shardTensor(x_, 0, mesh),
+      shardTensor(x_, 0, mesh).unsqueeze(0),
       ln0_w_,
       ln0_b_,
       shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh),
+      shardTensor(mha_w1_, 1, mesh).unsqueeze(0),
       mha_b1_,
       ln1_w_,
       ln1_b_,
-      shardTensor(mlp_w0_, 0, mesh),
-      shardTensor(mlp_b0_, 0, mesh),
-      shardTensor(mlp_w1_, 1, mesh),
+      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_b0_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(ln0_out_, 0, mesh),
-      shardTensor(mha_out_, 0, mesh),
-      shardTensor(ln1_out_, 0, mesh),
-      shardTensor(mlp_out_, 0, mesh),
-      shardTensor(at_out, 0, mesh)};
+      shardTensor(ln0_out_, 0, mesh).unsqueeze(0),
+      shardTensor(mha_out_, 0, mesh).unsqueeze(0),
+      shardTensor(ln1_out_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_out_, 0, mesh).unsqueeze(0),
+      shardTensor(at_out, 0, mesh).unsqueeze(0)};
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
@@ -1367,13 +1368,13 @@ TEST_P(DistributedTransformerTest, Forward) {
       ln0_b_,
       shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh),
+      shardTensor(mha_w1_, 1, mesh).unsqueeze(0),
       mha_b1_,
       ln1_w_,
       ln1_b_,
-      shardTensor(mlp_w0_, 0, mesh),
-      shardTensor(mlp_b0_, 0, mesh),
-      shardTensor(mlp_w1_, 1, mesh),
+      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_b0_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
@@ -1620,13 +1621,16 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto dx_ = (ln0_x_grad_ + resid1_grad_).to(at_dtype);
 
   auto expected_outputs = {
-      shardTensor(mlp_grads_[1], 1, mesh), // mlp_linear1_weight_grad
+      shardTensor(mlp_grads_[1], 1, mesh)
+          .unsqueeze(0), // mlp_linear1_weight_grad
       mlp_grads_[2], // mlp_linear1_bias_grad
-      shardTensor(mlp_grads_[4], 0, mesh), // mlp_linear0_weight_grad
-      shardTensor(mlp_grads_[5], 0, mesh), // mlp_linear0_bias_grad
+      shardTensor(mlp_grads_[4], 0, mesh)
+          .unsqueeze(0), // mlp_linear0_weight_grad
+      shardTensor(mlp_grads_[5], 0, mesh).unsqueeze(0), // mlp_linear0_bias_grad
       ln1_w_grad_,
       ln1_b_grad_,
-      shardTensor(mha_grads_[5], 1, mesh), // mha linear1 weight grad
+      shardTensor(mha_grads_[5], 1, mesh)
+          .unsqueeze(0), // mha linear1 weight grad
       mha_grads_[6], // mha linear1 bias grad
       shardTensor(
           mha_grads_[10].view({3, E, E}), 1, mesh) // failing starting here
@@ -1641,13 +1645,13 @@ TEST_P(DistributedTransformerTest, Backward) {
       x_,
       grad_,
       shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(mha_w1_, 1, mesh),
-      shardTensor(mlp_w0_, 0, mesh),
-      shardTensor(mlp_w1_, 1, mesh),
+      shardTensor(mha_w1_, 1, mesh).unsqueeze(0),
+      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
       mlp_out_[4], // mlp dropout mask
       mha_out_[4], // mha dropout mask
-      shardTensor(mha_grads_[0], 1, mesh), // sdpa output
-      shardTensor(mha_grads_[1], 1, mesh), // sdpa logsum_exp
+      shardTensor(mha_grads_[0], 1, mesh).unsqueeze(0), // sdpa output
+      shardTensor(mha_grads_[1], 1, mesh).unsqueeze(0), // sdpa logsum_exp
       mha_grads_[2], // sdpa seed
       mha_grads_[3], // sdpa offset
       ln1_w_,
@@ -1658,9 +1662,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln0_b_,
       ln0_mean_,
       ln0_rstd_,
-      shardTensor(mha_out_[0], 1, mesh), // mha linear0
+      shardTensor(mha_out_[0], 1, mesh).unsqueeze(0), // mha linear0
       mha_out_[2].to(at::kFloat), // mha linear1
-      shardTensor(mlp_out_[0], 1, mesh) // mlp linear1
+      shardTensor(mlp_out_[0], 1, mesh).unsqueeze(0) // mlp linear1
   };
 
   FusionExecutorCache executor_cache(std::move(fusion));

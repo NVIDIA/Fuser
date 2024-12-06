@@ -90,6 +90,11 @@ class Communication : public Expr {
     return attribute<Team>(1);
   }
 
+  // A convenience helper so the user doesn't need to convert size_t to int64_t.
+  int64_t team_size() const {
+    return static_cast<int64_t>(team().size());
+  }
+
   DeviceIdxType root() const {
     return attribute<DeviceIdxType>(2);
   }

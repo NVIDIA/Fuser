@@ -196,7 +196,7 @@ void lowerToReduceScatter(
     std::vector<Communication*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedAxis(output_tv);
+  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
   // The output tensor is sharded on scattered_axis and needs to be mapped
   // back onto the input. The input has an reduced axis, so the scattered axis
   // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
