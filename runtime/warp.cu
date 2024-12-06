@@ -21,7 +21,12 @@ __device__ __forceinline__ std::complex<T> shfl_xor(
   return std::complex<T>(real, imag);
 }
 
-template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    typename T,
+    typename Func,
+    typename BlockDimT>
 __device__ void warpReduceTIDX(
     T& out,
     const T& inp_val,
@@ -29,10 +34,10 @@ __device__ void warpReduceTIDX(
     T* shared_mem,
     bool read_write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   constexpr int WARP_SIZE = 32;
 
   // Assume input padded to multiples of a warp

@@ -29,15 +29,16 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool Aligned>
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
     const bool last_block,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
@@ -90,14 +91,15 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool Aligned>
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, Aligned>(
       semaphore,
       segment_size,
@@ -116,15 +118,20 @@ __device__ void sync(
 //
 // Note that this is not currently used by grid and welford reduction
 // as they use a separate sync flag for each each grid sync call.
-template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool Aligned>
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
     const nvfuser_index_t n_entrances,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 

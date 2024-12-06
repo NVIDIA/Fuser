@@ -329,6 +329,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << ") ";
   }
 
+  std::string genInlineOrOne(Val* v) {
+    return v == nullptr ? "1" : genInline(v);
+  }
+
   // Generates setup code which is executed before the kernel body
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
@@ -1213,10 +1217,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string genComputeBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-    auto gen_or_one = [&](Val* v) { return v == nullptr ? "1" : genInline(v); };
-    ss << "dim3(" << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDx))
-       << ", " << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
-       << gen_or_one(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+    if (!pdim_map.hasWarpSpecialization()) {
+      ss << "DefaultBlockDim()";
+    } else {
+      ss << "dim3("
+         << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx)) << ", "
+         << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
+         << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+    }
     return ss.str();
   }
 

@@ -466,7 +466,7 @@ class ParallelReduce {
   // reduceGroup does not support Welford-style reductions that reduce
   // all values of a tuple together, so this is the only entry point
   // for Welford for now.
-  template <bool Aligned, typename Func, typename... Types>
+  template <bool Aligned, typename Func, typename BlockDimT, typename... Types>
   __device__ __inline__ void reduce(
       RefTuple<Types...> out,
       const ConstRefTuple<Types...>& inp,
@@ -477,14 +477,14 @@ class ParallelReduce {
       bool read_pred, // Prevent reading from out of bounds memory
       bool write_pred, // Prevent from writing out of bounds
       const LocalTuple<Types...>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       Func reduction_op);
 
   //! Profiled version
-  template <bool Aligned, typename Func, typename... Types>
+  template <bool Aligned, typename Func, typename BlockDimT, typename... Types>
   __device__ __inline__ void reduce(
       RefTuple<Types...> out,
       const ConstRefTuple<Types...>& inp,
@@ -495,10 +495,10 @@ class ParallelReduce {
       bool read_pred, // Prevent reading from out of bounds memory
       bool write_pred, // Prevent from writing out of bounds
       const LocalTuple<Types...>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       Func reduction_op,
       int64_t& cycles,
       int64_t& count);
@@ -513,6 +513,7 @@ class ParallelReduce {
   //! no need to accumulate into the out parameter.
   template <
       bool Aligned,
+      typename BlockDimT,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -521,10 +522,10 @@ class ParallelReduce {
       const ConstRefTuple<DataTypes...>& inp,
       VolatilePtrTuple<DataTypes...> global_work_buffer,
       const LocalTuple<DataTypes...>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       int64_t* global_sync_buffer,
       void* shared_mem,
       const LocalTuple<BoolTypes...>& read_preds,
@@ -534,6 +535,7 @@ class ParallelReduce {
   //! Profiled version
   template <
       bool Aligned,
+      typename BlockDimT,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -542,10 +544,10 @@ class ParallelReduce {
       const ConstRefTuple<DataTypes...>& inp,
       VolatilePtrTuple<DataTypes...> global_work_buffer,
       const LocalTuple<DataTypes...>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       int64_t* global_sync_buffer,
       void* shared_mem,
       const LocalTuple<BoolTypes...>& read_preds,
@@ -567,7 +569,12 @@ class ParallelReduce {
   // simplicity. In practice, it should be really uncommon to group
   // welford ops with different data types, so this restriction
   // shouldn't be an issue.
-  template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
+  template <
+      bool Aligned,
+      int NumArgs,
+      typename DataType,
+      typename IndexType,
+      typename BlockDimT>
   __device__ __inline__ void welfordGroup(
       typename MakeRefTuple<NumArgs, DataType>::type out_avg,
       typename MakeRefTuple<NumArgs, DataType>::type out_var,
@@ -578,10 +585,10 @@ class ParallelReduce {
       const typename MakeLocalTuple<NumArgs, DataType>::type& init_avg,
       const typename MakeLocalTuple<NumArgs, DataType>::type& init_var,
       const typename MakeLocalTuple<NumArgs, IndexType>::type& init_N,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       typename MakeVolatilePtrTuple<NumArgs, DataType>::type
           global_work_buffer_avg,
       typename MakeVolatilePtrTuple<NumArgs, DataType>::type
@@ -594,7 +601,12 @@ class ParallelReduce {
       const typename MakeLocalTuple<NumArgs, bool>::type& write_preds);
 
   //! Profiled version
-  template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
+  template <
+      bool Aligned,
+      int NumArgs,
+      typename DataType,
+      typename IndexType,
+      typename BlockDimT>
   __device__ __inline__ void welfordGroup(
       typename MakeRefTuple<NumArgs, DataType>::type out_avg,
       typename MakeRefTuple<NumArgs, DataType>::type out_var,
@@ -605,10 +617,10 @@ class ParallelReduce {
       const typename MakeLocalTuple<NumArgs, DataType>::type& init_avg,
       const typename MakeLocalTuple<NumArgs, DataType>::type& init_var,
       const typename MakeLocalTuple<NumArgs, IndexType>::type& init_N,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       typename MakeVolatilePtrTuple<NumArgs, DataType>::type
           global_work_buffer_avg,
       typename MakeVolatilePtrTuple<NumArgs, DataType>::type
@@ -625,7 +637,13 @@ class ParallelReduce {
   // This is highly specific to the outer-reduction pattern. All the
   // assumptions should be asserted with static_assert at the begging of
   // the fuction.
-  template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+  template <
+      bool Aligned,
+      int NumVals,
+      typename DataType,
+      int BDIMX,
+      int BDIMY,
+      typename BlockDimT>
   __device__ __inline__ void welfordGroupOuter(
       DataType out_avg[NumVals],
       DataType out_var[NumVals],
@@ -633,10 +651,10 @@ class ParallelReduce {
       const DataType in_avg[NumVals],
       const DataType in_var[NumVals],
       nvfuser_index_t in_N,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       DataType* global_buf_avg,
       DataType* global_buf_var,
       nvfuser_index_t* global_buf_N,
@@ -644,7 +662,13 @@ class ParallelReduce {
       int64_t* global_sync_buffer);
 
   // Profiled version
-  template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+  template <
+      bool Aligned,
+      int NumVals,
+      typename DataType,
+      int BDIMX,
+      int BDIMY,
+      typename BlockDimT>
   __device__ __inline__ void welfordGroupOuter(
       DataType out_avg[NumVals],
       DataType out_var[NumVals],
@@ -652,10 +676,10 @@ class ParallelReduce {
       const DataType in_avg[NumVals],
       const DataType in_var[NumVals],
       nvfuser_index_t in_N,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       DataType* global_buf_avg,
       DataType* global_buf_var,
       nvfuser_index_t* global_buf_N,
@@ -683,16 +707,17 @@ class ParallelReduce {
   template <
       bool BLOCK_BROADCAST,
       bool Aligned,
+      typename BlockDimT,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
   __device__ __inline__ static LocalTuple<DataTypes...> reduceGroupBlock(
       const ConstRefTuple<DataTypes...>& inp,
       const LocalTuple<DataTypes...>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       void* shared_mem,
       const LocalTuple<BoolTypes...>& read_preds,
       bool block_reduce_participate,
@@ -704,6 +729,7 @@ class ParallelReduce {
   //! but it isn't synchronized when returning from this function.
   template <
       bool Aligned,
+      typename BlockDimT,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -711,10 +737,10 @@ class ParallelReduce {
       RefTuple<DataTypes...>& out,
       const VolatilePtrTuple<DataTypes...>& global_work_buffer,
       const LocalTuple<DataTypes...>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       void* shared_mem,
       nvfuser_index_t block_red_idx_offset,
       nvfuser_index_t num_thread_iters,
@@ -732,29 +758,35 @@ class ParallelReduce {
       bool Aligned,
       int NumVals,
       typename DataType,
-      typename IndexType>
+      typename IndexType,
+      typename BlockDimT>
   __device__ __inline__ static void welfordGroupBlock(
       LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
       const ConstRefWelfordTripletTuple<NumVals, DataType, IndexType>& inp,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       PtrTuple<DataType, DataType, IndexType> shared_buf,
       const typename MakeLocalTuple<NumVals, bool>::type& read_preds,
       bool block_reduce_participate);
 
   //! Welford version of reduceGrouplLastBlock
-  template <bool Aligned, int NumVals, typename DataType, typename IndexType>
+  template <
+      bool Aligned,
+      int NumVals,
+      typename DataType,
+      typename IndexType,
+      typename BlockDimT>
   __device__ __inline__ static void welfordGroupLastBlock(
       RefWelfordTripletTuple<NumVals, DataType, IndexType>& out,
       const VolatilePtrWelfordTripletTuple<NumVals, DataType, IndexType>&
           global_work_buffer,
       const LocalWelfordTripletTuple<NumVals, DataType, IndexType>& init_val,
-      // block_dim is basically just blockDim if there is no warp specialization
-      // in the kernel. If there is warp specialization, block_dim is the
-      // the dimension of the compute warps.
-      dim3 block_dim,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       PtrTuple<DataType, DataType, IndexType> shared_buf,
       nvfuser_index_t block_red_idx_offset,
       nvfuser_index_t num_thread_iters,
@@ -777,7 +809,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, typename Func, typename... Types>
+template <bool Aligned, typename Func, typename BlockDimT, typename... Types>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -797,10 +829,10 @@ __device__ __inline__ void ParallelReduce<
         bool read_pred, // Prevent reading from out of bounds memory
         bool write_pred, // Prevent from writing out of bounds
         const LocalTuple<Types...>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         Func reduction_op) {
   // If no reduction needed, just return input
   if (!BLOCK_REDUCE && !GRID_REDUCE) {
@@ -1202,7 +1234,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, typename Func, typename... Types>
+template <bool Aligned, typename Func, typename BlockDimT, typename... Types>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -1222,10 +1254,10 @@ __device__ __inline__ void ParallelReduce<
         bool read_pred, // Prevent reading from out of bounds memory
         bool write_pred, // Prevent from writing out of bounds
         const LocalTuple<Types...>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         Func reduction_op,
         int64_t& cycles,
         int64_t& count) {
@@ -1266,6 +1298,7 @@ template <
     bool BROADCAST>
 template <
     bool Aligned,
+    typename BlockDimT,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1283,10 +1316,10 @@ __device__ __inline__ void ParallelReduce<
         const ConstRefTuple<DataTypes...>& inp,
         VolatilePtrTuple<DataTypes...> global_work_buffer,
         const LocalTuple<DataTypes...>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         int64_t* global_sync_buffer,
         void* shared_mem,
         const LocalTuple<BoolTypes...>& read_preds,
@@ -1464,6 +1497,7 @@ template <
     bool BROADCAST>
 template <
     bool Aligned,
+    typename BlockDimT,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1481,10 +1515,10 @@ __device__ __inline__ void ParallelReduce<
         const ConstRefTuple<DataTypes...>& inp,
         VolatilePtrTuple<DataTypes...> global_work_buffer,
         const LocalTuple<DataTypes...>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         int64_t* global_sync_buffer,
         void* shared_mem,
         const LocalTuple<BoolTypes...>& read_preds,
@@ -1530,6 +1564,7 @@ template <
 template <
     bool BLOCK_BROADCAST,
     bool Aligned,
+    typename BlockDimT,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1545,10 +1580,10 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
     reduceGroupBlock(
         const ConstRefTuple<DataTypes...>& inp,
         const LocalTuple<DataTypes...>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         void* shared_mem,
         const LocalTuple<BoolTypes...>& read_preds,
         bool block_reduce_participate,
@@ -1616,6 +1651,7 @@ template <
     bool BROADCAST>
 template <
     bool Aligned,
+    typename BlockDimT,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1632,10 +1668,10 @@ __device__ __inline__ void ParallelReduce<
         RefTuple<DataTypes...>& out,
         const VolatilePtrTuple<DataTypes...>& global_work_buffer,
         const LocalTuple<DataTypes...>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         void* shared_mem,
         nvfuser_index_t block_red_idx_offset,
         nvfuser_index_t num_thread_iters,

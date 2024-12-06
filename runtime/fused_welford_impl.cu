@@ -74,6 +74,7 @@ template <
     typename DataType,
     typename IndexType>
 struct BlockWelfordEach {
+  template <typename BlockDimT>
   __inline__ __device__ static void reduce(
       LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
       const LocalWelfordTripletTuple<NumVals, DataType, IndexType>&
@@ -84,10 +85,10 @@ struct BlockWelfordEach {
       int num_threads_per_reduction,
       int num_elements_per_reduction,
       int reduction_idx,
-      // block_dim is basically just blockDim if there is no warp
-      // specialization in the kernel. If there is warp specialization,
-      // block_dim is the the dimension of the compute warps.
-      dim3 block_dim) {
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim) {
     // Finish the reduction of each tuple value with a smaller offset
     BlockWelfordEach<
         idx - 1,
@@ -219,6 +220,7 @@ struct BlockWelfordEach<
     NumVals,
     DataType,
     IndexType> {
+  template <typename BlockDimT>
   __inline__ __device__ static void reduce(
       LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
       const LocalWelfordTripletTuple<NumVals, DataType, IndexType>&
@@ -229,10 +231,10 @@ struct BlockWelfordEach<
       int num_threads_per_reduction,
       int num_elements_per_reduction,
       int reduction_idx,
-      // block_dim is basically just blockDim if there is no warp
-      // specialization in the kernel. If there is warp specialization,
-      // block_dim is the the dimension of the compute warps.
-      dim3 block_dim) {}
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim) {}
 };
 
 //! Welford version of blockReduceEach. Perform block-parallel Welford
@@ -243,7 +245,8 @@ template <
     bool Aligned,
     int NumVals,
     typename DataType,
-    typename IndexType>
+    typename IndexType,
+    typename BlockDimT>
 __inline__ __device__ void blockWelfordEach(
     LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
     const LocalWelfordTripletTuple<NumVals, DataType, IndexType>&
@@ -254,10 +257,10 @@ __inline__ __device__ void blockWelfordEach(
     int num_threads_per_reduction,
     int num_elements_per_reduction,
     int reduction_idx,
-    // block_dim is basically just blockDim if there is no warp
-    // specialization in the kernel. If there is warp specialization,
-    // block_dim is the the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   BlockWelfordEach<
       NumVals - 1,
       BROADCAST,
@@ -289,7 +292,12 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
+template <
+    bool Aligned,
+    int NumArgs,
+    typename DataType,
+    typename IndexType,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -309,10 +317,10 @@ __device__ __inline__ void ParallelReduce<
         const typename MakeLocalTuple<NumArgs, DataType>::type& init_avg,
         const typename MakeLocalTuple<NumArgs, DataType>::type& init_var,
         const typename MakeLocalTuple<NumArgs, IndexType>::type& init_N,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         typename MakeVolatilePtrTuple<NumArgs, DataType>::type
             global_work_buffer_avg,
         typename MakeVolatilePtrTuple<NumArgs, DataType>::type
@@ -504,7 +512,12 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
+template <
+    bool Aligned,
+    int NumArgs,
+    typename DataType,
+    typename IndexType,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -524,10 +537,10 @@ __device__ __inline__ void ParallelReduce<
         const typename MakeLocalTuple<NumArgs, DataType>::type& init_avg,
         const typename MakeLocalTuple<NumArgs, DataType>::type& init_var,
         const typename MakeLocalTuple<NumArgs, IndexType>::type& init_N,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         typename MakeVolatilePtrTuple<NumArgs, DataType>::type
             global_work_buffer_avg,
         typename MakeVolatilePtrTuple<NumArgs, DataType>::type
@@ -587,7 +600,8 @@ template <
     bool Aligned,
     int NumVals,
     typename DataType,
-    typename IndexType>
+    typename IndexType,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -600,10 +614,10 @@ __device__ __inline__ void ParallelReduce<
     welfordGroupBlock(
         LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
         const ConstRefWelfordTripletTuple<NumVals, DataType, IndexType>& inp,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         PtrTuple<DataType, DataType, IndexType> shared_buf,
         const typename MakeLocalTuple<NumVals, bool>::type& read_preds,
         bool block_reduce_participate) {
@@ -664,7 +678,12 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumVals, typename DataType, typename IndexType>
+template <
+    bool Aligned,
+    int NumVals,
+    typename DataType,
+    typename IndexType,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -679,10 +698,10 @@ __device__ __inline__ void ParallelReduce<
         const VolatilePtrWelfordTripletTuple<NumVals, DataType, IndexType>&
             global_work_buffer,
         const LocalWelfordTripletTuple<NumVals, DataType, IndexType>& init_val,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         PtrTuple<DataType, DataType, IndexType> shared_buf,
         nvfuser_index_t block_red_idx_offset,
         nvfuser_index_t num_thread_iters,

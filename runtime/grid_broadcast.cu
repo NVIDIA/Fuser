@@ -28,17 +28,18 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool Aligned,
-    typename T>
+    typename T,
+    typename BlockDimT>
 __device__ void broadcast(
     T& out,
     const T& inp_val,
     volatile T* work_buf,
     Tensor<int64_t, 1> sync_flags,
     bool read_write_pred,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // Number of values broadcasted in the grid dimensions
   const auto grid_seg_size =
       index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);

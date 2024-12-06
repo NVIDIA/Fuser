@@ -16,16 +16,22 @@ namespace broadcast {
 // inp_val: Per-thread source value. Only valid when the thread is a source.
 // out: Per-thread output location
 //
-template <bool X_THREAD, bool Y_THREAD, bool Z_THREAD, bool Aligned, typename T>
+template <
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool Aligned,
+    typename T,
+    typename BlockDimT>
 __device__ void blockBroadcast(
     T& out,
     const T& inp_val,
     T* shared_mem,
     bool read_write_pred,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   const bool has_valid_data = (!X_THREAD || threadIdx.x == 0) &&
       (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
 

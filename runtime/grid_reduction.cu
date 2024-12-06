@@ -75,7 +75,8 @@ template <
     bool Z_THREAD,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduceLastBlock(
     T& out,
     const volatile T* in,
@@ -88,10 +89,10 @@ __device__ void gridReduceLastBlock(
     T* shared_buf,
     bool write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // We have to do num_reductions across reduction_size. The reductions are
   // contiguous, but offset by reduction_size. There is an entry in "in" for
   // every block, and every thread marked as true. Threads in dimensions marked
@@ -195,7 +196,8 @@ template <
     bool PERSISTENT_REDUCTION,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduce(
     T& out,
     const T& inp_val,
@@ -208,10 +210,10 @@ __device__ void gridReduce(
     T init_val,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   T block_reduction_val = init_val;
 
   // Do block reduction when required
@@ -321,7 +323,8 @@ template <
     bool PERSISTENT_REDUCTION,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduce(
     T& out,
     const T& inp_val,
@@ -334,10 +337,10 @@ __device__ void gridReduce(
     T init_val,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     int64_t& cycles,
     int64_t& count) {
   int64_t start_counter = 0;
@@ -388,7 +391,8 @@ template <
     bool Z_THREAD,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduce2PartialReduction(
     const T& inp_val,
     T init_val,
@@ -399,10 +403,10 @@ __device__ void gridReduce2PartialReduction(
     nvfuser_index_t grid_reduction_segment_size,
     nvfuser_index_t idx_in_grid_segment,
     nvfuser_index_t block_reduction_segment_size,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   T block_reduction_val = init_val;
 
   // Do block reduction when required
@@ -446,7 +450,8 @@ template <
     typename T1,
     typename Func1,
     typename T2,
-    typename Func2>
+    typename Func2,
+    typename BlockDimT>
 __device__ void gridReduceGroup(
     T1& out1,
     const T1& inp_val1,
@@ -464,10 +469,10 @@ __device__ void gridReduceGroup(
     bool write_pred,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // Number of values to reduce in the reduction segment
   const auto grid_reduction_segment_size =
       index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
@@ -596,7 +601,8 @@ template <
     typename T1,
     typename Func1,
     typename T2,
-    typename Func2>
+    typename Func2,
+    typename BlockDimT>
 __device__ void gridReduceGroup(
     T1& out1,
     const T1& inp_val1,
@@ -607,10 +613,10 @@ __device__ void gridReduceGroup(
     const T2& inp_val2,
     T2 init_val2,
     Func2 reduction_op2,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     volatile T2* work_buf2,
     int64_t* sync_flags,
     void* shared_buf,
@@ -748,7 +754,8 @@ template <
     bool Aligned,
     int vec_size,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void iterGroupedGridReduceLastBlock(
     T* out,
     const volatile T* in,
@@ -763,10 +770,10 @@ __device__ void iterGroupedGridReduceLastBlock(
     T init_val,
     const nvfuser_index_t grid_segment_size,
     const nvfuser_index_t idx_in_grid_segment,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // We have to do num_reductions across reduction_size. The reductions are
   // contiguous, but offset by reduction_size. There is an entry in "in" for
   // every block, and every thread marked as true. Threads in dimensions marked
@@ -893,7 +900,8 @@ template <
     bool Aligned,
     int vec_size,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void iterGroupedGridReduce(
     T* out,
     const T* inp_val,
@@ -904,10 +912,10 @@ __device__ void iterGroupedGridReduce(
     bool read_pred,
     bool write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // inp or block reduction results
   T block_reduction_val[vec_size];
 

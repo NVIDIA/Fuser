@@ -57,6 +57,11 @@ class ParallelDimensionMap {
   //! buffer tensors.
   Val* getNumComputeThreadsEachBlock() const;
 
+  //! Get if the kernel uses warp specialization
+  bool hasWarpSpecialization() const {
+    return !warp_specialized_types_.empty();
+  }
+
   bool has(ParallelType pt) const {
     return dim_map_.count(pt) > 0;
   }

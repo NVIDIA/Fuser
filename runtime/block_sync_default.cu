@@ -6,25 +6,29 @@
  */
 // clang-format on
 
+struct DefaultBlockDim {
+  const uint32_t x, y, z;
+  __device__ DefaultBlockDim() : x(blockDim.x), y(blockDim.y), z(blockDim.z) {}
+  operator dim3() const {
+    return blockDim;
+  }
+};
+
 // Default block synchronization. Just use __barrier_sync
 namespace block_sync {
 
 __forceinline__ __device__ void init() {}
 
 // Thread-block synchronization
-template <bool aligned>
-__forceinline__ __device__ void sync(dim3 block_dim) {
+template <bool aligned, typename BlockDimT>
+__forceinline__ __device__ void sync(BlockDimT block_dim) {
   if constexpr (aligned) {
     __syncthreads();
+  } else if constexpr (std::is_same_v<BlockDimT, DefaultBlockDim>) {
+    __barrier_sync(0);
   } else {
     uint32_t num_threads = block_dim.x * block_dim.y * block_dim.z;
-    if (num_threads % 32 == 0) {
-      // bar.sync specifying the number of threads must be a multiple
-      // of warp size (32)
-      asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
-    } else {
-      __barrier_sync(0);
-    }
+    asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
   }
 }
 

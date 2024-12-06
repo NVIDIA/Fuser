@@ -114,7 +114,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __inline__ __device__ void blockWelford(
     T& out_avg,
     T& out_M2,
@@ -128,10 +129,10 @@ __inline__ __device__ void blockWelford(
     bool read_pred,
     bool write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // If this thread will output a final result
   bool should_write =
       index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
@@ -226,7 +227,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __inline__ __device__ void blockWelford(
     T& out_avg,
     T& out_M2,
@@ -239,10 +241,10 @@ __inline__ __device__ void blockWelford(
     TN* shared_mem_N,
     bool read_write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   blockWelford<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, TN>(
       out_avg,
       out_M2,
@@ -269,7 +271,8 @@ template <
     bool Z_THREAD,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __device__ void gridWelfordLastBlock(
     T& out_avg,
     T& out_M2,
@@ -280,12 +283,11 @@ __device__ void gridWelfordLastBlock(
     const nvfuser_index_t
         grid_reduction_segment_size, // Number of reductions across
                                      // grid reduce dimensions
-    const nvfuser_index_t
-        block_reduction_segment_size, // Number of reductions across the block
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim,
+    const nvfuser_index_t block_reduction_segment_size,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     T* shared_buf_avg,
     T* shared_buf_M2,
     TN* shared_buf_N,
@@ -366,7 +368,8 @@ template <
     bool PERSISTENT_REDUCTION,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __device__ void gridWelford(
     T& out_avg,
     T& out_M2,
@@ -386,10 +389,10 @@ __device__ void gridWelford(
     T init_val,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // entrance index only matters for non-persistent re-entrant grid reductions.
   const nvfuser_index_t entrance_ind_ = PERSISTENT_REDUCTION ? 0 : entrance_ind;
   const nvfuser_index_t n_entrances_ = PERSISTENT_REDUCTION ? 1 : n_entrances;

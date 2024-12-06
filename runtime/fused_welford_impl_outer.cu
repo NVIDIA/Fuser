@@ -212,7 +212,13 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <
+    bool Aligned,
+    int NumVals,
+    typename DataType,
+    int BDIMX,
+    int BDIMY,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -229,10 +235,10 @@ __device__ __inline__ void ParallelReduce<
         const DataType in_avg[NumVals],
         const DataType in_var[NumVals],
         nvfuser_index_t in_N,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         DataType* global_buf_avg,
         DataType* global_buf_var,
         nvfuser_index_t* global_buf_N,
@@ -367,7 +373,13 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <
+    bool Aligned,
+    int NumVals,
+    typename DataType,
+    int BDIMX,
+    int BDIMY,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -384,10 +396,10 @@ __device__ __inline__ void ParallelReduce<
         const DataType in_avg[NumVals],
         const DataType in_var[NumVals],
         nvfuser_index_t in_N,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         DataType* global_buf_avg,
         DataType* global_buf_var,
         nvfuser_index_t* global_buf_N,

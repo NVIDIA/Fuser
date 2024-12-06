@@ -21,7 +21,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockReduce(
     T& out,
     const T& inp_val,
@@ -30,10 +31,10 @@ __device__ void blockReduce(
     bool read_pred,
     bool write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // If this thread will output a final result
   bool should_write =
       index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
@@ -171,7 +172,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockReduce(
     T& out,
     const T& inp_val,
@@ -179,10 +181,10 @@ __device__ void blockReduce(
     T* shared_mem,
     bool read_write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
       out,
       inp_val,
@@ -204,7 +206,8 @@ template <
     bool Aligned,
     int N, // Number of elements per input array
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockIterGroupedYdimReduce(
     T out[N],
     const T inp_val[N],
@@ -213,10 +216,10 @@ __device__ void blockIterGroupedYdimReduce(
     bool read_pred,
     bool write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // N should be a valid vectorization factor
   static_assert(
       N == 2 || N == 4 || N == 8 || N == 16,
@@ -369,7 +372,8 @@ template <
     bool Aligned,
     int N, // Number of elements per input array
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockIterGroupedYdimReduce(
     T out[N],
     const T inp_val[N],
@@ -377,10 +381,10 @@ __device__ void blockIterGroupedYdimReduce(
     T* shared_mem,
     bool read_write_pred,
     T init_val,
-    // block_dim is basically just blockDim if there is no warp specialization
-    // in the kernel. If there is warp specialization, block_dim is the
-    // the dimension of the compute warps.
-    dim3 block_dim) {
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   blockIterGroupedYdimReduce<Aligned, N, T, Func>(
       out,
       inp_val,
