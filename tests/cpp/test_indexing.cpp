@@ -2978,8 +2978,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
                   loop_indices.at(1)),
               tv->axis(3)->extent()),
           loop_indices.at(3));
-      auto start_idx = IrBuilder::addExpr(
-          mulExpr(common_idx, tv->axis(2)->extent()), tv->fusion()->zeroVal());
+      auto start_idx = mulExpr(common_idx, tv->axis(2)->extent());
       auto stop_idx = addExpr(
           mulExpr(common_idx, tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
