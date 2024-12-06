@@ -309,16 +309,16 @@ __device__ __inline__ void ParallelReduce<
         const typename MakeLocalTuple<NumArgs, DataType>::type& init_avg,
         const typename MakeLocalTuple<NumArgs, DataType>::type& init_var,
         const typename MakeLocalTuple<NumArgs, IndexType>::type& init_N,
+        // block_dim is basically just blockDim if there is no warp
+        // specialization in the kernel. If there is warp specialization,
+        // block_dim is the the dimension of the compute warps.
+        dim3 block_dim,
         typename MakeVolatilePtrTuple<NumArgs, DataType>::type
             global_work_buffer_avg,
         typename MakeVolatilePtrTuple<NumArgs, DataType>::type
             global_work_buffer_var,
         typename MakeVolatilePtrTuple<NumArgs, IndexType>::type
             global_work_buffer_N,
-        // block_dim is basically just blockDim if there is no warp
-        // specialization in the kernel. If there is warp specialization,
-        // block_dim is the the dimension of the compute warps.
-        dim3 block_dim,
         int64_t* global_sync_buffer,
         PtrTuple<DataType, DataType, IndexType> shared_buf,
         const typename MakeLocalTuple<NumArgs, bool>::type& read_preds,
