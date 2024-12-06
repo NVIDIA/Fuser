@@ -1076,7 +1076,7 @@ TEST_F(
         auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
-        if (comms_req) {
+        if (comms_req != nullptr) {
           comms_req->wait();
           comms_req = nullptr;
         }
