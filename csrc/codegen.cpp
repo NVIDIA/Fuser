@@ -2284,6 +2284,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genCall("ConstRefTuple", types, inputs));
     func_args.arg(genCall("VolatilePtrTuple", types, work_bufs));
     func_args.arg(genCall("LocalTuple", types, init_vals));
+    func_args.arg(genComputeBlockDim());
 
     // global_sync_buffer
     const auto sync_buffer =
