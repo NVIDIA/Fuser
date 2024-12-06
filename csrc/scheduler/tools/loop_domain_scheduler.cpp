@@ -408,8 +408,6 @@ void scheduleLoopDomainsBy(
   const ValGroups output_groups = exact_graph.toGroups(transform->outputs());
 
   for (auto tv : tvs) {
-    const ValGroups loop_groups = exact_graph.toGroups(tv->getLoopDomain());
-
     // Check if either the inputs or the outputs are mapped with the
     // loop domain.
 
@@ -450,28 +448,28 @@ void scheduleLoopDomainsBy(
       continue;
     }
 
+    const auto& existing_ids =
+        replay_dir == Direction::Forward ? input_ids : output_ids;
+
     // Clone inputs or outputs
-    auto& missing_ids =
-        replay_dir == Direction::Forward ? output_ids : input_ids;
-    const auto& ref_of_missing_ids = replay_dir == Direction::Forward
+    auto& new_ids = replay_dir == Direction::Forward ? output_ids : input_ids;
+    const auto& ref_of_ids_to_generate = replay_dir == Direction::Forward
         ? transform->outputs()
         : transform->inputs();
 
-    for (const auto& ref_id : ref_of_missing_ids) {
+    for (const auto& ref_id : ref_of_ids_to_generate) {
       auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
-      missing_ids.push_back(clone);
+      new_ids.push_back(clone);
     }
 
+    // In the case of replaying the transform expr backward,
+    // the definition of the output IDs will be set to the newly
+    // created expr. This is only allowed when the output IDs have no
+    // definition yet.
     LoopDomainSchedulerReplayTransform::replayAs(
         input_ids, output_ids, transform);
 
     // Replace the inputs of the transform with the outputs
-
-    const auto& existing_ids =
-        replay_dir == Direction::Forward ? input_ids : output_ids;
-    const auto& new_ids =
-        replay_dir == Direction::Forward ? output_ids : input_ids;
-
     auto new_loop_domain = tv->getLoopDomain();
     auto outermost_pos = (int64_t)tv->getLoopDomain().size();
     for (const auto& existing_id : existing_ids) {

@@ -106,6 +106,10 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
+      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::ComputeWarp: {
+        break;
+      }
       default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
@@ -1246,11 +1250,22 @@ class CircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
-    auto hasCpAsyncBulk = std::any_of(
+    auto has_cp_async_bulk = std::any_of(
         it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
 
-    if (hasCpAsyncBulk) {
-      insertTma(loop, it->second);
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(loop->iter_domain())
+            .type);
+    if (use_warp_specialization) {
+      NVF_ERROR(
+          std::all_of(
+              it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
+          "In order to use warp specialization, all buffers must be loaded by TMA");
+      insertTmaWarpSpecialized(loop, it->second);
+    } else if (has_cp_async_bulk) {
+      insertTmaPipelined(loop, it->second);
     } else {
       insert(loop, it->second);
     }
@@ -1315,7 +1330,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         .usesMBarrierForWAR();
   }
 
-  void insertTma(
+  void insertTmaPipelined(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // Arrive on the WAR mbarriers to let the prefetching start.
@@ -1361,6 +1376,39 @@ class CircularBufferInserter : private kir::ExprMutator {
         CircularBufferLoopStage::Epilog,
         expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
+  }
+
+  void insertTmaWarpSpecialized(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& loads) {
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            circular_buffer_loop->iter_domain());
+    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
+
+    kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+            NamedScalar::getParallelIndex(warp_specialize_on),
+            IrBuilder::subExpr(
+                GpuLower::current()->parallelDimensionMap().get(
+                    warp_specialize_on),
+                circular_buffer_loop->fusion()->oneVal()))));
+
+    // Load loop:
+    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
+    warp_dispatch_ite->thenBody().push_back(load_loop);
+
+    // Prefetch:
+    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
+    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+
+    // Compute loop:
+    ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
+    warp_dispatch_ite->elseBody().push_back(compute_loop);
+
+    registerReplace(circular_buffer_loop, warp_dispatch_ite);
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
