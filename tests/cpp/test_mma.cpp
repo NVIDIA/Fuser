@@ -405,7 +405,7 @@ using HopperMmaRSStMatrixTestParams = std::tuple<
     PrimDataType,
     MmaLayout,
     MmaInputSmemSwizzle,
-    std::vector<int>>;
+    std::vector<int64_t>>;
 
 class HopperRSStmatrix
     : public HopperBase,
@@ -415,7 +415,7 @@ class HopperRSStmatrix
   MmaMacro macro;
   PrimDataType dtype;
   MmaInputSmemSwizzle swizzle_b;
-  std::vector<int> tile_sizes;
+  std::vector<int64_t> tile_sizes;
 
   void SetUp() override {
     HopperBase::SetUp();
@@ -573,8 +573,8 @@ INSTANTIATE_TEST_SUITE_P(
         kAllSmemSwizzleModes,
         testing::Values(
             // M, N
-            std::vector<int>{16, 8},
-            std::vector<int>{16, 16})));
+            std::vector<int64_t>{16, 8},
+            std::vector<int64_t>{16, 16})));
 
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,
