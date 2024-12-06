@@ -2086,7 +2086,8 @@ __global__ void kernel1(
         (float*)mem_M2,
         (long*)mem_N,
         (bool)(threadIdx.x<inp.logical_size[0]),
-        0.f);
+        0.f,
+        blockDim);
     __syncthreads();
     if(threadIdx.x<out_var.logical_size[0] && threadIdx.y==0){
         welfordCombine(
@@ -2175,7 +2176,8 @@ __global__ void kernel1(
         (float*)mem_M2,
         (long*)mem_N,
         (bool)(threadIdx.x<inp.logical_size[0]),
-        0.f);
+        0.f,
+        blockDim);
     __syncthreads();
     if(threadIdx.x<out_var.logical_size[0] && threadIdx.y==0 && threadIdx.z==0){
         out_avg[threadIdx.x*out_var.alloc_stride[0]]=tmp_avg;
