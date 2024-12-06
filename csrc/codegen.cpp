@@ -2421,6 +2421,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genCall("LocalTuple", data_types, init_args[0]));
     func_args.arg(genCall("LocalTuple", data_types, init_args[1]));
     func_args.arg(genCall("LocalTuple", index_types, init_args[2]));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
     // work buffer
     func_args.arg(genCall("VolatilePtrTuple", data_types, work_bufs[0]));
     func_args.arg(genCall("VolatilePtrTuple", data_types, work_bufs[1]));
@@ -2512,6 +2514,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
     func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
         .append("[0]");
+    // block_dim
+    func_args.arg(genComputeBlockDim());
 
     // global buf
     for (const auto i : c10::irange(3)) {
@@ -2766,6 +2770,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(read_pred).arg(write_pred);
     // init_val
     func_args.arg(genCall("LocalTuple", data_type_args, init_args));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
     // reduction_op
     func_args.arg(genTemplate(
         "welfordCombine", ArgumentBuilder().arg(data_type).arg(index_type)));
