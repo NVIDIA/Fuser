@@ -342,12 +342,12 @@ __device__ void gridWelfordLastBlock(
       inp_avg,
       inp_M2,
       inp_N,
-      block_dim,
       shared_buf_avg,
       shared_buf_M2,
       shared_buf_N,
       true,
-      init_val);
+      init_val,
+      block_dim);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
