@@ -396,8 +396,6 @@ void scheduleLoopDomainsBy(
   const ValGroups output_groups = exact_graph.toGroups(transform->outputs());
 
   for (auto tv : tvs) {
-    const ValGroups loop_groups = exact_graph.toGroups(tv->getLoopDomain());
-
     // Check if either the inputs or the outputs are mapped with the
     // loop domain.
 
