@@ -1958,8 +1958,10 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
+  std::cout << out_tv->toString() << std::endl;
   MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
   int64_t swizzle_bytes = getBytesFromSwizzle(swizzle);
+  std::cout << "swizzle stmatrix\t" << swizzle_bytes << std::endl;
 
   // Constants
   constexpr int64_t dtype_size = 2;

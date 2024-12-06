@@ -182,6 +182,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! registers to shared memory.
   void scheduleStMatrixForMmaOutput(
       TensorView* tv,
+      MmaInputSmemSwizzle swizzle,
       int64_t tile_m,
       int64_t tile_n,
       int64_t tma_m,
@@ -189,7 +190,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   //! Schedules the copy operation of output of a Mma op which resided in the
   //! shared memory to global memory.
-  void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
+  void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle, int64_t m, int64_t n);
 
   // Map TensorView's iterDomain to its ValGroup.
   // Then, find the MatmulDimRole for the ValGroup.

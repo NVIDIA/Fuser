@@ -3159,14 +3159,14 @@ class HopperMatmulSchedulerTest
     // Create custom Matmul Params
     MatMulTileOptions gemm_tile;
     // TODO cta tile is a multiple of mma macro for hopper.
-    gemm_tile.cta_tile = GemmTile(128, 256, 16);
+    gemm_tile.cta_tile = GemmTile(128, 32, 16);
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
-    gemm_tile.warp_tile = GemmTile(64, 128, 16);
+    gemm_tile.warp_tile = GemmTile(64, 32, 16);
 
     mparams.supported_vec_size = {8, 8, 4};
 
-    mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    mparams.mma_macro = MmaMacro::Hopper_64_32_16;
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
@@ -3282,7 +3282,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // a_k_inner
         testing::Bool(), // b_k_inner
         testing::Values(512), // M
-        testing::Values(256), // N
+        testing::Values(32), // N
         testing::Values(64) // K
         ),
     hopperTestName);

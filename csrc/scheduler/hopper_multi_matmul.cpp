@@ -1027,13 +1027,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     const int64_t tma_m = getM(params_->mma_macro);
     const int64_t tma_n = getN(params_->mma_macro);
 
-    NVF_ERROR(
-        tma_n >= 64,
-        "Scheduler only supports 128B swizzle that requires N dimension of MMA ",
-        "macro to be >= 64, but received ",
-        tma_n,
-        ".");
-
     fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
     fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
     fusion_->manage("st_matrix_m", tma_m);
@@ -1084,12 +1077,14 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         dc->setAllocationDomain(s.as<IterDomain*>(), true);
       }
 
+      MmaInputSmemSwizzle swizzle = tmaSwizzleSharedMemory(d_smem);
+
       // Schedule shared memory cache; Output from StMatrix
       scheduleStMatrixForMmaOutput(
-          d_smem, stmatrix_tile_m, stmatrix_tile_n, tma_m, tma_n);
+          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n, tma_m, tma_n);
 
       // Schedule global memory output; Output from TMA Store
-      scheduleTMAStoreForMmaOutput(d, tma_m, tma_n);
+      scheduleTMAStoreForMmaOutput(d, swizzle, tma_m, tma_n);
     }
   }
 }
@@ -1247,6 +1242,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
 void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
     TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
     int64_t tile_m,
     int64_t tile_n,
     int64_t tma_m,
@@ -1263,7 +1259,7 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
       mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
 
   // Create tma store allocation domain with swizzle
-  scheduleTMAStoreForMmaOutput(tv, tma_m, tma_n);
+  scheduleTMAStoreForMmaOutput(tv, swizzle, tma_m, tma_n);
 
   tv->setLoopDomain(s.as<IterDomain*>());
 
@@ -1290,6 +1286,7 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
 
 void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
     TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
     int64_t m,
     int64_t n) {
   // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
@@ -1301,7 +1298,6 @@ void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
   // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
   // skip the first 5 iterDomains
   int64_t num_ids_to_skip = 5;
-  MmaInputSmemSwizzle swizzle = MmaInputSmemSwizzle::B128;
 
   NVF_ERROR(num_ids_to_skip >= 0);
   if (swizzle == MmaInputSmemSwizzle::None) {
