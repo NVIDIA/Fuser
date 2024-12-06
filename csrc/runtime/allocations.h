@@ -61,6 +61,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     ExpressionEvaluator& expr_eval);
 
+// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateTensor(
     const GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
