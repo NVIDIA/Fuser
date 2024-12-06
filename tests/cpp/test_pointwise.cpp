@@ -836,13 +836,13 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
-  // tv2 can't map to tv4
-  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv2));
+  // tv2 can map to tv4, because the missing tv4->axis(0) is a dangling ID.
+  EXPECT_TRUE(domain_map.testOutputMapping(tv4, tv2));
 
   // tv2 can map to tv4
   EXPECT_TRUE(domain_map.testOutputMapping(tv2, tv4));
 
-  // tv2 is not a valid reference
+  // However, tv2 is not a valid reference, since it doesn't cover all input IDs
   EXPECT_FALSE(domain_map.isValidReference(tv2));
 
   // tv4 is a valid reference
