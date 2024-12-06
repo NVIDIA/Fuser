@@ -42,45 +42,37 @@ std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
   return sharded_ids;
 }
 
-// Returns whether a IterDomain in a TensorView is the outermost
-// allocated IterDomain in the TensorView.
-bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
+// Returns the position where an axis is allocated in a tv. Returns -1 if id is
+// not in tv's loop domain WAR: today we assume that the loop domain match with
+// the actual allocation, but this will have to change in the future.
+int64_t allocationIndex(TensorView* tv, IterDomain* id) {
+  int64_t index = 0;
   for (auto i : tv->getLoopDomain()) {
     if (i == id) {
-      return true;
+      return index;
     }
     if (!i->isDeviceDim() && !i->isReduction() && !i->isBroadcast()) {
-      return false;
+      index++;
     }
   }
-  NVF_THROW("Id", id->toString(), " is not in TensorView ", tv->toString());
-  return false;
+  return -1;
 }
 
 } // namespace
 
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    Expr* expr) {
-  NVF_ERROR(
-      ir_utils::isTvOp(expr), "Expression must be a TvOp ", expr->toString());
-  NVF_ERROR(
-      expr->outputs().size() == 1,
-      "Resharding expression can only have one output");
-  NVF_ERROR(
-      expr->inputs().size() == 1,
-      "Resharding expression can have only one input");
-  auto output = expr->outputs().at(0)->as<TensorView>();
-  auto input = expr->inputs().at(0)->as<TensorView>();
-
+    TensorView* producer,
+    TensorView* consumer) {
   std::vector<IterDomain*> shard_additions;
   std::vector<IterDomain*> shard_deletions;
-  auto rootmap = PairwiseLogicalDomainMap(input, output).mapBroadcast(false);
+  auto rootmap =
+      PairwiseLogicalDomainMap(producer, consumer).mapBroadcast(false);
   const auto c2p_map = rootmap.mapConsumerToProducer();
 
-  for (IterDomain* out_root : output->getMaybeRootDomain()) {
+  for (IterDomain* out_root : consumer->getMaybeRootDomain()) {
     IterDomain* in_root = c2p_map.at(out_root);
     // Ignore sharded broadcast domains and
-    // sharded reductions on the output
+    // sharded reductions on the consumer
     // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
     // since they don't affect allocation.
     if (in_root->isDeviceDim() && !in_root->isBroadcast() &&
@@ -93,8 +85,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
     } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
       NVF_ERROR(
           in_root->getParallelType() == out_root->getParallelType(),
-          expr->toString(),
-          " reshards ",
+          " resharding ",
           in_root->toString(),
           " to ",
           out_root->toString(),
@@ -379,23 +370,21 @@ bool isInnerResharding(Expr* expr) {
       ir_utils::isTvOp(expr),
       "Non-tv op is not supported : ",
       expr->toString());
-  NVF_ERROR(
-      expr->outputs().size() == 1,
-      "Resharding operations can only have one output");
-  NVF_ERROR(
-      expr->inputs().size() == 1,
-      "Resharding operations can have only one input");
-  auto output = expr->outputs().at(0)->as<TensorView>();
-  auto input = expr->inputs().at(0)->as<TensorView>();
-  auto [shard_additions, shard_deletions] = getShardingChanges(expr);
-  NVF_ERROR(
-      shard_additions.size() + shard_deletions.size() <= 1,
-      "Resharding expr can only support one axis")
 
-  if (!shard_deletions.empty()) {
-    return !isOutermostAllocatedId(input, shard_deletions[0]);
-  } else if (!shard_additions.empty()) {
-    return !isOutermostAllocatedId(output, shard_additions[0]);
+  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      auto [shard_additions, shard_deletions] =
+          getShardingChanges(input, output);
+      NVF_ERROR(
+          shard_additions.size() + shard_deletions.size() <= 1,
+          "Resharding expr can only support one axis")
+      if ((!shard_deletions.empty() &&
+           allocationIndex(input, shard_deletions.at(0)) > 0) ||
+          (!shard_additions.empty() &&
+           allocationIndex(output, shard_additions.at(0)) > 0)) {
+        return true;
+      }
+    }
   }
   return false;
 }
