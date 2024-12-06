@@ -14,6 +14,7 @@
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
+#include <scheduler/pointwise_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -773,4 +774,40 @@ TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
   EXPECT_TRUE(found_vectorize);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
+
+TEST_F(PointwiseTest, DomainMapTestEg0) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = relu(tv0);
+  fusion->addOutput(tv1);
+  auto tv2 = broadcast(tv1, {false, true, false});
+  auto tv3 = expand(
+      tv2,
+      {tv1->axis(0)->extent(),
+       IrBuilder::create<Val>(4),
+       tv1->axis(2)->extent()});
+  auto tv4 = reshape(tv3, {2, 4, 3}, {2, 12});
+  fusion->addOutput(tv4);
+
+  pointwise_utils::DomainMap domain_map(fusion);
+  // tv1 can't map to tv4
+  EXPECT_FALSE(domain_map.areAllOutputIdsMappedTo(tv4, tv1));
+
+  // tv1 can map to tv3
+  EXPECT_TRUE(domain_map.areAllOutputIdsMappedTo(tv3, tv1));
+
+  // tv4 can map to tv1
+  EXPECT_TRUE(domain_map.areAllOutputIdsMappedTo(tv1, tv4));
+
+  // tv1 is not a valid reference
+  EXPECT_FALSE(domain_map.isValidReference(tv1));
+
+  // tv4 is a valid reference
+  EXPECT_TRUE(domain_map.isValidReference(tv4));
+}
+
 } // namespace nvfuser
