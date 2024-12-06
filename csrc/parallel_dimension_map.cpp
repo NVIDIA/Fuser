@@ -163,7 +163,8 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
     // nodes like addExpr(x, 1), and SimplifyingIrBuilder::addExpr in
     // getRawCompute will be able to simplify find the x when we do
     // addExpr(addExpr(x, 1) - 1).
-    dim_map_[pt] = IrBuilder::addExpr(dim_it->second, 1);
+    dim_map_[pt] =
+        IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
   }
   exact_types_.erase(pt);
   warp_specialized_types_.insert(pt);
