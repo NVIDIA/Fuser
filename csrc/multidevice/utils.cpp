@@ -181,7 +181,35 @@ int64_t getShardedLogicalAxis(
         "Failed to find a non-reduction logical IterDomain that produces ",
         alloc_id);
     if (auto* split = dynamic_cast<Split*>(def)) {
-      // FIXME: comment
+      // Returning just which tensor axis is sharded isn't sufficient to let
+      // shardTensor, a user of this function, know how to shard the tensor.
+      // For example,
+      //
+      //   t = makeContigConcreteTensor({6});
+      //   t->split(0, 2, /*inner_split=*/true);
+      //   t->axis(-1)->parallelize(DIDx);
+      //   // [i{3}, iDIDx{2}]
+      //
+      // and the unsharded tensor is [0, 1, 2, 3, 4, 5], regardless of the
+      // stride. The sharded tensor ought to be [0, 2, 4] for GPU 0 and [1, 3,
+      // 5] for GPU 1. However, shardTensor as is will return [0, 1, 2] and [3,
+      // 4, 5], assuming the axis is sharded outermost.
+      //
+      // One potential way to solve the general problem is to replay and rewind
+      // the splits on the at::Tensor.  For example,
+      //
+      //   t = makeContigConcreteTensor({30});
+      //   t->split(0, 5);
+      //   t->split(0, 3);
+      //   t->axis(0)->parallelize(Host);
+      //   t->axis(1)->parallelize(DIDx);
+      //   // [iHost{2}, iDIDx{3}, i{5}]
+      //
+      // Given an unsharded at::Tensor of shape [30], we'll first replay the
+      // splits using `torch.view` to get a tensor of shape [2,3,5]. Then, we
+      // `torch.slice` axis 1 for DIDx to get a tensor of shape [2,1,5]. Then,
+      // we rewind the splits (and therefore apply merging) using
+      // `torch.reshape` to get a sharded tensor of shape [10].
       NVF_ERROR(
           split->outer() == id,
           "Currently, we don't support DID on inner splits: ",
