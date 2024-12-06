@@ -50,6 +50,14 @@ bool hasVectorizationCache(TensorView* tv) {
   return false;
 }
 
+class DomainMapUnitTest : public : pointwise_utils::DomainMap {
+ public:
+  bool testOutputMapping(TensorView* output_tv, TensorView* reference_tv)
+      const {
+    return areAllOutputIdsMappedTo(output_tv, reference_tv);
+  }
+};
+
 } // namespace
 
 TEST_F(PointwiseTest, VectorizeStrideContiguity2D) {
@@ -793,15 +801,15 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   auto tv4 = reshape(tv3, {2, 4, 3}, {2, 12});
   fusion->addOutput(tv4);
 
-  pointwise_utils::DomainMap domain_map(fusion);
+  DomainMapUnitTest domain_map(fusion);
   // tv1 can't map to tv4
-  EXPECT_FALSE(domain_map.areAllOutputIdsMappedTo(tv4, tv1));
+  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv1));
 
   // tv1 can map to tv3
-  EXPECT_TRUE(domain_map.areAllOutputIdsMappedTo(tv3, tv1));
+  EXPECT_TRUE(domain_map.testOutputMapping(tv3, tv1));
 
   // tv4 can map to tv1
-  EXPECT_TRUE(domain_map.areAllOutputIdsMappedTo(tv1, tv4));
+  EXPECT_TRUE(domain_map.testOutputMapping(tv1, tv4));
 
   // tv1 is not a valid reference
   EXPECT_FALSE(domain_map.isValidReference(tv1));
