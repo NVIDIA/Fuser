@@ -285,9 +285,9 @@ class IndexValidator : public kir::IrVisitor {
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"consumer_index", "producer_index"});
 
-    // Disable simplifications to make the pattern matching of sameAs work
+    // Disable index hoisting to make the pattern matching of
+    // simplifyExpr(actual, ref)->isTrue() work
     DisableOptionsGuard disable_options_guard;
-    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
     DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
     // Magic zero is not yet supported
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
@@ -425,9 +425,9 @@ class PredicateIndexValidator : public kir::IrVisitor {
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"predicate"});
 
-    // Disable simplifications to make the pattern matching of sameAs work
+    // Disable index hoisting to make the pattern matching of
+    // simplifyExpr(actual, ref)->isTrue() work
     DisableOptionsGuard disable_options_guard;
-    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
     DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
     // Magic zero is not yet supported
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
