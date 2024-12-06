@@ -318,7 +318,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 }
 
 // Testing scheduleLoopDomainsBy with a trivial fusion
-TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy) {
+TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -378,6 +378,37 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy) {
 
   EXPECT_EQ(tv1->getLoopDomain(), tv1_loop_domain);
   EXPECT_EQ(tv2->getLoopDomain(), tv2_loop_domain);
+}
+
+// Testing scheduleLoopDomainBy on its insertion position of new IDs
+TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // Merge the outermost and innermost IDs, skipping the middle ID.
+  tv1->merge(0, 2);
+
+  auto tv1_merge = dynamic_cast<Merge*>(tv1->axis(0)->definition());
+
+  // Propagating the merge to tv2, which should also insert the merge
+  // output at the outer position.
+  scheduler_tools::scheduleLoopDomainsBy({tv2}, tv1_merge);
+  auto tv2_merge = dynamic_cast<Merge*>(tv2->axis(0)->definition());
+  EXPECT_NE(tv2_merge, nullptr);
+
+  // Both tv1 and tv2 should have the same loop domain
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+  EXPECT_EQ(
+      exact_graph.toGroups(tv1->getLoopDomain()),
+      exact_graph.toGroups(tv2->getLoopDomain()));
 }
 
 } // namespace nvfuser
