@@ -2007,8 +2007,6 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* warp_id = SimplifyingIrBuilder::divExpr(TDX, warp_size_val);
   Val* lane_id = SimplifyingIrBuilder::modExpr(TDX, warp_size_val);
 
-  Val* outer_index =
-      SimplifyingIrBuilder::divExpr(loop->index(), swizzle_n_iter_val);
   Val* inner_index =
       SimplifyingIrBuilder::modExpr(loop->index(), swizzle_n_iter_val);
 
@@ -2047,16 +2045,21 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* offset = SimplifyingIrBuilder::addExpr(row_offset, col_offset);
 
   // Calculate Tile offset
-  Val* tile_offset = IrBuilder::mulExpr(outer_index, tile_stride_val);
+  if (!loop->stop()->isOneInt()) {
+    Val* outer_index =
+        SimplifyingIrBuilder::divExpr(loop->index(), swizzle_n_iter_val);
+    Val* tile_offset =
+        SimplifyingIrBuilder::mulExpr(outer_index, tile_stride_val);
+    offset = SimplifyingIrBuilder::addExpr(tile_offset, offset);
+  }
 
   // Calculate TDY offset
-  Val* tdy_offset = IrBuilder::mulExpr(TDY, tdy_stride_val);
+  Val* tdy_offset = SimplifyingIrBuilder::mulExpr(TDY, tdy_stride_val);
+  offset = SimplifyingIrBuilder::addExpr(tdy_offset, offset);
 
   // Create shared memory TensorIndex
   Val* out_index = SimplifyingIrBuilder::addExpr(
-      IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-      SimplifyingIrBuilder::addExpr(
-          tdy_offset, SimplifyingIrBuilder::addExpr(tile_offset, offset)));
+      IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)), offset);
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);
   return out;
