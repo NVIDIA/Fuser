@@ -397,16 +397,16 @@ __device__ void gridReduce2PartialReduction(
     const T& inp_val,
     T init_val,
     Func reduction_op,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     volatile T* work_buf,
     T* shared_buf,
     bool read_pred,
     nvfuser_index_t grid_reduction_segment_size,
     nvfuser_index_t idx_in_grid_segment,
-    nvfuser_index_t block_reduction_segment_size,
-    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
-    // there is no warp specialization in the kernel. If there is warp
-    // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim) {
+    nvfuser_index_t block_reduction_segment_size) {
   T block_reduction_val = init_val;
 
   // Do block reduction when required
