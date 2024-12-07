@@ -849,4 +849,48 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   EXPECT_TRUE(domain_map.isValidReference(tv4));
 }
 
+TEST_F(PointwiseTest, DomainMapFactory) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  TensorView* tv1 = makeContigTensor(2);
+  fusion->addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, true, false});
+  auto tv3 = add(tv2, tv1);
+  fusion->addOutput(tv3);
+
+  auto size_val = IrBuilder::create<Val>(4.0, DataType::Int);
+  auto one_val = IrBuilder::create<Val>(1, DataType::Int);
+  auto tv4 = rand({size_val, one_val, tv0->axis(0)->extent()}, DataType::Float);
+  auto tv5 = add(tv2, tv4);
+  fusion->addOutput(tv5);
+
+  DomainMapUnitTest domain_map(fusion);
+
+  // tv2 can't map to tv4
+  // EXPECT_TRUE(domain_map.testOutputMapping(tv4, tv2));
+
+  // tv2 can map to tv4
+  // EXPECT_TRUE(domain_map.testOutputMapping(tv2, tv4));
+
+  // tv3 should not be a valid reference
+  // EXPECT_TRUE(domain_map.isValidReference(tv3));
+  // EXPECT_TRUE(domain_map.isValidReference(tv5));
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 =
+            at::empty_strided({25}, {1}, options);
+  at::Tensor input1 =
+            at::empty_strided({7, 25}, {25, 1}, options);
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
+  // EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
+  testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
