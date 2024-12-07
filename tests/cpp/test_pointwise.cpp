@@ -806,8 +806,8 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   // tv1 can't map to tv4
   EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv1));
 
-  // tv1 can map to tv3
-  EXPECT_TRUE(domain_map.testOutputMapping(tv3, tv1));
+  // tv1 can't map to tv3, because it's missing the broadcast dimension
+  EXPECT_FALSE(domain_map.testOutputMapping(tv3, tv1));
 
   // tv4 can map to tv1
   EXPECT_TRUE(domain_map.testOutputMapping(tv1, tv4));
@@ -836,8 +836,8 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
-  // tv2 can map to tv4, because the missing tv4->axis(0) is a dangling ID.
-  EXPECT_TRUE(domain_map.testOutputMapping(tv4, tv2));
+  // tv2 can't map to tv4, because it misses tv4->axis(0)
+  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv2));
 
   // tv2 can map to tv4
   EXPECT_TRUE(domain_map.testOutputMapping(tv2, tv4));
@@ -872,14 +872,13 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   DomainMapUnitTest domain_map(fusion);
 
   // tv2 can't map to tv4
-  // EXPECT_TRUE(domain_map.testOutputMapping(tv4, tv2));
-
-  // tv2 can map to tv4
-  // EXPECT_TRUE(domain_map.testOutputMapping(tv2, tv4));
+  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv2));
+  // tv4 can't map to tv2
+  EXPECT_FALSE(domain_map.testOutputMapping(tv2, tv4));
 
   // tv3 should not be a valid reference
-  // EXPECT_TRUE(domain_map.isValidReference(tv3));
-  // EXPECT_TRUE(domain_map.isValidReference(tv5));
+  EXPECT_FALSE(domain_map.isValidReference(tv3));
+  EXPECT_FALSE(domain_map.isValidReference(tv5));
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
