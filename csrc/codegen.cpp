@@ -1992,6 +1992,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     // Init val
     func_args.arg(genCall(data_type, genInline(grop->initVal(0))));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
 
     addProfileArguments(func_args, grop);
 
