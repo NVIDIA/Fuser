@@ -865,7 +865,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 
   auto size_val = IrBuilder::create<Val>(4.0, DataType::Int);
   auto one_val = IrBuilder::create<Val>(1, DataType::Int);
-  auto tv4 = rand({size_val, one_val, tv0->axis(0)->extent()}, DataType::Float);
+  auto tv4 = ones({size_val, one_val, tv0->axis(0)->extent()}, DataType::Float);
   auto tv5 = add(tv2, tv4);
   fusion->addOutput(tv5);
 
