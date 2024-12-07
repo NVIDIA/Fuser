@@ -6,6 +6,11 @@
  */
 // clang-format on
 
+// Basically just blockDim, but wrapped as a struct so that we have a mechanism
+// to know at compile time that whether we are just using blockDim or some
+// custom value. For a kernel without warp specialization, we just use blockDim,
+// but for a kernel with warp specialization, we use a custom block_dim whose
+// dimension are the dimensions of the compute warps.
 struct DefaultBlockDim {
   const uint32_t x, y, z;
   __device__ DefaultBlockDim() : x(blockDim.x), y(blockDim.y), z(blockDim.z) {}
