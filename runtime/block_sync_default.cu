@@ -14,7 +14,7 @@
 struct DefaultBlockDim {
   const uint32_t x, y, z;
   __device__ DefaultBlockDim() : x(blockDim.x), y(blockDim.y), z(blockDim.z) {}
-  operator dim3() const {
+  __device__ operator dim3() const {
     return blockDim;
   }
 };
