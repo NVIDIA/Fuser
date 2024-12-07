@@ -121,12 +121,12 @@ class ReplayRFactor : public ReplayTransformations {
     // rfactored domains. If it isn't involved in the rfactor, it's no
     // longer a redunction domain
     std::optional<IterType> outer_iter_type;
-    if (s->outer()->isReduction() && !rfactor_dep_ids_.count(s->outer())) {
+    if (!rfactor_dep_ids_.count(s->outer())) {
       outer_iter_type = IterType::Iteration;
     }
 
     std::optional<IterType> inner_iter_type;
-    if (s->inner()->isReduction() && !rfactor_dep_ids_.count(s->inner())) {
+    if (!rfactor_dep_ids_.count(s->inner())) {
       inner_iter_type = IterType::Iteration;
     }
 
