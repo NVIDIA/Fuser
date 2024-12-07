@@ -613,10 +613,6 @@ __device__ void gridReduceGroup(
     const T2& inp_val2,
     T2 init_val2,
     Func2 reduction_op2,
-    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
-    // there is no warp specialization in the kernel. If there is warp
-    // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim,
     volatile T2* work_buf2,
     int64_t* sync_flags,
     void* shared_buf,
@@ -624,6 +620,10 @@ __device__ void gridReduceGroup(
     bool write_pred,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     int64_t& cycles,
     int64_t& count) {
   int64_t start_counter = 0;
@@ -655,14 +655,14 @@ __device__ void gridReduceGroup(
       inp_val2,
       init_val2,
       reduction_op2,
-      block_dim,
       work_buf2,
       sync_flags,
       shared_buf,
       read_pred,
       write_pred,
       entrance_ind,
-      n_entrances);
+      n_entrances,
+      block_dim);
 
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {

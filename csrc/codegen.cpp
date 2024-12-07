@@ -2082,6 +2082,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     func_args.arg(genInline(grouped_grop->entrance_index()));
     func_args.arg(genInline(grouped_grop->entrances()));
+    func_args.arg(genComputeBlockDim());
 
     addProfileArguments(func_args, grouped_grop);
 
