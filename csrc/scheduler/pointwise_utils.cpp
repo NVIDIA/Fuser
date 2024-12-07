@@ -222,11 +222,11 @@ bool DomainMap::areAllOutputIdsMappedTo(
   }
   // it's safe to have source iter domain on output_tv that's not in
   // reference_tv, since they are not involved in any transforms.
-  for (auto id : output_tv->getLogicalDomain()) {
-    if (ca_map_.uniqueExactDefinitions(id).empty()) {
-      covered_source_ids.insert(id);
-    }
-  }
+  // for (auto id : output_tv->getLogicalDomain()) {
+  //   if (ca_map_.uniqueExactDefinitions(id).empty()) {
+  //     covered_source_ids.insert(id);
+  //   }
+  // }
 
   // Check all source iter domain involved in producing output_tv
   for (IterDomain* id : get_source_producers(output_tv)) {
