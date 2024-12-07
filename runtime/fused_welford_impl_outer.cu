@@ -272,7 +272,7 @@ __device__ __inline__ void ParallelReduce<
 
   auto per_block_result =
       impl::blockWelfordOuter<Aligned, NumVals, DataType, BDIMX, BDIMY>(
-          out_avg, out_var, in_N, shared_buf);
+          out_avg, out_var, in_N, block_dim, shared_buf);
 
   // At this point, threads with tid_in_group == 0 has valid partial
   // results. Store them to global buffer.
