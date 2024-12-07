@@ -1842,8 +1842,8 @@ Val* hardCodedIndexGenerationForStMatrix(
 // To account for the threadIdx.y, we have to add it to the offset:
 //   offset_from_tdy = threadIdx.y * tma_m * tma_n * 2 (half)
 //
-// Now, lets apply stmatrix tile to the TMA Box.
-// [NO(2), MO(4), MI(16), NIO(4), NII(16)].
+// Now, lets apply stmatrix tile (16, 16) to the TMA Box (NO(2), M(64), NI(64].
+//   [NO(2), MO(4), MI(16), NIO(4), NII(16)].
 //
 // A warp group of 128 threads contains four warps. StMatrix is a warp-level
 // operation, so four StMatrix operations can be issued simultaneously by the
@@ -1865,6 +1865,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 // domain is scheduled as [NO(2), M(64), NI(64)]. Therefore, we must store the
 // data in shared memory in [M(64), NI(64)] contiguous tiles.
 //
+// NOTE: This offset is skipped if for-loop is trivial
 // To account for the outer_index, we have to add it to the offset:
 //   offset_from_outer_index = outer_index * tma_m * NI(64) * 2 (half)
 //
@@ -1928,8 +1929,13 @@ Val* hardCodedIndexGenerationForStMatrix(
 // with the 8 rows of the matrix to avoid bank conflicts. This swizzle pattern
 // is repeated along the rows of the TMA box.
 //
+// The number of distinct rows is number of bytes for swizzle divided by size of
+// megabank (16B). The number of times a swizzle pattern is repeated to fill
+// (8, 8) matrix is number of swizzle rows (8) divided by number of distinct
+// rows.
+//
 // Swizzle column
-//   row_in_swizzle_pattern = row % swizzle_row_size(8)
+//   row_in_swizzle_pattern = (row % swizzle_row_size(8)) / swizzle_repetitions
 //   swizzle_col = column XOR row_in_swizzle_pattern
 //
 // Calculate Tile Offset
