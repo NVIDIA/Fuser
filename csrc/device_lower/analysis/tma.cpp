@@ -1083,7 +1083,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   std::list<std::pair<ExprGroup, Direction>> exprs = [&]() {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-    auto exprs_vec = ValGraphBFS::getExprsBetween(
+    auto exprs_vec = ValGraphBFS::getExprGroupsBetween(
                          id_graph,
                          id_graph.toGroups(consumer_tv->getLoopDomain()),
                          id_graph.toGroups(gmem_tv->getMaybeAllocationDomain()))
@@ -1115,8 +1115,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       "(this is always the case for nvFuser now)",
       ", the first element of elementStrides must be one.");
 
-  MmaInputSmemSwizzle swizzle = getSwizzleFromBytes(
-      getCpAsyncBulkTensorSwizzleSize(smem_tv) * core_matrix_width_bytes);
+  MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
 
   // Handle "defining box by compositing" by collapsing some dimensions in the
   // raw TMA domain to get the final TMA domain.
@@ -1197,6 +1196,12 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     }
   }
   return result;
+}
+
+MmaInputSmemSwizzle getSwizzle(TensorView* tv) {
+  NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
+  return getSwizzleFromBytes(
+      getCpAsyncBulkTensorSwizzleSize(tv) * core_matrix_width_bytes);
 }
 
 } // namespace nvfuser

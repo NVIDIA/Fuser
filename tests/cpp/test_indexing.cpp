@@ -1382,13 +1382,11 @@ TEST_F(IndexingTest, SimpleVectorize) {
           // vectorized domain with zero, which doesn't go through the
           // simplification of SimplifyingIrBuilder. We could use simplifyExpr,
           // but for the sake of testing, just use IrBuilder::addExpr.
-          return IrBuilder::addExpr(
-              mulExpr(
-                  addExpr(
-                      mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-                      loop_indices.at(1)),
-                  tv->axis(2)->extent()),
-              tv->fusion()->zeroVal());
+          return mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent());
         case 1:
           return tv->fusion()->zeroVal();
         default:
@@ -2896,13 +2894,11 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto start_idx = IrBuilder::addExpr(
-          mulExpr(
-              addExpr(
-                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-                  loop_indices.at(1)),
-              tv->axis(2)->extent()),
-          tv->fusion()->zeroVal());
+      auto start_idx = mulExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->axis(2)->extent());
       auto stop_idx = addExpr(
           mulExpr(
               addExpr(
@@ -2911,7 +2907,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
               tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
 
-      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 0 )>= 0 ) &&
+      // ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) >= 0 ) &&
       // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 3 ) < ( (( ((
       // getMetaData(T0) )).logical_size ))[0] ) ) )
       return andExpr(
@@ -2982,8 +2978,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
                   loop_indices.at(1)),
               tv->axis(3)->extent()),
           loop_indices.at(3));
-      auto start_idx = IrBuilder::addExpr(
-          mulExpr(common_idx, tv->axis(2)->extent()), tv->fusion()->zeroVal());
+      auto start_idx = mulExpr(common_idx, tv->axis(2)->extent());
       auto stop_idx = addExpr(
           mulExpr(common_idx, tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
@@ -3406,8 +3401,6 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto zero = tv->fusion()->zeroVal();
-
       // The base index is:
       //
       // i0 * 4 + i2
@@ -3415,11 +3408,8 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
       // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      // NOTE: Expression Simplification is disabled in PredicateIndexValidator,
-      // so trivial addition appears in the expression.
-      // Start index: i0 * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(0));
+      // Start index: i0 * 4
+      Val* start_idx = IrBuilder::mulExpr(loop_indices.at(0), createInt(4));
 
       // Stop index: i0 * 4 + 4
       // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
@@ -3429,7 +3419,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
           IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
-          geExpr(start_idx, zero),
+          geExpr(start_idx, tv->fusion()->zeroVal()),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
@@ -3502,13 +3492,10 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128 + 0) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3607,13 +3594,10 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128 + 0) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -5398,6 +5382,52 @@ TEST_F(IndexingTest, ResizeRotation) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repro of issue #3505. The indexing WAR for resize triggered an
+// assertion due to loop promotion.
+TEST_F(IndexingTest, Issue3505) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 2;
+  const int64_t i1 = 4;
+  const int64_t i2 = 8;
+  const auto zero = fusion.zeroVal();
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({i1, i2});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({i0, i1 / 2, i2 / 2});
+  fusion.addInput(tv1);
+
+  // One slice can reproduce the error but just to trigger the
+  // reachability check between multiple resize ops
+  auto tv2 = slice(
+      tv0,
+      {{zero, IrBuilder::create<Val>(i1 / 2)},
+       {zero, IrBuilder::create<Val>(i2 / 2)}});
+  auto tv3 = broadcast(tv2, {true, false, false});
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : {tv2, tv3, tv4}) {
+    tv->flatten();
+  }
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i1, i2}, options);
+  auto t1 = at::randn({i0, i1 / 2, i2 / 2}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
