@@ -364,12 +364,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (has_dynamic_smem) {
           std::stringstream smem_buf_size_ss;
           const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-          auto gen_or_one = [&](Val* v) {
-            return v == nullptr ? "1" : genInline(v);
-          };
-          auto bdimx = gen_or_one(pdim_map.getRawCompute(ParallelType::TIDx));
-          auto bdimy = gen_or_one(pdim_map.getRawCompute(ParallelType::TIDy));
-          auto bdimz = gen_or_one(pdim_map.getRawCompute(ParallelType::TIDz));
+          auto bdimx =
+              genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx));
+          auto bdimy =
+              genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy));
+          auto bdimz =
+              genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz));
           smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
                            << " * sizeof("
                            << kernel_summary.largest_smem_data_type << ")";

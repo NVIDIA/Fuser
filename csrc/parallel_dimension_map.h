@@ -41,6 +41,10 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
+  //! Get the "compute" parallel dimension on the given ParallelType. In case
+  //! of no warp specialization, this is the same as getRaw(pt). If we are doing
+  //! warp specialization on pt, the result is getRaw(pt) - 1, because the last
+  //! of pt is used for loading circular buffer tensors.
   Val* getRawCompute(ParallelType pt) const;
 
   //! Get the number of threads per each CTA used for computation. When there is
