@@ -97,14 +97,24 @@ __device__ void warpReduceTIDX(
   }
 }
 
-template <int BDIMX, int BDIMY, bool Aligned, typename T, typename Func>
+template <
+    int BDIMX,
+    int BDIMY,
+    bool Aligned,
+    typename T,
+    typename Func,
+    typename BlockDimT>
 __device__ void warpReduceTIDXY(
     T& out,
     const T& inp_val,
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   constexpr int WARP_SIZE = 32;
   constexpr int num_of_warps = BDIMX * BDIMY / WARP_SIZE;
 
