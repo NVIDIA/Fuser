@@ -72,9 +72,9 @@ template <
     bool Aligned,
     int NumVals,
     typename DataType,
-    typename IndexType>
+    typename IndexType,
+    typename BlockDimT>
 struct BlockWelfordEach {
-  template <typename BlockDimT>
   __inline__ __device__ static void reduce(
       LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
       const LocalWelfordTripletTuple<NumVals, DataType, IndexType>&
@@ -97,7 +97,8 @@ struct BlockWelfordEach {
         Aligned,
         NumVals,
         DataType,
-        IndexType>::
+        IndexType,
+        BlockDimT>::
         reduce(
             block_result,
             partial_result,
@@ -211,7 +212,8 @@ template <
     bool Aligned,
     int NumVals,
     typename DataType,
-    typename IndexType>
+    typename IndexType,
+    typename BlockDimT>
 struct BlockWelfordEach<
     -1,
     BROADCAST,
@@ -219,8 +221,8 @@ struct BlockWelfordEach<
     Aligned,
     NumVals,
     DataType,
-    IndexType> {
-  template <typename BlockDimT>
+    IndexType,
+    BlockDimT> {
   __inline__ __device__ static void reduce(
       LocalWelfordTripletTuple<NumVals, DataType, IndexType>& block_result,
       const LocalWelfordTripletTuple<NumVals, DataType, IndexType>&
@@ -268,7 +270,8 @@ __inline__ __device__ void blockWelfordEach(
       Aligned,
       NumVals,
       DataType,
-      IndexType>::
+      IndexType,
+      BlockDimT>::
       reduce(
           block_result,
           partial_result,
@@ -657,16 +660,17 @@ __device__ __inline__ void ParallelReduce<
       Aligned,
       NumVals,
       DataType,
-      IndexType>(
+      IndexType,
+      BlockDimT>(
       block_result,
       block_result,
-      block_dim,
       shared_buf,
       has_block_result,
       tid_in_block_reduction,
       block_reduction_size,
       block_reduction_size,
-      block_reduction_idx);
+      block_reduction_idx,
+      block_dim);
 }
 
 template <
@@ -771,13 +775,13 @@ __device__ __inline__ void ParallelReduce<
         IndexType>(
         last_block_result,
         last_block_result,
-        block_dim,
         shared_buf,
         has_block_result,
         tid_in_block_reduction,
         block_reduction_size,
         min(grid_red_size, block_reduction_size),
-        block_reduction_idx);
+        block_reduction_idx,
+        block_dim);
 
     copyWelfordTripletTupleIf(
         out,
