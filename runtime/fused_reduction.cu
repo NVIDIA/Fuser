@@ -204,6 +204,7 @@ template <
     bool FORWARD_PROTECT_SMEM,
     bool Aligned,
     typename LocalTupleT,
+    typename BlockDimT,
     typename... Funcs>
 struct BlockReduceEach {
   __inline__ __device__ static void reduce(
@@ -215,9 +216,10 @@ struct BlockReduceEach {
       int num_threads_per_reduction,
       int num_elements_per_reduction,
       int reduction_idx,
+      BlockDimT block_dim,
       Funcs... funcs) {
     // Finish the reduction of each tuple value with a smaller offset
-    BlockReduceEach<idx - 1, BROADCAST, true, Aligned, LocalTupleT, Funcs...>::
+    BlockReduceEach<idx - 1, BROADCAST, true, Aligned, LocalTupleT, BlockDimT, Funcs...>::
         reduce(
             block_result,
             partial_result,
@@ -227,6 +229,7 @@ struct BlockReduceEach {
             num_threads_per_reduction,
             num_elements_per_reduction,
             reduction_idx,
+            block_dim,
             funcs...);
 
     if (num_elements_per_reduction == 1) {
@@ -382,6 +385,7 @@ __inline__ __device__ void blockReduceEach(
       FORWARD_PROTECT_SMEM,
       Aligned,
       LocalTupleT,
+      BlockDimT,
       Funcs...>::
       reduce(
           block_result,
