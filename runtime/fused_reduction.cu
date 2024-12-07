@@ -360,6 +360,7 @@ template <
     bool FORWARD_PROTECT_SMEM,
     bool Aligned,
     typename LocalTupleT,
+    typename BlockDimT,
     typename... Funcs>
 __inline__ __device__ void blockReduceEach(
     LocalTupleT& block_result,
@@ -370,6 +371,10 @@ __inline__ __device__ void blockReduceEach(
     int num_threads_per_reduction,
     int num_elements_per_reduction,
     int reduction_idx,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     Funcs... reduction_ops) {
   BlockReduceEach<
       LocalTupleT::num_vals - 1,
@@ -387,6 +392,7 @@ __inline__ __device__ void blockReduceEach(
           num_threads_per_reduction,
           num_elements_per_reduction,
           reduction_idx,
+          block_dim,
           reduction_ops...);
 }
 
@@ -1628,13 +1634,13 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
       Funcs...>(
       block_result,
       block_result,
-      block_dim,
       shared_mem,
       has_block_result,
       tid_in_block_reduction,
       block_reduction_size,
       block_reduction_size,
       block_reduction_idx,
+      block_dim,
       funcs...);
 
   return block_result;
@@ -1748,13 +1754,13 @@ __device__ __inline__ void ParallelReduce<
         Funcs...>(
         last_block_result,
         last_block_result,
-        block_dim,
         shared_mem,
         has_block_result,
         tid_in_block_reduction,
         block_reduction_size,
         min(grid_red_size, block_reduction_size),
         block_reduction_idx,
+        block_dim,
         reduction_ops...);
 
     copyTupleIf(
