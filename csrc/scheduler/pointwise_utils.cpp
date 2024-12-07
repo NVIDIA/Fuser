@@ -220,13 +220,20 @@ bool DomainMap::areAllOutputIdsMappedTo(
   for (IterDomain* id : get_source_producers(reference_tv)) {
     covered_source_ids.insert(id);
   }
-  // it's safe to have source iter domain on output_tv that's not in
-  // reference_tv, since they are not involved in any transforms.
-  // for (auto id : output_tv->getLogicalDomain()) {
-  //   if (ca_map_.uniqueExactDefinitions(id).empty()) {
-  //     covered_source_ids.insert(id);
-  //   }
-  // }
+  // Note: there's certain cases where it's safe to have dangling IDs,
+  // e.g
+  //   T34  [i0, i1]
+  //   T185 [i0, b2, i1]     = broadcast(T34)
+  //   T192 [i0, b3(ex), i1] = expand(T185)
+  // It's safe to propagate T34 to T192, since b3(ex) is not involved in the
+  // propagation. But this isn't generally safe. If the above example is changed
+  // to e.g
+  //   T34  [i0, i1]
+  //   T185 [i0, b2, i1]     = broadcast(T34)
+  //   T186 [i0, i4, i1]     = ones({i0, i4, i1})
+  //   T193 [i0, i4, i1]     = add(T34, T186)
+  // It's unsafe to propagate from T34 to T193, see issue
+  // https://github.com/NVIDIA/Fuser/issues/3542
 
   // Check all source iter domain involved in producing output_tv
   for (IterDomain* id : get_source_producers(output_tv)) {

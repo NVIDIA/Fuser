@@ -803,7 +803,7 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
-  // tv1 can't map to tv4
+  // tv1 can't map to tv4, since we are missing the expanded ID
   EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv1));
 
   // tv1 can't map to tv3, because it's missing the broadcast dimension
@@ -883,10 +883,8 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input0 =
-            at::empty_strided({25}, {1}, options);
-  at::Tensor input1 =
-            at::empty_strided({7, 25}, {25, 1}, options);
+  at::Tensor input0 = at::empty_strided({25}, {1}, options);
+  at::Tensor input1 = at::empty_strided({7, 25}, {25, 1}, options);
   auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
   // EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
   testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
