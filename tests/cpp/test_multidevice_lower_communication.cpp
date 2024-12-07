@@ -347,6 +347,42 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
 }
 
+TEST_F(LowerCollectiveTest, ReduceScatter_Concrete) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in =
+      makeContigConcreteTensor({num_devices, num_devices, kTensorSize});
+  TensorView* out = sum(in, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_in_tensor =
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  if (num_devices == 1) {
+    for (const auto& executor :
+         executor_cache.getMostRecentKernelRuntime()->executors()) {
+      EXPECT_FALSE(executor->isA<HostIrExecutor>());
+    }
+  } else {
+    assertIsCompiledToHostIrContainer(executor_cache);
+  }
+
+  at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
+  EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
+}
+
 TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
   // Allreduce = ReduceScatter + Allgather
   auto fusion = std::make_unique<Fusion>();
