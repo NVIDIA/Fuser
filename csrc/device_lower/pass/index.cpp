@@ -1967,11 +1967,14 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   constexpr int64_t dtype_size = 2;
   constexpr int64_t warp_size = 32;
   constexpr int64_t stsm_column_size = 8;
+  constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t megabank_size_bytes = 16;
 
   // Derived constants
   const int64_t swizzle_n_tile = swizzle_bytes / dtype_size;
-  const int64_t swizzle_row_size = swizzle_bytes / megabank_size_bytes;
+  const int64_t distinct_swizzle_row_size = swizzle_bytes / megabank_size_bytes;
+  // number of repetitions to fill 8 rows with distict swizzle rows
+  const int64_t swizzle_row_iter = swizzle_row_size / distinct_swizzle_row_size;
   constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
   const int64_t swizzle_n_iter = swizzle_n_tile / stsm_n_tile;
   const int64_t swizzle_n_tile_stride = swizzle_n_tile * dtype_size;
@@ -2025,6 +2028,15 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   // Swizzle Column
   Val* row_in_swizzle_pattern =
       SimplifyingIrBuilder::modExpr(row, swizzle_row_size_val);
+
+  // For 64B and 32B swizzle, the swizzle pattern is repeated to fill (8, 8)
+  // matrix.
+  if (swizzle_row_iter > 1) {
+    Val* swizzle_row_iter_val =
+        IrBuilder::create<Val>(swizzle_row_iter, DataType::Index);
+    row_in_swizzle_pattern = SimplifyingIrBuilder::divExpr(
+        row_in_swizzle_pattern, swizzle_row_iter_val);
+  }
   Val* swizzle_col = bitwise_xor(col, row_in_swizzle_pattern);
 
   // Calculate Tile Offset
