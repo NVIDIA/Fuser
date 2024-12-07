@@ -510,9 +510,9 @@ __device__ void gridReduceGroup(
       Z_THREAD,
       Aligned>(
       inp_val1,
-      init_val1 reduction_op1,
+      init_val1,
+      reduction_op1,
       block_dim,
-      ,
       work_buf1,
       (T1*)shared_buf,
       read_pred,
