@@ -1366,12 +1366,6 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 TEST_P(TmaCircularBufferingTest, InnerReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    GTEST_SKIP()
-        << "This test uses block reduce, which uses hard-coded blockDim, "
-        << "which can cause deadlock when combined with warp specialization.";
-  }
-
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1485,13 +1479,6 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-
-  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    GTEST_SKIP()
-        << "This test uses block reduce and block broadcast, "
-        << "which has hard-coded blockDim, "
-        << "which can cause deadlock when combined with warp specialization.";
-  }
 
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
