@@ -216,10 +216,20 @@ struct BlockReduceEach {
       int num_threads_per_reduction,
       int num_elements_per_reduction,
       int reduction_idx,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
       BlockDimT block_dim,
       Funcs... funcs) {
     // Finish the reduction of each tuple value with a smaller offset
-    BlockReduceEach<idx - 1, BROADCAST, true, Aligned, LocalTupleT, BlockDimT, Funcs...>::
+    BlockReduceEach<
+        idx - 1,
+        BROADCAST,
+        true,
+        Aligned,
+        LocalTupleT,
+        BlockDimT,
+        Funcs...>::
         reduce(
             block_result,
             partial_result,
@@ -325,6 +335,7 @@ template <
     bool FORWARD_PROTECT_SMEM,
     bool Aligned,
     typename LocalTupleT,
+    typename BlockDimT,
     typename... Funcs>
 struct BlockReduceEach<
     -1,
@@ -332,6 +343,7 @@ struct BlockReduceEach<
     FORWARD_PROTECT_SMEM,
     Aligned,
     LocalTupleT,
+    BlockDimT,
     Funcs...> {
   __inline__ __device__ static void reduce(
       LocalTupleT& block_result,
@@ -342,6 +354,10 @@ struct BlockReduceEach<
       int num_threads_per_reduction,
       int num_elements_per_reduction,
       int reduction_idx,
+      // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+      // there is no warp specialization in the kernel. If there is warp
+      // specialization, block_dim is the the dimension of the compute warps.
+      BlockDimT block_dim,
       Funcs... funcs) {}
 };
 
