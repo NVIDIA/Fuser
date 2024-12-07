@@ -1652,6 +1652,7 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
       false,
       Aligned,
       LocalTuple<DataTypes...>,
+      BlockDimT,
       Funcs...>(
       block_result,
       block_result,
@@ -1772,6 +1773,7 @@ __device__ __inline__ void ParallelReduce<
         false,
         Aligned,
         LocalTuple<DataTypes...>,
+        BlockDimT,
         Funcs...>(
         last_block_result,
         last_block_result,
