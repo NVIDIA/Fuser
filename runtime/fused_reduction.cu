@@ -1360,6 +1360,7 @@ __device__ __inline__ void ParallelReduce<
   const auto block_result = reduceGroupBlock < !GRID_REDUCE && BROADCAST,
              Aligned > (inp,
                         init_val,
+                        block_dim,
                         shared_mem,
                         read_preds,
                         block_reduce_participate,
