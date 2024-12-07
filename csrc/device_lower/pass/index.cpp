@@ -1939,7 +1939,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 //
 // Get shared memory offset
 //   smem_offset = offset_from_tdy + offset_from_outer_index + tile_offset
-Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
+Val* hardCodedIndexGenerationForStMatrixSwizzle(
     const LoadStoreOp* ldst,
     ForLoop* loop,
     const int64_t stsm_m_tile,
@@ -2027,8 +2027,8 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* row_in_swizzle_pattern =
       SimplifyingIrBuilder::modExpr(row, swizzle_row_size_val);
 
-  // For 64B and 32B swizzle, the swizzle pattern is repeated to fill (8, 8)
-  // matrix.
+  // The swizzle pattern is repeated to fill (8, 8) matrix for 64B and 32B
+  // swizzles.
   if (swizzle_row_iter > 1) {
     Val* swizzle_row_iter_val =
         IrBuilder::create<Val>(swizzle_row_iter, DataType::Index);
@@ -2045,6 +2045,7 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* offset = SimplifyingIrBuilder::addExpr(row_offset, col_offset);
 
   // Calculate Tile offset
+  // Skip tile offset if loop is trivial.
   if (!loop->stop()->isOneInt()) {
     Val* outer_index =
         SimplifyingIrBuilder::divExpr(loop->index(), swizzle_n_iter_val);
@@ -2113,7 +2114,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         case MmaInputSmemSwizzle::B128:
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32:
-          out = hardCodedIndexGenerationForStMatrix128BSwizzle(
+          out = hardCodedIndexGenerationForStMatrixSwizzle(
               ldst, for_loops_[0], m_tile, n_tile, m, n);
           break;
         default:
