@@ -171,7 +171,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     int64_t max_dims = -1;
     for (auto tv : group) {
       if (isValidReference(tv)) {
-        int64_t dims = (int64_t)pointwise_utils::nRootDims(tv);
+        int64_t dims = (int64_t)pointwise_utils::nLogicalDims(tv);
         if (dims > max_dims) {
           result = tv;
           max_dims = dims;
@@ -1045,11 +1045,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.
