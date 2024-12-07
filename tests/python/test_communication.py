@@ -71,6 +71,44 @@ def test_allreduce(mpi_test):
 
 
 @pytest.mark.mpi
+def test_allreduce_rfactor(mpi_test):
+    d = mpi_test.size
+    m = 2
+    n = 3
+    k = d * 5
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.inp = self.define_tensor((m, k, n), contiguity=True, dtype=DataType.Float)
+            self.out = self.ops.sum(self.inp, [1])
+            self.add_output(self.out)
+
+        def multidevice_schedule(self):
+            self.sched.split(self.inp, 1, d, False)
+            self.sched.split(self.out, 1, d, False)
+            out_local = self.sched.rfactor(self.out, [2])
+
+            mesh = self.sched._create_device_mesh(range(d))
+            self.sched._set_device_mesh(self.inp, mesh)
+            self.sched._set_device_mesh(self.out, mesh)
+            self.sched._set_device_mesh(out_local, mesh)
+
+            self.sched.parallelize(self.inp, 1, nvfuser.ParallelType.mesh_x)
+            self.sched.parallelize(out_local, 1, nvfuser.ParallelType.mesh_x)
+
+            self.sched.set_allocation_as_loop(self.inp)
+            self.sched.set_allocation_as_loop(out_local)
+            self.sched.set_allocation_as_loop(self.out)
+
+    unsharded = torch.randn(m, k, n)
+    sharded = mpi_test.shard_tensor(unsharded, 1)
+
+    fd = Model()
+    outputs = fd.execute([sharded])
+    torch.testing.assert_close(outputs[0].cpu(), unsharded.sum(1))
+
+
+@pytest.mark.mpi
 def test_reduce_scatter(mpi_test):
     d = mpi_test.size
 
