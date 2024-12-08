@@ -397,9 +397,8 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
     // do split-K rFactor to define splitk_sum and smem_epilogue
     if (params_->splitk_factor != 1) {
-      // TODO: schedule split-K
-      NVF_THROW("Hopper split-K is not yet tested");
       // Note that the split-K split is already done in blockTileTensors
+      std::cout << mma_result->toString() << std::endl;
       TensorView* splitk_sum = mma_result->rFactor({-4, -1});
       std::swap(splitk_sum, mma_result);
       splitk_sums_.push_back(splitk_sum);
@@ -643,42 +642,13 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
-  NVF_THROW("Split-K scheduling is not yet implemented for Hopper matmul");
+  fusion_->printMath();
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-
-    if (params_->use_smem_epilogue) {
-      // Now that transforms are propagated backward to smem_epilogue, which
-      // is before splitk_sum, we can vectorize the inner-most non-trivial
-      // dimension of splitk_sum
-      //
-      // Note that the split-K reduction is the inner-most dimension.
-      Val* vec_ext = splitk_sum->axis(-2)->extent();
-      NVF_ERROR(vec_ext->isConstInt());
-      int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
-      splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
-      splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
-      if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
-        // NOTE: We might encounter an illegal vectorization size if we are
-        // using Float for this reduction and Half for output. So here we
-        // first check whether the vectorize size is at most 16 bytes. If not,
-        // then we split into an unrolled loop that will do multiple
-        // vectorized reads/writes instead. Note that we reorder such that the
-        // axes are in order UR TIDx V.
-        splitk_sum->split(
-            -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
-        splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
-        splitk_sum->reorder({{-4, -3}});
-        // In this case, we have [... iUR iTx rBz iS]
-      }
-      splitk_sum->reorder({{-2, -1}});
-    } else { // no smem epilogue
-      // Reorder to place the split-K reduction next to innermost [... rBz iS]
-      splitk_sum->reorder({{-9, -2}});
-    }
-    // Vectorize inner-most dimension [... (iUR iTx) rBz iV]
-    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+    splitk_sum->reorder({{-3, -1}});
+    splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
+    std::cout << "splitk\t" << splitk_sum->toString() << std::endl;
   }
 }
 
