@@ -231,7 +231,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -269,7 +269,8 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
   // Ensure there's a mma op.
   // If there's no mma op present, then stop the test.
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
+  ASSERT_FALSE(
+      ir_utils::getOpsOfType<MmaOp>(ke->compiledKernel()->kernel()).empty());
 
   // Ensure that the matmul scheduler ran.
   EXPECT_TRUE(
@@ -389,7 +390,8 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
     // Ensure there's an MmaOp.
 
     const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
+    ASSERT_FALSE(
+        ir_utils::getOpsOfType<MmaOp>(ke->compiledKernel()->kernel()).empty());
   }
 
   testValidate(
@@ -568,7 +570,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     ASSERT_EQ(scheduler_type, SchedulerType::Matmul);
     // Ensure there's an MmaOp.
     const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
+    ASSERT_FALSE(
+        ir_utils::getOpsOfType<MmaOp>(ke->compiledKernel()->kernel()).empty());
   }
 
   testValidate(

@@ -434,8 +434,8 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   auto shapes = matmulAtInputShape3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout);
 
-  auto tile_m = tile_sizes.at(0);
-  auto tile_n = tile_sizes.at(1);
+  int64_t tile_m = tile_sizes.at(0);
+  int64_t tile_n = tile_sizes.at(1);
 
   if (getM(macro) % tile_m || getN(macro) % tile_n) {
     GTEST_SKIP() << "skipping test as output is not divisible by tile size";

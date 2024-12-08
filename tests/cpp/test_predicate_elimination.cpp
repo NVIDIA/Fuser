@@ -388,7 +388,7 @@ TEST_F(PredicateEliminationTest, 8) {
 
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   NVF_CHECK(
-      !PredicatedChecker::isPredicated(tv6, ke->kernel()),
+      !PredicatedChecker::isPredicated(tv6, ke->compiledKernel()->kernel()),
       "T6 should not be predicated");
 }
 
