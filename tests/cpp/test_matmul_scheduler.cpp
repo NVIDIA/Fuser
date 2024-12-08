@@ -3120,7 +3120,9 @@ using HopperMatmulSchedulerTestParams = std::tuple<
     int64_t, // M
     int64_t, // N
     int64_t, // K
-    MmaMacro>;
+    MmaMacro,
+    int64_t // SplitK Factor
+    >;
 
 std::string hopperTestName(
     const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
@@ -3129,14 +3131,25 @@ std::string hopperTestName(
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
   MmaMacro mma_macro;
-  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K, mma_macro) =
-      info.param;
+  int64_t splitk_factor;
+  std::tie(
+      use_smem_epilogue,
+      a_k_inner,
+      b_k_inner,
+      M,
+      N,
+      K,
+      mma_macro,
+      splitk_factor) = info.param;
   os << (a_k_inner ? "K" : "M");
   os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
   os << "_MmaMacro_" << macroToString(mma_macro);
   if (use_smem_epilogue) {
     os << "_tma_store";
+  }
+  if (splitk_factor > 1) {
+    os << "_splitk_" << splitk_factor;
   }
   return os.str();
 }
@@ -3162,8 +3175,15 @@ class HopperMatmulSchedulerTest
   void SetUp() {
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
-    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K, mma_macro) =
-        GetParam();
+    std::tie(
+        use_smem_epilogue,
+        a_k_inner,
+        b_k_inner,
+        M,
+        N,
+        K,
+        mma_macro,
+        splitk_factor) = GetParam();
 
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
@@ -3192,6 +3212,7 @@ class HopperMatmulSchedulerTest
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
+    mparams.splitk_factor = splitk_factor;
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
@@ -3223,6 +3244,7 @@ class HopperMatmulSchedulerTest
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
   MmaMacro mma_macro;
+  int64_t splitk_factor;
   std::unique_ptr<Fusion> fusion_up;
   Fusion* fusion;
   std::unique_ptr<FusionGuard> fusion_guard;
@@ -3304,7 +3326,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(512), // M
         testing::Values(256), // N
         testing::Values(64), // K
-        testing::Values(MmaMacro::Hopper_64_128_16) // mma_macros
+        testing::Values(MmaMacro::Hopper_64_128_16), // mma_macros
+        testing::Values(1, 2) // SplitK Factor
         ),
     hopperTestName);
 
@@ -3323,7 +3346,8 @@ INSTANTIATE_TEST_SUITE_P(
             MmaMacro::Hopper_64_128_16,
             MmaMacro::Hopper_64_64_16,
             MmaMacro::Hopper_64_32_16,
-            MmaMacro::Hopper_64_16_16) // mma_macros
+            MmaMacro::Hopper_64_16_16), // mma_macros
+        testing::Values(1) // SplitK Factor
         ),
     hopperTestNameSwizzle);
 
