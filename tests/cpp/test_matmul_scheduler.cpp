@@ -3119,7 +3119,8 @@ using HopperMatmulSchedulerTestParams = std::tuple<
     bool, // b_k_inner
     int64_t, // M
     int64_t, // N
-    int64_t // K
+    int64_t, // K
+    int64_t // SplitK Factor
     >;
 
 std::string hopperTestName(
@@ -3128,12 +3129,17 @@ std::string hopperTestName(
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
-  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = info.param;
+  int64_t splitk_factor;
+  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K, splitk_factor) =
+      info.param;
   os << (a_k_inner ? "K" : "M");
   os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
   if (use_smem_epilogue) {
     os << "_tma_store";
+  }
+  if (splitk_factor > 1) {
+    os << "_splitk_" << splitk_factor;
   }
   return os.str();
 }
@@ -3144,7 +3150,8 @@ class HopperMatmulSchedulerTest
   void SetUp() {
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
-    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = GetParam();
+    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K, splitk_factor) =
+        GetParam();
 
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
@@ -3170,6 +3177,7 @@ class HopperMatmulSchedulerTest
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
+    mparams.splitk_factor = splitk_factor;
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
@@ -3203,6 +3211,7 @@ class HopperMatmulSchedulerTest
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
+  int64_t splitk_factor;
   std::unique_ptr<Fusion> fusion_up;
   Fusion* fusion;
   std::unique_ptr<FusionGuard> fusion_guard;
@@ -3283,7 +3292,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // b_k_inner
         testing::Values(512), // M
         testing::Values(256), // N
-        testing::Values(64) // K
+        testing::Values(64), // K
+        testing::Values(1, 2) // SplitK Factor
         ),
     hopperTestName);
 
