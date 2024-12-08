@@ -1347,7 +1347,7 @@ void KernelExecutor::deserialize(
     Fusion* _fusion,
     int8_t device_index,
     CompileParams compile_params,
-    SchedulerType heuristic,
+    SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
@@ -1362,7 +1362,10 @@ void KernelExecutor::deserialize(
       "Expected given fusion_id to match serde fusion_id.");
   NVF_ERROR(
       concrete_id == buffer->concrete_id(),
-      "Expected given concrete_id to match serde concrete_id.");
+      "Expected given concrete_id to match serde concrete_id: ",
+      concrete_id,
+      " vs ",
+      buffer->concrete_id());
   NVF_ERROR(
       runtime_id == buffer->runtime_id(),
       "Expected given runtime_id to match serde runtime_id.");
@@ -1370,11 +1373,13 @@ void KernelExecutor::deserialize(
       group_id == buffer->group_id(),
       "Expected given group_id to match serde group_id.");
   NVF_ERROR(
-      toUnderlying(heuristic) == buffer->heuristic(),
+      toUnderlying(scheduler_type) == buffer->heuristic(),
       ": ",
-      toUnderlying(heuristic),
+      toUnderlying(scheduler_type),
       " vs ",
       buffer->heuristic());
+
+  scheduler_type_ = scheduler_type;
 
   // Initialize CompileOptions
   auto device = c10::Device(c10::DeviceType::CUDA, device_index);
@@ -1382,28 +1387,19 @@ void KernelExecutor::deserialize(
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
-  // blockSizeHighWaterMark() = buffer->block_size_high_water_mark();
-  // maxrregcountHighWaterMark() = buffer->maxrregcount_high_water_mark();
   warp_size_ = buffer->warp_size();
-  // kernel_code_ = buffer->kernel_code()->str();
 
-  // // KernelDB query checks kernel_code string and compile_params before
-  // // copying cubin.
-  // compile_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  // compile_params.maxrregcount = maxrregcountHighWaterMark();
+  compiled_kernel_ = std::make_unique<CompiledKernel>(_fusion, compile_params);
 
-  // // Get lowered fusion
-  // lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
-  // lowered_->run();
-
-  // // Replace integers that are tensor sizes by named scalars like
-  // "T0.size[0]" createKernelId(
-  //     heuristic,
-  //     buffer->fusion_id(),
-  //     buffer->concrete_id(),
-  //     buffer->runtime_id(),
-  //     buffer->group_id());
-  // setUsedTVs();
+  compiled_kernel_->deserialize(
+      buffer,
+      _fusion,
+      device_index,
+      scheduler_type,
+      fusion_id,
+      concrete_id,
+      runtime_id,
+      group_id);
 
   // GlobalBufferInfo requires lowered kernel before deserialization
   for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
@@ -1411,11 +1407,6 @@ void KernelExecutor::deserialize(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
-
-  // compiled_kernel_ = executor_utils::getexecutable(
-  //     buffer->compiled_kernel(), compile_params);
-
-  // NVF_ERROR(hasCompiledKernel(), "Failed to deserialize KernelExecutor");
 }
 
 KernelExecutor::ExecutorEntry KernelExecutor::deserialize(

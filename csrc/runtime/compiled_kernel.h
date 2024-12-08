@@ -52,37 +52,6 @@ class CompiledKernel : public NonCopyable {
       int64_t runtime_id = 0,
       int64_t group_id = 0);
 
-  // // TODO: merge it with the overload above.
-  // //! This API is merely here so we don't have to go back and update all cpp
-  // //! tests.
-  // void compileFusion(
-  //     Fusion* fusion,
-  //     const at::ArrayRef<c10::IValue>& inputs = {},
-  //     const LaunchParams& launch_constraints = LaunchParams(),
-  //     CompileParams compile_params = CompileParams()) {
-  //   KernelArgumentHolder args =
-  //       KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  //   compileFusion(fusion, args, launch_constraints, compile_params);
-  // }
-
-  // //! Used by user defined schedules in python frontend
-  // void compileFusion(
-  //     Fusion* fusion,
-  //     const at::ArrayRef<c10::IValue>& inputs,
-  //     int64_t fusion_id,
-  //     int64_t concrete_id) {
-  //   KernelArgumentHolder args =
-  //       KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  //   compileFusion(
-  //       fusion,
-  //       args,
-  //       LaunchParams(),
-  //       CompileParams(),
-  //       SchedulerType::None,
-  //       fusion_id,
-  //       concrete_id);
-  // }
-
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to
   // modify the lowering process.
@@ -288,26 +257,16 @@ class CompiledKernel : public NonCopyable {
     return post_lowering_hooks_;
   }
 
-  // //! Serialize Fusion Executor using flatbuffers
-  // flatbuffers::Offset<serde::CompiledKernel> serialize(
-  //     flatbuffers::FlatBufferBuilder& builder) const;
-
-  // //! Serialize CompiledKernel using flatbuffers
-  // flatbuffers::Offset<serde::CudaKernel> serialize(
-  //     flatbuffers::FlatBufferBuilder& builder,
-  //     const executor_utils::CudaExecutable* kernel) const;
-
-  // //! Deserialize Fusion Executor using flatbuffers
-  // void deserialize(
-  //     const serde::CompiledKernel* buffer,
-  //     Fusion* fusion,
-  //     int8_t device_index,
-  //     CompileParams compile_params,
-  //     SchedulerType scheduler_type,
-  //     int64_t fusion_id,
-  //     int64_t concrete_id,
-  //     int64_t runtime_id,
-  //     int64_t group_id);
+  //! Deserialize Fusion Executor using flatbuffers
+  void deserialize(
+      const serde::KernelExecutor* buffer,
+      Fusion* fusion,
+      int8_t device_index,
+      SchedulerType scheduler_type,
+      int64_t fusion_id,
+      int64_t concrete_id,
+      int64_t runtime_id,
+      int64_t group_id);
 
   //  private:
   void setUsedTVs();

@@ -1396,184 +1396,41 @@ float CompiledKernel::runRtc(
   return kernel_time_ms;
 }
 
-// flatbuffers::Offset<serde::CompiledKernel> CompiledKernel::serialize(
-//     flatbuffers::FlatBufferBuilder& builder) const {
-//   // See table definition for CompiledKernel in serde/fusion_cache.fbs
-//   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
+void CompiledKernel::deserialize(
+    const serde::KernelExecutor* buffer,
+    Fusion* fusion,
+    int8_t device_index,
+    SchedulerType heuristic,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id) {
+  // Initialize CompileOptions
+  options_.device = c10::Device(c10::DeviceType::CUDA, device_index);
+  c10::DeviceGuard dg(options_.device);
 
-//   // Separate unordered_map for executor_entry_lookup into key and value
-//   // vectors. The key value is the cache_id value in the
-//   KernelArgumentHolder. std::vector<size_t> executor_entry_lookup_keys_fb;
-//   std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
-//   for (const auto& [key, value] : executor_entry_lookup_) {
-//     executor_entry_lookup_keys_fb.push_back(key);
-//     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
-//   }
+  // Initialize internal fields
+  maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
+  warp_size_ = buffer->warp_size();
+  kernel_code_ = buffer->kernel_code()->str();
 
-//   // When compilation is skipped, avoid serializing cubin because it doesn't
-//   // exist. The remaining fields are also not necessary in this case.
-//   if (!hasCompiledKernel()) {
-//     return serde::CreateCompiledKernelDirect(builder);
-//   }
+  // KernelDB query checks kernel_code string and compile_params before
+  // copying cubin.
+  compile_params_.index_type = serde::mapToNvfuserDtype(buffer->index_type());
+  compile_params_.maxrregcount = maxrregcount_high_water_mark_;
 
-//   return serde::CreateCompiledKernelDirect(
-//       builder,
-//       device_smem_limit_,
-//       block_size_high_water_mark_,
-//       maxrregcount_high_water_mark_,
-//       warp_size_,
-//       toUnderlying(scheduler_type_),
-//       fusion_id_,
-//       concrete_id_,
-//       runtime_id_,
-//       group_id_,
-//       kernel_code_.c_str(),
-//       &executor_entry_lookup_keys_fb,
-//       &executor_entry_lookup_values_fb,
-//       toUnderlying(kernel()->indexType()),
-//       serialize(builder, compiled_kernel_.get()));
-// }
+  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
+  createKernelId(
+      heuristic,
+      buffer->fusion_id(),
+      buffer->concrete_id(),
+      buffer->runtime_id(),
+      buffer->group_id());
+  setUsedTVs();
 
-// flatbuffers::Offset<serde::CudaKernel> CompiledKernel::serialize(
-//     flatbuffers::FlatBufferBuilder& builder,
-//     const executor_utils::CudaExecutable* compiled_kernel) const {
-//   NVF_ERROR(
-//       compiled_kernel_ != nullptr &&
-//           (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
-//       "Expected compiled cuda kernel before serializing CompiledKernel.");
-
-//   auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
-//   auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
-
-//   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
-//   flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-//   if (!compiled_kernel->cubin.empty()) {
-//     uint8_t* cubin_ptr = nullptr;
-//     fb_cubin = builder.CreateUninitializedVector(
-//         compiled_kernel->cubin.size(), &cubin_ptr);
-//     std::copy(
-//         compiled_kernel->cubin.begin(),
-//         compiled_kernel->cubin.end(),
-//         cubin_ptr);
-//     fb_cubin_filename =
-//     builder.CreateString(compiled_kernel->cubin_filename);
-//   }
-
-//   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
-//   flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-//   if (!compiled_kernel->ptx.empty()) {
-//     uint8_t* ptx_ptr = nullptr;
-//     fb_ptx = builder.CreateUninitializedVector(
-//         compiled_kernel->ptx.size(), &ptx_ptr);
-//     std::copy(
-//         compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
-//     fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
-//   }
-
-//   serde::CudaKernelBuilder ckb(builder);
-//   ckb.add_cubin(fb_cubin);
-//   ckb.add_cubin_filename(fb_cubin_filename);
-//   ckb.add_ptx(fb_ptx);
-//   ckb.add_ptx_filename(fb_ptx_filename);
-//   ckb.add_kernel_name(fb_kernel_name);
-//   ckb.add_compile_args(fb_compile_args);
-//   ckb.add_block_size(compiled_kernel->block_size);
-//   return ckb.Finish();
-// }
-
-// std::unique_ptr<PrecomputedValues>& CompiledKernel::
-//     evaluatorPrecomputedValues() {
-//   if (!evaluator_precomputed_values_) {
-//     evaluator_precomputed_values_ =
-//         std::make_unique<PrecomputedValues>(lowered_->kernel());
-//   }
-//   return evaluator_precomputed_values_;
-// }
-
-// void CompiledKernel::deserialize(
-//     const serde::CompiledKernel* buffer,
-//     Fusion* fusion,
-//     int8_t device_index,
-//     CompileParams compile_params,
-//     SchedulerType heuristic,
-//     int64_t fusion_id,
-//     int64_t concrete_id,
-//     int64_t runtime_id,
-//     int64_t group_id) {
-//   // See table definition for CompiledKernel in serde/fusion_cache.fbs
-
-//   NVF_ERROR(buffer != nullptr, "serde::CompiledKernel is nullptr.");
-
-//   // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when
-//   we
-//   // skip compilation?
-//   if (isExpressionEvaluated(fusion)) {
-//     fusion_ = std::make_unique<Fusion>(*fusion);
-//     NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize CompiledKernel");
-//     return;
-//   }
-
-//   NVF_ERROR(
-//       fusion_id == buffer->fusion_id(),
-//       "Expected given fusion_id to match serde fusion_id.");
-//   NVF_ERROR(
-//       concrete_id == buffer->concrete_id(),
-//       "Expected given concrete_id to match serde concrete_id.");
-//   NVF_ERROR(
-//       runtime_id == buffer->runtime_id(),
-//       "Expected given runtime_id to match serde runtime_id.");
-//   NVF_ERROR(
-//       group_id == buffer->group_id(),
-//       "Expected given group_id to match serde group_id.");
-//   NVF_ERROR(
-//       toUnderlying(heuristic) == buffer->heuristic(),
-//       ": ",
-//       toUnderlying(heuristic),
-//       " vs ",
-//       buffer->heuristic());
-
-//   // Initialize CompileOptions
-//   options_.device = c10::Device(c10::DeviceType::CUDA, device_index);
-//   c10::DeviceGuard dg(options_.device);
-
-//   // Initialize internal fields
-//   device_smem_limit_ = buffer->device_smem_limit();
-//   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
-//   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
-//   warp_size_ = buffer->warp_size();
-//   kernel_code_ = buffer->kernel_code()->str();
-
-//   // KernelDB query checks kernel_code string and compile_params before
-//   // copying cubin.
-//   compile_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-//   compile_params.maxrregcount = maxrregcount_high_water_mark_;
-
-//   // Get lowered fusion
-//   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
-//   lowered_->run();
-
-//   // Replace integers that are tensor sizes by named scalars like
-//   "T0.size[0]" createKernelId(
-//       heuristic,
-//       buffer->fusion_id(),
-//       buffer->concrete_id(),
-//       buffer->runtime_id(),
-//       buffer->group_id());
-//   setUsedTVs();
-
-//   // GlobalBufferInfo requires lowered kernel before deserialization
-//   for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size()))
-//   {
-//     executor_entry_lookup_.emplace(
-//         buffer->executor_entry_lookup_keys()->Get(idx),
-//         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
-//   }
-
-//   compiled_kernel_ = getCudaExecutable(
-//       buffer->compiled_kernel(), compile_params);
-
-//   NVF_ERROR(hasCompiledKernel(), "Failed to deserialize CompiledKernel");
-// }
+  compiled_kernel_ =
+      getCudaExecutable(buffer->compiled_kernel(), compile_params_);
+}
 
 void CompiledKernel::setUsedTVs() {
   auto used_vals = fusion()->usedMathVals();
