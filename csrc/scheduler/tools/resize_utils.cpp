@@ -42,9 +42,21 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
     }
   }
 
+  // Ideally, this should be just calling
+  // scheduler_tools::scheduleLoopDomainsLike once with the consumer
+  // tensor as a reference. However, due to the indexing issue with
+  // resize, propagating the Resize iter-domain op may fail. To avoid
+  // the problem, the propagation of the resize op is explicitly done
+  // by using scheduler_tools::scheduleLoopDomainsBy.
+  //
+  // Before doing so, all the dependent tensors need to have the exact-mapped
+  // loop domain.
   scheduler_tools::scheduleLoopDomainsLike(
       tvs_to_schedule, producer_tv->getLoopDomain());
 
+  // Now that all the dependent tensors have the uniform, exact-mapped
+  // loop domains, we just need to propagte the specific Resize ops of
+  // this tensor.
   for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
     auto out_logical_id = consumer_tv->getLogicalDomain().at(i);
     auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
