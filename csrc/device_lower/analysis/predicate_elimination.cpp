@@ -63,7 +63,7 @@ bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
   // only expr in the compute warp, we are fine. In the future, we might
   // want to improve this function to find all the expressions in the
   // compute warp, which will require a more sophisticated analysis.
-  auto def = tv->definition();
+  auto def = consumer->definition();
   if (def == nullptr) {
     return false;
   }
@@ -403,12 +403,12 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
  private:
+  TensorView* consumer_ = nullptr;
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
   const ValGraph* graph_ = nullptr;
   const std::unordered_set<ValGroup> alloc_to_loop_groups_;
-  TensorView* consumer_ = nullptr;
 };
 
 class PredicateChcker : public IterVisitor {
