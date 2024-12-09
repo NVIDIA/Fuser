@@ -3656,7 +3656,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
-  constexpr bool use_smem_epilogue = false;
+  constexpr bool use_smem_epilogue = true;
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
@@ -3780,7 +3780,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
     // This internally calls
     // mma_utils::MmaSwizzler::scheduleMmaOutputAllocation
-    mma_utils::scheduleStMatrixForMmaOutput(tv3_shmem, 16, 16);
+    mma_utils::scheduleStMatrixForMmaOutput(
+        tv3_shmem, MmaInputSmemSwizzle::B128, 16, 16, M, N);
 
     mma_utils::scheduleTMAStoreForMmaOutput(tv3, M, N);
   }
