@@ -243,14 +243,13 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-namespace {
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
-at::Tensor allocateOutput(
+at::Tensor allocateTensor(
     const GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutput");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateTensor");
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
@@ -312,7 +311,6 @@ at::Tensor allocateOutput(
       NVF_THROW("Unrecognized AllocationType.");
   }
 }
-} // namespace
 
 std::vector<at::Tensor> allocateOutputs(
     const Fusion* fusion,
@@ -354,7 +352,7 @@ std::vector<at::Tensor> allocateOutputs(
 
   std::vector<at::Tensor> out_tensors(num_outs);
   for (const auto& [out_index, out] : sorted_outs) {
-    at::Tensor out_tensor = allocateOutput(
+    at::Tensor out_tensor = allocateTensor(
         output_info[out_index], fusion->getOutputAlias(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
