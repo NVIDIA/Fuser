@@ -52,6 +52,23 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
   for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       bool is_compute_warp = [&]() {
+        // TODO: This function can not find all the expressions in the compute
+        // warp. For example, if we have:
+        //   if (load warp) {
+        //     T1 = T0;
+        //   } else {
+        //     T2 = T1;
+        //     T3 = T2;
+        //   }
+        // then we will return false for T3, which is a false negative. Having
+        // a false negative is fine in the sense that we will still be
+        // functionally correct, but we will not be able to remove the predicate
+        // around T3, which is a missed optimization opportunity.
+        // For now, because warp specialization is only used for matmul, for
+        // which the circular buffer loop is a reduction loop, and mma is the
+        // only expr in the compute warp, we are fine. In the future, we might
+        // want to improve this function to find all the expressions in the
+        // compute warp, which will require a more sophisticated analysis.
         auto def = tv->definition();
         if (def == nullptr) {
           return false;
