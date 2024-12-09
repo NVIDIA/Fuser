@@ -23,7 +23,9 @@ class ComputeType(Enum):
 
 
 class Parallelism(Enum):
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism
     TENSOR_PARALLEL = auto()
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
     SEQUENCE_PARALLEL = auto()
 
 
