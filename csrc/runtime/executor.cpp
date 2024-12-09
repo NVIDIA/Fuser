@@ -1367,8 +1367,6 @@ std::vector<at::Tensor> KernelExecutor::run(
     debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
 
-  executor_utils::CudaKernelTimer timer(stream);
-
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());

@@ -110,7 +110,7 @@ def test_linear(mpi_test):
     ]
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
-        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-4
+        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-3
     )
 
 

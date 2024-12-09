@@ -38,9 +38,17 @@ struct hash<PAndID> {
 namespace nvfuser {
 
 void ParallelDimensionMap::build(Fusion* fusion) {
+  VectorOfUniqueEntries<ParallelType> warp_specialized_types;
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
+    if (tv->isCircularBuffered() &&
+        std::holds_alternative<WarpSpecialized>(
+            tv->circularBufferOptions().type)) {
+      const auto& warp_specialized =
+          std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+      warp_specialized_types.pushBack(warp_specialized.on);
+    }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
       if (!isParallelTypeThread(ptype)) {
@@ -83,6 +91,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
+
+  for (auto pt : warp_specialized_types) {
+    setWarpSpecializeOn(pt);
+  }
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
@@ -137,6 +149,27 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
+void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
+  auto dim_it = dim_map_.find(pt);
+  if (dim_it == dim_map_.end()) {
+    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
+  } else {
+    // Intentionally not using SimplifyingIrBuilder::addExpr here so that
+    // we still have access to the pointer to the original IR node.
+    // We need the pointer to the original IR node because we want getRawCompute
+    // to be callable in an environment without FusionGuard, that is, when the
+    // IR container is read-only. In such an environment, we can't create new IR
+    // nodes for (x - 1). By using IrBuilder::addExpr, we can always create IR
+    // nodes like addExpr(x, 1), and SimplifyingIrBuilder::addExpr in
+    // getRawCompute will be able to simplify find the x when we do
+    // addExpr(addExpr(x, 1) - 1).
+    dim_map_[pt] =
+        IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
+  }
+  exact_types_.erase(pt);
+  warp_specialized_types_.insert(pt);
+}
+
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
   NVF_ERROR(isParallelTypeThread(pt), "Invalid ParallelType: ", pt);
   auto it = dim_map_.find(pt);
@@ -159,10 +192,18 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
   return exact_types_.find(pt) != exact_types_.end();
 }
 
-Val* ParallelDimensionMap::getNumThreadsEachBlock() const {
+Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
+  Val* raw = getRaw(pt);
+  if (warp_specialized_types_.count(pt)) {
+    return SimplifyingIrBuilder::addExpr(raw, -1);
+  }
+  return raw;
+}
+
+Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
-    auto dim = getRaw(pt);
+    auto dim = getRawCompute(pt);
     if (dim == nullptr) {
       continue;
     }
