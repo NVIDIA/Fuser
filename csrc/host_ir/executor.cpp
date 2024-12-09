@@ -378,15 +378,13 @@ void HostIrEvaluator::handle(Wait* wait) {
 
 namespace {
 
-void allConsumerValsOfHelper(
-    Val* val,
-    std::unordered_set<Val*>& visisted_vals) {
-  if (visisted_vals.find(val) != visisted_vals.end()) {
+void allConsumerValsOfHelper(Val* val, std::unordered_set<Val*>& visited_vals) {
+  if (visited_vals.find(val) != visited_vals.end()) {
     return;
   }
-  visisted_vals.insert(val);
+  visited_vals.insert(val);
   for (Val* consumer : ir_utils::consumerValsOf(val)) {
-    allConsumerValsOfHelper(consumer, visisted_vals);
+    allConsumerValsOfHelper(consumer, visited_vals);
   }
 }
 
