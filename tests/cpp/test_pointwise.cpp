@@ -52,7 +52,7 @@ bool hasVectorizationCache(TensorView* tv) {
 
 class DomainMapUnitTest : public pointwise_utils::DomainMap {
  public:
-  DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion){};
+  DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion) {};
   bool testOutputMapping(TensorView* output_tv, TensorView* reference_tv)
       const {
     return areAllOutputIdsMappedTo(output_tv, reference_tv);
