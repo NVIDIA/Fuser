@@ -366,7 +366,6 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   void handle(Split* split) override {
     auto factor = split->factor()->value();
     if (!factor.is<int64_t>()) {
-      std::cout << "return at:" << __LINE__ << std::endl;
       needs_predicate_ = true;
       return;
     }
@@ -380,7 +379,6 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     if (!in_extent->isConstInt() ||
         ((in_extent->evaluate().as<int64_t>() % factor.as<int64_t>()) != 0)) {
-      std::cout << "return at:" << __LINE__ << std::endl;
       needs_predicate_ = true;
       return;
     }
