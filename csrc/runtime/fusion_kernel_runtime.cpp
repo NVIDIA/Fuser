@@ -278,6 +278,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
+  std::cout << "Run with: " << args.toString() << std::endl;
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {

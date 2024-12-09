@@ -50,9 +50,10 @@ std::string debug_str(const c10::IValue& val) {
 std::string debug_str(const at::Tensor& tensor) {
   std::stringstream ss;
   ss << "Tensor:";
-  ss << " device: " << tensor.device();
-  ss << ", dtype: " << tensor.dtype();
   ss << ", shape: " << tensor.sizes();
+  ss << ", dtype: " << tensor.dtype();
+  ss << ", device: " << tensor.device();
+  ss << " pointer: " << reinterpret_cast<size_t>(tensor.data_ptr());
 
   if (!tensor.is_contiguous()) {
     ss << ", strides: " << tensor.strides();

@@ -363,8 +363,15 @@ void validateAlignedVectorizedFusionInputOutput(
   NVF_ERROR(strides.size() == no_reduction_to_full.size());
 
   for (auto offset : offsets) {
-    NVF_ERROR(
-        (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
+    std::cout<<std::endl;
+    std::cout<<std::endl;
+    std::cout<<"( "<<reinterpret_cast<size_t>(aten_tensor.data_ptr())<< " + "<<
+      offset <<" * "<< aten_tensor.dtype().itemsize() << " ) % ( "<<
+      word_size << " * " << aten_tensor.dtype().itemsize() <<" ) "<<std::endl;
+      std::cout<<std::endl;
+      std::cout<<std::endl;
+
+        NVF_ERROR((reinterpret_cast<size_t>(aten_tensor.data_ptr()) + 
          offset * aten_tensor.dtype().itemsize()) %
                 (word_size * aten_tensor.dtype().itemsize()) ==
             0,

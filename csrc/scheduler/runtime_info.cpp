@@ -21,6 +21,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
+std::cout<<"SchedulerRuntimeInfo::SchedulerRuntimeInfo: "<<args.toString()<<std::endl;
   FUSER_PERF_SCOPE("SchedulerRuntimeInfo::SchedulerRuntimeInfo");
   NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
@@ -140,6 +141,7 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
     return alignment_entry->second;
   }
 
+  std::cout<<"tv: "<<tv->toString()<<" ptrof: "<<ptrOf(tv)<<std::endl;
   auto alignment_size = SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv));
   auto strides_it = input_discontig_strides_.find(tv);
   if (strides_it != input_discontig_strides_.end()) {
@@ -149,6 +151,7 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
     }
   }
   alignment_map_[tv] = alignment_size;
+  std::cout<<"Alignment: "<<alignment_size<<std::endl;
   return alignment_size;
 }
 
