@@ -238,7 +238,7 @@ bool DomainMap::areAllOutputIdsMappedTo(
   // Check all source iter domain involved in producing output_tv
   for (IterDomain* id : get_source_producers(output_tv)) {
     // It's safe to have unmapped broadcast dimension
-    if (id->isBraodcast()) {
+    if (id->isBroadcast()) {
       continue;
     }
     // if we find any source id that's not contained, it's possible our
