@@ -51,9 +51,31 @@ namespace {
 bool isExactParallelSharedMemAccess(TensorView* tv) {
   for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
+      bool is_compute_warp = [&]() {
+        auto def = tv->definition();
+        if (def == nullptr) {
+          return false;
+        }
+        auto producer_tvs = ir_utils::filterByType<TensorView>(def->inputs());
+        if (producer_tvs.size() == 0) {
+          return false;
+        }
+        return std::all_of(
+            producer_tvs.begin(),
+            producer_tvs.end(),
+            [&](TensorView* producer_tv) {
+              if (!producer_tv->isCircularBuffered()) {
+                return false;
+              }
+              const auto& type = producer_tv->circularBufferOptions().type;
+              return std::holds_alternative<WarpSpecialized>(type) &&
+                  std::get<WarpSpecialized>(type).on == id->getParallelType();
+            });
+      }();
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+              id, is_compute_warp)) {
         return false;
       }
     }
@@ -403,32 +425,39 @@ class PredicateChcker : public IterVisitor {
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
-    std::cout << "Expr: " << expr->toString() << " needs_predicate_: " << needs_predicate_ << std::endl;
+    std::cout << "Expr: " << expr->toString()
+              << " needs_predicate_: " << needs_predicate_ << std::endl;
     std::cout << "predicateIntDiv: " << predicateIntDiv(expr) << std::endl;
     if (predicateIntDiv(expr)) {
       return;
     }
-    std::cout << "predicateMisalignedVectorize: " << predicateMisalignedVectorize(expr) << std::endl;
+    std::cout << "predicateMisalignedVectorize: "
+              << predicateMisalignedVectorize(expr) << std::endl;
     if (predicateMisalignedVectorize(expr)) {
       return;
     }
-    std::cout << "needs_predicate_smem_access: " << needs_predicate_smem_access << std::endl;
+    std::cout << "needs_predicate_smem_access: " << needs_predicate_smem_access
+              << std::endl;
     if (needs_predicate_smem_access) {
       return;
     }
-    std::cout << "predicateProducerConsumerPair: " << predicateProducerConsumerPair(expr) << std::endl;
+    std::cout << "predicateProducerConsumerPair: "
+              << predicateProducerConsumerPair(expr) << std::endl;
     if (predicateProducerConsumerPair(expr)) {
       return;
     }
-    std::cout << "predicateNonDivisibleRootDomains: " << predicateNonDivisibleRootDomains(expr) << std::endl;
+    std::cout << "predicateNonDivisibleRootDomains: "
+              << predicateNonDivisibleRootDomains(expr) << std::endl;
     if (predicateNonDivisibleRootDomains(expr)) {
       return;
     }
-    std::cout << "predicateNonDivisibleSplit: " << predicateNonDivisibleSplit(expr) << std::endl;
+    std::cout << "predicateNonDivisibleSplit: "
+              << predicateNonDivisibleSplit(expr) << std::endl;
     if (predicateNonDivisibleSplit(expr)) {
       return;
     }
-    std::cout << "predicateExpandReduce: " << predicateExpandReduce(expr) << std::endl;
+    std::cout << "predicateExpandReduce: " << predicateExpandReduce(expr)
+              << std::endl;
     if (predicateExpandReduce(expr)) {
       return;
     }
