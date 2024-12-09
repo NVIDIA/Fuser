@@ -502,7 +502,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     }
 
     std::cerr << "Propagating resize tensor op: " << expr->toString();
-    scheduler_tools::propagateResizeTensorOpToInputs(expr);
+    scheduler_tools::propagateResizeToInputs(expr);
   }
 
   std::cerr << "After resize propagation\n";

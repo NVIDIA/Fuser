@@ -184,7 +184,7 @@ void propagateSqueezedSliceToOutputs(Fusion* fusion) {
   }
 }
 
-void propagateResizeTensorOpToInputs(Expr* resize_op) {
+void propagateResizeToInputs(Expr* resize_op) {
   DebugStreamGuard dsg(std::cerr);
 
   NVF_ERROR(

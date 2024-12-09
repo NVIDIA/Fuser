@@ -24,7 +24,7 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
 // simplifies scheduling by making the fusion more uniform.
 void propagateSqueezedSliceToOutputs(Fusion* fusion);
 
-void propagateResizeTensorOpToInputs(Expr* resize_op);
+void propagateResizeToInputs(Expr* resize_op);
 
 } // namespace scheduler_tools
 } // namespace nvfuser
