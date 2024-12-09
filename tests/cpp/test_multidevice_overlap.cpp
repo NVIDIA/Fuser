@@ -164,7 +164,7 @@ class OverlapTest : public MultiDeviceTest {
 
   void validate() {
     auto tc_expected = getExpectedResult();
-    auto tc_cpu = tc_.to(torch::kCPU);
+    auto tc_cpu = tc_.cpu();
     EXPECT_TRUE(tc_cpu.allclose(tc_expected, 1e-1, 1e-1))
         << "Unexpected results, obtained:" << tc_cpu
         << "\n expected: " << tc_expected;
@@ -837,18 +837,19 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
       IrBuilder::create<hir::Stream>(stream_index));
 
   TensorView* tva_j = select(tva, 0, j);
+  TensorView* tva_j_unsqueezed = unsqueeze(tva_j, 0);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
   DeviceMesh full_mesh(all_devices_);
   tva_allgathered_j->setDeviceMesh(full_mesh);
-  tva_j->setDeviceMesh(full_mesh);
+  tva_j_unsqueezed->setDeviceMesh(full_mesh);
 
   auto* communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       /*out=*/tva_allgathered_j,
-      /*in=*/tva_j,
+      /*in=*/tva_j_unsqueezed,
       /*team=*/all_devices_);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
@@ -864,6 +865,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   std::vector<Expr*> loop_body = {
       set_stream,
       tva_j->definition(),
+      tva_j_unsqueezed->definition(),
       tva_allgathered_j->definition(),
       communication,
       wait,
@@ -899,9 +901,25 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   for_loop_stream->body().push_back(sync_stream);
   hic->pushBackTopLevelExprs(for_loop_stream);
 
-  // The following line is artificial but necessary to make
-  // tva_j->isProducerOf(tvc_j) == true
-  hic->addOutput(tvc_j);
+  // The following line is artificial but necessary to make tva_j_unsqueeze a
+  // consumer of tva_j.
+  //
+  // HostIrEvaluator::handle(ForLoop*) relies on `Val::uses()` to find all
+  // **transitive** consumers of the loop index `j`.  `tva_j_unsqueezed` is a
+  // bit special among all transitive consumers of `j`. It doesn't use `j`
+  // directly but uses `tva_j` which is a TensorView.  TensorView's uses are
+  // built lazily by Fusion::resetTvUses. For efficiency, Fusion::resetTvUses
+  // only fix TensorViews that can reach outputs. Therefore, we add
+  // tva_j_unsqueezed as an output.  Other TensorViews don't need this
+  // treatmenet because they are direct users of `j`, a scalar whose uses are
+  // built eagerly upon registration.
+  //
+  // We could have added `tvc_j` instead as an output, which transitively
+  // consumes `tva_j_unsqueezed`. However, `tvc_j` has two definitions, a Select
+  // and a MatmulOp, and StmtSort::getExprs only traverse via the first
+  // registered definition (i.e. the Select). This sounds like a bug -- I wonder
+  // how nvFuser resets the TensorView uses of a kir::Kernel, also non-SSA.
+  hic->addOutput(tva_j_unsqueezed);
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
