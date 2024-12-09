@@ -400,6 +400,16 @@ class PredicateChcker : public IterVisitor {
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
+    std::cout << "Expr: " << expr->toString() << " needs_predicate_: " << needs_predicate_ << std::endl;
+    std::cout << "predicateIntDiv: " << predicateIntDiv(expr) << std::endl;
+    std::cout << "predicateMisalignedVectorize: " << predicateMisalignedVectorize(expr) << std::endl;
+    std::cout << "needs_predicate_smem_access: " << needs_predicate_smem_access << std::endl;
+    std::cout << "predicateProducerConsumerPair: " << predicateProducerConsumerPair(expr) << std::endl;
+    std::cout << "predicateNonDivisibleRootDomains: " << predicateNonDivisibleRootDomains(expr) << std::endl;
+    std::cout << "predicateNonDivisibleSplit: " << predicateNonDivisibleSplit(expr) << std::endl;
+    std::cout << "predicateExpandReduce: " << predicateExpandReduce(expr) << std::endl;
+    std::cout << "predicateRNGOp: " << predicateRNGOp(expr) << std::endl;
+    std::cout << "\n\n" << std::endl;
 
     if (needs_predicate_) {
       return;
