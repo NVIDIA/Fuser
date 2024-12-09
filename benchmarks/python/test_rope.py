@@ -1314,6 +1314,300 @@ def hf_phi3_rope_bwd(fd: FusionDefinition) -> None:
     fd.add_output(T189)
 
 
+def hf_mistral_nemo_rope_fwd(fd: FusionDefinition) -> None:
+    T0 = fd.define_tensor(
+        shape=[1, 128000, 4096],
+        contiguity=[None, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
+    T1 = fd.define_tensor(
+        shape=[1, 128000, 1024],
+        contiguity=[None, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
+    T2 = fd.define_tensor(
+        shape=[1, 128000, 1024],
+        contiguity=[None, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
+    T3 = fd.define_tensor(
+        shape=[64],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T4 = fd.define_tensor(
+        shape=[1, 128000],
+        contiguity=[None, True],
+        dtype=DataType.Int,
+        is_cpu=False,
+        stride_order=[1, 0],
+    )
+    T10 = fd.ops.reshape(T0, new_shape=[1, 128000, 32, 128])
+    T11 = fd.ops.permute(T10, dims=[0, 2, 1, 3])
+    T17 = fd.ops.reshape(T1, new_shape=[1, 128000, 8, 128])
+    T18 = fd.ops.permute(T17, dims=[0, 2, 1, 3])
+    T24 = fd.ops.reshape(T2, new_shape=[1, 128000, 8, 128])
+    T25 = fd.ops.permute(T24, dims=[0, 2, 1, 3])
+    T30 = fd.ops.broadcast_in_dim(T3, shape=[1, 64, 1], broadcast_dims=[1])
+    T31 = fd.ops.cast(T30, dtype=DataType.Float)
+    T36 = fd.ops.broadcast_in_dim(T31, shape=[1, 64, 1], broadcast_dims=[0, 1, 2])
+    T41 = fd.ops.broadcast_in_dim(T4, shape=[1, 1, 128000], broadcast_dims=[0, 2])
+    T42 = fd.ops.cast(T41, dtype=DataType.Float)
+    T43 = fd.ops.matmul(T36, T42)
+    T44 = fd.ops.permute(T43, dims=[0, 2, 1])
+    T45 = fd.ops.cat([T44, T44], dim=-1, manual_padding=0)
+    T46 = fd.ops.cos(T45)
+    T47 = fd.ops.sin(T45)
+    T48 = fd.ops.cast(T46, dtype=DataType.BFloat16)
+    T49 = fd.ops.cast(T47, dtype=DataType.BFloat16)
+    T55 = fd.ops.broadcast_in_dim(
+        T48, shape=[1, 1, 128000, 128], broadcast_dims=[0, 2, 3]
+    )
+    T61 = fd.ops.broadcast_in_dim(
+        T49, shape=[1, 1, 128000, 128], broadcast_dims=[0, 2, 3]
+    )
+    T67 = fd.ops.broadcast_in_dim(
+        T55, shape=[1, 32, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    T68 = fd.ops.cast(T11, dtype=DataType.Float)
+    T69 = fd.ops.cast(T67, dtype=DataType.Float)
+    T70 = fd.ops.mul(T68, T69)
+    T86 = fd.ops.slice(
+        T11,
+        start_indices=[0, 0, 0, 0],
+        end_indices=[1, 32, 128000, 64],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T102 = fd.ops.slice(
+        T11,
+        start_indices=[0, 0, 0, 64],
+        end_indices=[1, 32, 128000, 128],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T103 = fd.ops.cast(T102, dtype=DataType.Float)
+    T104 = fd.ops.neg(T103)
+    T105 = fd.ops.cast(T104, dtype=DataType.BFloat16)
+    T106 = fd.ops.cat([T105, T86], dim=-1, manual_padding=0)
+    T112 = fd.ops.broadcast_in_dim(
+        T61, shape=[1, 32, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    T113 = fd.ops.cast(T106, dtype=DataType.Float)
+    T114 = fd.ops.cast(T112, dtype=DataType.Float)
+    T115 = fd.ops.mul(T113, T114)
+    T116 = fd.ops.add(T70, T115)
+    T117 = fd.ops.cast(T116, dtype=DataType.BFloat16)
+    T123 = fd.ops.broadcast_in_dim(
+        T55, shape=[1, 8, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    T124 = fd.ops.cast(T18, dtype=DataType.Float)
+    T125 = fd.ops.cast(T123, dtype=DataType.Float)
+    T126 = fd.ops.mul(T124, T125)
+    T142 = fd.ops.slice(
+        T18,
+        start_indices=[0, 0, 0, 0],
+        end_indices=[1, 8, 128000, 64],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T158 = fd.ops.slice(
+        T18,
+        start_indices=[0, 0, 0, 64],
+        end_indices=[1, 8, 128000, 128],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T159 = fd.ops.cast(T158, dtype=DataType.Float)
+    T160 = fd.ops.neg(T159)
+    T161 = fd.ops.cast(T160, dtype=DataType.BFloat16)
+    T162 = fd.ops.cat([T161, T142], dim=-1, manual_padding=0)
+    T168 = fd.ops.broadcast_in_dim(
+        T61, shape=[1, 8, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    T169 = fd.ops.cast(T162, dtype=DataType.Float)
+    T170 = fd.ops.cast(T168, dtype=DataType.Float)
+    T171 = fd.ops.mul(T169, T170)
+    T172 = fd.ops.add(T126, T171)
+    T173 = fd.ops.cast(T172, dtype=DataType.BFloat16)
+    T180 = fd.ops.broadcast_in_dim(
+        T173, shape=[1, 8, 1, 128000, 128], broadcast_dims=[0, 1, 3, 4]
+    )
+    T187 = fd.ops.broadcast_in_dim(
+        T180, shape=[1, 8, 4, 128000, 128], broadcast_dims=[0, 1, 2, 3, 4]
+    )
+    T193 = fd.ops.reshape(T187, new_shape=[1, 32, 128000, 128])
+    T200 = fd.ops.broadcast_in_dim(
+        T25, shape=[1, 8, 1, 128000, 128], broadcast_dims=[0, 1, 3, 4]
+    )
+    T207 = fd.ops.broadcast_in_dim(
+        T200, shape=[1, 8, 4, 128000, 128], broadcast_dims=[0, 1, 2, 3, 4]
+    )
+    T213 = fd.ops.reshape(T207, new_shape=[1, 32, 128000, 128])
+    fd.add_output(T55)
+    fd.add_output(T61)
+    fd.add_output(T117)
+    fd.add_output(T193)
+    fd.add_output(T213)
+
+
+def hf_mistral_nemo_rope_bwd(fd: FusionDefinition) -> None:
+    T0 = fd.define_tensor(
+        shape=[1, 32, 128000, 128],
+        contiguity=[None, True, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[3, 2, 1, 0],
+    )
+    T1 = fd.define_tensor(
+        shape=[1, 1, 128000, 128],
+        contiguity=[None, True, None, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[3, 1, 2, 0],
+    )
+    T2 = fd.define_tensor(
+        shape=[1, 32, 128000, 128],
+        contiguity=[None, True, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[3, 2, 1, 0],
+    )
+    T3 = fd.define_tensor(
+        shape=[1, 32, 128000, 128],
+        contiguity=[None, True, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[3, 2, 1, 0],
+    )
+    T4 = fd.define_tensor(
+        shape=[1, 1, 128000, 128],
+        contiguity=[None, True, None, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[3, 1, 2, 0],
+    )
+    T11 = fd.ops.reshape(T0, new_shape=[1, 8, 4, 128000, 128])
+    T12 = fd.ops.cast(T11, dtype=DataType.Float)
+    T13 = fd.ops.sum(T12, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T14 = fd.ops.cast(T13, dtype=DataType.BFloat16)
+    T21 = fd.ops.broadcast_in_dim(
+        T14, shape=[1, 8, 1, 128000, 128], broadcast_dims=[1, 3, 4]
+    )
+    T22 = fd.ops.cast(T21, dtype=DataType.Float)
+    T23 = fd.ops.sum(T22, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T24 = fd.ops.cast(T23, dtype=DataType.BFloat16)
+    T30 = fd.ops.broadcast_in_dim(
+        T1, shape=[1, 32, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    T36 = fd.ops.broadcast_in_dim(
+        T24, shape=[1, 8, 128000, 128], broadcast_dims=[1, 2, 3]
+    )
+    T42 = fd.ops.broadcast_in_dim(
+        T1, shape=[1, 8, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    T43 = fd.ops.cast(T2, dtype=DataType.Float)
+    T44 = fd.ops.cast(T30, dtype=DataType.Float)
+    T45 = fd.ops.cast(T36, dtype=DataType.Float)
+    T46 = fd.ops.cast(T42, dtype=DataType.Float)
+    T47 = fd.ops.mul(T44, T43)
+    T48 = fd.ops.mul(T46, T45)
+    T49 = fd.ops.cast(T47, dtype=DataType.BFloat16)
+    T50 = fd.ops.cast(T48, dtype=DataType.BFloat16)
+    T66 = fd.ops.slice(
+        T49,
+        start_indices=[0, 0, 0, 0],
+        end_indices=[1, 32, 128000, 64],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T82 = fd.ops.slice(
+        T50,
+        start_indices=[0, 0, 0, 0],
+        end_indices=[1, 8, 128000, 64],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T89 = fd.ops.reshape(T3, new_shape=[1, 8, 4, 128000, 128])
+    T90 = fd.ops.cast(T66, dtype=DataType.Float)
+    T91 = fd.ops.cast(T82, dtype=DataType.Float)
+    T92 = fd.ops.cast(T89, dtype=DataType.Float)
+    T93 = fd.ops.neg(T90)
+    T94 = fd.ops.neg(T91)
+    T95 = fd.ops.sum(T92, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T111 = fd.ops.slice(
+        T49,
+        start_indices=[0, 0, 0, 64],
+        end_indices=[1, 32, 128000, 128],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T112 = fd.ops.cast(T93, dtype=DataType.BFloat16)
+    T128 = fd.ops.slice(
+        T50,
+        start_indices=[0, 0, 0, 64],
+        end_indices=[1, 8, 128000, 128],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
+    )
+    T129 = fd.ops.cast(T94, dtype=DataType.BFloat16)
+    T130 = fd.ops.cast(T95, dtype=DataType.BFloat16)
+    T136 = fd.ops.broadcast_in_dim(
+        T4, shape=[1, 32, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    S137 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T147 = fd.ops.pad(T111, [0, 64, 0, 0, 0, 0, 0, 0], S137)
+    S148 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T158 = fd.ops.pad(T112, [64, 0, 0, 0, 0, 0, 0, 0], S148)
+    T164 = fd.ops.broadcast_in_dim(
+        T4, shape=[1, 8, 128000, 128], broadcast_dims=[0, 1, 2, 3]
+    )
+    S165 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T175 = fd.ops.pad(T128, [0, 64, 0, 0, 0, 0, 0, 0], S165)
+    S176 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T186 = fd.ops.pad(T129, [64, 0, 0, 0, 0, 0, 0, 0], S176)
+    T193 = fd.ops.broadcast_in_dim(
+        T130, shape=[1, 8, 1, 128000, 128], broadcast_dims=[1, 3, 4]
+    )
+    T194 = fd.ops.cast(T136, dtype=DataType.Float)
+    T195 = fd.ops.cast(T147, dtype=DataType.Float)
+    T196 = fd.ops.cast(T158, dtype=DataType.Float)
+    T197 = fd.ops.cast(T164, dtype=DataType.Float)
+    T198 = fd.ops.cast(T175, dtype=DataType.Float)
+    T199 = fd.ops.cast(T186, dtype=DataType.Float)
+    T200 = fd.ops.cast(T193, dtype=DataType.Float)
+    T201 = fd.ops.mul(T194, T43)
+    T202 = fd.ops.add(T196, T195)
+    T203 = fd.ops.mul(T197, T45)
+    T204 = fd.ops.add(T199, T198)
+    T205 = fd.ops.sum(T200, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T206 = fd.ops.add(T202, T201)
+    T207 = fd.ops.add(T204, T203)
+    T208 = fd.ops.cast(T205, dtype=DataType.BFloat16)
+    T209 = fd.ops.cast(T206, dtype=DataType.BFloat16)
+    T210 = fd.ops.cast(T207, dtype=DataType.BFloat16)
+    T216 = fd.ops.broadcast_in_dim(
+        T208, shape=[1, 8, 128000, 128], broadcast_dims=[1, 2, 3]
+    )
+    T217 = fd.ops.permute(T209, dims=[0, 2, 1, 3])
+    T218 = fd.ops.permute(T210, dims=[0, 2, 1, 3])
+    T219 = fd.ops.permute(T216, dims=[0, 2, 1, 3])
+    T224 = fd.ops.reshape(T217, new_shape=[1, 128000, 4096])
+    T229 = fd.ops.reshape(T218, new_shape=[1, 128000, 1024])
+    T234 = fd.ops.reshape(T219, new_shape=[1, 128000, 1024])
+    fd.add_output(T234)
+    fd.add_output(T229)
+    fd.add_output(T224)
+
+
 # { 'name_benchmark' : (fn, [[sizes0, dtype0], [sizes1, dtype1], ...]) }
 rope_configurations = {
     "llama_2_7b_hf_rope_fwd": (
@@ -1394,11 +1688,43 @@ rope_configurations = {
             ((2, 32, 4096, 96), torch.bfloat16),
         ],
     ),
+    "hf_mistral_nemo_rope_fwd": (
+        hf_mistral_nemo_rope_fwd,
+        [
+            ((1, 128000, 4096), torch.bfloat16),
+            ((1, 128000, 1024), torch.bfloat16),
+            ((1, 128000, 1024), torch.bfloat16),
+            ((64,), torch.bfloat16),
+            ((1, 128000), torch.int64),
+        ],
+    ),
+    "hf_mistral_nemo_rope_bwd": (
+        hf_mistral_nemo_rope_bwd,
+        [
+            ((1, 32, 128000, 128), torch.bfloat16),
+            ((1, 1, 128000, 128), torch.bfloat16),
+            ((1, 32, 128000, 128), torch.bfloat16),
+            ((1, 32, 128000, 128), torch.bfloat16),
+            ((1, 1, 128000, 128), torch.bfloat16),
+        ],
+    ),
 }
 
 
 @pytest.mark.parametrize(
-    "rope_variation", ["llama_2_7b_hf_rope_fwd", "llama_2_7b_hf_rope_bwd"]
+    "rope_variation",
+    [
+        "llama_2_7b_hf_rope_fwd",
+        "llama_2_7b_hf_rope_bwd",
+        "llama_3_8B_rope_fwd",
+        "llama_3_8B_rope_bwd",
+        "hf_qwen2_rope_fwd",
+        "hf_qwen2_rope_bwd",
+        "hf_ph3_rope_fwd",
+        "hf_ph3_rope_bwd",
+        "hf_mistral_nemo_rope_fwd",
+        "hf_mistral_nemo_rope_bwd",
+    ],
 )
 def test_rope_variations_nvf_benchmark(
     benchmark,
