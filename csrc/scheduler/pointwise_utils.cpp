@@ -220,6 +220,13 @@ bool DomainMap::areAllOutputIdsMappedTo(
   for (IterDomain* id : get_source_producers(reference_tv)) {
     covered_source_ids.insert(id);
   }
+  // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
+  // expecting pointwise scheduler to handle this pattern
+  for (IterDomain* id : output_tv->getLogicalDomain()) {
+    if (id->isBroadcast()) {
+      covered_source_ids.insert(id);
+    }
+  }
   // Note: there's certain cases where it's safe to have dangling IDs,
   // e.g
   //   T34  [i0, i1]
@@ -237,10 +244,6 @@ bool DomainMap::areAllOutputIdsMappedTo(
 
   // Check all source iter domain involved in producing output_tv
   for (IterDomain* id : get_source_producers(output_tv)) {
-    // It's safe to have unmapped broadcast dimension
-    if (id->isBroadcast()) {
-      continue;
-    }
     // if we find any source id that's not contained, it's possible our
     // propagation would fail since transformation involving this iter domain
     // can't be resolved.
