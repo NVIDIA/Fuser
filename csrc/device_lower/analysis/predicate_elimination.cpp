@@ -70,6 +70,9 @@ bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
   //  dimensions, need to predicate against out of bound
   //  shared memory access by out of bound threads.
   if (!isExactParallelSharedMemAccess(consumer)) {
+    std::cout << "needSharedMemPredicate(" << producer->toString() << ", "
+              << consumer->toString() << "): consumer has in-exact thread "
+              << "parallel dimensions\n";
     return true;
   }
 
