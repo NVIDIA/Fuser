@@ -1559,15 +1559,15 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
-  int warp_group_size = isHopper(macro) ? 128 : 32;
-  int size = getM(macro) * getK(macro) / warp_group_size /
-      2 /* halves per 32bit register */;
+  int64_t warp_group_size = isHopper(macro) ? 128L : 32L;
+  int64_t size = getM(macro) * getK(macro) / warp_group_size /
+      2L /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
 static DataType getMmaInputBType(MmaMacro macro) {
-  int size = getN(macro) * getK(macro) / 32 /* threads per warp */ /
-      2 /* halves per 32bit register */;
+  int64_t size = getN(macro) * getK(macro) / 32L /* threads per warp */ /
+      2L /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
