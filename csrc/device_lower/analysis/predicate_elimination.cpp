@@ -68,7 +68,7 @@ bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
     return false;
   }
   auto producer_tvs = ir_utils::filterByType<TensorView>(def->inputs());
-  if (producer_tvs.size() == 0) {
+  if (producer_tvs.empty()) {
     return false;
   }
   return std::all_of(
