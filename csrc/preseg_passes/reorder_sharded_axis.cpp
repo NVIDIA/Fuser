@@ -20,6 +20,8 @@
 namespace nvfuser::preseg_passes {
 
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
   const std::vector<Expr*>& exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
