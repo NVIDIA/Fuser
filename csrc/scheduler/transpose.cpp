@@ -170,7 +170,11 @@ class DomainMap : public pointwise_utils::DomainMap {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
     for (auto tv : group) {
-      if (isValidReference(tv)) {
+      // since transpose scheduler have different set of reference, we skip IDs
+      // coverage check of the reference on outputs of the fusion. Note that
+      // this is not ideal, we would want to instead have reference tensor
+      // checked against all its target IO tensors.
+      if (isValidReference(tv, false)) {
         int64_t dims = (int64_t)pointwise_utils::nLogicalDims(tv);
         if (dims > max_dims) {
           result = tv;

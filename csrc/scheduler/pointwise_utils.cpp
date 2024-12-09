@@ -338,9 +338,10 @@ IterDomain* DomainMap::anyMapped(
 }
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input and
-// output.
-bool DomainMap::isValidReference(TensorView* tv) const {
+// The reference tensor must map to all the iterDomains in each input (and
+// output, when check_coverage_to_output is set as true)
+bool DomainMap::isValidReference(TensorView* tv, bool check_coverage_to_output)
+    const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
       continue;
@@ -351,14 +352,20 @@ bool DomainMap::isValidReference(TensorView* tv) const {
       return false;
     }
   }
-  for (auto output_tv :
-       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-    // no need to check for self.
-    if (output_tv == tv) {
-      continue;
-    }
-    if (!areAllOutputIdsMappedTo(output_tv, tv)) {
-      return false;
+  // The check on outputs are optional, transpose scheduler might propose a
+  // secondary reference that only applies to a subset of IO tensors. Ideally we
+  // should have a more robust check and consider the IO groups instead of
+  // blindly skip outputs.
+  if (check_coverage_to_output) {
+    for (auto output_tv :
+         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+      // no need to check for self.
+      if (output_tv == tv) {
+        continue;
+      }
+      if (!areAllOutputIdsMappedTo(output_tv, tv)) {
+        return false;
+      }
     }
   }
   return true;
