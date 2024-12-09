@@ -3657,6 +3657,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   const auto dtype = DataType::Half;
 
   constexpr bool use_smem_epilogue = false;
+  constexpr bool use_warp_specialization = true;
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
@@ -3787,8 +3788,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   inlineMost();
 
-  tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-  tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+  if (use_warp_specialization) {
+    tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+    tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+  } else {
+    tv0c->circularBuffer(stages, prefetch);
+    tv1c->circularBuffer(stages, prefetch);
+  }
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
