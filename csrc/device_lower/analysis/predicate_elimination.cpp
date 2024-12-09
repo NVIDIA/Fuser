@@ -402,12 +402,33 @@ class PredicateChcker : public IterVisitor {
         predicateRNGOp(expr);
     std::cout << "Expr: " << expr->toString() << " needs_predicate_: " << needs_predicate_ << std::endl;
     std::cout << "predicateIntDiv: " << predicateIntDiv(expr) << std::endl;
+    if (predicateIntDiv(expr)) {
+      return;
+    }
     std::cout << "predicateMisalignedVectorize: " << predicateMisalignedVectorize(expr) << std::endl;
+    if (predicateMisalignedVectorize(expr)) {
+      return;
+    }
     std::cout << "needs_predicate_smem_access: " << needs_predicate_smem_access << std::endl;
+    if (needs_predicate_smem_access) {
+      return;
+    }
     std::cout << "predicateProducerConsumerPair: " << predicateProducerConsumerPair(expr) << std::endl;
+    if (predicateProducerConsumerPair(expr)) {
+      return;
+    }
     std::cout << "predicateNonDivisibleRootDomains: " << predicateNonDivisibleRootDomains(expr) << std::endl;
+    if (predicateNonDivisibleRootDomains(expr)) {
+      return;
+    }
     std::cout << "predicateNonDivisibleSplit: " << predicateNonDivisibleSplit(expr) << std::endl;
+    if (predicateNonDivisibleSplit(expr)) {
+      return;
+    }
     std::cout << "predicateExpandReduce: " << predicateExpandReduce(expr) << std::endl;
+    if (predicateExpandReduce(expr)) {
+      return;
+    }
     std::cout << "predicateRNGOp: " << predicateRNGOp(expr) << std::endl;
     std::cout << "\n\n" << std::endl;
 
