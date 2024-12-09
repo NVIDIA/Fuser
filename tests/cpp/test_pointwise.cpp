@@ -803,11 +803,12 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
-  // tv1 can't map to tv4, since we are missing the expanded ID
+  // tv1 can't map to tv4, because the expanded ID participates in
+  // transformation
   EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv1));
 
-  // tv1 can't map to tv3, because it's missing the broadcast dimension
-  EXPECT_FALSE(domain_map.testOutputMapping(tv3, tv1));
+  // tv1 can map to tv3, because the missing ID is broadcast
+  EXPECT_TRUE(domain_map.testOutputMapping(tv3, tv1));
 
   // tv4 can map to tv1
   EXPECT_TRUE(domain_map.testOutputMapping(tv1, tv4));
@@ -871,10 +872,10 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 
   DomainMapUnitTest domain_map(fusion);
 
-  // tv2 can't map to tv4
-  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv2));
-  // tv4 can't map to tv2
-  EXPECT_FALSE(domain_map.testOutputMapping(tv2, tv4));
+  // tv3 can't map to tv4, because it's missing the expanded dimension
+  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv3));
+  // tv4 can't map to tv1, since it's missing tv1->axis(0)
+  EXPECT_FALSE(domain_map.testOutputMapping(tv1, tv4));
 
   // tv3 should not be a valid reference
   EXPECT_FALSE(domain_map.isValidReference(tv3));
