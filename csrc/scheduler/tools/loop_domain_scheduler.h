@@ -22,7 +22,8 @@ namespace scheduler_tools {
 // each tensor by replaying exprs found in the Exact ValGraph.
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom);
+    const std::vector<IterDomain*>& ref_loop_dom,
+    bool update_mode = false);
 
 // Replay a transform expr on the loop domain of each of the given
 // tensors. If the input of the transform is exact mapped with the loop
