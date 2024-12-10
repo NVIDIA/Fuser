@@ -1258,7 +1258,7 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
 
   if (swizzle != MmaInputSmemSwizzle::None) {
     // Create tma store allocation domain with swizzle
-    mma_utils::scheduleTMAStoreForMmaOutput(tv, swizzle);
+    scheduleTMAStoreForMmaOutput(tv, swizzle);
   }
 
   tv->setLoopDomain(s.as<IterDomain*>());
