@@ -403,19 +403,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   return params;
 }
 
-// Return reference tensor view.
-TensorView* getReferenceTensorView(Fusion* fusion) {
-  FusionGuard fg(fusion);
-  pointwise_utils::DomainMap domain_map(fusion);
-  auto reference_tv = domain_map.findReferenceTensorView();
-  return reference_tv;
-}
-
 //! Utility for canSchedule interface to check if this fusion has
 //!  a fully broadcasted reference tensor, which is necessary for
 //!  the pointwise scheduler.
 bool hasReferenceTensorView(Fusion* fusion) {
-  return getReferenceTensorView(fusion) != nullptr;
+  return pointwise_utils::getReferenceTensor(fusion) != nullptr;
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -512,7 +504,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     return;
   }
 
-  TensorView* reference_tv = getReferenceTensorView(fusion);
+  TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
 
   NVF_ERROR(
       reference_tv != nullptr,

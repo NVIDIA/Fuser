@@ -93,14 +93,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   return params;
 }
 
-namespace {
-
-TensorView* getReferenceTensor(Fusion* fusion) {
-  return nullptr;
-}
-
-} // namespace
-
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
@@ -126,7 +118,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  auto ref_tv = getReferenceTensor(fusion);
+  // Just use the pointwise version for now
+  auto ref_tv = pointwise_utils::getReferenceTensor(fusion);
 
   std::cerr << "Reference: " << ref_tv->toString() << "\n";
 

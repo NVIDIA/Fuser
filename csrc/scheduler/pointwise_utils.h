@@ -61,5 +61,13 @@ class DomainMap : public scheduler_tools::DomainMap {
   }
 };
 
+// Return reference tensor view.
+inline TensorView* getReferenceTensor(Fusion* fusion) {
+  FusionGuard fg(fusion);
+  DomainMap domain_map(fusion);
+  auto reference_tv = domain_map.findReferenceTensorView();
+  return reference_tv;
+}
+
 } // namespace pointwise_utils
 } // namespace nvfuser
