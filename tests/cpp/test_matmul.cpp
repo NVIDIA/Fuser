@@ -3773,17 +3773,23 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv3c->setLoopDomain(s.as<IterDomain*>());
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
 
-    // We'll use stmatrix.x4 to store from reg to shared memory
-    fusion.manage("st_matrix_m_tile", (int64_t)16);
-    fusion.manage("st_matrix_n_tile", (int64_t)16);
+    constexpr int64_t stmatrix_tile_m = 16;
+    constexpr int64_t stmatrix_tile_n = 16;
+    fusion.manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion.manage("st_matrix_n_tile", stmatrix_tile_n);
     fusion.manage("st_matrix_m", getM(macro));
     fusion.manage("st_matrix_n", getN(macro));
 
-    // This internally calls
-    // mma_utils::MmaSwizzler::scheduleMmaOutputAllocation
-    mma_utils::scheduleStMatrixForMmaOutput(tv3_shmem, 16, 16);
+    MmaInputSmemSwizzle store_swizzle =
+        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
 
-    mma_utils::scheduleTMAStoreForMmaOutput(tv3, M, N);
+    // This internally calls
+    // Schedule shared memory cache; Output from StMatrix
+    mma_utils::scheduleStMatrixForMmaOutput(
+        tv3_shmem, store_swizzle, stmatrix_tile_m, stmatrix_tile_n);
+
+    // Schedule global memory output; Output from TMA Store
+    mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
   }
 
   inlineMost();
