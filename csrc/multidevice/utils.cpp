@@ -237,6 +237,25 @@ int64_t getShardedLogicalAxis(
   return logical_id_to_axis.at(id);
 }
 
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    const int64_t axis,
+    const DeviceMesh& mesh,
+    const DeviceIdxType device_id) {
+  auto i = mesh.idxOf(device_id);
+  auto extent = tensor.size(axis);
+  auto nslices = mesh.size();
+  NVF_CHECK(
+      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
+  auto stride = extent / nslices;
+  // TODO: returning slice 0 temporarily when device is not in the mesh.
+  i = (i < 0) ? 0 : i;
+  // The following slicing is problematic when DID is on an inner split (cf.
+  // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
+  // it's enforced by getShardedLogicalAxis.
+  return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
+}
+
 std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes) {

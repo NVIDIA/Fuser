@@ -284,7 +284,9 @@ class FusionDefinition(_C._FusionDefinition):
             #
             # Note: there's a plan to embed multidevice schedules into FusionDefinition
             # as annotating nodes. This may eventually replace `multidevice_schedule`.
+            self._setup_multidevice_schedule()
             self.multidevice_schedule()
+            self._finalize_multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
