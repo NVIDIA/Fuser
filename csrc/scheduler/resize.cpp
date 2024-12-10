@@ -95,269 +95,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
 namespace {
 
-std::vector<std::pair<TensorView*, std::vector<TensorView*>>>
-getReferenceTensors(Fusion* fusion) {
-  std::vector<TensorView*> ref_candidates;
-
-  std::cerr << "getReferenceTensors\n";
-  fusion->printMath();
-
-  const auto all_tvs = fusion->allTvs();
-
-  DisjointSets<TensorView*> disjoint_val_sets;
-
-  std::vector<Expr*> resize_ops =
-      ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
-
-  // Group all tvs that are dependent on resize op outputs
-  for (Expr* resize_op : resize_ops) {
-    auto ref_tv = resize_op->output(0)->as<TensorView>();
-
-    auto dep_vals = DependencyCheck::getAllValsBetween(
-        {fusion->inputs().begin(), fusion->inputs().end()}, {ref_tv});
-
-    for (auto dep_tv : ir_utils::filterByType<TensorView>(dep_vals)) {
-      // Don't add inputs. Inputs are not replicated nor scheduled.
-      if (dep_tv->isFusionInput()) {
-        continue;
-      }
-      std::cerr << "Mapping " << ref_tv->toString() << " and "
-                << dep_tv->toString() << "\n";
-      disjoint_val_sets.mapEntries(ref_tv, dep_tv);
-    }
-  }
-
-  // TODO: Reuse
-  IdModel id_model(fusion, /*build_graphs=*/false);
-  const auto& broadcast_graph = id_model.buildBroadcastGraph();
-
-  for (const auto i : c10::irange(resize_ops.size() - 1)) {
-    for (const auto j : c10::irange(i + 1, resize_ops.size())) {
-      auto out_tv_i = resize_ops.at(i)->output(0)->as<TensorView>();
-      auto out_tv_j = resize_ops.at(j)->output(0)->as<TensorView>();
-      if (disjoint_val_sets.strictAreMapped(out_tv_i, out_tv_j)) {
-        continue;
-      }
-
-      const auto out_tv_i_loop_groups =
-          broadcast_graph.toGroups(out_tv_i->getLoopDomain());
-      const auto out_tv_j_loop_groups =
-          broadcast_graph.toGroups(out_tv_j->getLoopDomain());
-
-      bool same_loop_domain =
-          broadcast_graph.toGroups(out_tv_i->getLoopDomain()).set() ==
-          broadcast_graph.toGroups(out_tv_j->getLoopDomain()).set();
-      std::cerr << "Comparing " << out_tv_i->toString() << " and "
-                << out_tv_j->toString() << ": " << same_loop_domain << "\n";
-      if (!same_loop_domain) {
-        auto [path_from_i_to_j, all_visited] =
-            ValGraphBFS::getExprGroupsBetween(
-                broadcast_graph,
-                out_tv_i_loop_groups,
-                out_tv_j_loop_groups,
-                /*require_all_to_visited=*/false);
-        if (!all_visited) {
-          // There are some unreachable loop groups
-          continue;
-        }
-
-        // If there's any resize node, don't merge them
-        if (std::any_of(
-                path_from_i_to_j.begin(),
-                path_from_i_to_j.end(),
-                [](const auto& path_component) {
-                  return path_component.first->front()->template isA<Resize>();
-                })) {
-          continue;
-        }
-      }
-
-      std::cerr << "Same loop domain: " << out_tv_i->toString() << " and "
-                << out_tv_j->toString() << "\n";
-      disjoint_val_sets.mapEntries(out_tv_i, out_tv_j);
-    }
-  }
-
-  const auto num_disjoint_resize_groups = disjoint_val_sets.size();
-
-  std::cerr << "Number of disjoint resize groups: "
-            << num_disjoint_resize_groups << "\n";
-
-  std::cerr << "Initial disjoint grouping of tensors\n";
-  for (const auto& set : disjoint_val_sets.disjointSets()) {
-    std::cerr << "\t{";
-    for (auto tv : *set) {
-      std::cerr << " T" << tv->name();
-    }
-    std::cerr << "}\n";
-  }
-
-  // Include outputs
-  for (Expr* resize_op : resize_ops) {
-    auto resize_out = resize_op->output(0)->as<TensorView>();
-    auto output_dep_vals =
-        DependencyCheck::getAllValsBetween({resize_out}, fusion->outputs());
-    for (auto tv : ir_utils::filterByType<TensorView>(output_dep_vals)) {
-      disjoint_val_sets.mapEntries(resize_out, tv);
-    }
-  }
-
-  // Output dep vals should also be disjointly grouped, so the number
-  // of groups should not change
-  NVF_ERROR(
-      num_disjoint_resize_groups == disjoint_val_sets.size(),
-      "Expected number of groups: ",
-      num_disjoint_resize_groups,
-      ". Actual: ",
-      disjoint_val_sets.size());
-
-  // There can still be tensors that are not producers nor consumers
-  // of resize ops. They should be fine with any of the groups.
-  // All of them should now be privatized.
-
-  auto first_group_tv = resize_ops.at(0)->output(0)->as<TensorView>();
-
-  for (auto tv : all_tvs) {
-    if (tv->isFusionInput() || disjoint_val_sets.mappingExists(tv)) {
-      continue;
-    }
-
-    std::cerr << "Remaining tv: " << tv->toString()
-              << ". Put into the group of " << first_group_tv->toString()
-              << "\n";
-
-    auto dep_outputs = DependencyCheck::getAllOutputsOf({tv});
-    NVF_ERROR(!dep_outputs.empty());
-
-    TensorView* first_dep_output = (*(dep_outputs.begin()))->as<TensorView>();
-    bool added_to_group = false;
-    for (const auto& disjoint_set : disjoint_val_sets.disjointSets()) {
-      if (!disjoint_set->has(first_dep_output)) {
-        continue;
-      }
-
-      // Make sure all outputs are in the same set
-      for (const auto dep_output : dep_outputs) {
-        NVF_ERROR(disjoint_set->has(dep_output->as<TensorView>()));
-      }
-
-      disjoint_val_sets.mapEntries(tv, disjoint_set->front());
-      added_to_group = true;
-      break;
-    }
-
-    // Could not find any group to join
-    NVF_ERROR(
-        added_to_group, "Could not find any group to add ", tv->toString());
-  }
-
-  NVF_ERROR(
-      num_disjoint_resize_groups == disjoint_val_sets.size(),
-      "Expected number of groups: ",
-      num_disjoint_resize_groups,
-      ". Actual: ",
-      disjoint_val_sets.size());
-
-  std::cerr << "TV disjoint groups: " << disjoint_val_sets.size() << "\n";
-
-  std::vector<std::pair<TensorView*, std::vector<TensorView*>>> ref_list;
-
-  // Pick a reference in each disjoint set
-  for (const auto& disjoint_set : disjoint_val_sets.disjointSets()) {
-    TensorView* ref_tv = nullptr;
-    // TensorView* input_tv = nullptr;
-    std::unordered_set<TensorView*> resize_op_outputs;
-#if 0
-    for (TensorView* tv : *disjoint_set) {
-      // All of the slice/pad/cat output tensors should have the same
-      // loop domain. Any of them can be equally used as the reference
-      // for this group.
-      // Update: But propagation could still fail due to the resize
-      // cyclic mapping. Don't use resize outputs as reference for
-      // now.
-
-      if (auto def = tv->definition();
-          def != nullptr && def->isOneOf<SliceOp, PadOp>()) {
-        ref_tv = def->output(0)->as<TensorView>();
-        break;
-      }
-
-      if (auto def = tv->definition(); std::any_of(
-              def->inputs().begin(), def->inputs().end(), [](Val* input) {
-                return input->isA<TensorView>() && input->isFusionInput();
-              })) {
-        if (input_tv == nullptr ||
-            (input_tv->domain()->noBroadcasts().size() <
-             tv->domain()->noBroadcasts().size())) {
-          input_tv = tv;
-        }
-      }
-    }
-#endif
-
-    for (TensorView* tv : *disjoint_set) {
-      if (auto def = tv->definition();
-          def != nullptr && def->isOneOf<SliceOp, PadOp>()) {
-        resize_op_outputs.insert(def->output(0)->as<TensorView>());
-      }
-    }
-
-    for (TensorView* tv : *disjoint_set) {
-      if (!tv->isFusionOutput()) {
-        continue;
-      }
-
-      // Ref if all resize_outputs have a dependency with this output
-      auto all_dep_vals = DependencyCheck::getAllValsBetween(
-          {fusion->inputs().begin(), fusion->inputs().end()}, {tv});
-      bool all_resize_out_dependent = true;
-      for (auto resize_out : resize_op_outputs) {
-        auto it =
-            std::find(all_dep_vals.begin(), all_dep_vals.end(), resize_out);
-        if (it == all_dep_vals.end()) {
-          std::cerr << "Not a dependency: " << resize_out->toString() << " of "
-                    << tv->toString() << "\n";
-          all_resize_out_dependent = false;
-          break;
-        }
-      }
-
-      if (!all_resize_out_dependent) {
-        continue;
-      }
-
-      ref_tv = tv;
-    }
-
-    if (ref_tv) {
-      std::cerr << "Reference: " << ref_tv->toString() << "\n";
-
-      ref_list.emplace_back(ref_tv, std::vector<TensorView*>{});
-      auto& member_list = ref_list.back().second;
-      for (auto tv : all_tvs) {
-        if (disjoint_set->has(tv)) {
-          member_list.push_back(tv);
-        }
-      }
-
-      continue;
-    }
-
-    NVF_THROW(
-        "No reference found for ", toDelimitedString(disjoint_set->vector()));
-  }
-
-  std::cerr << "Disjoint grouping of tensors with representatives:\n";
-  for (const auto& [ref, set] : ref_list) {
-    std::cerr << "\tRepresentative: " << ref->toString() << "\n"
-              << "\t{";
-    for (auto tv : set) {
-      std::cerr << " T" << tv->name();
-    }
-    std::cerr << "}\n";
-  }
-
-  return ref_list;
+TensorView* getReferenceTensor(Fusion* fusion) {
+  return nullptr;
 }
 
 } // namespace
@@ -387,25 +126,21 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  const auto ref_tensors = getReferenceTensors(fusion);
+  auto ref_tv = getReferenceTensor(fusion);
 
-  for (const auto& [ref_tv, tvs_to_schedule] : ref_tensors) {
-    std::cerr << "Reference: " << ref_tv->toString() << "\n";
-    std::cerr << "Tvs to schedule: " << toDelimitedString(tvs_to_schedule)
-              << "\n";
+  std::cerr << "Reference: " << ref_tv->toString() << "\n";
 
-    ref_tv->flatten();
-    ref_tv->split(0, 128);
-    ref_tv->split(0, 1 << 14);
-    ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
-    ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  ref_tv->flatten();
+  ref_tv->split(0, 128);
+  ref_tv->split(0, 1 << 14);
+  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
-    std::cerr << "Scheduled reference:\n";
-    ref_tv->printTransforms();
+  std::cerr << "Scheduled reference:\n";
+  ref_tv->printTransforms();
 
-    scheduler_tools::scheduleLoopDomainsLike(
-        tvs_to_schedule, ref_tv->getLoopDomain());
-  }
+  scheduler_tools::scheduleLoopDomainsLike(
+      fusion->allTvs(), ref_tv->getLoopDomain());
 
   {
     std::cerr << "All done\n";

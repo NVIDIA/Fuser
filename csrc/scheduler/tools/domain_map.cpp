@@ -5,54 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <ir/utils.h>
-#include <scheduler/pointwise_utils.h>
-#include <utils.h>
-
-#include <unordered_map>
+#include <scheduler/tools/domain_map.h>
+#include <scheduler/utils.h>
 
 namespace nvfuser {
-namespace pointwise_utils {
+namespace scheduler_tools {
 
 namespace {
-
-// Grab all exact set mappings from consumer to producer domains of
-// indexed accesses, e.g., index_select
-std::unordered_multimap<
-    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
-    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
-  std::unordered_multimap<
-      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
-      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      indexed_id_map;
-
-  for (auto expr : fusion->exprs()) {
-    if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
-      auto p_id = gather->getIndexedID();
-      auto c_id = gather->getConsumerOfIndexedID();
-      indexed_id_map.emplace(
-          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
-          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT));
-    } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
-      auto p_id = index_select->getIndexedID();
-      auto c_id = index_select->getConsumerOfIndexedID();
-      indexed_id_map.emplace(
-          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
-          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT));
-    } else {
-      // Note there's no consumer ID for select. This means we can't
-      // just propagate from consumers to indexed producers. It seems
-      // it's necessary to schedule producers and consumers separately
-      // in those cases.
-      continue;
-    }
-  }
-
-  return indexed_id_map;
-}
-
 // Check if a root ID of a fusion input tensor that is indirectly
 // accessed by ops such as torchGather needs to be mapped with
 // a reference tensor. Select has a similar effect as squeeze as the
@@ -106,6 +65,42 @@ bool canIgnoreIndexedInputDomainID(
   }
 
   return true;
+}
+
+// Grab all exact set mappings from consumer to producer domains of
+// indexed accesses, e.g., index_select
+std::unordered_multimap<
+    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
+    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
+  std::unordered_multimap<
+      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
+      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      indexed_id_map;
+
+  for (auto expr : fusion->exprs()) {
+    if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
+      auto p_id = gather->getIndexedID();
+      auto c_id = gather->getConsumerOfIndexedID();
+      indexed_id_map.emplace(
+          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
+          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT));
+    } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
+      auto p_id = index_select->getIndexedID();
+      auto c_id = index_select->getConsumerOfIndexedID();
+      indexed_id_map.emplace(
+          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
+          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT));
+    } else {
+      // Note there's no consumer ID for select. This means we can't
+      // just propagate from consumers to indexed producers. It seems
+      // it's necessary to schedule producers and consumers separately
+      // in those cases.
+      continue;
+    }
+  }
+
+  return indexed_id_map;
 }
 
 } // namespace
@@ -248,5 +243,5 @@ bool DomainMap::isValidReference(TensorView* tv) const {
   return true;
 }
 
-} // namespace pointwise_utils
+} // namespace scheduler_tools
 } // namespace nvfuser

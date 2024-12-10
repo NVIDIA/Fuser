@@ -29,37 +29,6 @@ namespace {
 // Unused at the moment, commenting for clang tidy
 constexpr int64_t kThreadX = 128;
 
-class DomainMap : public pointwise_utils::DomainMap {
- public:
-  using pointwise_utils::DomainMap::DomainMap;
-
-  // The pointwise scheduler heuristics requires a minimum number of axes.
-  // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensorView(int64_t minimum_num_axes = 0) const {
-    TensorView* result = nullptr;
-    int64_t max_dims = -1;
-    for (auto output_tv :
-         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-      if (isValidReference(output_tv) &&
-          hasMinimumSize(output_tv, minimum_num_axes) &&
-          !output_tv->isFusionInput()) {
-        int64_t n_dims = pointwise_utils::nRootDims(output_tv);
-        if (n_dims > max_dims) {
-          result = output_tv;
-          max_dims = n_dims;
-        }
-      }
-    }
-    return result;
-  }
-
- private:
-  bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
-    NVF_ERROR(tv != nullptr);
-    return (num_axes == 0 || (int64_t)tv->getLogicalDomain().size() > num_axes);
-  }
-};
-
 } // namespace
 
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
@@ -79,9 +48,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
-          data_cache,
-          [fusion]() { return std::make_unique<DomainMap>(fusion); });
-  const auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
+          data_cache, [fusion]() {
+            return std::make_unique<pointwise_utils::DomainMap>(fusion);
+          });
+  const auto& domain_map =
+      dynamic_cast<pointwise_utils::DomainMap&>(domain_map_entry.get());
 
   auto largest_out_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
@@ -435,7 +406,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 // Return reference tensor view.
 TensorView* getReferenceTensorView(Fusion* fusion) {
   FusionGuard fg(fusion);
-  DomainMap domain_map(fusion);
+  pointwise_utils::DomainMap domain_map(fusion);
   auto reference_tv = domain_map.findReferenceTensorView();
   return reference_tv;
 }
