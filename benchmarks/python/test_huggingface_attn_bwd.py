@@ -4,9 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import huggingface_attn
 
 
 # Fusion from huggingface attention implementation
@@ -127,18 +128,10 @@ def test_huggingface_attn_bwd_baseline_benchmark(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
 
-    def huggingface_attn_fwd():
-        attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
-        attn = torch.nn.functional.softmax(attn, dim=-1)
-        output = torch.nn.functional.dropout(attn, p=dropout_p)
-        return output
-
     # Compile the fwd fn for torchcompile
-    fwd_fn = {
-        "eager": huggingface_attn_fwd,
-        "torchcompile": torch.compile(huggingface_attn_fwd),
-    }
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, huggingface_attn)
+    fwd_inputs = [inputs, attention_mask, size, dropout_p]
+    outputs = fwd_fn(fwd_inputs)
     grads = torch.randn(batch_size * nh, seq_len, seq_len, device="cuda", dtype=dtype)
 
     # Manually compute IOBytes: See PR #1725
