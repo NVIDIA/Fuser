@@ -121,48 +121,133 @@ bool isSharded(const TensorView* tv) {
   return is_sharded;
 }
 
-std::vector<int64_t> unshardedSizes(
-    const TensorView* tv,
-    c10::IntArrayRef sizes) {
-  std::vector<int64_t> unsharded_sizes = sizes.vec();
-
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    const ParallelType parallel_type = alloc_id->getParallelType();
+namespace {
+// Collect device-parallel IterDomains in `domain` and return them as a
+// ParallelType-to-IterDomain map.
+std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+    const std::vector<IterDomain*>& domain) {
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
+  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+  for (IterDomain* id : domain) {
+    const ParallelType parallel_type = id->getParallelType();
     if (!isParallelTypeDeviceDim(parallel_type)) {
       continue;
     }
 
-    const auto inputs = IterVisitor::getInputsTo(
-        {alloc_id},
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
     NVF_ERROR(
-        !inputs.empty(),
-        "IterVisitor::getInputsTo shouldn't return empty unless `of` is empty.");
-    NVF_ERROR(
-        inputs.size() == 1,
-        "Failed to find the single logical input to ",
-        alloc_id,
-        ". This is likely because there's a Merge expression from logical to allocation, which isn't supported. Inputs are: ",
-        toDelimitedString(inputs));
+        parallel_type_to_id.try_emplace(parallel_type, id).second,
+        "Found multiple loop IterDomains with the same parallel type (",
+        parallel_type,
+        "): ",
+        toDelimitedString(domain));
+  }
+  return parallel_type_to_id;
+}
 
-    const auto iter = std::find(
-        tv->getLogicalDomain().begin(),
-        tv->getLogicalDomain().end(),
-        inputs[0]);
-    NVF_ERROR(
-        iter != tv->getLogicalDomain().end(),
-        "The found input IterDomain isn't logical. This is likely because logical doesn't dominate allocation: ",
-        inputs[0]);
+std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
+    const std::vector<IterDomain*>& domain) {
+  std::unordered_map<IterDomain*, int64_t> id_to_axis;
+  int64_t axis = 0;
+  for (auto* id : domain) {
+    // Reduction IterDomains are not materialized as an at::Tensor axis.
+    if (id->isReduction()) {
+      continue;
+    }
+    id_to_axis[id] = axis;
+    axis++;
+  }
+  return id_to_axis;
+}
 
-    // Count the number of non-reduction IterDomains before `iter`. Reduction
-    // IterDomains are not materialized in the at::Tensor's shape.
-    const auto index = std::count_if(
-        tv->getLogicalDomain().begin(), iter, [](IterDomain* id) -> bool {
-          return !id->isReduction();
-        });
-    unsharded_sizes.at(index) *= tv->getDeviceMesh().size(parallel_type);
+} // namespace
+
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
+  IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
+  if (alloc_id == nullptr) {
+    return -1;
   }
 
+  std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
+      mapIterDomainToTensorAxis(tv->getLogicalDomain());
+  IterDomain* id = alloc_id;
+  while (logical_id_to_axis.count(id) == 0) {
+    Expr* def = id->definition();
+    NVF_ERROR(
+        def != nullptr,
+        "Failed to find a non-reduction logical IterDomain that produces ",
+        alloc_id);
+    if (auto* split = dynamic_cast<Split*>(def)) {
+      // Returning just which tensor axis is sharded isn't sufficient to let
+      // shardTensor, a user of this function, know how to shard the tensor.
+      // For example,
+      //
+      //   t = makeContigConcreteTensor({6});
+      //   t->split(0, 2, /*inner_split=*/true);
+      //   t->axis(-1)->parallelize(DIDx);
+      //   // [i{3}, iDIDx{2}]
+      //
+      // and the unsharded tensor is [0, 1, 2, 3, 4, 5], regardless of the
+      // stride. The sharded tensor ought to be [0, 2, 4] for GPU 0 and [1, 3,
+      // 5] for GPU 1. However, shardTensor as is will return [0, 1, 2] and [3,
+      // 4, 5], assuming the axis is sharded outermost.
+      //
+      // One potential way to solve the general problem is to replay and rewind
+      // the splits on the at::Tensor.  For example,
+      //
+      //   t = makeContigConcreteTensor({30});
+      //   t->split(0, 5);
+      //   t->split(0, 3);
+      //   t->axis(0)->parallelize(Host);
+      //   t->axis(1)->parallelize(DIDx);
+      //   // [iHost{2}, iDIDx{3}, i{5}]
+      //
+      // Given an unsharded at::Tensor of shape [30], we'll first replay the
+      // splits using `torch.view` to get a tensor of shape [2,3,5]. Then, we
+      // `torch.slice` axis 1 for DIDx to get a tensor of shape [2,1,5]. Then,
+      // we rewind the splits (and therefore apply merging) using
+      // `torch.reshape` to get a sharded tensor of shape [10].
+      NVF_ERROR(
+          split->outer() == id,
+          "Currently, we don't support DID on inner splits: ",
+          split);
+      id = split->in();
+    } else if (auto* merge = dynamic_cast<Merge*>(def)) {
+      // For example,
+      //
+      //   t = makeContigTensor(2);
+      //   t->merge(0, 1);
+      //   t->axis(0)->parallelize(DIDx);
+      //
+      // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
+      // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
+      NVF_THROW(
+          "Failed to attribute the sharding to a single tensor axis and therefore bailed out: ",
+          merge);
+    } else {
+      NVF_THROW(
+          "Unexpected transforms from logical to a DID-parallel allocation IterDomain: ",
+          def);
+    }
+  }
+
+  return logical_id_to_axis.at(id);
+}
+
+std::vector<int64_t> unshardedSizes(
+    const TensorView* tv,
+    c10::IntArrayRef sizes) {
+  std::vector<int64_t> unsharded_sizes = sizes.vec();
+  for (ParallelType parallel_type : kParallelTypeDIDs) {
+    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
+    if (sharded_axis == -1) {
+      continue;
+    }
+    unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
+  }
   return unsharded_sizes;
 }
 
@@ -174,27 +259,6 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
-// Collect device-parallel IterDomains in `loop_domain` and return them as a
-// ParallelType-to-IterDomain map.
-std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
-    const std::vector<IterDomain*>& loop_domain) {
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
-  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
-  for (IterDomain* loop_id : loop_domain) {
-    const ParallelType parallel_type = loop_id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
-      continue;
-    }
-
-    NVF_ERROR(
-        parallel_type_to_id.try_emplace(parallel_type, loop_id).second,
-        "Found multiple loop IterDomains with the same parallel type (",
-        parallel_type,
-        "): ",
-        toDelimitedString(loop_domain));
-  }
-  return parallel_type_to_id;
-}
 
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
@@ -294,9 +358,9 @@ bool haveDifferentShardings(
   // 3. Check if the two loop IterDomains are almost-exactly mapped in the
   // IdModel.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapParallelTypeToId(producer->getLoopDomain());
+      mapDeviceParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapParallelTypeToId(consumer->getLoopDomain());
+      mapDeviceParallelTypeToId(consumer->getLoopDomain());
 
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
@@ -500,16 +564,6 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
     }
   }
   return ret;
-}
-
-int64_t getShardedAxis(TensorView* tv) {
-  auto ids = TensorDomain::noReductions(tv->getLogicalDomain());
-  for (size_t i = 0; i < ids.size(); ++i) {
-    if (ids[i]->getParallelType() == ParallelType::DIDx) {
-      return static_cast<int64_t>(i);
-    }
-  }
-  return -1;
 }
 
 void reorderDIDToFront(TensorView* tv) {
