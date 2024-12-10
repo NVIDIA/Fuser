@@ -13,7 +13,6 @@ import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
 
-
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
 # --benchmark-num-inputs=num_inputs
@@ -21,6 +20,9 @@ BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
+
+# Default executors
+DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
 
 
 def clear_l2_cache() -> None:
@@ -48,7 +50,7 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
 
 
 def with_executor(executor: str, fwd_fn: Callable) -> Callable:
-    assert executor in ["eager", "torchcompile", "thunder"]
+    assert executor in DEFAULT_EXECUTORS
     if executor == "eager":
         return fwd_fn
     if executor == "torchcompile":
@@ -325,6 +327,9 @@ def run_benchmark(
     def setup():
         clear_l2_cache()
         if device == "cuda":
+            for inp in inputs:
+                if isinstance(inp, torch.Tensor):
+                    inp.grad = None
             return [inputs], {}
 
         # Device = 'host'
