@@ -305,11 +305,11 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   const int64_t B64_elements = 64 / dataTypeSize(dtype);
   const int64_t B32_elements = 32 / dataTypeSize(dtype);
 
-  if (inner_dim_size >= B128_elements) {
+  if (inner_dim_size % B128_elements == 0) {
     return MmaInputSmemSwizzle::B128;
-  } else if (inner_dim_size >= B64_elements) {
+  } else if (inner_dim_size % B64_elements == 0) {
     return MmaInputSmemSwizzle::B64;
-  } else if (inner_dim_size >= B32_elements) {
+  } else if (inner_dim_size % B32_elements == 0) {
     return MmaInputSmemSwizzle::B32;
   } else {
     NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
