@@ -1972,6 +1972,7 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   constexpr int64_t warp_size = 32;
   constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t stsm_column_size = 8;
+  constexpr int64_t max_stsm_n_tile = 16;
   constexpr int64_t megabank_size_bytes = 16;
 
   // Derived constants
@@ -1987,7 +1988,8 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   // NvFuser Val for constants
   Val* warp_size_val = IrBuilder::create<Val>(warp_size, DataType::Index);
   Val* stsm_m_tile_val = IrBuilder::create<Val>(stsm_m_tile, DataType::Index);
-  Val* stsm_n_tile_val = IrBuilder::create<Val>(stsm_n_tile, DataType::Index);
+  Val* max_stsm_n_tile_val =
+      IrBuilder::create<Val>(max_stsm_n_tile, DataType::Index);
   Val* stsm_n_tile_stride_val =
       IrBuilder::create<Val>(stsm_n_tile_stride, DataType::Index);
   Val* swizzle_row_size_val =
@@ -2020,7 +2022,7 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   row = GpuLower::current()->commonScalarMap().hoistScalar(row, {loop});
 
   // Calculate Column
-  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, stsm_n_tile_val);
+  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, max_stsm_n_tile_val);
   Val* iter_col =
       SimplifyingIrBuilder::mulExpr(inner_index, stsm_n_tile_stride_val);
   Val* col = SimplifyingIrBuilder::addExpr(lane_col, iter_col);
