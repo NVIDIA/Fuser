@@ -33,10 +33,7 @@ def test_sizes_and_ranks(mpi_test):
 @pytest.mark.mpi
 def test_pointwise(mpi_test):
     num_devices = mpi_test.size
-    rank = mpi_test.rank
-
-    unsharded_input = torch.randn(num_devices, 4)
-    sharded_input = mpi_test.shard_tensor(unsharded_input, 0)
+    mesh = nvfuser.DeviceMesh(range(num_devices))
 
     class Model(FusionDefinition):
         def definition(self):
@@ -48,11 +45,13 @@ def test_pointwise(mpi_test):
             self.add_output(self.t2)
 
         def multidevice_schedule(self):
-            mesh = nvfuser.DeviceMesh(range(num_devices))
             self.sched._set_device_mesh(self.t0, mesh)
             self.sched._set_device_mesh(self.t1, mesh)
             self.sched._set_device_mesh(self.t2, mesh)
             self.sched.parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
+
+    unsharded_input = torch.randn(num_devices, 4)
+    sharded_input = mpi_test.shard_tensor(unsharded_input, 0, mesh)
 
     fd = Model()
     outputs = fd.execute([sharded_input])

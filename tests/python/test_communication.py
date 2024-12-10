@@ -16,8 +16,6 @@ mpi_test = mpi_fixtures.mpi_test
 @pytest.mark.mpi
 def test_allgather(mpi_test):
     num_devices = mpi_test.size
-    rank = mpi_test.rank
-
     mesh = nvfuser.DeviceMesh(range(num_devices))
 
     class Model(FusionDefinition):
