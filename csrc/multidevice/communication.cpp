@@ -427,7 +427,6 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   // These two values are not strictly required. They are used for shape
   // checking and a suboptimal case where the scattered axis is not outermost
   // in allocation.
-  const auto reduction_axis = communication->out()->getReductionAxis().value();
   const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
       scattered_axis >= 0,
@@ -436,8 +435,12 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
 
   std::vector<at::Tensor> input_tensors = at::tensor_split(
       input_tensor, communication->team_size(), scattered_axis);
-  assertBuffersHaveSameSize(
-      input_tensors, {output_tensor.unsqueeze(reduction_axis)});
+  // We could have checked the output shape as well if reduction_axis is
+  // available. It's not always available via
+  // `communication->out()->getReductionAxis()` for manually constructed host
+  // IRs like
+  // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
+  assertBuffersHaveSameSize(input_tensors, {});
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
   // user's input tensors to an internal source buffer. It is therefore always
