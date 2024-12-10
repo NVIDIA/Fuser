@@ -216,14 +216,14 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   };
 
   // this contains all source iter domain that's covered by reference_tv, so
-  // it's safe for output_tv to have them.
+  // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
   for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
   // expecting pointwise scheduler to handle this pattern
-  for (IterDomain* id_out : output_tv->getLogicalDomain()) {
+  for (IterDomain* id_out : target_tv->getLogicalDomain()) {
     if (id_out->isBroadcast()) {
       covered_source_ids.insert(id_out);
     }
@@ -243,8 +243,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // It's unsafe to propagate from T34 to T193, see issue
   // https://github.com/NVIDIA/Fuser/issues/3542
 
-  // Check all source iter domain involved in producing output_tv
-  for (IterDomain* source_id_out : get_source_iter_domains(output_tv)) {
+  // Check all source iter domain involved in producing target_tv
+  for (IterDomain* source_id_out : get_source_iter_domains(target_tv)) {
     // if we find any source_id_out that's not contained, it's possible our
     // propagation would fail since transformation involving this iter domain
     // can't be resolved.
