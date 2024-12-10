@@ -1608,7 +1608,7 @@ def hf_mistral_nemo_rope_bwd(fd: FusionDefinition) -> None:
     fd.add_output(T224)
 
 
-# { 'name_benchmark' : (fn, [[sizes0, dtype0], [sizes1, dtype1], ...]) }
+# { 'name_benchmark' : (fn, [[sizes0, optional_strides0, dtype0], [sizes1, dtype1], ...]) }
 rope_configurations = {
     "llama_2_7b_hf_rope_fwd": (
         llama_2_7b_hf_rope_fwd,
@@ -1678,13 +1678,8 @@ rope_configurations = {
         hf_phi3_rope_bwd,
         [
             ((2, 32, 4096, 96), torch.bfloat16),
-            torch.randn(393216, torch.bfloat16).as_strided(
-                (2, 32, 4096, 96), (0, 0, 96, 1)
-            ),
-            ((2, 32, 4096, 96), torch.bfloat16),
-            torch.randn(393216, torch.bfloat16).as_strided(
-                (2, 32, 4096, 96), (0, 0, 96, 1)
-            ),
+            ((2, 32, 4096, 96), (0, 0, 96, 1), torch.bfloat16),
+            ((2, 32, 4096, 96), (0, 0, 96, 1), torch.bfloat16),
             ((2, 32, 4096, 96), torch.bfloat16),
         ],
     ),
@@ -1735,8 +1730,9 @@ def test_rope_variations_nvf_benchmark(
 
     inputs = []
     for entry in config[1]:
+        tensor = torch.testing.make_tensor(entry[0], dtype=entry[-1], device="cuda:0")
         inputs.append(
-            torch.testing.make_tensor(entry[0], dtype=entry[1], device="cuda:0")
+            tensor if len(entry) == 2 else tensor.as_strided(entry[0], entry[1])
         )
 
     with FusionDefinition() as fd:
