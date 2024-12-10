@@ -381,6 +381,10 @@ void scheduleLoopDomainsLike(
   LoopDomainScheduler scheduler(ref_loop_dom);
 
   for (auto tv : tvs) {
+    // Loop domain of fusion inputs should have no meaning
+    if (tv->isFusionInput()) {
+      continue;
+    }
     scheduler.schedule(tv);
   }
 }
