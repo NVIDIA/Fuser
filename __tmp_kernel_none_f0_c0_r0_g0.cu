@@ -11299,6 +11299,10 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
   __half* T4 = reinterpret_cast<__half*>(array + smem_offset + 65664);
   unsigned i9;
   i9 = toSmem(T4);
+  bool b16;
+  b16 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
+  bool b17;
+  b17 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
   uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 65536);
   #pragma unroll
   for(nvfuser_index_t i22 = 0; i22 < 4; ++i22) {
@@ -11353,10 +11357,6 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
     i14 = 64 * ((nvfuser_index_t)threadIdx.y);
     nvfuser_index_t i15;
     i15 = i14 + i8;
-    bool b16;
-    b16 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
-    bool b17;
-    b17 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
     nvfuser_index_t i18;
     i18 = ((nvfuser_index_t)threadIdx.x) / 4;
     bool b19;
