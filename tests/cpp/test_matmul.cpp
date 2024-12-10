@@ -3681,7 +3681,10 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto tv3 = castOp(DataType::Half, tv2);
   fusion.addOutput(tv3);
 
-  fusion.manage("cluster_dims", cluster_dims);
+  if constexpr (
+      cluster_dims != std::tuple<int64_t, int64_t, int64_t>{1, 1, 1}) {
+    fusion.manage("cluster_dims", cluster_dims);
+  }
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
