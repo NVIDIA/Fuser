@@ -11318,6 +11318,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
   }
   __syncthreads();
   if ((((nvfuser_index_t)threadIdx.y) == 2)) {
+    asm volatile("{setmaxnreg.dec.sync.aligned.u32 56; \n\t}");
     if ((Hopper::electSync(4294967295U) && b16)) {
       #pragma unroll 4
       for(nvfuser_index_t i24 = 0; i24 < i3; ++i24) {
@@ -11343,6 +11344,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
       }
     }
   } else {
+    asm volatile("{setmaxnreg.inc.sync.aligned.u32 224; \n\t}");
     unsigned i10;
     i10 = i9 + (2048 * ((nvfuser_index_t)threadIdx.y));
     nvfuser_index_t i11;
