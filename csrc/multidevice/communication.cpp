@@ -429,12 +429,13 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
       scattered_axis);
-// reduce_scatter primitive in c10d induces extra buffering time to copy the
-// user's input tensors to an internal source buffer. It is therefore always
-// preferable to use _reduce_scatter_base (which does not perform any extra
-// copy) when the tensors are stored contiguously (i.e., when
-// scattered_axis==0). Note however than only nccl supports
-// _reduce_scatter_base, not ucc.
+
+  // reduce_scatter primitive in c10d induces extra buffering time to copy the
+  // user's input tensors to an internal source buffer. It is therefore always
+  // preferable to use _reduce_scatter_base (which does not perform any extra
+  // copy) when the tensors are stored contiguously (i.e., when
+  // scattered_axis==0). Note however than only nccl supports
+  // _reduce_scatter_base, not ucc.
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   if (scattered_axis == 0 &&
       backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
@@ -442,13 +443,14 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
         output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
   }
 #endif
+
   std::vector<std::vector<at::Tensor>> input_tensors(1);
   input_tensors[0] = at::tensor_split(
       input_tensor, communication->team_size(), scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  assertBuffersHaveSameSize(input_tensors[0], {});
+  assertBuffersHaveSameSize(input_tensors[0], {output_tensor.unsqueeze(0)});
   return backend->reduce_scatter(
       output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
 }
