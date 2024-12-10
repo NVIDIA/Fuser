@@ -11345,6 +11345,10 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
     }
   } else {
     asm volatile("{setmaxnreg.inc.sync.aligned.u32 224; \n\t}");
+    #pragma unroll
+    for(nvfuser_index_t i31 = 0; i31 < 4; ++i31) {
+      mbarrier::arrive(toSmem((&T8[(i31 + 4LL)])));
+    }
     unsigned i10;
     i10 = i9 + (2048 * ((nvfuser_index_t)threadIdx.y));
     nvfuser_index_t i11;
@@ -11371,10 +11375,6 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
     ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
     asm volatile("wgmma.fence.sync.aligned;\n");
     asm volatile("fence.proxy.async;\n");
-    #pragma unroll
-    for(nvfuser_index_t i31 = 0; i31 < 4; ++i31) {
-      mbarrier::arrive(toSmem((&T8[(i31 + 4LL)])));
-    }
     #pragma unroll 4
     for(nvfuser_index_t i32 = 0; i32 < i3; ++i32) {
       nvfuser_index_t i33;
