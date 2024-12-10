@@ -284,7 +284,12 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     // The new loop domain of each tensor should be exactly mapped
     // with the reference loop domain
     for (const auto tv : fusion_copy.allTvs()) {
-      EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size());
+      // scheduleLoopDomainsLike skips fusion inputs
+      if (tv->isFusionInput()) {
+        continue;
+      }
+      EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size())
+          << "Invalid rank of loop domain: " << tv->toString();
       for (const auto i : c10::irange(ref_loop.size())) {
         EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
             tv->getLoopDomain().at(i), ref_loop.at(i)))
