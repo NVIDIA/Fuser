@@ -467,6 +467,22 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   }
 }
 
+void HostIrEvaluator::handle(kir::Allocate* allocate) {
+  NVF_ERROR(
+      allocate->buffer()->isA<TensorView>(),
+      "Allocation must be on a TensorView but got ",
+      allocate->buffer());
+  TensorView* tv = allocate->buffer()->as<TensorView>();
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  AliasInfo alias_info = {
+      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
+  c10::Device device =
+      communicator_ ? communicator_->device() : at::Device("cuda:0");
+  at::Tensor tensor = allocateTensor(info, alias_info, device, expr_evaluator_);
+  expr_evaluator_.bind(tv, tensor);
+}
+
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();

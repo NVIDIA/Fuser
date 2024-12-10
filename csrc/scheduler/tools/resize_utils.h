@@ -13,8 +13,8 @@ class Expr;
 
 namespace scheduler_tools {
 
-// For a given resize-based op such as slice and pad, make the loop
-// domain of each depedent producer tensor exact-mapped by propagating
+// For a given resize-based tensor op such as SliceOp and PadOp, make the loop
+// domain of each dependent producer tensor exact-mapped by propagating
 // the iter-domain ops of the output tensor of the given op. Note that
 // fusion inputs are skipped as their loop domains don't matter.
 void propagateResizeToInputs(Expr* resize_op);

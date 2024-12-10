@@ -61,6 +61,13 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     ExpressionEvaluator& expr_eval);
 
+// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
+at::Tensor allocateTensor(
+    const GlobalBufferInfo& out_info,
+    const AliasInfo& alias_info,
+    const c10::Device& device,
+    ExpressionEvaluator& ee);
+
 // Allocate output tensors for a given fusion. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocateOutputs(

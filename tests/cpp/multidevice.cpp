@@ -128,29 +128,18 @@ at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
     return tensor;
   }
   NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
-  return shardTensor(tensor, getShardedAxis(tv), tv->getDeviceMesh());
+  return shardTensor(
+      tensor,
+      getShardedLogicalAxis(tv, ParallelType::DIDx),
+      tv->getDeviceMesh());
 }
 
 at::Tensor MultiDeviceTest::shardTensor(
     at::Tensor tensor,
-    int64_t axis,
+    const int64_t axis,
     const DeviceMesh& mesh) {
   const auto device_id = communicator_->deviceId();
-  auto i = mesh.idxOf(device_id);
-  auto extent = tensor.size(axis);
-  auto nslices = mesh.size();
-  NVF_CHECK(
-      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
-  auto stride = extent / nslices;
-  // TODO: returning slice 0 temporarily when device is not in the mesh.
-  i = (i < 0) ? 0 : i;
-  auto slice = tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
-  // Temporary until https://github.com/NVIDIA/Fuser/issues/2563. Adds DIDx
-  // axis in front representing the sharded extent of the tensor.
-  if (stride > 1) {
-    slice = slice.unsqueeze(0);
-  }
-  return slice;
+  return nvfuser::shardTensor(tensor, axis, mesh, device_id);
 }
 
 } // namespace nvfuser

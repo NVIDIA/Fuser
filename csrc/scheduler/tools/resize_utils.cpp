@@ -19,8 +19,6 @@ namespace nvfuser {
 namespace scheduler_tools {
 
 void propagateResizeToInputs(Expr* resize_tensor_op) {
-  DebugStreamGuard dsg(std::cerr);
-
   NVF_ERROR(
       resize_tensor_op->isA<SliceOp>() || resize_tensor_op->isA<PadOp>(),
       "Unexpected resize tensor op: ",

@@ -305,11 +305,11 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   const int64_t B64_elements = 64 / dataTypeSize(dtype);
   const int64_t B32_elements = 32 / dataTypeSize(dtype);
 
-  if (inner_dim_size >= B128_elements) {
+  if (inner_dim_size % B128_elements == 0) {
     return MmaInputSmemSwizzle::B128;
-  } else if (inner_dim_size >= B64_elements) {
+  } else if (inner_dim_size % B64_elements == 0) {
     return MmaInputSmemSwizzle::B64;
-  } else if (inner_dim_size >= B32_elements) {
+  } else if (inner_dim_size % B32_elements == 0) {
     return MmaInputSmemSwizzle::B32;
   } else {
     NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
@@ -1081,10 +1081,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Schedule shared memory cache; Output from StMatrix
       scheduleStMatrixForMmaOutput(
-          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n, tma_m, tma_n);
+          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
 
       // Schedule global memory output; Output from TMA Store
-      scheduleTMAStoreForMmaOutput(d, swizzle, tma_m, tma_n);
+      scheduleTMAStoreForMmaOutput(d, swizzle);
     }
   }
 }
@@ -1244,9 +1244,7 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
     int64_t tile_m,
-    int64_t tile_n,
-    int64_t tma_m,
-    int64_t tma_n) {
+    int64_t tile_n) {
   NVF_ERROR(
       ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
       "We only support 16x16 and 16x16 stmatrix now");
@@ -1258,8 +1256,10 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
   auto s =
       mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
 
-  // Create tma store allocation domain with swizzle
-  scheduleTMAStoreForMmaOutput(tv, swizzle, tma_m, tma_n);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    // Create tma store allocation domain with swizzle
+    scheduleTMAStoreForMmaOutput(tv, swizzle);
+  }
 
   tv->setLoopDomain(s.as<IterDomain*>());
 
@@ -1286,18 +1286,11 @@ void HopperMultipleMatmulScheduler::scheduleStMatrixForMmaOutput(
 
 void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    int64_t m,
-    int64_t n) {
-  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
-  tv->split(-2, m);
-  tv->split(-1, n);
-  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
-  tv->reorder({{-2, -3}});
-
-  // [BDX, BDY, TDY, MO(1), NO(1), MI, NI]
-  // skip the first 5 iterDomains
-  int64_t num_ids_to_skip = 5;
+    MmaInputSmemSwizzle swizzle) {
+  // [BDX, BDY, TDY, MI, NI]
+  // skip all but last 2 iterDomains
+  int64_t num_ids_to_skip =
+      static_cast<int64_t>(tv->getLoopDomain().size() - 2);
 
   NVF_ERROR(num_ids_to_skip >= 0);
   if (swizzle == MmaInputSmemSwizzle::None) {
@@ -1308,8 +1301,6 @@ void HopperMultipleMatmulScheduler::scheduleTMAStoreForMmaOutput(
     tv->split(-1, 8);
     // [Ko, K8, No, N8]
     tv->reorder({{-2, -3}});
-    // [Ko, No, K8, N8]
-    num_ids_to_skip += 2;
   } else {
     auto dtype = tv->getDataType().value();
 
