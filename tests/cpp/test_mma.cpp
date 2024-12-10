@@ -531,9 +531,10 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
-  mma_utils::scheduleStMatrixForMmaOutput(tv3, tile_m, tile_n);
+  MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
+  mma_utils::scheduleStMatrixForMmaOutput(tv3, swizzle, tile_m, tile_n);
 
-  mma_utils::scheduleTMAStoreForMmaOutput(tv4, getM(macro), getN(macro));
+  mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
