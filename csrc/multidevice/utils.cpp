@@ -48,11 +48,12 @@ std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
 // actual allocation, but this will have to change in the future.
 int64_t allocationIndex(TensorView* tv, IterDomain* id) {
   int64_t index = 0;
-  for (auto i : tv->getLoopDomain()) {
-    if (i == id) {
+  for (auto* loop_id : tv->getLoopDomain()) {
+    if (loop_id == id) {
       return index;
     }
-    if (!i->isDeviceDim() && !i->isReduction() && !i->isBroadcast()) {
+    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
+        !loop_id->isBroadcast()) {
       index++;
     }
   }
