@@ -52,10 +52,10 @@ bool hasVectorizationCache(TensorView* tv) {
 
 class DomainMapUnitTest : public pointwise_utils::DomainMap {
  public:
-  DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion) {};
-  bool testOutputMapping(TensorView* output_tv, TensorView* reference_tv)
+  DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion){};
+  bool testTargetCoverage(TensorView* target_tv, TensorView* reference_tv)
       const {
-    return areAllOutputIdsMappedTo(output_tv, reference_tv);
+    return areAllTargetIdsCoveredBy(target_tv, reference_tv);
   }
 };
 
@@ -789,29 +789,36 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  // tv0 {i0, i1}
   TensorView* tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
+  // tv1 {i0, i1}
   auto tv1 = relu(tv0);
   fusion->addOutput(tv1);
+  // tv2 {i0, b2, i1}
   auto tv2 = broadcast(tv1, {false, true, false});
+  // tv3 {i0, b3{1 ex 4}, i1}
   auto tv3 = expand(
       tv2,
       {tv2->axis(0)->extent(),
        IrBuilder::create<Val>(4),
        tv2->axis(2)->extent()});
+  // Note that currently expand doesn't introduce an iter domain operation, so
+  // we don't see that i4 is produced by realizing the expanded extent of b3{1
+  // ex 4} tv4 {i0, i4*i1}
   auto tv4 = reshape(tv3, {2, 4, 3}, {2, 12});
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
-  // tv1 can't map to tv4, because the expanded ID participates in
+  // tv4 is not covered by tv1, because the expanded ID i4 participates in
   // transformation
-  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv1));
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv1));
 
-  // tv1 can map to tv3, because the missing ID is broadcast
-  EXPECT_TRUE(domain_map.testOutputMapping(tv3, tv1));
+  // tv3 is covered by tv1, because the missing ID b3{1 ex 4} is broadcast
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv3, tv1));
 
-  // tv4 can map to tv1
-  EXPECT_TRUE(domain_map.testOutputMapping(tv1, tv4));
+  // tv1 is covered by tv4
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv1, tv4));
 
   // tv1 is not a valid reference
   EXPECT_FALSE(domain_map.isValidReference(tv1));
@@ -825,25 +832,30 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  // tv0 {i0, i1}
   TensorView* tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
+  // tv1 {i2, i0, i1}
   TensorView* tv1 = makeContigTensor(3);
   fusion->addInput(tv1);
+  // tv2 {i0*i1}
   auto tv2 = reshape(tv0, {2, 4}, {8});
   fusion->addOutput(tv2);
 
+  // tv3 {b3, i0, i1}
   auto tv3 = broadcast(tv0, {true, false, false});
+  // tv4 {i2, i0, i1}
   auto tv4 = add(tv1, tv3);
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
-  // tv2 can't map to tv4, because it misses tv4->axis(0)
-  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv2));
+  // tv4 is not covered by tv2, because it misses i2
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv2));
 
-  // tv2 can map to tv4
-  EXPECT_TRUE(domain_map.testOutputMapping(tv2, tv4));
+  // tv2 is covered by tv4
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv2, tv4));
 
-  // However, tv2 is not a valid reference, since it doesn't cover all input IDs
+  // tv2 is not a valid reference
   EXPECT_FALSE(domain_map.isValidReference(tv2));
 
   // tv4 is a valid reference
@@ -855,39 +867,47 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  // tv1 {i1}
   TensorView* tv0 = makeContigTensor(1);
   fusion->addInput(tv0);
+  // tv1 {i0, i1}
   TensorView* tv1 = makeContigTensor(2);
   fusion->addInput(tv1);
 
+  // tv2 {b2, b3, i1}
   auto tv2 = broadcast(tv0, {true, true, false});
+  // Note: tv1 will be broadcasted to {b2, i0, i1} before the add.
+  // tv3 {b2, i0, i1}
   auto tv3 = add(tv2, tv1);
   fusion->addOutput(tv3);
 
   auto size_val = IrBuilder::create<Val>(4.0, DataType::Int);
   auto one_val = IrBuilder::create<Val>(1, DataType::Int);
+  // factory method creates an iter domain out of thin air
+  // tv4 {i4{4}, b4, i1}
   auto tv4 = ones({size_val, one_val, tv0->axis(0)->extent()}, DataType::Float);
+  // tv5 {i4{4}, i0, i1}
   auto tv5 = add(tv2, tv4);
   fusion->addOutput(tv5);
 
   DomainMapUnitTest domain_map(fusion);
 
-  // tv3 can't map to tv4, because it's missing the expanded dimension
-  EXPECT_FALSE(domain_map.testOutputMapping(tv4, tv3));
-  // tv4 can't map to tv1, since it's missing tv1->axis(0)
-  EXPECT_FALSE(domain_map.testOutputMapping(tv1, tv4));
+  // tv4 is not covered by tv3, because it's missing i4{4}
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv3));
+  // tv1 is not covered by tv4, since it's missing i0
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv1, tv4));
 
-  // tv3 should not be a valid reference
   EXPECT_FALSE(domain_map.isValidReference(tv3));
+  // tv5 has the same IDs as tv4, and is not a valid reference.
   EXPECT_FALSE(domain_map.isValidReference(tv5));
 
+  // This fusion currently cannot be scheduled as a single kernel. The test
+  // verifies that it generates correct result.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::empty_strided({25}, {1}, options);
   at::Tensor input1 = at::empty_strided({7, 25}, {25, 1}, options);
   auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
-  // EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
   testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 

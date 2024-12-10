@@ -38,10 +38,10 @@ class DomainMap {
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
       const;
 
-  // Determine if all source IterDomains in output_tv are mapped to the
+  // Determine if all source IterDomains in target_tv are contained by the
   // reference_tv, this ensures transformations from reference_tv can be
-  // propagated to output_tv
-  bool areAllOutputIdsMappedTo(TensorView* output_tv, TensorView* reference_tv)
+  // propagated to target_tv
+  bool areAllTargetIdsCoveredBy(TensorView* target_tv, TensorView* reference_tv)
       const;
 
   virtual IterDomain* getMappedInputConcreteID(

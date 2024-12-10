@@ -142,14 +142,13 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
-// Note: ideally we would want to check that reference_tv contains (not
-// necessarily maps) all iter domains in output_tv, so that transformation
-// applied on reference_tv can be propagated to output_tv. But we don't have
-// an easy way to check that.
-// Instead of that, this function checks that all source iter domains involved
-// in transformation on output_tv is covered by reference_tv. We do so by
-// traverse all disjoint set producers on both tvs and filter them with
-// `ca_map_.uniqueExactDefinitions(id).empty()`.
+// Note: ideally we would want to check that reference_tv contains all iter
+// domains in target_tv, so that transformation applied on reference_tv can be
+// propagated to target_tv. But we don't have an easy way to check that. Instead
+// of that, this function checks that all source iter domains involved in
+// transformation on target_tv is covered by reference_tv. Source iter domains
+// of TensorViews are IDs that doesn't have an definition and are producers of
+// any IDs on the logical domain of the given TensorView.
 //
 // ------
 //
@@ -161,7 +160,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 //   output(T34)
 //   output(T198)
 //
-// if we consider taking T34 as reference_tv. T198 is the output_tv. We can't
+// if we consider taking T34 as reference_tv. T198 is the target_tv. We can't
 // replay T34's transform of merging all the dimensions to T198, since b3(ex)*i1
 // can't be reversed. The check in this function would give us T34 with source
 // i0, i1; where T198 would have source i0, b3, i1, where b3 isn't contained in
@@ -181,34 +180,36 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 // the example above should be able to pick T4 as reference_tv. T2's source i0,
 // i1 are both contained by the source of T4, so this example could be scheduled
 // as a single fusion.
-bool DomainMap::areAllOutputIdsMappedTo(
-    TensorView* output_tv,
+bool DomainMap::areAllTargetIdsCoveredBy(
+    TensorView* target_tv,
     TensorView* reference_tv) const {
-  // traverse back to collect all disjoint set producers from the logical domain
-  // of tv.
-  auto get_source_producers = [this](TensorView* tv) {
+  auto get_source_iter_domains = [this](TensorView* tv) {
+    // traverse back to collect all disjoint set producer IDs for each ID in the
+    // logical domain of tv.
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
     std::for_each(
         tv->getLogicalDomain().begin(),
         tv->getLogicalDomain().end(),
-        [&](IterDomain* id) {
+        [&](IterDomain* tv_logical_id) {
           all_producer_sets.pushBack(
-              ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+              ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
         });
     all_producer_sets.pushBack(
         ca_map_.getAllDisjointSetProducers(all_producer_sets));
 
     std::vector<IterDomain*> source_ids;
+    // filtering all producer IDs with empty definition to get source iter
+    // domains
     std::for_each(
         all_producer_sets.vector().begin(),
         all_producer_sets.vector().end(),
         [&source_ids,
          this](const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
                    producer_set_ptr) {
-          IterDomain* id = producer_set_ptr->front();
-          if (ca_map_.uniqueExactDefinitions(id).empty()) {
-            source_ids.push_back(id);
+          IterDomain* producer_id = producer_set_ptr->front();
+          if (ca_map_.uniqueExactDefinitions(producer_id).empty()) {
+            source_ids.push_back(producer_id);
           }
         });
     return source_ids;
@@ -217,14 +218,14 @@ bool DomainMap::areAllOutputIdsMappedTo(
   // this contains all source iter domain that's covered by reference_tv, so
   // it's safe for output_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
-  for (IterDomain* id : get_source_producers(reference_tv)) {
-    covered_source_ids.insert(id);
+  for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
+    covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
   // expecting pointwise scheduler to handle this pattern
-  for (IterDomain* id : output_tv->getLogicalDomain()) {
-    if (id->isBroadcast()) {
-      covered_source_ids.insert(id);
+  for (IterDomain* id_out : output_tv->getLogicalDomain()) {
+    if (id_out->isBroadcast()) {
+      covered_source_ids.insert(id_out);
     }
   }
   // Note: there's certain cases where it's safe to have dangling IDs,
@@ -238,16 +239,16 @@ bool DomainMap::areAllOutputIdsMappedTo(
   //   T34  [i0, i1]
   //   T185 [i0, b2, i1]     = broadcast(T34)
   //   T186 [i0, i4, i1]     = ones({i0, i4, i1})
-  //   T193 [i0, i4, i1]     = add(T34, T186)
+  //   T193 [i0, i4, i1]     = add(T185, T186)
   // It's unsafe to propagate from T34 to T193, see issue
   // https://github.com/NVIDIA/Fuser/issues/3542
 
   // Check all source iter domain involved in producing output_tv
-  for (IterDomain* id : get_source_producers(output_tv)) {
-    // if we find any source id that's not contained, it's possible our
+  for (IterDomain* source_id_out : get_source_iter_domains(output_tv)) {
+    // if we find any source_id_out that's not contained, it's possible our
     // propagation would fail since transformation involving this iter domain
     // can't be resolved.
-    if (!getMappedInputConcreteID(covered_source_ids, id)) {
+    if (!getMappedInputConcreteID(covered_source_ids, source_id_out)) {
       return false;
     }
   }
@@ -370,7 +371,7 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_coverage_to_output)
       if (output_tv == tv) {
         continue;
       }
-      if (!areAllOutputIdsMappedTo(output_tv, tv)) {
+      if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
         return false;
       }
     }
