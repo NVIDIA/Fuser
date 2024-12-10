@@ -2,9 +2,9 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import BENCHMARK_CONFIG
+from .core import BENCHMARK_CONFIG, DEFAULT_EXECUTORS
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
-from .global_params import DEFAULT_EXECUTORS
+
 
 def pytest_addoption(parser):
     parser.addoption(

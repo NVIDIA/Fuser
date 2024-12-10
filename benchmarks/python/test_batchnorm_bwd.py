@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, DEFAULT_EXECUTORS
+from .global_params import generate_input_sizes, FLOAT_DTYPES
 from .normalization import norm_bwd_nvf_benchmark, norm_bwd_baseline_benchmark
+from .core import DEFAULT_EXECUTORS
 
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))

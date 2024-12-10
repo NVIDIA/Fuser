@@ -9,9 +9,10 @@ from .core import (
     clear_dynamo_cache,
     compute_total_iobytes,
     with_executor,
+    DEFAULT_EXECUTORS,
 )
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES, DEFAULT_EXECUTORS
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import dropout_layernorm
 
 

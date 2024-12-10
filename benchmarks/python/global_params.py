@@ -26,8 +26,6 @@ else:
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
 PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
 
-#Default executors
-DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
 # Model Parameters from LLMs (GPT2/3, PaLM, LLama)
 
 # Embedding size: d_model, d_ff = 4 * d_model

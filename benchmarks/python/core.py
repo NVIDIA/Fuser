@@ -12,7 +12,6 @@ from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from .global_params import DEFAULT_EXECUTORS
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -21,6 +20,9 @@ BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
+
+# Default executors
+DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
 
 
 def clear_l2_cache() -> None:
@@ -46,19 +48,9 @@ def clear_dynamo_cache() -> None:
 def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
 
-def with_executor(executor: str, fwd_fn: Callable) -> Callable:
-    assert executor in DEFAULT_EXECUTORS
-    if executor == 'eager':
-        return fwd_fn
-    if executor == 'torchcompile':
-        return torch.compile(fwd_fn)
-    if executor == 'thunder':
-        return thunder.jit(
-            fwd_fn, nv_enable_bookend=False, executors=[nvfuserex]
-        )            
 
 def with_executor(executor: str, fwd_fn: Callable) -> Callable:
-    assert executor in ["eager", "torchcompile", "thunder"]
+    assert executor in DEFAULT_EXECUTORS
     if executor == "eager":
         return fwd_fn
     if executor == "torchcompile":
