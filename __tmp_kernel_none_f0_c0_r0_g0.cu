@@ -11559,17 +11559,15 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
     }
     #pragma unroll
     for(nvfuser_index_t i44 = 0; i44 < 16; ++i44) {
-      if ((b20 && (i21 < (-(16 * i44))))) {
-        asm volatile(
-          "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
-          :
-          :"r"((uint32_t)((toSmem(T6) + ((((nvfuser_index_t)threadIdx.y) * 32768) + (((i44 / 4) * 8192) + ((i11 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i44 % 4) * 2)) ^ (i11 % 8)) * 16))))))),
-          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[0]),
-          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[1]),
-          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[2]),
-          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[3])
-        );
-      }
+      asm volatile(
+        "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
+        :
+        :"r"((uint32_t)((toSmem(T6) + ((((nvfuser_index_t)threadIdx.y) * 32768) + (((i44 / 4) * 8192) + ((i11 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i44 % 4) * 2)) ^ (i11 % 8)) * 16))))))),
+        "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[0]),
+        "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[1]),
+        "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[2]),
+        "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[3])
+      );
     }
     __syncthreads();
     #pragma unroll
