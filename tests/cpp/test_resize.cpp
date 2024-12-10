@@ -4150,7 +4150,7 @@ TEST_F(ResizeTest, PropagateSliceToInputs) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-// Propagating slice to inputs with rehsape before slice
+// Propagating slice to inputs with reshape before slice
 TEST_F(ResizeTest, PropagateSliceToInputsWithReshape1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -4222,7 +4222,7 @@ TEST_F(ResizeTest, PropagateSliceToInputsWithReshape1) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-// Propagating slice to inputs with rehsape after slice
+// Propagating slice to inputs with reshape after slice
 TEST_F(ResizeTest, PropagateSliceToInputsWithReshape2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
