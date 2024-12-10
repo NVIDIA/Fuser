@@ -134,6 +134,14 @@ void unshard(TensorView*);
 // extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
+// Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
+// is determined by `mesh` and `device_id`. Returns the sharded tensor.
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh,
+    DeviceIdxType device_id);
+
 // Reorders a TensorView so that the DID parallelized axis are in front.
 void reorderDIDToFront(TensorView*);
 
