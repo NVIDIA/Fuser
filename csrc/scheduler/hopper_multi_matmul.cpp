@@ -1209,13 +1209,13 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
+          params_->circular_buffer_options.smem_circular_buffer_prefetch);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
+          params_->circular_buffer_options.smem_circular_buffer_prefetch);
     }
   }
 
