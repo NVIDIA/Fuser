@@ -196,6 +196,8 @@ Communicator::Communicator(
     return;
   }
 
+  cudaSetDevice(local_rank_);
+
 #ifdef NVFUSER_DISTRIBUTED
   c10d::TCPStoreOptions store_opts;
   {
