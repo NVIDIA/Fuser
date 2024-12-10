@@ -424,11 +424,20 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  // These two values are not strictly required. They are used for shape
+  // checking and a suboptimal case where the scattered axis is not outermost
+  // in allocation.
+  const auto reduction_axis = communication->out()->getReductionAxis().value();
   const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
       scattered_axis);
+
+  std::vector<at::Tensor> input_tensors = at::tensor_split(
+      input_tensor, communication->team_size(), scattered_axis);
+  assertBuffersHaveSameSize(
+      input_tensors, {output_tensor.unsqueeze(reduction_axis)});
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
   // user's input tensors to an internal source buffer. It is therefore always
@@ -444,15 +453,12 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   }
 #endif
 
-  std::vector<std::vector<at::Tensor>> input_tensors(1);
-  input_tensors[0] = at::tensor_split(
-      input_tensor, communication->team_size(), scattered_axis);
-
-  std::vector<at::Tensor> output_tensors({output_tensor});
-
-  assertBuffersHaveSameSize(input_tensors[0], {output_tensor.unsqueeze(0)});
+  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
+  std::vector<at::Tensor> output_tensor_vec({output_tensor});
   return backend->reduce_scatter(
-      output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
+      output_tensor_vec,
+      input_tensors_vec,
+      {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
