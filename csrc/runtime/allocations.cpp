@@ -243,7 +243,6 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateTensor(
     const GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,

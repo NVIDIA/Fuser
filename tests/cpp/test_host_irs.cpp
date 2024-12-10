@@ -1033,6 +1033,43 @@ TEST_F(AllocationTest, HostIr) {
   EXPECT_EQ(sizes, outputs.at(0).sizes());
 }
 
+TEST_F(AllocationTest, inHostForLoop) {
+  constexpr int64_t kForLoopStop = 4;
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
+      /*index=*/IrBuilder::create<Val>(DataType::Index),
+      /*start=*/hic->zeroVal(),
+      /*stop=*/IrBuilder::create<Val>(kForLoopStop, DataType::Index),
+      /*step=*/hic->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  TensorView* tv0 = makeConcreteTensor(sizes);
+  tv0->setMemoryType(MemoryType::Global);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
+  TensorView* tv1 = abs(tv0);
+
+  for_loop->body().push_back(allocate);
+  for_loop->body().push_back(tv1->definition());
+
+  hic->pushBackTopLevelExprs(for_loop);
+  hic->addOutput(tv1);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto outputs = hie.runWithInput({});
+
+  EXPECT_EQ(sizes, outputs.at(0).sizes());
+}
+
 } // namespace hir
 
 } // namespace nvfuser
