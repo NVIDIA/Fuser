@@ -11524,64 +11524,64 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
          "n"(1),
          "n"(1)
       );
+      asm volatile("wgmma.commit_group.sync.aligned;\n");
+      asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
       mbarrier::arrive(toSmem((&T8[((i32 % 4) + 4LL)])));
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i36 = 0; i36 < 4; ++i36) {
-    if (((Hopper::electSync(4294967295U) && b16) && b17)) {
-      mbarrier::inval(toSmem((&T8[(i36 + 4LL)])));
-    }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i37 = 0; i37 < 4; ++i37) {
-    if (((Hopper::electSync(4294967295U) && b16) && b17)) {
-      mbarrier::inval(toSmem((&T8[i37])));
-    }
-  }
-  asm volatile("wgmma.commit_group.sync.aligned;\n");
-  asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-  #pragma unroll
-  for(nvfuser_index_t i38 = 0; i38 < 32; ++i38) {
-    nvfuser_index_t i39;
-    i39 = 4 * i38;
     #pragma unroll
-    for(nvfuser_index_t i40 = 0; i40 < 2; ++i40) {
-      nvfuser_index_t i41;
-      i41 = i39 + (2 * i40);
-      #pragma unroll
-      for(nvfuser_index_t i42 = 0; i42 < 2; ++i42) {
-        nvfuser_index_t i43;
-        i43 = i41 + i42;
-        T7[i43]
-           = __float2half(T2[i43]);
+    for(nvfuser_index_t i36 = 0; i36 < 4; ++i36) {
+      if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+        mbarrier::inval(toSmem((&T8[(i36 + 4LL)])));
       }
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i44 = 0; i44 < 16; ++i44) {
-    if ((b20 && (i21 < (-(16 * i44))))) {
-      asm volatile(
-        "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
-        :
-        :"r"((uint32_t)((toSmem(T6) + ((((nvfuser_index_t)threadIdx.y) * 32768) + (((i44 / 4) * 8192) + ((i11 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i44 % 4) * 2)) ^ (i11 % 8)) * 16))))))),
-         "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[0]),
-         "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[1]),
-         "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[2]),
-         "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[3])
-      );
+    #pragma unroll
+    for(nvfuser_index_t i37 = 0; i37 < 4; ++i37) {
+      if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+        mbarrier::inval(toSmem((&T8[i37])));
+      }
     }
-  }
-  __syncthreads();
-  #pragma unroll
-  for(nvfuser_index_t i45 = 0; i45 < 4; ++i45) {
-    asm volatile("fence.proxy.async;\n");
-    if (b19) {
-      Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i45)), i15}) }), (i12 + (8192 * i45)));
+    #pragma unroll
+    for(nvfuser_index_t i38 = 0; i38 < 32; ++i38) {
+      nvfuser_index_t i39;
+      i39 = 4 * i38;
+      #pragma unroll
+      for(nvfuser_index_t i40 = 0; i40 < 2; ++i40) {
+        nvfuser_index_t i41;
+        i41 = i39 + (2 * i40);
+        #pragma unroll
+        for(nvfuser_index_t i42 = 0; i42 < 2; ++i42) {
+          nvfuser_index_t i43;
+          i43 = i41 + i42;
+          T7[i43]
+            = __float2half(T2[i43]);
+        }
+      }
     }
+    #pragma unroll
+    for(nvfuser_index_t i44 = 0; i44 < 16; ++i44) {
+      if ((b20 && (i21 < (-(16 * i44))))) {
+        asm volatile(
+          "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
+          :
+          :"r"((uint32_t)((toSmem(T6) + ((((nvfuser_index_t)threadIdx.y) * 32768) + (((i44 / 4) * 8192) + ((i11 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i44 % 4) * 2)) ^ (i11 % 8)) * 16))))))),
+          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[0]),
+          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[1]),
+          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[2]),
+          "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i44)]))[3])
+        );
+      }
+    }
+    __syncthreads();
+    #pragma unroll
+    for(nvfuser_index_t i45 = 0; i45 < 4; ++i45) {
+      asm volatile("fence.proxy.async;\n");
+      if (b19) {
+        Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i45)), i15}) }), (i12 + (8192 * i45)));
+      }
+    }
+    asm volatile("cp.async.bulk.commit_group;\n");
+    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
   }
-  asm volatile("cp.async.bulk.commit_group;\n");
-  asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
 }
 }
 
