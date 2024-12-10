@@ -3772,8 +3772,10 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv3c->setLoopDomain(s.as<IterDomain*>());
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
 
-    fusion.manage("st_matrix_m_tile", (int64_t)16);
-    fusion.manage("st_matrix_n_tile", (int64_t)16);
+    constexpr int64_t stmatrix_tile_m = 16;
+    constexpr int64_t stmatrix_tile_n = 16;
+    fusion.manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion.manage("st_matrix_n_tile", stmatrix_tile_n);
     fusion.manage("st_matrix_m", getM(macro));
     fusion.manage("st_matrix_n", getN(macro));
 
