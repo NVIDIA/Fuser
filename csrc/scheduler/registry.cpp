@@ -13,6 +13,7 @@
 #include <scheduler/matmul_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
@@ -90,6 +91,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<MatmulScheduler>();
     case SchedulerType::ExprEval:
       return std::make_unique<ExprEvalScheduler>();
+    case SchedulerType::Resize:
+      return std::make_unique<ResizeScheduler>();
     default:
       NVF_THROW("unreachable");
   }
