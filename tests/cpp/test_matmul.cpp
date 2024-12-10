@@ -3664,6 +3664,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   const int64_t cta_m = 2 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
+  constexpr std::tuple<int64_t, int64_t, int64_t> cluster_dims{2, 1, 1};
+
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
   auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
   fusion.addInput(tv0);
@@ -3678,6 +3680,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   auto tv3 = castOp(DataType::Half, tv2);
   fusion.addOutput(tv3);
+
+  fusion.manage("cluster_dims", cluster_dims);s
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
