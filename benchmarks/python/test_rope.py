@@ -1679,6 +1679,7 @@ rope_configurations = {
         [
             ((2, 32, 4096, 96), torch.bfloat16),
             ((2, 32, 4096, 96), (0, 0, 96, 1), torch.bfloat16),
+            ((2, 32, 4096, 96), torch.bfloat16),
             ((2, 32, 4096, 96), (0, 0, 96, 1), torch.bfloat16),
             ((2, 32, 4096, 96), torch.bfloat16),
         ],
