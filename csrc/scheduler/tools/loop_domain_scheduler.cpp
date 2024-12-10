@@ -100,8 +100,11 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
 
 class LoopDomainScheduler {
  public:
-  LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
-      : ref_loop_dom_(std::move(ref_loop_dom)) {
+  LoopDomainScheduler(
+      std::vector<IterDomain*> ref_loop_dom,
+      bool update_loop_domain_only = false)
+      : ref_loop_dom_(std::move(ref_loop_dom)),
+        update_loop_domain_only_(update_loop_domain_only) {
     NVF_ERROR(!ref_loop_dom_.empty());
 
     // For now, ref must not be a broadcast domain
@@ -174,6 +177,9 @@ class LoopDomainScheduler {
 
  private:
   std::vector<IterDomain*> ref_loop_dom_;
+  // If true, uses the current loop domain as the starting domain and
+  // updates it to make it look like the given reference loop domain
+  bool update_loop_domain_only_ = false;
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
@@ -188,9 +194,14 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   // All of the existing IDs are reused as much as possible to
   // minimize creating new IDs.
-  auto all_ids = tv->domain()->allIDs();
+
   std::unordered_map<ValGroup, IterDomain*> group_to_id;
   ValGroups all_id_groups;
+  // When update_mode_ is true, only the loop domain IDs are reused as
+  // we attempt to transform the current loop domain to look like the
+  // reference loop domain.
+  auto all_ids =
+      update_loop_domain_only_ ? tv->getLoopDomain() : tv->domain()->allIDs();
   for (auto id : all_ids) {
     const auto& group = graph().toGroup(id);
     group_to_id.emplace(group, id);
@@ -297,9 +308,10 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 // See LoopDomainSchedulingTest.ReshapeTraversalDirection for a
 // concrete example.
 ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
-  // Find the path to the root domain of the tensor. It is important
-  // to use the root domain if available since there can be multiple
-  // forward paths to the logical domain in the ValGraph. For example,
+  // If not with the update mode, find the path to the root domain of
+  // the tensor. It is important to use the root domain if available since there
+  // can be multiple forward paths to the logical domain in the ValGraph. For
+  // example,
   //
   // t0 = [i0]
   // t1 = reshape(t0, {i0}, {i0/4, 4})
@@ -316,8 +328,12 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   // mean the t2 logical domain would have another definition (exactly mapped
   // with the t4 merge reshape). This issue can be avoided by using the root
   // domain of tv2 as the target of path finding.
-  ValGroups tv_target_domains =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
+  //
+  // In the case of the update mode, the target should be just the
+  // current loop domain of the tensor.
+  ValGroups tv_target_domains = graph().toGroups(TensorDomain::noBroadcasts(
+      update_loop_domain_only_ ? tv->getLoopDomain()
+                               : tv->getMaybeRootDomain()));
 
   // If all the target domains are an ancestor of the reference
   // domains, just a single backward BFS should be enough to find a
@@ -336,6 +352,13 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                Direction::Backward)
         .first;
   }
+
+  // In the case of the update mode, the path from the reference is
+  // assumed to just a backward traversal path.
+  NVF_ERROR(
+      !update_loop_domain_only_,
+      "Trying to update the current loop domain but could not find a valid path from the reference: ",
+      tv->toString());
 
   // Find the forward path from the ancestors to the target tensor
   auto forward_path = ValGraphBFS::getExprGroupsBetween(
@@ -373,12 +396,13 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
 
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom) {
+    const std::vector<IterDomain*>& ref_loop_dom,
+    bool update_loop_domain_only) {
   if (tvs.empty()) {
     return;
   }
 
-  LoopDomainScheduler scheduler(ref_loop_dom);
+  LoopDomainScheduler scheduler(ref_loop_dom, update_loop_domain_only);
 
   for (auto tv : tvs) {
     // Loop domain of fusion inputs should have no meaning
