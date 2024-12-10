@@ -1741,3 +1741,46 @@ def test_rope_variations_nvf_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
+
+def toy_rope(
+    x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, rope_n_elem: int
+) -> torch.Tensor:
+    x_rope = x[..., :rope_n_elem]
+    x1 = x_rope[..., : rope_n_elem // 2]  # (B, nh, T, hs/2)
+    x2 = x_rope[..., rope_n_elem // 2 :]  # (B, nh, T, hs/2)
+    rotated = torch.cat((-x2, x1), dim=-1)  # (B, nh, T, hs)
+    roped = (x_rope * cos) + (rotated * sin)
+    roped.to(dtype=x.dtype)
+    return torch.cat((roped, x[..., rope_n_elem:]), dim=-1)
+
+
+@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+@pytest.mark.parametrize("batch_size", (i**2 for i in range(2, 10)))
+def test_toy_rope_benchmark(
+    benchmark,
+    batch_size,
+    executor: str,
+):
+    bsz = batch_size
+    block_size = 1024
+    n_head = 16
+    head_size = 32
+    rope_n_elem = 8
+    dtype = torch.bfloat16
+    device = "cuda:0"
+
+    x = torch.randn([bsz, n_head, block_size, head_size], device=device, dtype=dtype)
+    cos = torch.randn(block_size, rope_n_elem, device=device, dtype=dtype)
+    sin = torch.randn(block_size, rope_n_elem, device=device, dtype=dtype)
+
+    if executor == "torchcompile":
+        clear_dynamo_cache()
+
+    benchmark_fn = with_executor(executor, toy_rope)
+
+    run_benchmark(
+        benchmark,
+        benchmark_fn,
+        [x, weight, bias, num_groups],
+    )
