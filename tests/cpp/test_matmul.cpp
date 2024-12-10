@@ -3941,9 +3941,12 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
     // of 3
     ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
     inlineMost();
+    tmp_fusion.printMath();
     ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
     EXPECT_EQ(ir_cloner.clone(tv0c)->getComputeAtPosition(), 1);
-    // TODO: why is tv1c not inlined past the broadcast Mo dimension?
+    // The outermost loop dim of tv1c is a broadcast Mo axis, so
+    // tv1c->inlineAt(1) does not inline past that axis and we wind up with
+    // compute-at position 0.
     EXPECT_EQ(ir_cloner.clone(tv1c)->getComputeAtPosition(), 0);
   }
 
