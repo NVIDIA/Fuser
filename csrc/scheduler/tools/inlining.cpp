@@ -205,6 +205,14 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
 
       // Get ValGroups in loop domains of producer and consumer that are
       // connected to _mapped_ IterDomains in the pairwise map.
+      //
+      // Note that for MmaOp, it would be sufficient to traverse from the
+      // producer loop to the consumer loop and identify when _either_ the
+      // consumer or producer ID is not mapped. Here we are instead traversing
+      // from mapped domains to both roots so that we can check that _both_
+      // consumer and producer ID is not mapped. This is slightly safer and this
+      // symmetry might be handy in handling new ops that use this feature in
+      // the future.
       std::vector<ValGroup> pairwise_mapped_groups;
       for (auto [c_id, p_id] : PairwiseLogicalDomainMap(producer, consumer)
                                    .mapConsumerToProducer()) {
