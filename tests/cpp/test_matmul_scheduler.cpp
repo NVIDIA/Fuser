@@ -3134,7 +3134,7 @@ std::string hopperTestName(
   os << (a_k_inner ? "K" : "M");
   os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
-  os << "_MmaMacro_" << mma_macro_to_str_map.at(mma_macro);
+  os << "_MmaMacro_" << macroToString(mma_macro);
   if (use_smem_epilogue) {
     os << "_tma_store";
   }
