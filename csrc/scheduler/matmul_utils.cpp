@@ -91,6 +91,9 @@ void limitCircularBufferingSmemOperands(
 
   mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
+  mparams->circular_buffer_options.smem_circular_buffer_prefetch = std::min(
+      mparams->circular_buffer_options.smem_circular_buffer_prefetch,
+      (int)stages - 1);
 }
 
 //! A wrapper for core heuristics initialization.
@@ -156,6 +159,8 @@ inline bool initCoreHeuristics(
       mparams->circular_buffer_options.circular_buffer_smem_write = true;
       mparams->circular_buffer_options.circular_buffer_smem_read = true;
       mparams->circular_buffer_options.smem_circular_buffer_stage = stages;
+      mparams->circular_buffer_options.smem_circular_buffer_prefetch =
+          stages - 1;
     }
   }
 
@@ -181,6 +186,9 @@ inline bool initCoreHeuristics(
     // most.
     mparams->circular_buffer_options.smem_circular_buffer_stage = std::min(
         2, mparams->circular_buffer_options.smem_circular_buffer_stage);
+    mparams->circular_buffer_options.smem_circular_buffer_prefetch = std::min(
+        mparams->circular_buffer_options.smem_circular_buffer_prefetch,
+        mparams->circular_buffer_options.smem_circular_buffer_stage - 1);
   }
   return true;
 }
