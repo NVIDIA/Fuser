@@ -831,9 +831,16 @@ bool isScalarExpr(Expr* expr) {
   return true;
 }
 
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  Val* pdm_max_extent = nullptr;
+  if (in_compute_warp) {
+    pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
+  } else {
+    pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  }
   if (nullptr == pdm_max_extent) {
     return false;
   }
