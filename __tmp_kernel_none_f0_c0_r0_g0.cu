@@ -11365,10 +11365,8 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
     i15 = i14 + i8;
     nvfuser_index_t i18;
     i18 = ((nvfuser_index_t)threadIdx.x) / 4;
-    bool b19;
-    b19 = ((nvfuser_index_t)threadIdx.y) < 2;
     bool b20;
-    b20 = b19 && (((((8 + (16 * (i18 / 8))) + (i18 % 8)) + i14) + i8) < T0.logical_size[1LL]);
+    b20 = (((((8 + (16 * (i18 / 8))) + (i18 % 8)) + i14) + i8) < T0.logical_size[1LL]);
     nvfuser_index_t i21;
     i21 = ((9 - T1.logical_size[2LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4))) + i5;
     float T2[128];
@@ -11577,9 +11575,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
     #pragma unroll
     for(nvfuser_index_t i45 = 0; i45 < 4; ++i45) {
       asm volatile("fence.proxy.async;\n");
-      if (b19) {
-        Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i45)), i15}) }), (i12 + (8192 * i45)));
-      }
+      Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i45)), i15}) }), (i12 + (8192 * i45)));
     }
     asm volatile("cp.async.bulk.commit_group;\n");
     asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
