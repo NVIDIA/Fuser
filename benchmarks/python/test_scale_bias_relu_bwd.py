@@ -4,10 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
+from .torch_ops import scale_bias_relu
 
 
 def sbr_bwd_fusion(
@@ -95,12 +96,10 @@ def test_sbr_bwd_baseline_benchmark(
     scale = torch.ones(size[-1], device="cuda", dtype=dtype)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
 
-    def sbr_fwd():
-        return torch.nn.functional.relu(inputs * scale + bias)
-
     # Compile the fwd fn for torchcompile
-    fwd_fn = {"eager": sbr_fwd, "torchcompile": torch.compile(sbr_fwd)}
-    outputs = fwd_fn[executor]()
+    fwd_fn = with_executor(executor, scale_bias_relu)
+    fwd_inputs = [inputs, scale, bias]
+    outputs = fwd_fn(fwd_inputs)
 
     run_benchmark(
         benchmark,

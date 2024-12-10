@@ -3119,8 +3119,8 @@ using HopperMatmulSchedulerTestParams = std::tuple<
     bool, // b_k_inner
     int64_t, // M
     int64_t, // N
-    int64_t // K
-    >;
+    int64_t, // K
+    MmaMacro>;
 
 std::string hopperTestName(
     const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
@@ -3128,13 +3128,31 @@ std::string hopperTestName(
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
-  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = info.param;
+  MmaMacro mma_macro;
+  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K, mma_macro) =
+      info.param;
   os << (a_k_inner ? "K" : "M");
   os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
+  os << "_MmaMacro_" << mma_macro_to_str_map.at(mma_macro);
   if (use_smem_epilogue) {
     os << "_tma_store";
   }
+  return os.str();
+}
+
+std::string hopperTestNameSwizzle(
+    const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
+  std::unordered_map<MmaMacro, std::string> mma_macro_to_swizzle_str_map = {
+      {MmaMacro::Hopper_64_256_16, "128BSwizzle"},
+      {MmaMacro::Hopper_64_128_16, "128BSwizzle"},
+      {MmaMacro::Hopper_64_64_16, "128BSwizzle"},
+      {MmaMacro::Hopper_64_32_16, "64BSwizzle"},
+      {MmaMacro::Hopper_64_16_16, "32BSwizzle"}};
+  MmaMacro mma_macro = std::get<6>(info.param);
+  std::ostringstream os;
+  os << hopperTestName(info);
+  os << "_" << mma_macro_to_swizzle_str_map.at(mma_macro);
   return os.str();
 }
 
@@ -3144,7 +3162,8 @@ class HopperMatmulSchedulerTest
   void SetUp() {
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
-    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = GetParam();
+    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K, mma_macro) =
+        GetParam();
 
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
@@ -3159,14 +3178,17 @@ class HopperMatmulSchedulerTest
     // Create custom Matmul Params
     MatMulTileOptions gemm_tile;
     // TODO cta tile is a multiple of mma macro for hopper.
-    gemm_tile.cta_tile = GemmTile(128, 256, 16);
+    // Default cta_tile configuration is 2-CTA.
+    gemm_tile.cta_tile =
+        GemmTile(2 * getM(mma_macro), getN(mma_macro), getK(mma_macro));
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
-    gemm_tile.warp_tile = GemmTile(64, 128, 16);
+    gemm_tile.warp_tile =
+        GemmTile(getM(mma_macro), getN(mma_macro), getK(mma_macro));
 
     mparams.supported_vec_size = {8, 8, 4};
 
-    mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    mparams.mma_macro = mma_macro;
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
@@ -3203,6 +3225,7 @@ class HopperMatmulSchedulerTest
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
+  MmaMacro mma_macro;
   std::unique_ptr<Fusion> fusion_up;
   Fusion* fusion;
   std::unique_ptr<FusionGuard> fusion_guard;
@@ -3275,7 +3298,7 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    General,
     HopperMatmulSchedulerTest,
     testing::Combine(
         testing::Bool(), // use_smem_epilogue
@@ -3283,8 +3306,28 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // b_k_inner
         testing::Values(512), // M
         testing::Values(256), // N
-        testing::Values(64) // K
+        testing::Values(64), // K
+        testing::Values(MmaMacro::Hopper_64_128_16) // mma_macros
         ),
     hopperTestName);
+
+INSTANTIATE_TEST_SUITE_P(
+    Swizzle,
+    HopperMatmulSchedulerTest,
+    testing::Combine(
+        testing::Values(true), // use_smem_epilogue
+        testing::Bool(), // a_k_inner
+        testing::Bool(), // b_k_inner
+        testing::Values(512), // M
+        testing::Values(256), // N
+        testing::Values(64), // K
+        testing::Values(
+            MmaMacro::Hopper_64_256_16,
+            MmaMacro::Hopper_64_128_16,
+            MmaMacro::Hopper_64_64_16,
+            MmaMacro::Hopper_64_32_16,
+            MmaMacro::Hopper_64_16_16) // mma_macros
+        ),
+    hopperTestNameSwizzle);
 
 } // namespace nvfuser

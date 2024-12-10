@@ -340,19 +340,33 @@ Val* SimplifyingIrBuilder::addExpr(
     rhs_dtype = getDataType(rhs);
   }
   if (lhs == nullptr) {
-    return IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype);
+    return IrBuilder::create<Val>(rhs, rhs_dtype);
+  }
+  // simplify x + y - y as x
+  if (lhs->definition() != nullptr && lhs->definition()->isA<BinaryOp>()) {
+    auto binary_op = lhs->definition()->as<BinaryOp>();
+    if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
+      if (binary_op->rhs()->isConst() &&
+          (bool)(binary_op->rhs()->value() == -rhs)) {
+        return binary_op->lhs();
+      }
+    }
   }
   auto target_dtype = promoteType(lhs->dtype(), rhs_dtype);
   if (rhs == 0) {
     return maybeCastExpr(target_dtype, lhs);
   } else if (lhs->isConst()) {
-    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
+    auto result = lhs->value() + rhs;
+    if (result == 0) {
+      return lhs->container()->zeroVal(target_dtype);
+    } else if (result == 1) {
+      return lhs->container()->oneVal(target_dtype);
+    }
+    return IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
   } else if (rhs > 0) {
-    return IrBuilder::addExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype));
+    return IrBuilder::addExpr(lhs, IrBuilder::create<Val>(rhs, rhs_dtype));
   } else {
-    return IrBuilder::subExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(-rhs, rhs_dtype));
+    return IrBuilder::subExpr(lhs, IrBuilder::create<Val>(-rhs, rhs_dtype));
   }
 }
 

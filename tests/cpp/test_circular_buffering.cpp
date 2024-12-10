@@ -1266,11 +1266,16 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv3->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  // Circular Buffer with set operation
-  // Load TV1 into shared memory
-  tv4->setMemoryType(MemoryType::Shared);
-  tv4->circularBuffer(
-      number_of_stages, prefetch_distance, circular_buffer_type);
+  // Circular Buffer with set operation.
+  // Note that in order to use warp specialization, all circular buffers must be
+  // loaded by TMA, so for this test we disable circular buffering of set op if
+  // we are testing warp specialization.
+  if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    // Load TV1 into shared memory
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
@@ -1847,7 +1852,10 @@ auto tmaCircularBufferingParams() {
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
   uint32_t lcg_parkmiller = 1;
   const std::vector<CircularBufferType> all_types{
-      Pipelined(false), Pipelined(true)};
+      Pipelined(false),
+      Pipelined(true),
+      WarpSpecialized(ParallelType::TIDx),
+      WarpSpecialized(ParallelType::TIDy)};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {
