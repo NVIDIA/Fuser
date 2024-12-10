@@ -11299,36 +11299,6 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
   __half* T4 = reinterpret_cast<__half*>(array + smem_offset + 65664);
   unsigned i9;
   i9 = toSmem(T4);
-  unsigned i10;
-  i10 = i9 + (2048 * ((nvfuser_index_t)threadIdx.y));
-  nvfuser_index_t i11;
-  i11 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
-  Array<__half, 128, 8> T7;
-  __half* T6 = reinterpret_cast<__half*>(array + smem_offset + 0);
-  unsigned i12;
-  i12 = toSmem(T6) + (32768 * ((nvfuser_index_t)threadIdx.y));
-  const TensorMap* ptr13;
-  ptr13 = &var2;
-  nvfuser_index_t i14;
-  i14 = 64 * ((nvfuser_index_t)threadIdx.y);
-  nvfuser_index_t i15;
-  i15 = i14 + i8;
-  bool b16;
-  b16 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
-  bool b17;
-  b17 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
-  nvfuser_index_t i18;
-  i18 = ((nvfuser_index_t)threadIdx.x) / 4;
-  bool b19;
-  b19 = ((nvfuser_index_t)threadIdx.y) < 2;
-  bool b20;
-  b20 = b19 && (((((8 + (16 * (i18 / 8))) + (i18 % 8)) + i14) + i8) < T0.logical_size[1LL]);
-  nvfuser_index_t i21;
-  i21 = ((9 - T1.logical_size[2LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4))) + i5;
-  float T2[128];
-  ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
-  asm volatile("wgmma.fence.sync.aligned;\n");
-  asm volatile("fence.proxy.async;\n");
   uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 65536);
   #pragma unroll
   for(nvfuser_index_t i22 = 0; i22 < 4; ++i22) {
@@ -11369,6 +11339,36 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
       }
     }
   } else {
+    unsigned i10;
+    i10 = i9 + (2048 * ((nvfuser_index_t)threadIdx.y));
+    nvfuser_index_t i11;
+    i11 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
+    Array<__half, 128, 8> T7;
+    __half* T6 = reinterpret_cast<__half*>(array + smem_offset + 0);
+    unsigned i12;
+    i12 = toSmem(T6) + (32768 * ((nvfuser_index_t)threadIdx.y));
+    const TensorMap* ptr13;
+    ptr13 = &var2;
+    nvfuser_index_t i14;
+    i14 = 64 * ((nvfuser_index_t)threadIdx.y);
+    nvfuser_index_t i15;
+    i15 = i14 + i8;
+    bool b16;
+    b16 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
+    bool b17;
+    b17 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
+    nvfuser_index_t i18;
+    i18 = ((nvfuser_index_t)threadIdx.x) / 4;
+    bool b19;
+    b19 = ((nvfuser_index_t)threadIdx.y) < 2;
+    bool b20;
+    b20 = b19 && (((((8 + (16 * (i18 / 8))) + (i18 % 8)) + i14) + i8) < T0.logical_size[1LL]);
+    nvfuser_index_t i21;
+    i21 = ((9 - T1.logical_size[2LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4))) + i5;
+    float T2[128];
+    ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+    asm volatile("wgmma.fence.sync.aligned;\n");
+    asm volatile("fence.proxy.async;\n");
     #pragma unroll
     for(nvfuser_index_t i31 = 0; i31 < 4; ++i31) {
       mbarrier::arrive(toSmem((&T8[(i31 + 4LL)])));
