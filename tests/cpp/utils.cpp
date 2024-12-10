@@ -816,4 +816,12 @@ bool isVectorized(TensorView* tv) {
   return false;
 }
 
+std::string macroToString(const MmaMacro macro) {
+  std::stringstream ss;
+  ss << "m" << getM(macro);
+  ss << "_n" << getN(macro);
+  ss << "_k" << getK(macro);
+  return ss.str();
+}
+
 } // namespace nvfuser

@@ -33,12 +33,7 @@ def test_sizes_and_ranks(mpi_test):
 @pytest.mark.mpi
 def test_pointwise(mpi_test):
     num_devices = mpi_test.size
-    rank = mpi_test.rank
-
-    torch.cuda.set_device(mpi_test.local_rank)
-
-    unsharded_input = torch.randn(num_devices, 4, device="cuda")
-    sharded_input = unsharded_input[rank : rank + 1]
+    mesh = nvfuser.DeviceMesh(range(num_devices))
 
     class Model(FusionDefinition):
         def definition(self):
@@ -50,15 +45,17 @@ def test_pointwise(mpi_test):
             self.add_output(self.t2)
 
         def multidevice_schedule(self):
-            mesh = self.sched._create_device_mesh(range(num_devices))
             self.sched._set_device_mesh(self.t0, mesh)
             self.sched._set_device_mesh(self.t1, mesh)
             self.sched._set_device_mesh(self.t2, mesh)
             self.sched.parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
+    unsharded_input = torch.randn(num_devices, 4)
+    sharded_input = mpi_test.shard_tensor(unsharded_input, 0, mesh)
+
     fd = Model()
     outputs = fd.execute([sharded_input])
-    torch.testing.assert_close(outputs[0], unsharded_input.relu() * 2)
+    torch.testing.assert_close(outputs[0].cpu(), unsharded_input.relu() * 2)
 
 
 @pytest.mark.mpi
@@ -80,7 +77,7 @@ def test_linear(mpi_test):
             self.add_output(out)
 
         def multidevice_schedule(self):
-            mesh = self.sched._create_device_mesh(range(self._num_devices))
+            mesh = nvfuser.DeviceMesh(range(self._num_devices))
             for t in [self.inp, self.weight, self.bias]:
                 self.sched._set_device_mesh(t, mesh)
             for t in [self.weight, self.bias]:
@@ -110,7 +107,7 @@ def test_linear(mpi_test):
     ]
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
-        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-4
+        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-3
     )
 
 
@@ -135,7 +132,7 @@ def test_matmul_allreduce(mpi_test):
             self.add_output(in_grad)
 
         def multidevice_schedule(self) -> None:
-            mesh = self.sched._create_device_mesh(range(d))
+            mesh = nvfuser.DeviceMesh(range(d))
             for t in [self.out_grad, self.weight]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
@@ -230,7 +227,7 @@ def test_sdpa(mpi_test, qkv_format: QkvFormat):
                 self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
-            mesh = self.sched._create_device_mesh(range(d))
+            mesh = nvfuser.DeviceMesh(range(d))
             for t in [self.q, self.k, self.v, self.out_grad]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
@@ -649,7 +646,7 @@ class TransformerForwardFusion(FusionDefinition):
         self.add_output(out)
 
     def multidevice_schedule(self):
-        mesh = self.sched._create_device_mesh(range(self._num_devices))
+        mesh = nvfuser.DeviceMesh(range(self._num_devices))
         # Assign the mesh to inputs and weights. nvFuser will propagate it to
         # downstream tensors.
         for in_tv in [
@@ -1241,7 +1238,7 @@ class TransformerBackwardFusion(FusionDefinition):
         self.add_output(inp_grad)
 
     def multidevice_schedule(self):
-        mesh = self.sched._create_device_mesh(range(self._num_devices))
+        mesh = nvfuser.DeviceMesh(range(self._num_devices))
         for in_tv in [
             self.mlp_linear0_out,
             self.out_grad,

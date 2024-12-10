@@ -2831,8 +2831,8 @@ TEST_P(StMatrixTest, Regular) {
   auto tile_sizes = std::get<1>(GetParam());
   auto sizeM = getM(macro);
   auto sizeN = getN(macro);
-  auto tile_m = tile_sizes.at(0);
-  auto tile_n = tile_sizes.at(1);
+  int64_t tile_m = tile_sizes.at(0);
+  int64_t tile_n = tile_sizes.at(1);
 
   if (sizeM % tile_m || sizeN % tile_n) {
     GTEST_SKIP() << "Fractional tiling is not supported/tested";
@@ -2864,7 +2864,8 @@ TEST_P(StMatrixTest, Regular) {
   tv1->setLoopDomain(s.as<IterDomain*>());
   tv1->setAllocationDomain(s.as<IterDomain*>(), true);
 
-  mma_utils::scheduleStMatrixForMmaOutput(tv2, tile_m, tile_n);
+  mma_utils::scheduleStMatrixForMmaOutput(
+      tv2, /*swizzle=*/MmaInputSmemSwizzle::None, tile_m, tile_n);
 
   tv3->merge(0);
   tv3->split(0, 32);

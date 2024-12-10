@@ -66,12 +66,15 @@ void assertBuffersHaveSameSize(
   if (bufs1.empty() && bufs2.empty()) {
     return;
   }
-  const auto numel = (bufs1.empty() ? bufs2 : bufs1).at(0).numel();
+  const auto shape = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (const auto& bufs : {bufs1, bufs2}) {
     for (const auto& buf : bufs) {
       NVF_ERROR(
-          buf.numel() == numel,
-          "all buffers must have the same number of elements");
+          buf.sizes() == shape,
+          "all buffers must have the same shape, but got: ",
+          buf.sizes(),
+          " vs ",
+          shape);
     }
   }
 }
@@ -325,8 +328,8 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
-  assertBufferCount(splits, communication->team().size());
+  auto splits =
+      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the

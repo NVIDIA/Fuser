@@ -491,4 +491,52 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
 
 INSTANTIATE_TEST_SUITE_P(, MultiDeviceBroadcastTest, testing::Bool());
 
+TEST_F(MultiDeviceTest, ShardTensor_OuterSplit) {
+  const int d = communicator_->size();
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv = makeContigConcreteTensor({2, d * 3});
+  tv->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  tv->split(1, d, /*inner_split=*/false);
+  tv->axis(1)->parallelize(ParallelType::DIDx);
+  tv->setAllocationDomain(tv->getLoopDomain(), true);
+
+  fusion.addInput(tv);
+  fusion.addOutput(tv);
+
+  at::Tensor unsharded = at::arange(2 * d * 3).view({2, d * 3});
+  at::Tensor sharded = shardTensor(unsharded, tv);
+
+  EXPECT_THAT(sharded.sizes(), ElementsAre(2, 3));
+  at::Tensor expected = unsharded.view({2, d, 3}).index(
+      {torch::indexing::Slice(),
+       communicator_->deviceId(),
+       torch::indexing::Slice()});
+  EXPECT_TRUE(at::equal(sharded, expected));
+}
+
+TEST_F(MultiDeviceTest, ShardTensor_InnerSplit) {
+  const int d = communicator_->size();
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv = makeContigConcreteTensor({d * 3});
+  tv->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  tv->split(0, d, /*inner_split=*/true);
+  tv->axis(-1)->parallelize(ParallelType::DIDx);
+  tv->setAllocationDomain(tv->getLoopDomain(), true);
+
+  fusion.addInput(tv);
+  fusion.addOutput(tv);
+
+  at::Tensor unsharded = at::arange(d * 3);
+  EXPECT_THAT(
+      [&]() { shardTensor(unsharded, tv); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("DID on inner splits")));
+}
+
 } // namespace nvfuser
