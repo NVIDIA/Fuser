@@ -10,6 +10,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
@@ -103,16 +104,6 @@ class LoopDomainScheduler {
   LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
       : ref_loop_dom_(std::move(ref_loop_dom)) {
     NVF_ERROR(!ref_loop_dom_.empty());
-
-    // For now, ref must not be a broadcast domain
-    NVF_ERROR(
-        std::none_of(
-            ref_loop_dom_.begin(),
-            ref_loop_dom_.end(),
-            [](IterDomain* id) { return id->isBroadcast(); }),
-        "Broadcast referene not supported: ",
-        toDelimitedString(ref_loop_dom_));
-
     Fusion* fusion = ref_loop_dom_.front()->fusion();
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
     id_model_->buildExactGraph();
@@ -193,7 +184,11 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   ValGroups all_id_groups;
   for (auto id : all_ids) {
     const auto& group = graph().toGroup(id);
-    group_to_id.emplace(group, id);
+    if (tv->domain()->isLoop(id)) {
+      group_to_id[group] = id;
+    } else {
+      group_to_id.emplace(group, id);
+    }
     all_id_groups.pushBack(group);
   }
 
@@ -264,7 +259,11 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
       // be connected with tv
       auto clone = representativeId(output_g)->cloneWithoutRFactor();
       all_id_groups.pushBack(output_g);
-      group_to_id.emplace(output_g, clone);
+
+      // Need to update even when there's already a maping for
+      // output_g for resize indexing because some nodes may be mapped
+      // but should use different indices
+      group_to_id[output_g] = clone;
     }
 
     replay(expr_g, dir, input_groups, output_groups, group_to_id);
@@ -350,6 +349,15 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   auto inputs_of_forward_path = getInputsOfExprPath(
       forward_path, ValGraphInputs(graph()), ValGraphOutputs(graph()));
 
+  // If tv_root_domain itself is included in the ancestor set, there's
+  // no expr but the backward exprs from the reference to the ancestor
+  // are required.
+  for (const auto& tv_root_domain : tv_target_domains) {
+    if (all_ancestors_of_ref_.has(tv_root_domain)) {
+      inputs_of_forward_path.push_back(tv_root_domain);
+    }
+  }
+
   auto backward_path = ValGraphBFS::getExprGroupsBetween(
                            graph(),
                            ref_id_groups_,
@@ -381,6 +389,10 @@ void scheduleLoopDomainsLike(
   LoopDomainScheduler scheduler(ref_loop_dom);
 
   for (auto tv : tvs) {
+    // Loop domain of fusion inputs should have no meaning
+    if (tv->isFusionInput()) {
+      continue;
+    }
     scheduler.schedule(tv);
   }
 }
