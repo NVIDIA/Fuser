@@ -11318,17 +11318,17 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half
   }
   __syncthreads();
   if ((((nvfuser_index_t)threadIdx.y) == 2)) {
-    #pragma unroll 4
-    for(nvfuser_index_t i24 = 0; i24 < i3; ++i24) {
-      nvfuser_index_t i25;
-      i25 = 16 * i24;
-      nvfuser_index_t i26;
-      i26 = i24 % 4;
-      unsigned i27;
-      i27 = i6 + (8192 * i26);
-      unsigned i28;
-      i28 = i9 + (4096 * i26);
-      if ((Hopper::electSync(4294967295U) && b16)) {
+    if ((Hopper::electSync(4294967295U) && b16)) {
+      #pragma unroll 4
+      for(nvfuser_index_t i24 = 0; i24 < i3; ++i24) {
+        nvfuser_index_t i25;
+        i25 = 16 * i24;
+        nvfuser_index_t i26;
+        i26 = i24 % 4;
+        unsigned i27;
+        i27 = i6 + (8192 * i26);
+        unsigned i28;
+        i28 = i9 + (4096 * i26);
         mbarrier::waitParity(toSmem((&T8[((i24 % 4) + 4LL)])), (uint32_t)(((i24 / 4) % 2)));
         mbarrier::arriveExpectTX(toSmem((&T8[(i24 % 4)])), 8192U);
         #pragma unroll
