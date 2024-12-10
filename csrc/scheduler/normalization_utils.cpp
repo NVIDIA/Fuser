@@ -15,6 +15,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <utils.h>
 #include <val_graph_visitor.h>
 
@@ -989,7 +990,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
       .has_exp_op = has_exp_op,
-      .persistent_buffers = persistent_buffer_info.persistent_buffers};
+      .persistent_buffers = project_persistent_buffers
+          ? persistent_buffer_info.projectable_buffer_inputs
+          : persistent_buffer_info.persistent_buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {
@@ -1225,6 +1228,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     return is_supported_bytes;
   };
   for (auto tv : persistent_buffers) {
+    std::cout << "buffer " << tv->toString() << std::endl;
     // Persistent buffers are categorized into two types:
     // (1) Cached input tensors.
     //     For these, [smem_persistent_buffers] holds the original input
@@ -1246,17 +1250,27 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
     }
+    std::cout << "use_smem " << use_smem << " is_cached_input "
+              << is_cached_input << std::endl;
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
       // When loading from global memory (gmem), use CpAsync with a short data
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
-        tv->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::CpAsync);
-        tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+      if (rparams->use_tma) {
+        if (is_cached_input) {
+          tv->definition()->as<LoadStoreOp>()->setOpType(
+              LoadStoreOpType::CpAsyncBulkTensorTile);
+        }
+      } else {
+        if (supportCpAsync(tv) && is_cached_input) {
+          tv->definition()->as<LoadStoreOp>()->setOpType(
+              LoadStoreOpType::CpAsync);
+          tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+        }
       }
+
       // do a register cache for all the uses of this smem tv.
       // The load from smem to register cache will then be vectorized to avoid
       // bank conflicts. The determination of bank conflicts is made per
@@ -1265,21 +1279,23 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
-      // At this point, if cached_tv has multiple uses,  it becomes the
-      // persistent buffer instead of tv due to the way the persistent buffer
-      // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
-      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      if (!rparams->use_tma) {
+        // At this point, if cached_tv has multiple uses,  it becomes the
+        // persistent buffer instead of tv due to the way the persistent buffer
+        // selector works. To make tv remain as the persistent buffer, all of
+        // the uses must be privatized.
+        const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }
@@ -1302,6 +1318,10 @@ void beforeSchedule(
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
       fusion, rparams->project_persistent_buffers);
 
+  std::cout << "======= Fusion after projectPersistentBuffers ======= "
+            << std::endl;
+  //fusion->printMath();
+
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
   // the new tensor view contains the reduction and original doesn't.
@@ -1313,6 +1333,9 @@ void beforeSchedule(
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
 
+  std::cout << "======= Fusion after cacheInputs ======= " << std::endl;
+  //fusion->printMath();
+
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
@@ -1321,6 +1344,10 @@ void beforeSchedule(
   // move persistent buffer marked in [smem_persistent_buffers] from register to
   // smem
   smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
+
+  std::cout << "======= Fusion after movePersistentBufferToSmem ======= "
+            << std::endl;
+  //fusion->printMath();
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1396,6 +1423,10 @@ void schedulePersistentKernel(
   TensorView* reference_tv =
       scheduleReductionGeneral(fusion, rparams, reduction_tvs, scheduler_type);
 
+  std::cout << "======= Fusion after scheduleReductionGeneral ======= "
+            << std::endl;
+  std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+  //fusion->printMath();
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
   NVF_ERROR(
@@ -1413,20 +1444,92 @@ void schedulePersistentKernel(
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
-      reduction_tvs[0],
+  // reduction_scheduler_utils::multiReductionInliner(
+  //     fusion,
+  //     reduction_tvs[0],
+  //     reference_tv,
+  //     unroll,
+  //     vectorize,
+  //     is_outer_grid_persistence,
+  //     rparams->unroll_factor_inner_reduction,
+  //     reduction_tvs,
+  //     cached_inputs,
+  //     cached_outputs,
+  //     smem_consumers,
+  //     dummy_outputs);
+  // Propagate transformations before we rfactor the other reductions
+  std::unordered_set<TensorView*> smem_tvs;
+  if (rparams->use_tma) {
+    for (auto tv : smem_consumers) {
+      auto smem_tv = ir_utils::getSoleProducerTv(tv);
+      smem_tvs.insert(smem_tv);
+    }
+    TransformPropagator propagator(reference_tv);
+    std::vector<TensorView*> all_tvs_except_smem_tvs =
+        ir_utils::allTvsExcept(fusion, smem_tvs);
+    SetSelector selector(
+        {all_tvs_except_smem_tvs.begin(), all_tvs_except_smem_tvs.end()});
+    MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+        .traverse(&propagator);
+  } else {
+    reduction_scheduler_utils::propagateTransformation(reference_tv);
+  }
+
+  // If reduction_tv is rfactored, rfactor all reductions.
+  auto reduction_tv = reduction_tvs.at(0);
+  if (reference_tv != reduction_tv) {
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
+  }
+
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, vectorize, cached_inputs, cached_outputs);
+  reduction_scheduler_utils::propagateParallelization(
+      reduction_tv,
       reference_tv,
       unroll,
-      vectorize,
       is_outer_grid_persistence,
-      rparams->unroll_factor_inner_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_consumers,
-      dummy_outputs);
+      unroll_vectorizable_cached_tvs);
 
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (vectorize) {
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, rparams->unroll_factor_inner_reduction);
+  }
+  if (rparams->use_tma) {
+    for (auto tv : smem_tvs) {
+      tv->split(-1, 256);
+      tv->axis(-1)->parallelize(ParallelType::Bulk);
+    }
+    for(auto cached_after_smem : smem_consumers) {
+      auto smem_tv = ir_utils::getSoleProducerTv(cached_after_smem);
+      const auto& consumers = ir_utils::consumerTvsOf(cached_after_smem);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_after_smem, {smem_tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_after_smem, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }      
+    }
+  }
+
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+  std::cout
+      << "======= Fusion after propagateTransformation, parallel, smem vect ======= "
+      << std::endl;
+  //fusion->printMath();
+  // Inline the schedule
+  inlineMost();
   if (rparams->compute_persistent_buffer_with_first_consumer) {
     NVF_ERROR(
         rparams->persistent_kernel,
