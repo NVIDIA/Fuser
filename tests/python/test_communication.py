@@ -18,8 +18,7 @@ def test_allgather(mpi_test):
     num_devices = mpi_test.size
     rank = mpi_test.rank
 
-    unsharded = torch.randn(num_devices * 4)
-    sharded = mpi_test.shard_tensor(unsharded, 0)
+    mesh = nvfuser.DeviceMesh(range(num_devices))
 
     class Model(FusionDefinition):
         def definition(self):
@@ -30,7 +29,6 @@ def test_allgather(mpi_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            mesh = self.sched._create_device_mesh(range(num_devices))
             self.sched._set_device_mesh(self.inp, mesh)
             self.sched._set_device_mesh(self.out, mesh)
 
@@ -40,6 +38,9 @@ def test_allgather(mpi_test):
 
             self.sched.split(self.out, 0, num_devices, False)
             self.sched.set_allocation_as_loop(self.out)
+
+    unsharded = torch.randn(num_devices * 4)
+    sharded = mpi_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
     outputs = fd.execute([sharded])

@@ -48,7 +48,7 @@ def test_pointwise(mpi_test):
             self.add_output(self.t2)
 
         def multidevice_schedule(self):
-            mesh = self.sched._create_device_mesh(range(num_devices))
+            mesh = nvfuser.DeviceMesh(range(num_devices))
             self.sched._set_device_mesh(self.t0, mesh)
             self.sched._set_device_mesh(self.t1, mesh)
             self.sched._set_device_mesh(self.t2, mesh)
@@ -78,7 +78,7 @@ def test_linear(mpi_test):
             self.add_output(out)
 
         def multidevice_schedule(self):
-            mesh = self.sched._create_device_mesh(range(self._num_devices))
+            mesh = nvfuser.DeviceMesh(range(self._num_devices))
             for t in [self.inp, self.weight, self.bias]:
                 self.sched._set_device_mesh(t, mesh)
             for t in [self.weight, self.bias]:
@@ -133,7 +133,7 @@ def test_matmul_allreduce(mpi_test):
             self.add_output(in_grad)
 
         def multidevice_schedule(self) -> None:
-            mesh = self.sched._create_device_mesh(range(d))
+            mesh = nvfuser.DeviceMesh(range(d))
             for t in [self.out_grad, self.weight]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
@@ -228,7 +228,7 @@ def test_sdpa(mpi_test, qkv_format: QkvFormat):
                 self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
-            mesh = self.sched._create_device_mesh(range(d))
+            mesh = nvfuser.DeviceMesh(range(d))
             for t in [self.q, self.k, self.v, self.out_grad]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
@@ -647,7 +647,7 @@ class TransformerForwardFusion(FusionDefinition):
         self.add_output(out)
 
     def multidevice_schedule(self):
-        mesh = self.sched._create_device_mesh(range(self._num_devices))
+        mesh = nvfuser.DeviceMesh(range(self._num_devices))
         # Assign the mesh to inputs and weights. nvFuser will propagate it to
         # downstream tensors.
         for in_tv in [
@@ -1239,7 +1239,7 @@ class TransformerBackwardFusion(FusionDefinition):
         self.add_output(inp_grad)
 
     def multidevice_schedule(self):
-        mesh = self.sched._create_device_mesh(range(self._num_devices))
+        mesh = nvfuser.DeviceMesh(range(self._num_devices))
         for in_tv in [
             self.mlp_linear0_out,
             self.out_grad,
