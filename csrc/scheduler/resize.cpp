@@ -152,6 +152,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_utils::clearMemorySpace(fusion);
 
   scheduler_utils::cacheInputs(fusion, true);
+  scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {

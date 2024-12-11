@@ -520,9 +520,6 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  // TODO: Fix the alias support
-  GTEST_SKIP() << "Following aliss checks not supported yet";
-
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
