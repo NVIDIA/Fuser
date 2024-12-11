@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
+#include <ir/utils.h>
 #include <options.h>
 #include <utils.h>
 
@@ -104,6 +105,27 @@ inline IterDomain* getLoopPromotion(
       nvfuser::toString(loop_group));
 
   return loop_promotion_map_it->second;
+}
+
+// Get the loop domains of a given expr. Currently, they're always
+// the loop domains of a consumer tensor, but in the future this
+// function may return the loop domains of a producer for
+// producer-based indexing.
+inline std::vector<IterDomain*> getLoopIds(
+    const Expr* expr,
+    const IdModel& id_model) {
+  // Assume consumer-based indexing. Needs to revisit for ops like
+  // scatter
+  NVF_ERROR(!expr->outputs().empty());
+  auto output_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(output_tv != nullptr);
+  auto loop_ids = output_tv->getLoopDomain();
+
+  for (auto& loop_id : loop_ids) {
+    loop_id = getLoopPromotion(loop_id, id_model);
+  }
+
+  return loop_ids;
 }
 
 inline ParallelType getParallelType(const ValGroup& loop_group) {

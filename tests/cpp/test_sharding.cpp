@@ -23,26 +23,60 @@ namespace nvfuser {
 
 using ShardingTest = NVFuserFixtureParamTest<bool>;
 
-// TODO: This test checks that isSharded generates an error when a split/merged
-// axis is parallelized with DIDx. Update when this restriction is lifted.
-TEST_F(ShardingTest, IsSharded) {
+TEST_F(ShardingTest, LogicalIsSharded) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* a = makeSymbolicTensor(3);
-  a->axis(2)->parallelize(ParallelType::DIDx);
-  a->split(0, 4);
-  EXPECT_TRUE(isSharded(a));
+  TensorView* x = makeSymbolicTensor(3);
+  x->axis(2)->parallelize(ParallelType::DIDx);
+  x->split(0, 4);
 
-  TensorView* b = makeSymbolicTensor(3);
-  b->split(1, 4);
-  b->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(b));
+  EXPECT_TRUE(isSharded(x)) << "DIDx on logical domain:" << std::endl
+                            << x->domain()->toString(0, /*loop_only=*/false);
+}
 
-  TensorView* c = makeSymbolicTensor(3);
-  c->axis(0)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(c));
+TEST_F(ShardingTest, AllocationIsSharded) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(3);
+  x->split(1, 4);
+  x->axis(1)->parallelize(ParallelType::DIDx);
+  x->setAllocationDomain(x->getLoopDomain(), true);
+
+  EXPECT_TRUE(isSharded(x)) << "DIDx on allocation domain:" << std::endl
+                            << x->domain()->toString(0, /*loop_only=*/false);
+}
+
+TEST_F(ShardingTest, MultipleDIDx) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(1);
+  x->split(0, 2);
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  x->axis(1)->parallelize(ParallelType::DIDx);
+  x->setAllocationDomain(x->getLoopDomain(), true);
+
+  EXPECT_ANY_THROW(isSharded(x))
+      << "Multiple DIDx:" << std::endl
+      << x->domain()->toString(0, /*loop_only=*/false);
+}
+
+TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(2);
+  TensorView* y = sum(x, {0});
+
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  // y->axis(0) is a reduction dimension and shouldn't be sharded. Doing so
+  // leads to a multi-DIDx exception.
+  y->axis(0)->parallelize(ParallelType::DIDx);
+  y->axis(1)->parallelize(ParallelType::DIDx);
+
+  EXPECT_ANY_THROW(isSharded(y)) << "Multiple DIDx";
 }
 
 TEST_F(ShardingTest, PropagateSharding) {

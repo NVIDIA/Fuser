@@ -1163,8 +1163,10 @@ indexMapFromTV(
 
     if (loop == circular_buffer_loop) {
       const int64_t prefetch_distance =
-          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-              loop->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(loop->iter_domain())
+              .prefetch;
       idx = SimplifyingIrBuilder::addExpr(
           idx,
           SimplifyingIrBuilder::create<Val>(
@@ -1580,8 +1582,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
       const int64_t stage_depth =
-          gpu_lower->circularBufferInfo().getStageDepthFor(
-              db_loop->iter_domain());
+          gpu_lower->circularBufferInfo()
+              .getCircularBufferOptionsFor(db_loop->iter_domain())
+              .stage;
       auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
@@ -1616,12 +1619,10 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       GpuLower::current()->idModelOptions().consumerIndex()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-    ValGroups logical_indices =
-        indexer.traversalGraph().toGroups(consumer_tv->getLogicalDomain());
     return indexer.getIndexFor(
         consumer_tv->definition(),
         /*as_consumer=*/true,
-        logical_indices,
+        consumer_tv->getLogicalDomain(),
         loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
@@ -1641,12 +1642,10 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-    ValGroups logical_indices =
-        indexer.traversalGraph().toGroups(producer_tv->getLogicalDomain());
     return indexer.getIndexFor(
         consumer_tv->definition(),
         /*as_consumer=*/false,
-        logical_indices,
+        producer_tv->getLogicalDomain(),
         loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
@@ -2023,12 +2022,10 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   if (consumer_tv->isCircularBuffered()) {
     auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
         consumer_tv, loops);
-    int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-        db_loop->iter_domain());
-    int64_t prefetch_distance =
-        gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+    const auto& opt =
+        gpu_lower->circularBufferInfo().getCircularBufferOptionsFor(
             db_loop->iter_domain());
-    bool is_circular_buffer_loop = stage_depth > 2;
+    bool is_circular_buffer_loop = opt.stage > 2;
     bool is_prolog =
         db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 
@@ -2058,8 +2055,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
             SimplifyingIrBuilder::addExpr(
                 loop_index,
                 SimplifyingIrBuilder::create<Val>(
-                    prefetch_distance, DataType::Index)),
-            SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+                    opt.prefetch, DataType::Index)),
+            SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
       }
 
       // Use the generated switching buffer index to access the buffer space.
@@ -2654,9 +2651,27 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   ValGroups groups_to_index = tma_info.getTMADomain();
 
+  // TensorIndexer needs IterDomain instead of ValGroup to work around
+  // the resize indexing issue
+  std::vector<IterDomain*> ids_to_index;
+  ids_to_index.reserve(groups_to_index.size());
+  const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                   : producer_tv->domain()->allIDs();
+  for (const auto& group : groups_to_index) {
+    auto it = std::find_if(
+        tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
+          return group->has(gmem_id);
+        });
+    if (it != tma_all_ids.end()) {
+      ids_to_index.push_back(*it);
+    } else {
+      ids_to_index.push_back(group->front()->as<IterDomain>());
+    }
+  }
+
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto indices_inner_to_outer =
-      indexer.getIndexFor(ldst, !is_load, groups_to_index, loops);
+      indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

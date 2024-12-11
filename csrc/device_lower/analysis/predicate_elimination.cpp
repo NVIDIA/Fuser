@@ -18,6 +18,8 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include "id_model/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
@@ -41,6 +43,46 @@ void assertOnWarpOps(const Expr* expr) {
 
 namespace {
 
+// Check if consumer is in the compute warp of a warp specialized loop,
+// and the id_in_consumer is the parallel type of the warp specialization.
+bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
+  // TODO: This function can not find all the expressions in the compute
+  // warp. For example, if we have:
+  //   if (load warp) {
+  //     T1 = T0;
+  //   } else {
+  //     T2 = T1;
+  //     T3 = T2;
+  //   }
+  // then we will return false for T3, which is a false negative. Having
+  // a false negative is fine in the sense that we will still be
+  // functionally correct, but we will not be able to remove the predicate
+  // around T3, which is a missed optimization opportunity.
+  // For now, because warp specialization is only used for matmul, for
+  // which the circular buffer loop is a reduction loop, and mma is the
+  // only expr in the compute warp, we are fine. In the future, we might
+  // want to improve this function to find all the expressions in the
+  // compute warp, which will require a more sophisticated analysis.
+  auto def = consumer->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  auto producer_tvs = ir_utils::filterByType<TensorView>(def->inputs());
+  if (producer_tvs.empty()) {
+    return false;
+  }
+  return std::all_of(
+      producer_tvs.begin(), producer_tvs.end(), [&](TensorView* producer_tv) {
+        if (!producer_tv->isCircularBuffered()) {
+          return false;
+        }
+        const auto& type = producer_tv->circularBufferOptions().type;
+        return std::holds_alternative<WarpSpecialized>(type) &&
+            std::get<WarpSpecialized>(type).on ==
+            id_in_consumer->getParallelType();
+      });
+}
+
 // Utility to check if the scheduled domain of the given
 //   TensorView represent an exact shared mem access, meaning
 //   that all the thread parallel dimensions on the loop nodes
@@ -51,7 +93,8 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
     if (id->isThreadDim()) {
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+              id, isComputeWarp(tv, id))) {
         return false;
       }
     }
@@ -185,40 +228,56 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+        BestEffortReplay::replayPasC(
+            producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
 
-    // Find all IterDomains involved in index expressions
-    // TODO: do we need to find logical IDs in producer that are involved in
-    // its allocation domain too?
-    std::vector<Val*> mapped_root_vals, loop_vals;
-    for (IterDomain* id : consumer->getRootDomain()) {
-      if (c2p.find(id) != c2p.end()) {
-        mapped_root_vals.push_back(id);
-      }
-    }
-    for (IterDomain* id : consumer->getLoopDomain()) {
-      loop_vals.push_back(id);
-    }
+    // The variables graph and alloc_to_loop_groups are used to check whether we
+    // need to check a particular consumer ID. The alloc_to_loop_groups set
+    // constaints ValGroups along a shortest path in the loop graph from
+    // non-trivial dimensions in the allocation domain of the producer to the
+    // consumer's loop domain. Other domains might exist in the loop domain of
+    // the consumer: for example, for MmaOp we sometimes do not map the N
+    // dimension of the output logical domain to any ID in the A operand. We
+    // use this set to avoid performing unnecessary checks on these types of
+    // irrelevant consumer IDs.
+    //
+    // NOTE: if graph is nullptr, it will be
+    // ignored. We only fill it for MmaOp for now in order to limit our changes
+    // to the only op that currently requires this analysis.
+    const ValGraph* graph = nullptr;
+    std::unordered_set<ValGroup> alloc_to_loop_groups;
+    if (consumer->definition()->isA<MmaOp>()) {
+      // Fill ValGraph and grab all ValGroups on path from producer alloc to
+      // consumer loop.
 
-    // Collect all IterDomains along path instead of Exprs
-    std::unordered_set<IterDomain*> index_ids;
-    for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
-             mapped_root_vals,
-             loop_vals,
-             /*require_all_to_visited=*/false)) {
-      for (Val* v : expr->inputs()) {
-        if (auto* id = dynamic_cast<IterDomain*>(v)) {
-          index_ids.insert(id);
+      const IdModel& id_model = GpuLower::current()->idModel();
+      graph = &id_model.idGraph(TensorIndexer::traversalGraphType());
+
+      // We flow from the producer's allocation domain to the consumer's loop
+      // domain. Here we assume that producer->getMaybeAllocationDomain()
+      // returns the actual indexed IDs, which is not always the case in
+      // general. However, it is always the case for MmaOp.
+      std::vector<ValGroup> alloc_groups;
+      for (IterDomain* id : producer->getMaybeAllocationDomain()) {
+        if (!id->isBroadcast() && !id->isReduction()) {
+          alloc_groups.push_back(graph->toGroup(id));
         }
       }
-      for (Val* v : expr->outputs()) {
-        if (auto* id = dynamic_cast<IterDomain*>(v)) {
-          index_ids.insert(id);
-        }
+      std::vector<ValGroup> loop_groups;
+      for (IterDomain* id : consumer->getLoopDomain()) {
+        id = getLoopPromotion(id, id_model);
+        loop_groups.push_back(graph->toGroup(id));
       }
+
+      std::vector<ValGroup> indexing_groups =
+          getValsBetween<ValGraphBFS>(alloc_groups, loop_groups, *graph);
+
+      alloc_to_loop_groups.insert(
+          indexing_groups.begin(), indexing_groups.end());
     }
-    ProducerConsumerPairAnalyzer analyzer(c2p, index_ids);
+    ProducerConsumerPairAnalyzer analyzer(
+        consumer, c2p, graph, alloc_to_loop_groups);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -231,17 +290,23 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
  private:
   ProducerConsumerPairAnalyzer(
+      TensorView* consumer,
       const std::unordered_map<IterDomain*, IterDomain*>& c2p,
-      const std::unordered_set<IterDomain*> index_ids)
-      : c2p_(c2p), index_ids_(index_ids) {}
+      const ValGraph* graph,
+      const std::unordered_set<ValGroup> alloc_to_loop_groups)
+      : consumer_(consumer),
+        c2p_(c2p),
+        graph_(graph),
+        alloc_to_loop_groups_(alloc_to_loop_groups) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
   bool needsPredicate(IterDomain* consumer_id) {
-    // TODO: check that this consumer_id is actually involved in indexing the
+    // Check that this consumer_id is actually involved in indexing the
     // producer. If it is not connected to the producer allocation domain in
-    // the broadcast graph, then we can skip processing it.
-    if (index_ids_.find(consumer_id) == index_ids_.end()) {
+    // the indexing graph, then we can skip processing it.
+    if (graph_ != nullptr &&
+        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
       return false;
     }
     needs_predicate_ = false;
@@ -250,6 +315,10 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
   void handle(IterDomain* consumer_id) override {
+    if (graph_ != nullptr &&
+        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
+      return;
+    }
     // The traversal should have ended if needs_predicate_ was true
     NVF_ERROR(!needs_predicate_);
 
@@ -263,7 +332,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     // consumer ID may be oversubscribed, which may cause
     // out-of-bounds accesses in the producer
     const auto maybe_oversubscribed = consumer_id->isThread() &&
-        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(consumer_id));
+        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+            consumer_id, isComputeWarp(consumer_, consumer_id)));
     if (maybe_oversubscribed) {
       // If oversubscribed, there must be a mapped producer ID that is
       // parallelized in the same way. Otherwise, needs to be
@@ -331,10 +401,12 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
  private:
+  TensorView* consumer_ = nullptr;
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
-  std::unordered_set<IterDomain*> index_ids_;
+  const ValGraph* graph_ = nullptr;
+  const std::unordered_set<ValGroup> alloc_to_loop_groups_;
 };
 
 class PredicateChcker : public IterVisitor {

@@ -212,7 +212,13 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <
+    bool Aligned,
+    int NumVals,
+    typename DataType,
+    int BDIMX,
+    int BDIMY,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -229,6 +235,10 @@ __device__ __inline__ void ParallelReduce<
         const DataType in_avg[NumVals],
         const DataType in_var[NumVals],
         nvfuser_index_t in_N,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         DataType* global_buf_avg,
         DataType* global_buf_var,
         nvfuser_index_t* global_buf_N,
@@ -258,11 +268,11 @@ __device__ __inline__ void ParallelReduce<
 
   auto iter_tid = index_utils::
       maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   auto per_block_result =
       impl::blockWelfordOuter<Aligned, NumVals, DataType, BDIMX, BDIMY>(
-          out_avg, out_var, in_N, shared_buf);
+          out_avg, out_var, in_N, block_dim, shared_buf);
 
   // At this point, threads with tid_in_group == 0 has valid partial
   // results. Store them to global buffer.
@@ -310,7 +320,8 @@ __device__ __inline__ void ParallelReduce<
       isReduce(Y_BLOCK),
       isReduce(Z_BLOCK),
       PERSISTENT_REDUCTION,
-      Aligned>(global_sync_buffer[blockIdx.x], gridDim.y, last_block);
+      Aligned>(
+      global_sync_buffer[blockIdx.x], gridDim.y, last_block, block_dim);
 
   auto partial_results =
       welfordGroupAccumulateGlobalBuffer<NumVals, DataType, BDIMX, BDIMY>(
@@ -321,6 +332,7 @@ __device__ __inline__ void ParallelReduce<
           partial_results.avg_.array,
           partial_results.var_.array,
           partial_results.N_,
+          block_dim,
           shared_buf);
 
   // At this point, each thread of the groups with tid_in_group=0
@@ -361,7 +373,13 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <
+    bool Aligned,
+    int NumVals,
+    typename DataType,
+    int BDIMX,
+    int BDIMY,
+    typename BlockDimT>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -378,6 +396,10 @@ __device__ __inline__ void ParallelReduce<
         const DataType in_avg[NumVals],
         const DataType in_var[NumVals],
         nvfuser_index_t in_N,
+        // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+        // there is no warp specialization in the kernel. If there is warp
+        // specialization, block_dim is the the dimension of the compute warps.
+        BlockDimT block_dim,
         DataType* global_buf_avg,
         DataType* global_buf_var,
         nvfuser_index_t* global_buf_N,
@@ -399,6 +421,7 @@ __device__ __inline__ void ParallelReduce<
       in_avg,
       in_var,
       in_N,
+      block_dim,
       global_buf_avg,
       global_buf_var,
       global_buf_N,

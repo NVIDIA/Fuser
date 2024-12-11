@@ -268,11 +268,9 @@ TEST_F(InliningTest, IsAllowedID) {
   // tv3
   {
     std::vector<IterDomain*> loop_domain{
-        tv1->getLoopDomain().at(0)->cloneWithoutRFactor(),
+        tv3->getLogicalDomain().at(0),
         tv1->getLoopDomain().at(1)->cloneWithoutRFactor(),
         tv1->getLoopDomain().at(2)->cloneWithoutRFactor()};
-    IrBuilder::create<Merge>(
-        tv3->getLogicalDomain().at(0), loop_domain[1], loop_domain[2]);
     tv3->setLoopDomain(loop_domain);
     for (const auto i : c10::irange(3)) {
       EXPECT_TRUE(isAllowedID(tv3, i))
@@ -283,11 +281,9 @@ TEST_F(InliningTest, IsAllowedID) {
   // tv4
   {
     std::vector<IterDomain*> loop_domain{
-        tv1->getLoopDomain().at(0)->cloneWithoutRFactor(),
+        tv4->getLogicalDomain().at(0),
         tv1->getLoopDomain().at(1)->cloneWithoutRFactor(),
         tv1->getLoopDomain().at(2)->cloneWithoutRFactor()};
-    IrBuilder::create<Merge>(
-        tv4->getLogicalDomain().at(0), loop_domain[1], loop_domain[2]);
     // Note that loop_domain[1] and loop_domain[2] are not connected
     // with the logical domain of tv4
     tv4->setLoopDomain(loop_domain);

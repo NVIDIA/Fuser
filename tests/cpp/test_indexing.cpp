@@ -37,10 +37,13 @@ using ContigPredicateIndexingTest = NVFuserTest;
 
 namespace {
 
-std::vector<Val*> getLoopIndices(TensorView* tv, const TensorIndexer& indexer) {
+std::vector<Val*> getLoopIndices(
+    TensorView* tv,
+    const TensorIndexer& indexer,
+    const std::vector<ForLoop*>& for_loops) {
   std::vector<Val*> loop_indices;
   for (const auto& loop_id : tv->getLoopDomain()) {
-    loop_indices.push_back(indexer.getLoopIndex(loop_id));
+    loop_indices.push_back(indexer.getLoopIndex(loop_id, for_loops));
   }
   return loop_indices;
 }
@@ -480,7 +483,8 @@ TEST_F(IndexingTest, SimplePointwise1) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           NVF_ERROR(!as_consumer);
@@ -647,7 +651,8 @@ TEST_F(IndexingTest, SimpleReduction) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       switch (tv->name()) {
         case 0: {
@@ -708,7 +713,8 @@ TEST_F(IndexingTest, PromotionToReductionDomain) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       switch (tv->name()) {
         case 1: {
@@ -749,7 +755,8 @@ TEST_F(IndexingTest, AllocationDomain) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       switch (tv->name()) {
         case 1: {
@@ -809,7 +816,8 @@ TEST_F(IndexingTest, Reshape) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       switch (tv->name()) {
         case 1:
@@ -880,7 +888,8 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       NVF_ERROR(loop_indices.at(1)->isZeroInt());
       switch (tv->name()) {
         case 0:
@@ -939,7 +948,8 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0:
         case 1:
@@ -986,7 +996,8 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           // tv0 is a 1D pre-broadcast input tensor, so it only needs the
@@ -1065,7 +1076,8 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 2: {
           return loop_indices.at(1);
@@ -1134,7 +1146,8 @@ TEST_F(IndexingTest, MultiDevice1DSplit) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       return loop_indices.at(1);
     }
   };
@@ -1171,7 +1184,8 @@ TEST_F(IndexingTest, MultiDevice2D) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       // Note that the allocation domain is the logical domain. See the
       // next test for a loop allocation example
       auto inner_dim = tv->getLogicalDomain().at(1)->extent();
@@ -1217,7 +1231,8 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       // Since the loop domain is the allocation domain, the index should
       // be just the non-parallelized loop index
       return loop_indices.at(1);
@@ -1253,7 +1268,8 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           return addExpr(
@@ -1309,7 +1325,8 @@ TEST_F(IndexingTest, PromotedBroadcast) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 2:
           return tv->fusion()->zeroVal();
@@ -1356,7 +1373,8 @@ TEST_F(IndexingTest, SimpleVectorize) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0:
         case 2:
@@ -1364,13 +1382,11 @@ TEST_F(IndexingTest, SimpleVectorize) {
           // vectorized domain with zero, which doesn't go through the
           // simplification of SimplifyingIrBuilder. We could use simplifyExpr,
           // but for the sake of testing, just use IrBuilder::addExpr.
-          return IrBuilder::addExpr(
-              mulExpr(
-                  addExpr(
-                      mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-                      loop_indices.at(1)),
-                  tv->axis(2)->extent()),
-              tv->fusion()->zeroVal());
+          return mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent());
         case 1:
           return tv->fusion()->zeroVal();
         default:
@@ -1428,7 +1444,8 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       bool vec_load_or_store =
           ((tv->name() == 1 && as_consumer) ||
            (tv->name() == 2 && !as_consumer));
@@ -1495,7 +1512,33 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       if (tv->name() != 2 || as_consumer) {
         return nullptr;
       }
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // T2_l_float[ iS14{( ceilDiv(i0, 3) )}, iS19{1}, iS20{5}, bS17{4} ]
+      // ca_pos( 1 ) logical domain : (iS3{i0}, bS4{1}) contiguity: t n
+      //  Split: iS3{i0} by factor 3 -> iS14{( ceilDiv(i0, 3) )}, iS15{3}
+      //  Split: bS4{1} by factor 4 -> bS16{1}, bS17{4}
+      //  Merge: iS15{3} and bS16{1} -> iS18{3}
+      //  Split: iS18{3} by factor 5 -> iS19{1}, iS20{5}
+      // loop domain : (iS14{( ceilDiv(i0, 3) )}, iS19{1}, iS20{5}, bS17{4})
+
+      // T3_g_float[ iS7{( ceilDiv(i2, 3) )}, iS12{( ceilDiv(( ( ceilDiv(i3, 4)
+      // ) * 3 ), 5) )}, iS13{5}, iS10{4} ] ca_pos( 1 ) produce_pos( 1 )
+      //  logical domain : (iS5{i2}, iS6{i3})
+      //  contiguity: t t
+      //   Split: iS5{i2} by factor 3 -> iS7{( ceilDiv(i2, 3) )}, iS8{3}
+      //   Split: iS6{i3} by factor 4 -> iS9{( ceilDiv(i3, 4) )}, iS10{4}
+      //   Merge: iS8{3} and iS9{( ceilDiv(i3, 4) )} -> iS11{( ( ceilDiv(i3, 4)
+      //   ) * 3 )} Split: iS11{( ( ceilDiv(i3, 4) ) * 3 )} by factor 5 ->
+      //   iS12{( ceilDiv(( ( ceilDiv(i3, 4) ) * 3 ), 5) )}, iS13{5}
+      //  loop domain : (iS7{( ceilDiv(i2, 3) )}, iS12{( ceilDiv(( ( ceilDiv(i3,
+      //  4) ) * 3 ), 5) )}, iS13{5}, iS10{4})
+
+      // iS20 is the only ID to index.
+      // T3's iS8 is mapped with id15. The AlmostExact graph maps iS15
+      // with iS18 but not iS20 since the extent of iS18 is different
+      // from that of iS20.
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       TensorView* tv2 = tv;
       TensorView* tv3 = consumer_tv;
       IterDomain* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
@@ -1504,8 +1547,6 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
           mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
           loop_indices.at(2));
       Val* id8_idx = divExpr(id11_idx, id9->extent());
-      // id8 is mapped with id15, which should also be mapped with
-      // id18
       IterDomain* id20 = tv2->axis(2);
       Val* id20_idx = modExpr(id8_idx, id20->extent());
       return id20_idx;
@@ -1541,7 +1582,8 @@ TEST_F(IndexingTest, Swizzle) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       switch (tv->name()) {
         case 1: {
@@ -1612,7 +1654,8 @@ TEST_F(IndexingTest, SimpleUnroll) {
 
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       NVF_ERROR(loop_indices.size() == 3);
       // Each of three domains corresponds to BIDx, Unroll and
       // TIDx. Only the Unroll domain is allocated.
@@ -1675,7 +1718,8 @@ TEST_F(IndexingTest, InlinedUnroll) {
 
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       return loop_indices.back();
     }
   };
@@ -1739,7 +1783,8 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
 
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       auto merge_output_idx = IrBuilder::addExpr(
           mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
@@ -1847,7 +1892,8 @@ TEST_F(IndexingTest, ResizePath) {
 
       NVF_ERROR(maybe_consumer != nullptr);
       auto consumer_tv = maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       switch (consumer_tv->name()) {
         case 1: {
@@ -1914,7 +1960,8 @@ TEST_F(IndexingTest, DoubleBuffering1) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -2029,7 +2076,8 @@ TEST_F(IndexingTest, DoubleBuffering4) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -2140,7 +2188,8 @@ TEST_F(IndexingTest, DoubleBuffering6) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -2279,7 +2328,8 @@ TEST_F(IndexingTest, CircularBuffering1) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -2408,7 +2458,8 @@ TEST_F(IndexingTest, CircularBuffering2) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -2536,7 +2587,7 @@ TEST_F(PredicateIndexingTest, SimplePointwise1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       auto i0_idx = divExpr(
           addExpr(
@@ -2588,7 +2639,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       bool is_init = tv->nDims() > (int64_t)for_loops_.size();
 
@@ -2695,7 +2746,7 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     // Note that "+ 0" remains since a symbolic Val is just replaced
     // with zero.
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto start_idx = addExpr(
           mulExpr(
               IrBuilder::addExpr(
@@ -2769,7 +2820,7 @@ TEST_F(PredicateIndexingTest, SimpleUnswitch) {
     // (((blockIdx.x * 4 + 0) * 8 + 0) * 128 + threadId.x >= 0 &&
     // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x < tv0.logical_size[0]
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto start_idx = addExpr(
           mulExpr(
               IrBuilder::addExpr(
@@ -2841,15 +2892,13 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
-      auto start_idx = IrBuilder::addExpr(
-          mulExpr(
-              addExpr(
-                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-                  loop_indices.at(1)),
-              tv->axis(2)->extent()),
-          tv->fusion()->zeroVal());
+      auto start_idx = mulExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->axis(2)->extent());
       auto stop_idx = addExpr(
           mulExpr(
               addExpr(
@@ -2858,7 +2907,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
               tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
 
-      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 0 )>= 0 ) &&
+      // ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) >= 0 ) &&
       // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 3 ) < ( (( ((
       // getMetaData(T0) )).logical_size ))[0] ) ) )
       return andExpr(
@@ -2920,7 +2969,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
         return nullptr;
       }
 
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       auto common_idx = addExpr(
           mulExpr(
@@ -2929,8 +2978,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
                   loop_indices.at(1)),
               tv->axis(3)->extent()),
           loop_indices.at(3));
-      auto start_idx = IrBuilder::addExpr(
-          mulExpr(common_idx, tv->axis(2)->extent()), tv->fusion()->zeroVal());
+      auto start_idx = mulExpr(common_idx, tv->axis(2)->extent());
       auto stop_idx = addExpr(
           mulExpr(common_idx, tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
@@ -2981,7 +3029,7 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -3086,7 +3134,7 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -3199,7 +3247,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       // Don't care tensors outside circular buffered loops
       if (circular_buffer_loop_stage_ ==
@@ -3351,9 +3399,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
-
-      auto zero = tv->fusion()->zeroVal();
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       // The base index is:
       //
@@ -3362,11 +3408,8 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
       // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      // NOTE: Expression Simplification is disabled in PredicateIndexValidator,
-      // so trivial addition appears in the expression.
-      // Start index: i0 * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(0));
+      // Start index: i0 * 4
+      Val* start_idx = IrBuilder::mulExpr(loop_indices.at(0), createInt(4));
 
       // Stop index: i0 * 4 + 4
       // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
@@ -3376,7 +3419,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
           IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
-          geExpr(start_idx, zero),
+          geExpr(start_idx, tv->fusion()->zeroVal()),
           ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
@@ -3437,7 +3480,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       auto zero = tv->fusion()->zeroVal();
 
@@ -3449,13 +3492,10 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128 + 0) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3542,7 +3582,7 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       auto zero = tv->fusion()->zeroVal();
 
@@ -3554,13 +3594,10 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
       // to the vectorization. Since it's vectorized, the predicate
       // uses 0 for start and (vec_factor - 1) for stop
 
-      // Start index: (i0 * 128 + 0) * 4 + 0
-      Val* start_idx = IrBuilder::addExpr(
-          mulExpr(
-              IrBuilder::addExpr(
-                  mulExpr(loop_indices.at(0), createInt(128)), zero),
-              createInt(4)),
-          zero);
+      // Start index: (i0 * 128 + 0) * 4
+      Val* start_idx = mulExpr(
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(128)), zero),
+          createInt(4));
       // Stop index: (i0 * 128 + 129) * 4 + 3
       Val* stop_idx = addExpr(
           mulExpr(
@@ -3703,7 +3740,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto zero = tv->fusion()->zeroVal();
 
       // Initialization exprs should not be predicated
@@ -3805,7 +3842,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto zero = tv->fusion()->zeroVal();
       auto one = tv->fusion()->oneVal();
 
@@ -3892,7 +3929,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto zero = tv->fusion()->zeroVal();
       auto circular_buffer_index = for_loops_.at(1)->index();
 
@@ -4005,7 +4042,7 @@ TEST_F(
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto zero = tv->fusion()->zeroVal();
       auto one = tv->fusion()->oneVal();
 
@@ -4094,7 +4131,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto zero = tv->fusion()->zeroVal();
       auto one = tv->fusion()->oneVal();
       auto merge =
@@ -4212,7 +4249,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
       auto zero = tv->fusion()->zeroVal();
 
@@ -4372,7 +4409,7 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
       auto zero = tv->fusion()->zeroVal();
 
@@ -4460,7 +4497,8 @@ TEST_F(ContigIndexingTest, SimplePointwise) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           NVF_ERROR(!as_consumer);
@@ -4523,7 +4561,8 @@ TEST_F(ContigIndexingTest, NonContigInnermost) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           NVF_ERROR(!as_consumer);
@@ -4600,7 +4639,8 @@ TEST_F(ContigIndexingTest, BroadcastInlining) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           NVF_ERROR(!as_consumer);
@@ -4664,7 +4704,8 @@ TEST_F(ContigIndexingTest, Resize) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
       switch (tv->name()) {
         case 0: {
           NVF_ERROR(!as_consumer);
@@ -4723,7 +4764,8 @@ TEST_F(ContigIndexingTest, NonConsistentMerge) {
         const override {
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       auto id0 = divExpr(
           divExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
@@ -4788,7 +4830,8 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
 
       bool as_consumer = maybe_consumer == nullptr;
       auto consumer_tv = as_consumer ? tv : maybe_consumer;
-      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
 
       // When indexed as a consumer, the second merge is a contig
       // merge, so the index should be just threadIdx.x
@@ -4872,7 +4915,7 @@ TEST_F(ContigPredicateIndexingTest, SimplePointwise1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
 
       auto flatten_idx = addExpr(
           mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
@@ -4936,7 +4979,7 @@ TEST_F(ContigPredicateIndexingTest, SimpleUnswitch) {
     // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x <
     // tv0.logical_size[0] * tv0.logical_size[1]
     Val* getOuterPredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto start_idx = addExpr(
           mulExpr(
               IrBuilder::addExpr(
@@ -5012,7 +5055,7 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
         : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
-      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
       auto zero = tv->fusion()->zeroVal();
 
       // For tv1, since it's fully contiguous, the predicate should be
@@ -5108,7 +5151,7 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
         NVF_ERROR(tv1->name() == 1);
 
         auto indexer = GpuLower::current()->tensorIndexer();
-        auto loop_indices = getLoopIndices(tv1, indexer);
+        auto loop_indices = getLoopIndices(tv1, indexer, for_loops_);
 
         // The logical domains of tv0 and tv1 are [i0, i1] and
         // [i0*i1], respectively. Since tv1 is split twice, the
@@ -5271,6 +5314,212 @@ TEST_F(IndexingTest, Issue3299) {
   auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, ResizeRotation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto zero = fusion.zeroVal();
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+
+  // left half
+  auto tv1 = slice(tv0, {{zero, IrBuilder::create<Val>(i0 / 2)}});
+  // right half
+  auto tv2 = slice(
+      tv0, {{IrBuilder::create<Val>(i0 / 2), IrBuilder::create<Val>(i0)}});
+
+  // Rotation
+  auto tv3 = cat({tv2, tv1}, 0);
+
+  auto tv4 = add(tv0, tv3);
+
+  fusion.addOutput(tv4);
+
+  // Some of the scheduling tools such as scheduleLoopDomain are
+  // supposed to take care of the following transformations
+  // automatically, however, it needs a workaround for the cyclic
+  // graph pattern. For now, they are manually scheduled.
+
+  // tv1
+  {
+    auto tv1_padded = tv3->definition()->input(1)->as<TensorView>();
+    auto tv1_pad_resize = dynamic_cast<Resize*>(
+        tv1_padded->getLogicalDomain().at(0)->definition());
+    ASSERT_NE(tv1_pad_resize, nullptr);
+    auto loop_domain = tv1->getLogicalDomain();
+    auto padded_id = IterDomain::resize(
+        loop_domain[0],
+        tv1_pad_resize->leftExpand(),
+        tv1_pad_resize->rightExpand());
+    loop_domain[0] = padded_id;
+    tv1->setLoopDomain(loop_domain);
+  }
+
+  // tv2
+  {
+    auto tv2_padded = tv3->definition()->input(0)->as<TensorView>();
+    auto tv2_pad_resize = dynamic_cast<Resize*>(
+        tv2_padded->getLogicalDomain().at(0)->definition());
+    ASSERT_NE(tv2_pad_resize, nullptr);
+    auto loop_domain = tv2->getLogicalDomain();
+    auto padded_id = IterDomain::resize(
+        loop_domain[0],
+        tv2_pad_resize->leftExpand(),
+        tv2_pad_resize->rightExpand());
+    loop_domain[0] = padded_id;
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repro of issue #3505. The indexing WAR for resize triggered an
+// assertion due to loop promotion.
+TEST_F(IndexingTest, Issue3505Repro1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 2;
+  const int64_t i1 = 4;
+  const int64_t i2 = 8;
+  const auto zero = fusion.zeroVal();
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({i1, i2});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({i0, i1 / 2, i2 / 2});
+  fusion.addInput(tv1);
+
+  // One slice can reproduce the error but just to trigger the
+  // reachability check between multiple resize ops
+  auto tv2 = slice(
+      tv0,
+      {{zero, IrBuilder::create<Val>(i1 / 2)},
+       {zero, IrBuilder::create<Val>(i2 / 2)}});
+  auto tv3 = broadcast(tv2, {true, false, false});
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : {tv2, tv3, tv4}) {
+    tv->flatten();
+  }
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i1, i2}, options);
+  auto t1 = at::randn({i0, i1 / 2, i2 / 2}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Another repro of issue #3505
+TEST_F(IndexingTest, Issue3505Repro2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 8;
+  const int64_t i1 = 2;
+  const auto zero = fusion.zeroVal();
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({i1, i0 / 2});
+  fusion.addInput(tv1);
+
+  // Left half
+  auto tv2 = slice(tv0, {{zero, IrBuilder::create<Val>(i0 / 2)}});
+  // Right half
+  auto tv3 = slice(
+      tv0, {{IrBuilder::create<Val>(i0 / 2), IrBuilder::create<Val>(i0)}});
+
+  // The two inputs of this add expression have a resize of the same
+  // ID, but this should not mean the resize war path is required.
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = broadcast(tv4, {true, false});
+  auto tv6 = add(tv1, tv5);
+  fusion.addOutput(tv6);
+
+  // Make loop promotion required
+  for (auto tv : {tv2, tv3, tv4, tv5, tv6}) {
+    tv->flatten();
+  }
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  auto t1 = at::randn({i1, i0 / 2}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()}});
+
+  fusion.addOutput(tv1);
+
+  // [b0, i1]
+  tv1->split(-1, 5);
+  // [b0, i1/5, 5]
+  tv1->split(-1, 3);
+  // [b0, i1/5, 5/3, 3]
+  tv1->merge(0, -1);
+  // [b0*i1/5*3, 5/3]
+  tv1->split(0, 2);
+  // [b0*i1/5*3/2, 2, 5/3]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

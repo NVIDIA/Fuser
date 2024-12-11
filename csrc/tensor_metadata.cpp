@@ -37,6 +37,7 @@ class ForwardTraverseFromLogicalToAlloc {
       // TODO: see [Allocation domain on both side of logical]
       return;
     }
+
     auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     NVF_ERROR(
@@ -44,17 +45,24 @@ class ForwardTraverseFromLogicalToAlloc {
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
+
+    int64_t inner_size = 0;
+    int64_t outer_size = 0;
+    if (split->innerSplit()) {
+      outer_size = in_size / factor;
+      inner_size = factor;
+    } else {
+      outer_size = factor;
+      inner_size = in_size / factor;
+    }
+
     NVF_ERROR(active_ids_.erase(in) == 1);
+    NVF_ERROR(active_ids_.emplace(inner, std::make_pair(inner_size, in_stride))
+                  .second);
     NVF_ERROR(
         active_ids_
-            .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
+            .emplace(outer, std::make_pair(outer_size, in_stride * inner_size))
             .second);
-    NVF_ERROR(active_ids_
-                  .emplace(
-                      outer,
-                      std::pair<int64_t, int64_t>{
-                          in_size / factor, in_stride * factor})
-                  .second);
   }
 
   void handle(Merge* merge) {
@@ -73,17 +81,14 @@ class ForwardTraverseFromLogicalToAlloc {
     auto [outer_size, outer_stride] = outer_it->second;
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
-        "The logical domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "merging of discontiguous dimensions is not allowed in allocation domain");
+        "Merging of discontiguous dimensions is not allowed in allocation "
+        "domain. An allocation IterDomain can't have two different strides.");
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
-    NVF_ERROR(active_ids_
-                  .emplace(
-                      out,
-                      std::pair<int64_t, int64_t>{
-                          inner_size * outer_size, inner_stride})
-                  .second);
+    NVF_ERROR(
+        active_ids_
+            .emplace(out, std::make_pair(inner_size * outer_size, inner_stride))
+            .second);
   }
 
   void handle(Expr* expr) {
@@ -259,6 +264,10 @@ void validateAllocationSizesAndStrides(
           "Stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
+          ": sizes: ",
+          sizes,
+          ": strides: ",
+          strides,
           "; contiguity: ",
           toDelimitedString(contiguity),
           "; dim: ",
@@ -283,10 +292,11 @@ inferAndValidateAllocationSizesAndStrides(
   const auto& alloc = tv->getMaybeAllocationDomain();
 
   // active IDs and their shape and stride
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
   for (IterDomain* id : TensorDomain::noReductions(logical)) {
-    active_ids[id] = {tensor.size(dim_index), tensor.stride(dim_index)};
+    active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
     dim_index++;
   }
   NVF_ERROR(dim_index == tensor.dim());
@@ -296,50 +306,26 @@ inferAndValidateAllocationSizesAndStrides(
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
-  sizes.reserve(alloc.size());
-  strides.reserve(alloc.size());
+  std::vector<int64_t> allocation_sizes;
+  std::vector<int64_t> allocation_strides;
+  allocation_sizes.reserve(alloc.size());
+  allocation_strides.reserve(alloc.size());
   for (IterDomain* id : TensorDomain::noReductions(alloc)) {
     if (id->isDeviceDim()) {
-      sizes.push_back(1);
+      allocation_sizes.push_back(1);
     } else {
-      sizes.push_back(active_ids.at(id).first);
+      allocation_sizes.push_back(active_ids.at(id).first);
     }
-    strides.push_back(active_ids.at(id).second);
+    allocation_strides.push_back(active_ids.at(id).second);
   }
 
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), sizes, strides);
+        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
   }
-  return {std::move(sizes), std::move(strides)};
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
-
-namespace {
-std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
-    TensorView* tv,
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef strides) {
-  std::vector<int64_t> unsharded_sizes(sizes.size());
-  std::vector<int64_t> unsharded_strides(strides.size());
-  for (const auto i : c10::irange(sizes.size())) {
-    IterDomain* id = tv->getLogicalDomain()[i];
-    if (id->isDeviceDim()) {
-      unsharded_sizes[i] = tv->getDeviceMesh().size(id->getParallelType());
-      // This probably doesn't matter in practice unless a kernel accidentally
-      // tries to access the data on another rank. To be safe, set the stride
-      // to zero, analogous to an expanded broadcast dimension.
-      unsharded_strides[i] = 0;
-    } else {
-      unsharded_sizes[i] = sizes[i];
-      unsharded_strides[i] = strides[i];
-    }
-  }
-  return {unsharded_sizes, unsharded_strides};
-}
-} // namespace
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
@@ -364,22 +350,19 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->data = input.data_ptr();
 
   if (isSharded(tv)) {
-    auto [unsharded_sizes, unsharded_strides] =
-        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
+    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
     metadata->logical_size_data = std::move(unsharded_sizes);
     metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-    metadata->logical_stride_data = std::move(unsharded_strides);
-    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
   } else {
     metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
   }
+  metadata->logical_stride = input.strides();
 
-  auto [sizes, strides] =
+  auto [allocation_sizes, allocation_strides] =
       inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-  metadata->alloc_size_data = std::move(sizes);
+  metadata->alloc_size_data = std::move(allocation_sizes);
   metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-  metadata->alloc_stride_data = std::move(strides);
+  metadata->alloc_stride_data = std::move(allocation_strides);
   metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   return {PolymorphicValue(std::move(struct_))};
 }

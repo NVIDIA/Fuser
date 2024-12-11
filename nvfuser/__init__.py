@@ -110,6 +110,82 @@ class FusionDefinition(_C._FusionDefinition):
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
 
+    def _execute_segments(self, input_arguments, *, device=None, profile=False):
+        """
+        Run the sequence of FusionDefinition segments to generate the results
+        of this FusionDefinition.
+
+        This FusionDefinition acts an argument manager. It gathers input
+        arguments for the segments and stores their output results. After
+        running a segment, any redundant intermediate values, which are
+        unnecessary for any other segments, are deleted to save memory.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Kwargs:
+            device (Optional[Union[int, str, torch.device]]): This is a hint to run
+                the Fusion on the given CUDA device. This is not typically
+                necessary, as the device is usually inferred from the locations
+                of input tensors. However, for some fusion definitions, no
+                tensors will be input (for example when all tensors are
+                generated with `full` or `uniform` ops). In these cases, we
+                must either tell NVFuser where to run the resulting kernel, or
+                let it default to 0. Note that passing this option providing
+                and input tensors that lie on another device is an error.
+            profile (bool): Captures a CUPTI based profile of a fusion.
+
+
+        Returns:
+            List[Tensor]: The output results for this FusionDefinition.
+        """
+        assert len(self.segments) > 0
+        assert len(self.segments) == len(self.segment_index_space_maps)
+
+        input_arguments_with_extents = [*input_arguments]
+        for a in input_arguments:
+            if type(a) is torch.Tensor:
+                input_arguments_with_extents.extend(a.size())
+
+        # Map inputs arguments to original fid
+        map_original_fid_to_value = {
+            fd_state: argument
+            for fd_state, argument in zip(
+                self.inputs() + self.extents(), input_arguments_with_extents
+            )
+        }
+
+        # Run all segments in correct order
+        for idx, segment in enumerate(self.segments):
+            segment_to_original_map = self.segment_index_space_maps[segment]
+
+            # Gather segment input arguments
+            segment_arguments = [
+                map_original_fid_to_value[segment_to_original_map[fd_state]]
+                for fd_state in segment.inputs()
+            ]
+
+            # Run segment
+            segment_outputs = segment.execute(
+                segment_arguments, device=device, profile=profile
+            )
+
+            # Update original fusion definition indices to outputs
+            for fd_state, output in zip(segment.outputs(), segment_outputs):
+                map_original_fid_to_value[segment_to_original_map[fd_state]] = output
+
+            # Destroy any arguments that are not used by future segments
+            for segment_input in segment.inputs():
+                original_input = segment_to_original_map[segment_input]
+                if (
+                    original_input not in self.outputs()
+                    and self.map_value_to_last_used_segment[original_input] == idx
+                ):
+                    del map_original_fid_to_value[original_input]
+
+        # Map output fid to actual results
+        return [map_original_fid_to_value[fd_state] for fd_state in self.outputs()]
+
     def execute(
         self,
         inputs,
@@ -208,7 +284,9 @@ class FusionDefinition(_C._FusionDefinition):
             #
             # Note: there's a plan to embed multidevice schedules into FusionDefinition
             # as annotating nodes. This may eventually replace `multidevice_schedule`.
+            self._setup_multidevice_schedule()
             self.multidevice_schedule()
+            self._finalize_multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
@@ -224,6 +302,9 @@ class FusionDefinition(_C._FusionDefinition):
 
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+
+        if hasattr(self, "segments") and len(self.segments) > 0:
+            return self._execute_segments(inputs, device=device, profile=profile)
 
         results = None
 

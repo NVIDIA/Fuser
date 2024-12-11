@@ -184,8 +184,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   MatmulDimRole findMatmulDimRole(IterDomain* id);
 
  private:
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
-
   std::vector<ValGroup> canonical_dim_ordering_;
 
   std::vector<TensorView*> acw_smems_, bcw_smems_, acrs_, bcrs_, abs_, bbs_,

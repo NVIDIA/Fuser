@@ -32,9 +32,6 @@ HostIrExecutor::HostIrExecutor(
 
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
-  // if (fusion->isA<hir::HostIrContainer>()) {
-  //   return true;
-  // }
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
@@ -381,15 +378,13 @@ void HostIrEvaluator::handle(Wait* wait) {
 
 namespace {
 
-void allConsumerValsOfHelper(
-    Val* val,
-    std::unordered_set<Val*>& visisted_vals) {
-  if (visisted_vals.find(val) != visisted_vals.end()) {
+void allConsumerValsOfHelper(Val* val, std::unordered_set<Val*>& visited_vals) {
+  if (visited_vals.find(val) != visited_vals.end()) {
     return;
   }
-  visisted_vals.insert(val);
+  visited_vals.insert(val);
   for (Val* consumer : ir_utils::consumerValsOf(val)) {
-    allConsumerValsOfHelper(consumer, visisted_vals);
+    allConsumerValsOfHelper(consumer, visited_vals);
   }
 }
 
@@ -470,6 +465,22 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   } else {
     unhandled(matmul);
   }
+}
+
+void HostIrEvaluator::handle(kir::Allocate* allocate) {
+  NVF_ERROR(
+      allocate->buffer()->isA<TensorView>(),
+      "Allocation must be on a TensorView but got ",
+      allocate->buffer());
+  TensorView* tv = allocate->buffer()->as<TensorView>();
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  AliasInfo alias_info = {
+      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
+  c10::Device device =
+      communicator_ ? communicator_->device() : at::Device("cuda:0");
+  at::Tensor tensor = allocateTensor(info, alias_info, device, expr_evaluator_);
+  expr_evaluator_.bind(tv, tensor);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {

@@ -40,7 +40,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
         expr->toString());
     auto* output = expr->outputs().at(0)->as<TensorView>();
     auto* input = expr->inputs().at(0)->as<TensorView>();
-    auto [shard_additions, shard_deletions] = getShardingChanges(expr);
+    auto [shard_additions, shard_deletions] = getShardingChanges(input, output);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
         "Resharding expr can only support one axis: ",
@@ -122,11 +122,12 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
           permute(output_permute, {{0, sharding_axis_after_permute}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
 
-      // Propagate shardings from input and manually apply sharding additions.
-      shardAllLike(input, {input_permute, output_permute, new_output});
       output_permute->axis(0)->parallelize(shard_added_id->getParallelType());
       new_output->axis(sharding_axis_after_permute)
           ->parallelize(shard_added_id->getParallelType());
+      // `output_permute` and `new_output` have inherited mesh from `input`. We
+      // need to change them to `output`'s mesh so communication is only
+      // between `input_permute` and `output_permute`.
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
     }

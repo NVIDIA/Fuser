@@ -29,500 +29,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-// This function returns a pair of integers. The first integer is the gcd
-// between megabanks and row stride. The second integer is the repeat pattern
-// size. If the gcd is 1, then no swizzle is necessary to resolve bank
-// conflicts. In that case, the second integer is irrelevant and -1 is returned.
-std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
-    TensorView* shared_mem_tv) {
-  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
-  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
-
-  // Check that the innermost 2 dimensions are concrete and static
-  //  sized so that the swizzle function can be defined.
-  NVF_ERROR(
-      (int64_t)swizzle_domain.size() >= 2,
-      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
-      shared_mem_tv->toString());
-  mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
-  mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
-
-  // Extract the constant sizes of the swizzled tile
-  const int64_t tile_size_x =
-      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
-  const int64_t tile_size_y =
-      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
-
-  // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
-  // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
-  // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
-  NVF_ERROR(data_type_size == 2 || data_type_size == 4);
-
-  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
-  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
-  // Each thread vectorized write 2 items, so 8 items per row.
-  //--0--1--2--3
-  //--4--5--6--7
-  //--8--9--10-11
-  //--12-13-14-15
-  //--16-17-18-19
-  //--20-21-22-23
-  //--24-25-26-27
-  //--28-29-30-31
-  constexpr int64_t n_rows = 8;
-  constexpr int64_t n_cols = 8;
-
-  // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
-  NVF_ERROR(
-      tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
-          tile_size_y >= n_cols && tile_size_y % n_cols == 0,
-      "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
-      tile_size_x,
-      "x",
-      tile_size_y);
-
-  /* Note [How to remove bank conflict for ldmatrix?]
-   *
-   * **This note is interleaved with code, I suggest reading this note like
-   *   reading a jupyter notebook**
-   *
-   * Our task is to make sure different rows does not fall into the same
-   * bank of shared memory.
-   *
-   * Introduction to bank conflict can be found at page 54-72 of:
-   * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
-   *
-   * When we talk about bank conflict removal, we are talking about the
-   * following task:
-   *   "there are 32 banks, and each bank contains one 4-byte word, we want to
-   *    make sure different lanes in a warp does not access different word
-   *    addresses in the same bank"
-   * For example, if thread 0 is accessing word address 1, and thread 1 is
-   * accessing word address 33, then these two threads will have a bank
-   * conflict because they are accessing different word addresses in the same
-   * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
-   * accessing byte address 6 then there will be no bank conflict because 4
-   * and 6 both belong to word 1.
-   */
-
-  constexpr int64_t smem_bytes_per_word = 4;
-  constexpr int64_t smem_banks = 32;
-
-  /* but here, for our convenience, because ldmatrix always use vectorized
-   * access of 8 items = 16 bytes = 4 words, we further group words into
-   * units: we consider each 4 words as a "unit", and each 4 banks as a
-   * "megabank". So we can rephrase our task as:
-   *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
-   *    want to make sure different lanes in a warp does not access different
-   *    unit addresses in the same megabank"
-   * In this terminology, matrices are in the row major format, each matrix
-   * has 8 rows, and each row has exactly one unit.
-   */
-
-  constexpr int64_t items_per_unit = n_cols;
-  const int64_t bytes_per_unit = items_per_unit * data_type_size;
-  const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
-  const int64_t num_megabanks = smem_banks / words_per_unit;
-
-  /* In the following example, each CTA tile contains 2 rows and 3 colums of
-   * matrices, each 8x8 size:
-   *   +----------+----------+----------+
-   *   | matrix 0 | matrix 1 | matrix 2 |
-   *   +----------+----------+----------+
-   *   | matrix 3 | matrix 4 | matrix 5 |
-   *   +----------+----------+----------+
-   * The addresses of different rows in the same matrix are offset by 3 units.
-   * In this perspective, loading a matrix is a strided memory access with the
-   * following stride (in units):
-   */
-
-  // number of units per row
-  int64_t row_stride = tile_size_y / items_per_unit;
-
-  /* So the bank conflicting problem is now converted to the following game:
-   *   I have a clock that has one pointer and `num_megabanks` ticks. I start
-   *   my game by making my pointer pointing to somewhere, and turn forward
-   *   the pointer `n_rows` times, each time by `row_stride` ticks.
-   * This problem can be well modeled by modular arithmetic in number theory
-   * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
-   * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
-   * Additions and multiplications are defined in a cyclic manner:
-   *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
-   *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
-   * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
-   *
-   * It worth mention that Z/nZ is a "commutative ring", that is, we can use
-   * addition and multiplication rules just like using normal integers:
-   *   a + b = b + a, a * (b + c) = a * b + a * c, ...
-   * In short, we can reason about Z/nZ just like we are reasoning about
-   * integers, except that every number is automatically "% n".
-   *
-   * Reference:
-   * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
-   * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
-   *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
-   *     we are only interested in non-negative numbers here, so there is no
-   *     need to worry about this problem
-   */
-
-  // row_stride in Z/nZ, where n is num_megabanks:
-  // assert(row_stride >= 0);
-  // assert(num_megabanks >= 0);
-  int64_t row_stride_znz = row_stride % num_megabanks;
-  /* Consider the following function in Z/nZ:
-   *   f(i; init) = init + i * stride
-   * where init is the initial position of the pointer in the clock when we
-   * start the game, and stride is the number of ticks we move forward each
-   * time, and i is the number of times we move forward. For a fixed init, we
-   * abbrivate f(i; init) as f(i).
-   *
-   * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
-   * `init` is the megabank of the 0th row of the matrix.
-   *
-   * One very important property of f(i) is:
-   * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
-   * This property is true because:
-   *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
-   *
-   * The above property tells us, as we turn the clock forward:
-   * - initially, we will go to a never-visited tick in each turn, but,
-   * - at some point, we will return back to our original position, and,
-   * - after we return, we start repeat the pervious pattern again and again.
-   *
-   * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
-   *     i  0 1 2 3 4 5 6 7
-   *   f(i) 0 6 4 2 0 6 4 2
-   * We can see that f(i) is repeating a pattern of four unique numbers
-   * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
-   * different megabanks, and we have a 2-way conflict.
-   *
-   * The question of interest is, does the above observation generalize? That
-   * is, does f(i) always repeat a pattern of p unique numbers q times? Note
-   * that p and q must satisfy p * q = n.
-   *
-   * The answer to the above question is: yes! Consider the following
-   * equation:
-   *    f(i1 + j) == f(i1)
-   * We want to know what is the smallest positive number j that makes the
-   * above equation true. Because this tells us in how many steps we will see
-   * repeat. This equation can be simplified as:
-   *   f(i1 + j) == f(i1) + j * stride == f(i1)
-   *   ==> j * stride == 0
-   *
-   * An important tool to study this equation is multiplicative inverse:
-   * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
-   * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
-   * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
-   * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
-   * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
-   *   (2 * 8) % 15 = 1
-   *
-   * stride has an multiplicative inverse if and only if stride coprime with
-   * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
-   * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
-   * not repeat, that is: there is no bank conflict.
-   */
-
-  int64_t g = std::gcd(num_megabanks, row_stride_znz);
-  if (g == 1) {
-    return {g, -1}; // No need to swizzle in this case.
-  }
-
-  /* For the case where stride does not coprime with n, we note that
-   * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
-   * can write stride and n as:
-   *   stride = s * g, n = m * g
-   * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
-   * have:
-   *   (j * stride) % n = 0
-   *   ==> (j * s) % m * g = 0
-   *   ==> (j * s) % m = 0
-   * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
-   * further get:
-   *   j == 0 (in Z/mZ)
-   * That is, j is a multiple of m in Z. So the smallest positive j that make
-   * the equation hold is n / g.
-   *
-   * That is: f(i) always repeat a pattern of n/g unique numbers g times.
-   * In other word: we are using n/g megabanks, and we have a g-way bank
-   * conflict.
-   *
-   * Let's use the word "pattern" to refer to the set of values of `f` at
-   * different `i`, that is:
-   *   pattern k = { f(i; init=k) | i in Z/nZ }
-   * For the example of stride = 6 under Z/8Z, we have the following patterns
-   *        f(i): 01234567
-   *   pattern 0: x_x_x_x_
-   *   pattern 1: _x_x_x_x
-   *   (x => occupied, _ => unoccupied)
-   */
-
-  int64_t repeated_pattern_size = num_megabanks / g;
-
-  if (repeated_pattern_size >= n_rows) {
-    return {g, -1}; // No need to swizzle in this case.
-  }
-
-  return {g, repeated_pattern_size};
-}
-
-//! Automatically generates the shared memory swizzled data layout for tma loads
-//! in matmul mainloop. The shared memory data layout is always 2D currently.
-//! This utility function assumes that the shared_mem_tv has the following
-//! structure: [tile_row, tile_col]
-//! Returns which swizzle format to use for mma inputs with tma loads.
-MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
-  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
-
-  if (g == 1) {
-    return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
-  }
-
-  // 128B swizzle results in 8 x 8 matrix given half precision inputs.
-  constexpr int64_t n_rows = 8;
-
-  NVF_ERROR(
-      n_rows % repeated_pattern_size == 0,
-      "Can not partition matrix into megarows");
-  int64_t num_gigarows = n_rows / repeated_pattern_size;
-  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
-
-  /* To further simplify the problem, if we assume: */
-  NVF_ERROR(
-      num_gigarows % num_gigabanks == 0,
-      "Requires non-square swizzle, which is not supported yet");
-
-  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
-  // Extract the constant sizes of the swizzled tile
-  const int64_t inner_dim_size =
-      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
-
-  auto dtype = shared_mem_tv->getDataType().value();
-  const int64_t B128_elements = 128 / dataTypeSize(dtype);
-  const int64_t B64_elements = 64 / dataTypeSize(dtype);
-  const int64_t B32_elements = 32 / dataTypeSize(dtype);
-
-  if (inner_dim_size >= B128_elements) {
-    return MmaInputSmemSwizzle::B128;
-  } else if (inner_dim_size >= B64_elements) {
-    return MmaInputSmemSwizzle::B64;
-  } else if (inner_dim_size >= B32_elements) {
-    return MmaInputSmemSwizzle::B32;
-  } else {
-    NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
-  }
-}
-
-//! Automatically generates the shared memory swizzled data layout for matmul
-//! epilogue.
-//! The shared mem data layout is always 2D currently, and this utility
-//!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col]
-//! Returns the domain with swizzle. For the case of legacy swizzle, this
-//! domain must be set as loop domain. For the case of new swizzle, this domain
-//! must be set as allocation domain.
-template <bool legacy = true>
-AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
-  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
-
-  // Create Abstract Tensor from shared memory tensor loop domain.
-  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
-
-  if (g == 1) {
-    return swizzle_domain; // No need to swizzle in this case.
-  }
-
-  /* Now we know that we have a g-way bank conflict. How do we remove this
-   * bank conflict? The answer is to mix the storage of different matrices.
-   * We first split the matrices along the row axis into g pieces, each piece
-   * has n/g rows. With this split, each piece occupies exactly one pattern.
-   * We want to use some non-traditional storage to let different pieces of
-   * the same matrix to occupy different patterns.
-   *
-   * Because Z/nZ has n items, each pattern has n/g different items, so we
-   * have in total g different patterns. We want to find the corresponding
-   * `init` values of these g different patterns.
-   *
-   * Consider two different init values `init1` and `init2`. When do they
-   * represent the same pattern? They represent the same pattern if and only
-   * if `f(0; init2)` falls on the pattern of `init1`, that is, there exist an
-   * i such that
-   *   f(i; init1) == f(0; init2)
-   * which simplifies to
-   *   init1 + i * stride == init2
-   *   ==> init2 - init1 == i * stride
-   * What values can `i * stride` be? It can be an arbitrary multiple of g:
-   * i * stride in Z/nZ is (i * stride) % n in Z. Let m = n/g, according to
-   * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
-   *   (i * stride) % n = (i * s) % m * g
-   * Because s coprime with m, we know that for an arbitrary value `j` in
-   * Z/mZ, we can take `i = minv(s) * j` to make `i * s == j`.
-   *
-   * That said, for init values that are off by a multiple of g they
-   * correspond to the same pattern, otherwise they belongs to different
-   * patterns. So, we can use
-   *   init = 0, 1, ..., g - 1
-   * to canonically represent g patterns. Let's call the above
-   * `init` values "pattern id".
-   *
-   * Now we have the idea about how to remove bank conflict: We can do an
-   * inner split of our row dimension by `repeated_pattern_size` to get
-   * (repeat, pattern), then different indices of the "repeat" dimension will
-   * be using the same megabank, and different indices of the "pattern"
-   * dimension will be using different megabank. We don't need to touch the
-   * "pattern" dimension, but we need to play with the "repeat" dimension to
-   * interleave it with matrice ids so that each matrix is distributed across
-   * different banks.
-   *
-   * For example, if we have repeated_pattern_size = 4, we would want to do
-   * something like below:
-   *    +----------+----------+
-   *   0|          |          |
-   *   1| matrix 0 | matrix 1 |
-   *   2|          |          |
-   *   3|          |          |
-   *    +----------+----------+
-   *   4|          |          |
-   *   5| matrix 1 | matrix 0 |
-   *   6|          |          |
-   *   7|          |          |
-   *    +----------+----------+
-   *
-   * We can consider each repeated_pattern_size rows as a gigarow, and each
-   * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
-   * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
-   * nearby megabanks in a gigabank has a distance of `g` megabanks
-   */
-
-  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
-  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
-  // Each thread vectorized write 2 items, so 8 items per row.
-  //--0--1--2--3
-  //--4--5--6--7
-  //--8--9--10-11
-  //--12-13-14-15
-  //--16-17-18-19
-  //--20-21-22-23
-  //--24-25-26-27
-  //--28-29-30-31
-  constexpr int64_t n_rows = 8;
-  constexpr int64_t n_cols = 8;
-
-  NVF_ERROR(
-      n_rows % repeated_pattern_size == 0,
-      "Can not partition matrix into megarows");
-  int64_t num_gigarows = n_rows / repeated_pattern_size;
-  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
-
-  //   -2   -1
-  // [row, col]
-  if (repeated_pattern_size > 1) {
-    swizzle_domain.split(-2, repeated_pattern_size);
-  }
-  swizzle_domain.split(-1, n_cols);
-  //      -4         -3       -2        -1
-  // [gigarow id, gigarow, matrix id, matrix]
-  swizzle_domain.split(-2, num_gigabanks);
-  //      -5        -4        -3        -2         -1
-  // [gigarow id, gigarow, y outer, gigabank id, matrix]
-  // Note that megabanks inside a gigabank are not contiguous, so the gigabank
-  // id is -2 instead of -3
-
-  /* We want to evenly distribute gigarows across gigabanks, for example, if
-   * we have 7 gigarows and 3 gigabanks, then we might distribute them as:
-   *  +---+
-   *  |x  |
-   *  | x |
-   *  |  x|
-   *  |x  |
-   *  | x |
-   *  |  x|
-   *  |x  |
-   *  +---+
-   * considering all matrices, this is a swizzle function like:
-   *  +---+
-   *  |012|
-   *  |201|
-   *  |120|
-   *  |012|
-   *  |201|
-   *  |120|
-   *  |012|
-   *  +---+
-   * which is a cyclic shift.
-   *
-   * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
-   * row_stride_znz (which is row_stride % num_megabanks), g should also
-   * divide row_stride, because according to the fundamental
-   * division-with-remainder property (see doc/math/integer-division.md):
-   *   row_stride = q * num_megabanks + row_stride_znz
-   * which means, we can just consider each num_gigabanks matrices as a group,
-   * and we always have complete groups (i.e. no group has less than
-   * num_gigabanks matrices). Interleaving the memory of matrices within each
-   * group should be enough to fully remove bank conflict.
-   */
-
-  /* To further simplify the problem, if we assume: */
-  NVF_ERROR(
-      num_gigarows % num_gigabanks == 0,
-      "Requires non-square swizzle, which is not supported yet");
-  /* Then we can partition gigarows into full waves, each wave has
-   * num_gigabanks gigarows. This partition creates square dimensions, making
-   * the swizzle implementation easier */
-
-  //      -5        -4        -3        -2         -1
-  // [gigarow id, gigarow, y outer, gigabank id, matrix]
-  int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
-  swizzle_domain.split(axis_of_gigarow_id, num_gigabanks);
-  //     -6     -5     -4       -3        -2         -1
-  // [wave id, wave, gigarow, y outer, gigabank id, matrix]
-
-  // swizzle wave with gigabank id to make threads in a wave access different
-  // gigabank. Apply swizzle only when shared_mem_tv is stored in shared
-  // memory.
-  // TODO: This is a temporary workaround for the following issue:
-  // For the mma output, we have the following schedule:
-  // rFactor: [...., X, Y] -> mma-swizzle transformations -> loop
-  // For epilogue smem tensor, the schedule is
-  // rFactor: [...., X, Y] -> split -> [...., X1, X2, X3, Y1, Y2, Y3]
-  //   -> swizzle X2, Y2 -> [...., X1, X2', X3, Y1, Y2', Y3]
-  //   -> merge back -> [...., X', Y']
-  //   -> mma-swizzle transformations -> loop
-  // The mma-swizzle transformations for the mma output and epilogue smem
-  // tensor are the same. In indexing, we do require {X, X'} and {Y, Y'} to be
-  // mapped in CA map, however, we currently can not handle that. So we have
-  // to do the same split and merge to the mma output without actually
-  // applying the swizzle, and this check is to detect and handle this
-  // specific case. We should remove this special handling when we fix our CA
-  // mapping.
-  using SwizzleTypeMaybeLegacy =
-      std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
-  if (isPowOf2(num_gigabanks)) {
-    swizzle_domain.swizzle(SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id, -2);
-  } else {
-    swizzle_domain.swizzle(
-        SwizzleTypeMaybeLegacy::CyclicShift, axis_of_gigarow_id, -2);
-  }
-
-  if (legacy) {
-    if (repeated_pattern_size > 1) {
-      swizzle_domain.merge(-6);
-    }
-    swizzle_domain.merge(-5);
-
-    // merge back tile_size_y
-    swizzle_domain.merge(-3);
-    swizzle_domain.merge(-2);
-  }
-
-  return swizzle_domain;
-}
-
-} // namespace
-
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
@@ -575,8 +81,7 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
   scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
 
   // Cache and fork outputs
-  cached_outputs_ =
-      scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
+  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
 }
 
 void HopperMultipleMatmulScheduler::defineOperandCaches() {
@@ -814,7 +319,7 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
         tv->promoteReuse();
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
-      MmaInputSmemSwizzle swizzle_type = tmaSwizzleSharedMemory(tv);
+      MmaInputSmemSwizzle swizzle_type = mma_utils::tmaSwizzleSharedMemory(tv);
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
@@ -990,79 +495,104 @@ void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   // TODO: schedule epilogue by propagation backward from dc
-  // TODO: Add an additional smem cache tensor between dc and d, use stmatrix
-  // then TMA
-  for (auto& [dc, d] : cached_outputs_) {
-    blockTileTensors({dc});
-    blockTileTensors({d});
-    for (auto tv : {dc, d}) {
-      // [..., Mo, No, Mi, Ni]
-      tv->split(-2, getM(params_->mma_macro));
-      tv->split(-1, getN(params_->mma_macro));
-      // [..., Mo, No, Mio, Mii, Nio, Nii]
-      // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-      tv->reorder({{-3, -2}});
-      tv->merge(-4);
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          tv->getLoopDomain());
-      tv->setLoopDomain(s.as<IterDomain*>());
-      tv->axis(-5)->parallelize(ParallelType::TIDy);
-    }
-    parallelizeBlocks({dc});
-    parallelizeBlocks({d});
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-  return;
-  std::vector<TensorView*> output_tvs;
-  for (Val* v : fusion_->outputs()) {
-    if (auto tv = dynamic_cast<TensorView*>(v)) {
-      output_tvs.push_back(tv);
-    }
-  }
-  if (params_->use_smem_epilogue) {
-    blockTileTensors(output_tvs);
-    for (auto [dc, d] : cached_outputs_) {
-      // Schedule output tensor differently for better global memory access
-      // pattern.
-      scheduleOutputTensor(d);
-      d->axis(-1)->parallelize(ParallelType::Vectorize);
+  if (!params_->use_smem_epilogue) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
+      NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+      auto* dc = d->definition()->input(0)->as<TensorView>();
 
-      // Propagate output tensor transformations back to smem_epilogue
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          d, -1, smem_epilogues_);
-    }
-  } else {
-    for (TensorView* mma_result : mma_results_) {
-      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-          mma_result,
-          -1,
-          output_tvs,
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType()
-              .propagateToBoundary());
-    }
-    for (auto [dc, d] : cached_outputs_) {
-      // We might propagate an inner dimension that is not compatible with the
-      // output or bias-like inputs. In those cases, we will further split
-      // this dimension with an outer unrolled loop to achieve the proper
-      // vectorization as specified by params.supported_vec_size.epilogue.
-      NVF_ERROR(d->axis(-1)->extent()->isConst());
-      int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
-      if (d_extent > params_->supported_vec_size.epilogue) {
-        // Should always be a divisible split
-        NVF_ERROR(d_extent % params_->supported_vec_size.epilogue == 0);
-        d->split(
-            -1, params_->supported_vec_size.epilogue, /*inner_split=*/true);
-        d->axis(-2)->parallelize(ParallelType::Unroll);
+      // Block Schedule and Parallelize
+      blockTileTensors({dc, d});
+      parallelizeBlocks({dc, d});
+
+      // Apply mma common transformation
+      for (auto tv : {dc, d}) {
+        // [..., Mo, No, Mi, Ni]
+        tv->split(-2, getM(params_->mma_macro));
+        tv->split(-1, getN(params_->mma_macro));
+        // [..., Mo, No, Mio, Mii, Nio, Nii]
+        // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+        tv->reorder({{-3, -2}});
+        tv->merge(-4);
+        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+            tv->getLoopDomain());
+        tv->setLoopDomain(s.as<IterDomain*>());
+        tv->axis(-5)->parallelize(ParallelType::TIDy);
       }
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
-  }
+  } else {
+    constexpr int64_t stmatrix_tile_m = 16;
+    constexpr int64_t stmatrix_tile_n = 16;
 
-  // propagate output transformations to all inputs that are part of epilogue
-  //  operations, input tvs with non-core roles
-  //  core roles: essential for matmul, for example mma inputs' producers
-  scheduleFusionInputsForEpilogue();
+    // TODO: Support tma tile sizes that are a multiple of mma_macro.
+    // The wgmma operation creates an output matrix of mma_macro size. The TMA
+    // tile is a multiple of the macro size because stmatrix stores results from
+    // wgmma to shared memory. For maximum inlining and to reduce shared memory
+    // usage, the tma tile is mma_macro size.
+    const int64_t tma_m = getM(params_->mma_macro);
+    const int64_t tma_n = getN(params_->mma_macro);
+
+    fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
+    fusion_->manage("st_matrix_m", tma_m);
+    fusion_->manage("st_matrix_n", tma_n);
+
+    // Manually schedule register cache and output TensorView
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
+      NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+      auto* dc = d->definition()->input(0)->as<TensorView>();
+
+      // NOTE: cacheBefore does not work with blockTileTensors
+      TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
+
+      // Set MemoryType
+      dc->setMemoryType(MemoryType::Local);
+      d_smem->setMemoryType(MemoryType::Shared);
+
+      // Set LoadStoreOp
+      d_smem->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::StMatrix);
+      d->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+
+      // Block Schedule and Parallelize
+      blockTileTensors({dc, d_smem, d});
+      parallelizeBlocks({dc, d_smem, d});
+
+      // Apply mma common transformation
+      for (auto tv : {dc, d_smem, d}) {
+        // Original: [..., Mo, No, Mi, Ni]
+        tv->split(-2, getM(params_->mma_macro));
+        tv->split(-1, getN(params_->mma_macro));
+        // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+        tv->reorder({{-3, -2}});
+        // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+        tv->merge(-4);
+        // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+        tv->axis(-3)->parallelize(ParallelType::TIDy);
+        // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+      }
+
+      // Schedule register cache; Output from epilogue
+      {
+        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+            dc->getLoopDomain());
+        dc->setLoopDomain(s.as<IterDomain*>());
+        dc->setAllocationDomain(s.as<IterDomain*>(), true);
+      }
+
+      MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
+
+      // Schedule shared memory cache; Output from StMatrix
+      mma_utils::scheduleStMatrixForMmaOutput(
+          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+
+      // Schedule global memory output; Output from TMA Store
+      mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
+    }
+  }
 }
 
 //! Propagates transformations from fusion output to fusion tv inputs that are
@@ -1183,11 +713,15 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
-          params_->circular_buffer_options.smem_circular_buffer_stage);
+          params_->circular_buffer_options.smem_circular_buffer_stage,
+          /*prefetch_distance=*/
+          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
-          params_->circular_buffer_options.smem_circular_buffer_stage);
+          params_->circular_buffer_options.smem_circular_buffer_stage,
+          /*prefetch_distance=*/
+          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
     }
   }
 

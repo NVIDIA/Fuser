@@ -47,7 +47,8 @@ NVF_API void scheduleContiguousVectorLoad(
 //! TODO: rewrite this one with makeTile
 NVF_API void scheduleWarpTileWithReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
@@ -55,7 +56,8 @@ NVF_API void scheduleWarpTileWithReduction(
 //! TODO: remove this one eventually.
 NVF_API void scheduleWarpTileWithNoReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.
@@ -243,11 +245,16 @@ class MmaSwizzler {
 };
 
 //! Schedules the copy operation of output of a Mma op which resided in the
-//! shared memory to global memory. This assumes the outout of Mma in the
-//! shared memory is of the form [M, N].
-//! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
-//! marked parallel type bulk.
-void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
+//! shared memory to global memory.
+void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);
+
+//! Schedules the copy operation of output of a Mma op which resided in the
+//! registers to shared memory.
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    int64_t tile_m,
+    int64_t tile_n);
 
 void checkDimSize(
     TensorView* tv,
@@ -474,6 +481,13 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
       "swizzled dimension's extend must be known during scheduling, got ",
       id->toString());
 }
+
+//! Automatically generates the shared memory swizzled data layout for tma loads
+//! in matmul mainloop. The shared memory data layout is always 2D currently.
+//! This utility function assumes that the shared_mem_tv has the following
+//! structure: [tile_row, tile_col]
+//! Returns which swizzle format to use for mma inputs with tma loads.
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv);
 
 } // namespace mma_utils
 
