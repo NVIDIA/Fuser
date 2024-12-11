@@ -23,9 +23,16 @@
 
 namespace nvfuser {
 
-bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
-  std::cerr << "ResizeScheduler::canScheduleCompileTime\n";
+namespace {
 
+// Just use the pointwise version for now
+TensorView* getReferenceTensor(Fusion* fusion) {
+  return pointwise_utils::getReferenceTensor(fusion);
+}
+
+} // namespace
+
+bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (!ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No resize op to schedule");
@@ -51,6 +58,13 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  // For now, the resize scheduler is only allowed for a limited set
+  // of fusion patterns. The restrictions are planned to be
+  // incrementally relaxed.
+
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& broadcast_graph = id_model.buildBroadcastGraph();
+
   // For now, only a single resize op is allowed to exist.
   auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
   if (resize_based_tensor_ops.size() != 1) {
@@ -67,17 +81,43 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
       if (resize == nullptr) {
         continue;
       }
+
       if (resize->out()->isBroadcast()) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedulerType(), "Resize to a broadcast ID is not allowed.");
         return false;
       }
-      if (resize->in()->isBroadcast()) {
+
+      // Need to check the broadcast group rather than just the input
+      // ID only. For example,
+      //
+      // t0: [i0]
+      // t1: [b1]
+      // t2 = t0 + t1
+      // t3 = slice(t2)
+      //
+      // Then, propagating the slice to its inputs would try to
+      // propagate the resize op to b1 as well, which would fail due
+      // to issue #3571
+      const auto& input_group = broadcast_graph.toGroup(resize->in());
+      if (std::any_of(
+              input_group->begin(), input_group->end(), [](Val* inp_val) {
+                return inp_val->as<IterDomain>()->isBroadcast();
+              })) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedulerType(), "Resize of a broadcast ID is not allowed.");
         return false;
       }
     }
+  }
+
+  // This doesn't work yet due to issue #3571
+  auto ref_tv = getReferenceTensor(fusion);
+  if (std::any_of(
+          ref_tv->getLogicalDomain().begin(),
+          ref_tv->getLogicalDomain().end(),
+          [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+    return false;
   }
 
   return true;
@@ -96,68 +136,63 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
-  DebugStreamGuard dsg(std::cerr);
-
   FusionGuard fg(fusion);
 
-  std::cerr << "ResizeScheduler::schedule\n";
+  fusion->printMath();
+  fusion->print();
+  std::cout << std::endl;
 
   scheduler_utils::clearMemorySpace(fusion);
 
   scheduler_utils::cacheInputs(fusion, true);
 
-  fusion->printMath();
-
-  const auto exprs = fusion->exprs();
-  for (auto expr : exprs) {
+  for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
     }
 
-    std::cerr << "Propagating resize tensor op: " << expr->toString();
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  // Just use the pointwise version for now
-  auto ref_tv = pointwise_utils::getReferenceTensor(fusion);
+  fusion->print();
+  std::cout << std::endl;
 
-  std::cerr << "Reference: " << ref_tv->toString() << "\n";
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << "scheduled T" << tv->name() << "\n";
+    if (tv->hasRoot()) {
+      std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain()) << "\n";
+    }
+    std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
+              << "\n";
+    std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+    std::cerr << "\tAdditional ids: "
+              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
+    std::cerr << "\tInitial loop ids: "
+              << toDelimitedString(tv->domain()->initialLoop()) << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString(4);
+    }
+  }
 
+  auto ref_tv = getReferenceTensor(fusion);
+
+  // Just simple scheduling for now.
+  // TODO: Do something smarter. Can just use the pointwise scheduler?
   ref_tv->flatten();
   ref_tv->split(0, 128);
   ref_tv->split(0, 1 << 14);
   ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
   ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
-  std::cerr << "Scheduled reference:\n";
-  ref_tv->printTransforms();
-
+  // Propagate the reference to the other tensors
   scheduler_tools::scheduleLoopDomainsLike(
       fusion->allTvs(), ref_tv->getLoopDomain());
 
-  {
-    std::cerr << "All done\n";
-    fusion->printMath();
-    for (auto tv : fusion->allTvs()) {
-      std::cerr << "Final scheduled T" << tv->name() << "\n";
-      if (tv->hasRoot()) {
-        std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain())
-                  << "\n";
-      }
-      std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
-                << "\n";
-      std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
-      std::cerr << "\tAdditional ids: "
-                << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
-      for (auto expr : tv->domain()->allExprs()) {
-        std::cerr << expr->toString(4);
-      }
-    }
-  }
-
   inlineMost();
 
-  fusion->printMath();
+  // TODO: Alias support doesn't seem to be working. For example, see
+  // AliasTest.AliasOutputBeforeNonAliasOutput.
+  markAliases(fusion);
 
   return;
 }

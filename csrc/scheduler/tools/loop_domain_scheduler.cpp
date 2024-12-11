@@ -102,14 +102,9 @@ class LoopDomainScheduler {
  public:
   LoopDomainScheduler(
       std::vector<IterDomain*> ref_loop_dom,
-<<<<<<< HEAD
       bool update_loop_domain_only = false)
       : ref_loop_dom_(std::move(ref_loop_dom)),
         update_loop_domain_only_(update_loop_domain_only) {
-=======
-      bool update_mode = false)
-      : ref_loop_dom_(std::move(ref_loop_dom)), update_mode_(update_mode) {
->>>>>>> b8230199f (rotation + residual)
     NVF_ERROR(!ref_loop_dom_.empty());
 
     // For now, ref must not be a broadcast domain
@@ -184,11 +179,7 @@ class LoopDomainScheduler {
   std::vector<IterDomain*> ref_loop_dom_;
   // If true, uses the current loop domain as the starting domain and
   // updates it to make it look like the given reference loop domain
-<<<<<<< HEAD
   bool update_loop_domain_only_ = false;
-=======
-  bool update_mode_ = false;
->>>>>>> b8230199f (rotation + residual)
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
@@ -207,16 +198,10 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   std::unordered_map<ValGroup, IterDomain*> group_to_id;
   ValGroups all_id_groups;
   // When update_mode_ is true, only the loop domain IDs are reused as
-<<<<<<< HEAD
   // we attempt to transform the current loop domain to look like the
   // reference loop domain.
   auto all_ids =
       update_loop_domain_only_ ? tv->getLoopDomain() : tv->domain()->allIDs();
-=======
-  // we attemp to transform the current loop domain to look like the
-  // reference loop domain.
-  auto all_ids = update_mode_ ? tv->getLoopDomain() : tv->domain()->allIDs();
->>>>>>> b8230199f (rotation + residual)
   for (auto id : all_ids) {
     const auto& group = graph().toGroup(id);
     group_to_id.emplace(group, id);
