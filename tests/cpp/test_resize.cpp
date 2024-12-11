@@ -4373,6 +4373,199 @@ TEST_F(ResizeTest, PropagateMultipleSlicesToInputs) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// RoPE-like rotation patten
+TEST_F(ResizeTest, SliceRotateCat) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({-1, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[1] / 2)}});
+
+  auto tv3 = set(tv0);
+
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(shape[1] / 2),
+        IrBuilder::create<Val>(shape[1])}});
+
+  auto tv5 = cat({tv4, tv2}, 1);
+
+  fusion.addOutput(tv5);
+
+  // Propagate the left half of slice and pad
+  scheduler_tools::propagateResizeToInputs(tv2->definition());
+  auto pad_left =
+      dynamic_cast<PadOp*>(tv5->definition()->input(0)->definition());
+  scheduler_tools::propagateResizeToInputs(pad_left);
+
+  // Propagate the right half of slice and pad
+  scheduler_tools::propagateResizeToInputs(tv4->definition());
+  auto pad_right =
+      dynamic_cast<PadOp*>(tv5->definition()->input(1)->definition());
+  scheduler_tools::propagateResizeToInputs(pad_right);
+
+  auto ref_tv = tv5;
+
+  // Fusion should have a uniform loop domain
+  checkLoopDomainEquivalence(ref_tv);
+
+  // Schedule the reference
+  ref_tv->flatten();
+  // For TIDx
+  ref_tv->split(0, 128);
+  // For BIDx
+  ref_tv->split(0, 4);
+
+  {
+    IdModel id_model(&fusion, false);
+    id_model.buildExactGraph();
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      fusion.allTvs(), ref_tv->getLoopDomain(), /*update_mode=*/true);
+
+  // Fusion should still have a uniform loop domain
+  checkLoopDomainEquivalence(ref_tv);
+
+  inlineMost();
+
+  // All tensors, except for fusion inputs, should be fully inlined
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), tv->nDims());
+  }
+
+  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// RoPE-like rotation and residual patten
+TEST_F(ResizeTest, SliceRotateCatResidual) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({-1, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[1] / 2)}});
+
+  auto tv3 = set(tv0);
+
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(shape[1] / 2),
+        IrBuilder::create<Val>(shape[1])}});
+
+  auto tv5 = cat({tv4, tv2}, 1);
+
+  auto tv6 = add(tv0, tv5);
+
+  fusion.addOutput(tv6);
+
+  // Propagate the left half of slice and pad
+  scheduler_tools::propagateResizeToInputs(tv2->definition());
+  auto pad_left =
+      dynamic_cast<PadOp*>(tv5->definition()->input(1)->definition());
+  scheduler_tools::propagateResizeToInputs(pad_left);
+
+  // Propagate the right half of slice and pad
+  scheduler_tools::propagateResizeToInputs(tv4->definition());
+  auto pad_right =
+      dynamic_cast<PadOp*>(tv5->definition()->input(0)->definition());
+  scheduler_tools::propagateResizeToInputs(pad_right);
+
+  auto ref_tv = tv6;
+
+  // Fusion should have a uniform loop domain
+  checkLoopDomainEquivalence(ref_tv);
+
+  // Schedule the reference
+  ref_tv->flatten();
+  // For TIDx
+  ref_tv->split(0, 128);
+  // For BIDx
+  ref_tv->split(0, 4);
+
+  {
+    IdModel id_model(&fusion, false);
+    id_model.buildExactGraph();
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      fusion.allTvs(), ref_tv->getLoopDomain(), /*update_mode=*/true);
+
+  // Fusion should still have a uniform loop domain
+  checkLoopDomainEquivalence(ref_tv);
+
+  inlineMost();
+
+  // All tensors, except for fusion inputs, should be fully inlined
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), tv->nDims())
+        << "Invalid computeAt position of " << tv->toString();
+  }
+
+  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 // Consumer-based scheduling of pad
 TEST_F(ResizeTest, PropagatePadToInputs) {
   Fusion fusion;
