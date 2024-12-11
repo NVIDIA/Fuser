@@ -188,8 +188,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   inlineMost();
 
-  // TODO: Alias support doesn't seem to be working. For example, see
-  // AliasTest.AliasOutputBeforeNonAliasOutput.
   markAliases(fusion);
 }
 
