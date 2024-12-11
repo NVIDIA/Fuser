@@ -4375,7 +4375,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
 
   auto matmul_out = at::matmul(a, b);
   if (!ir_utils::hasTrivialAllocationDomain(out())) {
-    auto matmul_sizes = matmul_out.sizes().vec();
+    auto matmul_sizes = matmul_out.sizes();
     auto strides = computeStrides(out(), matmul_sizes);
     auto strided_matmul_out =
         at::empty_strided(matmul_sizes, strides, a.options());
