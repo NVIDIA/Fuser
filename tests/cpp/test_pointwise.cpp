@@ -874,7 +874,7 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({3, 2, 4}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE: force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
