@@ -225,11 +225,15 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // expecting pointwise scheduler to handle this pattern
   for (IterDomain* id_out : target_tv->getLogicalDomain()) {
     if (id_out->isBroadcast()) {
-      // TODO: open an issue with a summary here on next step: fix split/merge to preserve expanded broadcasts, when this assert fails, we need to evaluate the refactor.
-      NVF_ERROR(ca_map_.uniqueExactDefinitions(id_out).empty(), "broadcast IDs are not expected to have definitions");
+      // if(!ca_map_.uniqueExactDefinitions(id_out).empty()) {
+      //   continue;
+      // }
+
       // Note that ideally we should also be able to handle merge/split on broadcast
       // IDs, so we should really move this skip inside the loop below
       // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
+      // currently we have the issue that split/merge does not preserve expanded broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
+
       covered_source_ids.insert(id_out);
     }
   }
