@@ -481,6 +481,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
       }
     }
+    scheduleFusionInputsForEpilogue();
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
