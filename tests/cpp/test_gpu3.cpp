@@ -8054,7 +8054,6 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   // check segmentation and sliced tvs are not cached if not scheduled by
   // the resize scheduler
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_TRUE(kernel_runtime->isSegmented()) << "segmentation didn't happen";
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   EXPECT_EQ(num_segments, 2) << "Expect 2 segments, got: " << num_segments;
   for (const auto i : c10::irange(kernel_runtime->executors().size())) {
@@ -8072,9 +8071,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
     for (auto expr : ke->fusion()->exprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
-        EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global)
-            << "slice input must be in global memory, get: "
-            << slice->in()->getMemoryType();
+        EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global);
       }
     }
   }

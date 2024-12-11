@@ -57,7 +57,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto largest_out_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
           data_cache, [&domain_map]() {
-            std::vector<TensorView*> data{domain_map.findReferenceTensorView()};
+            std::vector<TensorView*> data{domain_map.findReferenceTensor()};
             return std::make_unique<std::vector<TensorView*>>(std::move(data));
           });
   TensorView* largest_out = largest_out_entry.get()[0];

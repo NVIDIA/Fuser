@@ -36,23 +36,7 @@ class DomainMap : public scheduler_tools::DomainMap {
 
   // The pointwise scheduler heuristics requires a minimum number of axes.
   // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensorView(int64_t minimum_num_axes = 0) const {
-    TensorView* result = nullptr;
-    int64_t max_dims = -1;
-    for (auto output_tv :
-         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-      if (isValidReference(output_tv) &&
-          hasMinimumSize(output_tv, minimum_num_axes) &&
-          !output_tv->isFusionInput()) {
-        int64_t n_dims = pointwise_utils::nRootDims(output_tv);
-        if (n_dims > max_dims) {
-          result = output_tv;
-          max_dims = n_dims;
-        }
-      }
-    }
-    return result;
-  }
+  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0) const;
 
  private:
   bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
@@ -62,12 +46,7 @@ class DomainMap : public scheduler_tools::DomainMap {
 };
 
 // Return reference tensor view.
-inline TensorView* getReferenceTensor(Fusion* fusion) {
-  FusionGuard fg(fusion);
-  DomainMap domain_map(fusion);
-  auto reference_tv = domain_map.findReferenceTensorView();
-  return reference_tv;
-}
+TensorView* getReferenceTensor(Fusion* fusion);
 
 } // namespace pointwise_utils
 } // namespace nvfuser

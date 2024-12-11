@@ -144,11 +144,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
   FusionGuard fg(fusion);
-#if 0
-  fusion->printMath();
-  fusion->print();
-  std::cout << std::endl;
-#endif
+
   scheduler_utils::clearMemorySpace(fusion);
 
   scheduler_utils::cacheInputs(fusion, true);
@@ -161,27 +157,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     scheduler_tools::propagateResizeToInputs(expr);
   }
-#if 0
-  fusion->print();
-  std::cout << std::endl;
 
-  for (auto tv : fusion->allTvs()) {
-    std::cerr << "scheduled T" << tv->name() << "\n";
-    if (tv->hasRoot()) {
-      std::cerr << "\tRoot: " << toDelimitedString(tv->getRootDomain()) << "\n";
-    }
-    std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
-              << "\n";
-    std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
-    std::cerr << "\tAdditional ids: "
-              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
-    std::cerr << "\tInitial loop ids: "
-              << toDelimitedString(tv->domain()->initialLoop()) << "\n";
-    for (auto expr : tv->domain()->allExprs()) {
-      std::cerr << expr->toString(4);
-    }
-  }
-#endif
   auto ref_tv = getReferenceTensor(fusion);
 
   // Just simple scheduling for now.
