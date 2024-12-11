@@ -435,97 +435,45 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 }
 
 void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
-  const MatMulTileOptions& gemm_tile = params_->tile_sizes;
-  const int64_t vectorization_factor = params_->supported_vec_size.epilogue;
-  // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
-  mma_utils::checkConcreteStaticDim(c->axis(-2));
-  mma_utils::checkConcreteStaticDim(c->axis(-1));
-  const int64_t tile_size_m = c->axis(-2)->extent()->evaluate().as<int64_t>();
-  const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
-  NVF_ERROR(
-      tile_size_m == gemm_tile.cta_tile.m,
-      "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
-      gemm_tile.cta_tile.m,
-      ", actual: ",
-      tile_size_m);
-  NVF_ERROR(
-      tile_size_n == gemm_tile.cta_tile.n,
-      "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
-      gemm_tile.cta_tile.n,
-      ", actual: ",
-      tile_size_n);
-  const int64_t tot_elements = tile_size_m * tile_size_n;
-  constexpr int64_t warp_size = 32l;
-  const int64_t tidx = warp_size;
-  const int64_t tidy = gemm_tile.cta_tile.n / gemm_tile.warp_tile.n;
-  const int64_t tidz = gemm_tile.cta_tile.m / gemm_tile.warp_tile.m;
-  // step-1, merge last 2 dims
-  c->merge(-2);
-  // [Mo, No, m*n]
+  // Block Schedule and Parallelize
+  blockTileTensors({c});
+  parallelizeBlocks({c});
 
-  // step-2, set vectorization to maximum
-  // We have fixed tidx, tidy, and tidz, so we need to make sure that the
-  // output tensor is divisible by tidx * tidy * tidz * vectorization_factor
-  NVF_ERROR(
-      tot_elements % (tidx * tidy * tidz * vectorization_factor) == 0,
-      "Output tensor cannot be fully vectorized! tot_elements:",
-      tot_elements,
-      ", tidx: ",
-      tidx,
-      ", tidy: ",
-      tidy,
-      ", tidz: ",
-      tidz,
-      ", vectorization_factor: ",
-      vectorization_factor);
-  c->split(-1, vectorization_factor);
-  c->axis(-1)->parallelize(ParallelType::Vectorize);
-  // [Mo, No, m*n/vect, vect]
+  // Apply mma common transformation
+  c->split(-2, getM(params_->mma_macro));
+  c->split(-1, getN(params_->mma_macro));
+  // [..., Mo, No, Mio, Mii, Nio, Nii]
+  // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+  c->reorder({{-3, -2}});
+  c->merge(-4);
 
-  // step-3, Split out a warp for TIDx
-  c->split(-2, tidx);
-  c->axis(-2)->parallelize(ParallelType::TIDx);
-  // [Mo, No, m*n/vect/TIDx, TIDx, vect]
-
-  // step-4, Split out for TIDy and TIDz
-  // TIDy = cta_tile_n/warp_tile_n
-  // TIDz = cta_tile_m/warp_tile_m
-  c->split(-3, tidy);
-  c->axis(-3)->parallelize(ParallelType::TIDy);
-
-  c->split(-4, tidz);
-  c->axis(-4)->parallelize(ParallelType::TIDz);
-  // [Mo, No, m*n/vect/TIDx/TIDy/TIDz, TIDz, TIDy, TIDx, vect]
-
-  for (TensorView* mma_result : mma_results_) {
-    // step-5, Parallel first 2 dims same as mma_result
-    scheduler_utils::parallelizeAllLike(
-        mma_result,
-        2,
-        {c},
-        {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz});
-  }
+  // [...., Mii, Nii] ->
+  // [...,  Mii/16,  Miioi(2), Miii(8), Nii/8, Niio(4), Niii(2)] ->
+  // [.., Mii/16,  Miii(8), Niio(4),  Nii/8, Miioi(2), Niii(2)   ]
+  // [..., Mii/16 * Miii(8) * Niio(4), Nii/8, Miioi(2), Niii(2)  ]
+  // Mii/16 * Miii(8) * Niio(4) is 128 for Hopper and this is parallelized as
+  // TIDx.
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(c->getLoopDomain());
+  c->setLoopDomain(s.as<IterDomain*>());
+  c->axis(-5)->parallelize(ParallelType::TIDy);
 }
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
-  // TODO: schedule epilogue by propagation backward from dc
   if (!params_->use_smem_epilogue) {
     for (Val* dv : fusion_->outputs()) {
       auto* d = dv->as<TensorView>();
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
-      auto* dc = d->definition()->input(0)->as<TensorView>();
 
-      std::vector<TensorView*> tvs_to_schedule{d};
-      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
-          mma_results_.end()) {
-        // Skip scheduling dc if it is an mma_result. This can happen if we are
-        // not casting back to half-precision in the output
-        tvs_to_schedule.push_back(dc);
-      }
-
-      // Block Schedule and Parallelize
-      blockTileTensors(tvs_to_schedule);
-      parallelizeBlocks(tvs_to_schedule);
+      // Schedule the output TV and propagate it back to the outputs of the Mma
+      // op.
+      scheduleOutputTensor(d);
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          d,
+          -1,
+          mma_results_,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
 
       // Apply mma common transformation
       for (auto tv : tvs_to_schedule) {
@@ -534,8 +482,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
             tv->getLoopDomain());
         tv->setLoopDomain(s.as<IterDomain*>());
       }
+      // We don't respect vectorization_factor as yet. We vectorize the
+      // inner-dim with extent 2.
+      // TODO: support vectorization_factor.
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
+    scheduleFusionInputsForEpilogue();
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;

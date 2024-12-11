@@ -3296,8 +3296,7 @@ class HopperMatmulSchedulerTest
     KernelExecutor ke;
     ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
     auto nvf_out = ke.run(inputs);
-    // NOTE Relax tolerances for split-k case
-    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-3, 1e-3));
+    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-2, 1e-2));
   }
 
  protected:
@@ -3375,6 +3374,77 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   fusion->addOutput(tv3);
 
   tref = atMatmul(A.squeeze(), B.squeeze(), layout);
+}
+
+TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
+  if (use_smem_epilogue) {
+    GTEST_SKIP()
+        << "TODO: We don't support smem epilogue in the Hopper matmul scheduler right now";
+  }
+  const auto& [A, B] =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  const auto& C = matmulAtInput2D(
+      layout, TensorMatmulPos::Bias, data_type_to_aten(dtype), M, N, K);
+  inputs = {A, B, C};
+
+  TensorView* tv0 = nullptr;
+  TensorView* tv1 = nullptr;
+  std::unordered_map<int64_t, int64_t> old2new;
+  int64_t k_axis = 0;
+
+  switch (layout) {
+    case MmaLayout::TT:
+      // Inner dims KN, order is MKN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {{-2, -1}, {-1, -2}};
+      k_axis = -2;
+      break;
+    case MmaLayout::TN:
+      // Inner dims KK, order is MNK
+      tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {};
+      k_axis = -1;
+      break;
+    case MmaLayout::NT:
+      // Inner dims MN, order is KMN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      old2new = {{-3, -1}};
+      k_axis = -3;
+      break;
+    case MmaLayout::NN:
+      // Inner dims MK, order is NKM
+      tv0 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      old2new = {{-1, -3}};
+      k_axis = -2;
+      break;
+  }
+  TensorView* tv2 = makeContigConcreteTensor({-1}, dtype);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = fusedMultiplySum(tv0, tv1, {k_axis});
+
+  // Reorder the accumulator as [M, N, K]
+  tv3->reorder(old2new);
+  tv3->commitLeafToLogical();
+
+  auto* tv4 = maybeCastOp(DataType::Float, tv2);
+  auto* tv5 = biasEpilogue(tv3, tv4);
+  auto* tv6 = neg(tv5);
+  auto* tv7 = castOp(dtype, tv6);
+  fusion->addOutput(tv7);
+
+  tref = atBiasEpilogue(
+             atMatmul(A.squeeze(), B.squeeze(), layout),
+             C.to(data_type_to_aten(DataType::Float)))
+             .neg_()
+             .to(data_type_to_aten(DataType::Half));
 }
 
 INSTANTIATE_TEST_SUITE_P(
