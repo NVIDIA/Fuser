@@ -276,8 +276,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << "__global__ void ";
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
-          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
-              "cluster_dims");
+          kernel_->getManaged<std::tuple<int, int, int>>("cluster_dims");
       code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
             << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
             << ") ";
