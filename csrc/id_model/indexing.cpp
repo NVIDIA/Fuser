@@ -413,10 +413,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
   }
 
   // Reorder non-logical allocation domains to follow the ordering of
-  // the logical domain. This is necessary when an allocation domain
-  // includes a vectorized loop iter domain since it must be at the
+  // the set allocation domain. This is necessary when an allocation
+  // domain includes a vectorized loop iter domain since it must be at the
   // innermost position but that may not be the case in the loop
-  // domain. Not strictly necessary otherwise, but this should also
+  // domain. It is also necessary when the tensor is a producer of a
+  // vectorized store. Not strictly necessary otherwise, but this should also
   // minimize the deviation from the old indexing scheme which always
   // uses the logical domain to index.
   //
@@ -424,8 +425,17 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
+    // Use getMaybeAllocationDomain instead of getLogicalDomain. When
+    // this tv is a producer of a vectorized store, the consumer
+    // tensor shoud be a global memory tensor and this is likely a
+    // cache tensor created by cacheBefore. The consumer tensor may
+    // have a reordered allocation domain and that dictates the actual
+    // allocation ordering of this producer local tensor as well. If
+    // getLogicalDomain is used, DistributedTransformerTest.Backward
+    // fails at the result validation.
     auto exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+        {tv->getMaybeAllocationDomain().begin(),
+         tv->getMaybeAllocationDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
 
     if (exprs.empty()) {
@@ -434,7 +444,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
     // Replay exprs from the logical domain to get the non-reordered
     // domains
-    auto ordered_domains = tv->getLogicalDomain();
+    auto ordered_domains = tv->getMaybeAllocationDomain();
     for (auto expr : exprs) {
       // Find the position to insert the outputs.
       int64_t insertion_pos = -1;
