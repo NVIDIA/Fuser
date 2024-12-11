@@ -109,6 +109,6 @@ def test_silu_mul_bwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs, grads],
+        [outputs, grads, *fwd_inputs],
         iobytes=silu_mul_bwd_iobytes(size, dtype),
     )

@@ -144,6 +144,6 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs, grads],
+        [outputs, grads, *fwd_inputs],
         iobytes=huggingface_attn_bwd_iobytes(size, dtype),
     )
