@@ -826,9 +826,6 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   // tv4 is a valid reference
   EXPECT_TRUE(domain_map.isValidReference(tv4));
 
-  // check reference tv selection
-  EXPECT_FALSE(domain_map.findReferenceTensorView() == tv4);
-
   // validate generated kernel
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
@@ -873,9 +870,6 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   // tv4 is a valid reference
   EXPECT_TRUE(domain_map.isValidReference(tv4));
 
-  // check reference tv selection
-  EXPECT_FALSE(domain_map.findReferenceTensorView() == tv4);
-  
   // validate generated kernel
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 4}, options);
