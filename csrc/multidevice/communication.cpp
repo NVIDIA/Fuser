@@ -424,9 +424,6 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  // These two values are not strictly required. They are used for shape
-  // checking and a suboptimal case where the scattered axis is not outermost
-  // in allocation.
   const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
       scattered_axis >= 0,
