@@ -5,10 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-//#include <device_lower/utils.h>
-//#include <ir/utils.h>
 #include <scheduler/pointwise_utils.h>
-//#include <utils.h>
 
 namespace nvfuser {
 namespace pointwise_utils {
@@ -17,7 +14,7 @@ TensorView* DomainMap::findReferenceTensor(int64_t minimum_num_axes) const {
   TensorView* result = nullptr;
   int64_t max_dims = -1;
   for (auto output_tv :
-           ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
     if (isValidReference(output_tv) &&
         hasMinimumSize(output_tv, minimum_num_axes) &&
         !output_tv->isFusionInput()) {
