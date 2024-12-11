@@ -273,7 +273,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
-    code_ << "__global__ void " << kernel_name << "(";
+    code_ << "__global__ void ";
+    if (kernel_->hasManaged("cluster_dims")) {
+      auto cluster_dims =
+          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+              "cluster_dims");
+      code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
+            << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
+            << ") ";
+    }
+    code_ << kernel_name << "(";
 
     std::unordered_set<Val*> unique_args;
 
@@ -3020,12 +3029,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (loop->isUnrolled()) {
       indent() << "#pragma unroll\n";
     } else if (
-        loop->circularBufferLoopStage() == CircularBufferLoopStage::Main) {
-      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
-               << "\n";
-    } else if (
         loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
       indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth() - 1
+               << "\n";
+    } else if (
+        loop->circularBufferLoopStage() !=
+        CircularBufferLoopStage::NotApplicable) {
+      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
                << "\n";
     } else {
       indent() << "#pragma unroll 1\n";

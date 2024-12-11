@@ -43,6 +43,46 @@ void assertOnWarpOps(const Expr* expr) {
 
 namespace {
 
+// Check if consumer is in the compute warp of a warp specialized loop,
+// and the id_in_consumer is the parallel type of the warp specialization.
+bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
+  // TODO: This function can not find all the expressions in the compute
+  // warp. For example, if we have:
+  //   if (load warp) {
+  //     T1 = T0;
+  //   } else {
+  //     T2 = T1;
+  //     T3 = T2;
+  //   }
+  // then we will return false for T3, which is a false negative. Having
+  // a false negative is fine in the sense that we will still be
+  // functionally correct, but we will not be able to remove the predicate
+  // around T3, which is a missed optimization opportunity.
+  // For now, because warp specialization is only used for matmul, for
+  // which the circular buffer loop is a reduction loop, and mma is the
+  // only expr in the compute warp, we are fine. In the future, we might
+  // want to improve this function to find all the expressions in the
+  // compute warp, which will require a more sophisticated analysis.
+  auto def = consumer->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  auto producer_tvs = ir_utils::filterByType<TensorView>(def->inputs());
+  if (producer_tvs.empty()) {
+    return false;
+  }
+  return std::all_of(
+      producer_tvs.begin(), producer_tvs.end(), [&](TensorView* producer_tv) {
+        if (!producer_tv->isCircularBuffered()) {
+          return false;
+        }
+        const auto& type = producer_tv->circularBufferOptions().type;
+        return std::holds_alternative<WarpSpecialized>(type) &&
+            std::get<WarpSpecialized>(type).on ==
+            id_in_consumer->getParallelType();
+      });
+}
+
 // Utility to check if the scheduled domain of the given
 //   TensorView represent an exact shared mem access, meaning
 //   that all the thread parallel dimensions on the loop nodes
@@ -53,7 +93,8 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
     if (id->isThreadDim()) {
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+              id, isComputeWarp(tv, id))) {
         return false;
       }
     }
@@ -235,7 +276,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       alloc_to_loop_groups.insert(
           indexing_groups.begin(), indexing_groups.end());
     }
-    ProducerConsumerPairAnalyzer analyzer(c2p, graph, alloc_to_loop_groups);
+    ProducerConsumerPairAnalyzer analyzer(
+        consumer, c2p, graph, alloc_to_loop_groups);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -248,10 +290,14 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
  private:
   ProducerConsumerPairAnalyzer(
+      TensorView* consumer,
       const std::unordered_map<IterDomain*, IterDomain*>& c2p,
       const ValGraph* graph,
       const std::unordered_set<ValGroup> alloc_to_loop_groups)
-      : c2p_(c2p), graph_(graph), alloc_to_loop_groups_(alloc_to_loop_groups) {}
+      : consumer_(consumer),
+        c2p_(c2p),
+        graph_(graph),
+        alloc_to_loop_groups_(alloc_to_loop_groups) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
@@ -286,7 +332,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     // consumer ID may be oversubscribed, which may cause
     // out-of-bounds accesses in the producer
     const auto maybe_oversubscribed = consumer_id->isThread() &&
-        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(consumer_id));
+        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+            consumer_id, isComputeWarp(consumer_, consumer_id)));
     if (maybe_oversubscribed) {
       // If oversubscribed, there must be a mapped producer ID that is
       // parallelized in the same way. Otherwise, needs to be
@@ -354,6 +401,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
  private:
+  TensorView* consumer_ = nullptr;
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;

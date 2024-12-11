@@ -3663,6 +3663,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   const int64_t cta_m = 2 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
+  constexpr std::tuple<int64_t, int64_t, int64_t> cluster_dims{2, 1, 1};
+
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
   auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
   fusion.addInput(tv0);
@@ -3677,6 +3679,11 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   auto tv3 = castOp(DataType::Half, tv2);
   fusion.addOutput(tv3);
+
+  if constexpr (
+      cluster_dims != std::tuple<int64_t, int64_t, int64_t>{1, 1, 1}) {
+    fusion.manage("cluster_dims", cluster_dims);
+  }
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -3772,17 +3779,23 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv3c->setLoopDomain(s.as<IterDomain*>());
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
 
-    // We'll use stmatrix.x4 to store from reg to shared memory
-    fusion.manage("st_matrix_m_tile", (int64_t)16);
-    fusion.manage("st_matrix_n_tile", (int64_t)16);
+    constexpr int64_t stmatrix_tile_m = 16;
+    constexpr int64_t stmatrix_tile_n = 16;
+    fusion.manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion.manage("st_matrix_n_tile", stmatrix_tile_n);
     fusion.manage("st_matrix_m", getM(macro));
     fusion.manage("st_matrix_n", getN(macro));
 
-    // This internally calls
-    // mma_utils::MmaSwizzler::scheduleMmaOutputAllocation
-    mma_utils::scheduleStMatrixForMmaOutput(tv3_shmem, 16, 16);
+    MmaInputSmemSwizzle store_swizzle =
+        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
 
-    mma_utils::scheduleTMAStoreForMmaOutput(tv3, M, N);
+    // This internally calls
+    // Schedule shared memory cache; Output from StMatrix
+    mma_utils::scheduleStMatrixForMmaOutput(
+        tv3_shmem, store_swizzle, stmatrix_tile_m, stmatrix_tile_n);
+
+    // Schedule global memory output; Output from TMA Store
+    mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
   }
 
   inlineMost();
@@ -3929,7 +3942,31 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   }
   tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
+  {
+    // Check using a copy that improperly aligned axis are not inlined
+    Fusion tmp_fusion;
+    IrCloner ir_cloner = Fusion::copy(&fusion, &tmp_fusion);
+    FusionGuard tmp_fg(&tmp_fusion);
+    // [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    // Swap the No and Ko axes, but only in tv2, the mma output
+    // [Mo, Ko, No, Mio, Nio, Mii, Nii, Ki]
+    // This should mean the smem operands are now inlined at position 1 instead
+    // of 3
+    ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
+    inlineMost();
+    tmp_fusion.printMath();
+    ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
+    EXPECT_EQ(ir_cloner.clone(tv0c)->getComputeAtPosition(), 1);
+    // The outermost loop dim of tv1c is a broadcast Mo axis, so
+    // tv1c->inlineAt(1) does not inline past that axis and we wind up with
+    // compute-at position 0.
+    EXPECT_EQ(ir_cloner.clone(tv1c)->getComputeAtPosition(), 0);
+  }
+
   inlineMost();
+
+  EXPECT_EQ(tv0c->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv1c->getComputeAtPosition(), 3);
 
   if (stages > 1) {
     tv0c->circularBuffer(stages, prefetch);
