@@ -46,6 +46,14 @@ class MultipleMatmulScheduler {
   //! that creates a new TensorView, such as caching or rFactor
   void updateIdModel();
 
+  //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
+  //! data
+  void setCGADims() const {
+    if (params_->cluster_dims != std::tuple<int, int, int>{1, 1, 1}) {
+      fusion_->manage("cluster_dims", params_->cluster_dims);
+    }
+  }
+
  protected:
   Fusion* fusion_;
   const MatmulParams* params_;
