@@ -114,6 +114,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(EndCoalescing* end_coalescing) override;
   void handle(kir::IfThenElse* if_then_else) override;
   void handle(MatmulOp* matmul) override;
+  void handle(kir::Allocate* allocate) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);

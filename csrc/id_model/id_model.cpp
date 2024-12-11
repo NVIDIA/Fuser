@@ -204,6 +204,20 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         continue;
       }
 
+      // If any of the inputs is not included in the all ID set, do
+      // not include the definition in the model. Note that it is
+      // possible that some are included but not all since a single ID
+      // may be used by multiple exprs.
+      if (std::any_of(
+              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+                return std::find(
+                           all_ids.begin(),
+                           all_ids.end(),
+                           inp->as<IterDomain>()) == all_ids.end();
+              })) {
+        continue;
+      }
+
       id_definitions_[id].pushBack(def);
 
       auto inp_ids = ir_utils::filterByType<IterDomain>(def->inputs());

@@ -773,6 +773,8 @@ enum class CircularBufferLoopStage {
   Prolog = 0,
   Main,
   Epilog,
+  LoadWarp,
+  ComputeWarp,
   EndOfStages, // A special placeholder used to iterate over all stages
   NotApplicable
 };
@@ -782,7 +784,8 @@ enum class CircularBufferLoopStage {
 // e.g., No additional loads are required for the Epilogue stage.
 inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Prolog ||
-      stage == CircularBufferLoopStage::Main;
+      stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::LoadWarp;
 }
 
 // The consuming expressions of circular buffer are cloned for these circular
@@ -790,7 +793,8 @@ inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
 // e.g., No actual computation occurs in the Prologue stage.
 inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::Epilog;
+      stage == CircularBufferLoopStage::Epilog ||
+      stage == CircularBufferLoopStage::ComputeWarp;
 }
 
 // A loop type may have WAR hazard if any of the following is true:
@@ -800,7 +804,9 @@ inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
 //   properly handled, could be overwriten by a circular buffer loading
 //   somewhere (*may or may not be in this loop*)
 inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
-  return stage == CircularBufferLoopStage::Main;
+  return stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::LoadWarp ||
+      stage == CircularBufferLoopStage::ComputeWarp;
 }
 
 //! Supported swizzle types,
