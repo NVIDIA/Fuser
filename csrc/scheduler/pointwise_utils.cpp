@@ -219,7 +219,7 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
   for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
-    NVF_ERROR(source_id_ref->definition() == nullptr || id->definition()->isA<ResizeOp>());
+    NVF_ERROR(source_id_ref->definition() == nullptr || source_id_ref->definition()->isA<Resize>());
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
