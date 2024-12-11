@@ -179,6 +179,10 @@ class MatmulParams : public HeuristicParams {
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;
 
+  //! This is the CGA size on Hopper+ devices. This parameter is ignored on
+  //! Ampere and Turing.
+  std::tuple<int64_t, int64_t, int64_t> cluster_dims = {2, 1, 1};
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
