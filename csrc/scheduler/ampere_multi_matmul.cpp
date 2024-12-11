@@ -459,8 +459,6 @@ void AmpereMultipleMatmulScheduler::run() {
   // This also collects mma_results_
   defineOperandCaches();
 
-  setCGADims();
-
   // Schedules:
   //   - global->smem (cp.async)
   //   - smem->register (ldmatrix)
