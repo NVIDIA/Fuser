@@ -329,7 +329,7 @@ inferAndValidateAllocationSizesAndStrides(
 
 std::vector<int64_t> computeStrides(
     TensorView* tv,
-    const std::vector<int64_t>& sizes) {
+    const c10::IntArrayRef sizes) {
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& allocation_domain = tv->getMaybeAllocationDomain();
 
@@ -342,7 +342,7 @@ std::vector<int64_t> computeStrides(
 
   auto rank = sizes.size();
   std::vector<int64_t> sorted_strides(rank);
-  auto permuted_sizes = ir_utils::applyPermutation(sizes, *out_order);
+  auto permuted_sizes = ir_utils::applyPermutation(sizes.vec(), *out_order);
   sorted_strides[rank - 1] = 1;
   for (int64_t idx = rank - 2; idx >= 0; idx--) {
     sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];

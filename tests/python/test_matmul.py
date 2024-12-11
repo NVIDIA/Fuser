@@ -219,6 +219,6 @@ class TestMatmul(NVFuserTest):
             with FusionDefinition() as fd:
                 fusion_func(fd)
             out = fd.execute(inputs)
+            eager_out = torch.matmul(inputs[0], inputs[1])
             verify_stride_order(out[0].stride(), perm)
-            # Verify that setting the stride order does not change the logical shape
-            self.assertEqual(out[0].shape, torch.Size([b, b, m, n]))
+            torch.testing.assert_close(out[0], eager_out)

@@ -119,5 +119,5 @@ inferAndValidateAllocationSizesAndStrides(
 // for re-striding the corresponding ATen tensor.
 std::vector<int64_t> computeStrides(
     TensorView* tv,
-    const std::vector<int64_t>& sizes);
+    const c10::IntArrayRef sizes);
 } // namespace nvfuser
