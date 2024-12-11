@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
@@ -16,15 +17,23 @@
 
 namespace nvfuser {
 
+using testing::Each;
+using testing::IsTrue;
+using testing::Pointer;
+using testing::Property;
+
 namespace {
 void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_TRUE(runtime->executors().size() == 1);
-  for (const auto& ea : runtime->executors()) {
-    EXPECT_TRUE(ea->isA<HostIrExecutor>())
-        << "failed to compile to a HostIrContainer with Communications";
-  }
+  EXPECT_EQ(runtime->executors().size(), 1);
+  EXPECT_THAT(
+      runtime->executors(),
+      Each(Pointer(Property(
+          "is a HostIrExecutor",
+          &ExecutorAbstract::isA<HostIrExecutor>,
+          IsTrue()))))
+      << "failed to compile to a HostIrContainer with Communications";
 }
 } // namespace
 
