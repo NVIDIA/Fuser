@@ -921,7 +921,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;
