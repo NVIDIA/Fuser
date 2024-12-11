@@ -240,7 +240,24 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0}}));
+
+    // The above call is asynchronous, so we need to wait to prevent a data race
+    // TODO: Why is it safe to not always use zero here?
+    CircularBufferOptions cb_opts =
+        mma->inA()->as<kir::TensorIndex>()->view()->circularBufferOptions();
+    auto* commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
+    auto* wait = IrBuilder::create<kir::AsyncWait>(
+        AsyncOpType::WgMma,
+        /*keep_stages=*/cb_opts.stage - cb_opts.prefetch - 1);
+
+    registerInsertBefore(mma, commit);
+    registerInsertBefore(mma, wait);
     registerRemove(mma);
+
+    // These are needed for actually converting the nodes above into kir::Asm
+    // nodes properly
+    handle(commit);
+    handle(wait);
   }
 
   void handle(MmaOp* mma) final {
