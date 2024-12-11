@@ -53,6 +53,8 @@ void HopperMultipleMatmulScheduler::run() {
 
   inspectPrologues();
 
+  setCGADims();
+
   scheduleOperands();
 
   // schedule mma instruction output (mma_result)
