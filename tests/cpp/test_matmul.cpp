@@ -3656,7 +3656,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
-  constexpr bool use_smem_epilogue = false;
+  constexpr bool use_smem_epilogue = true;
   constexpr bool use_warp_specialization = true;
 
   constexpr int64_t stages = 4;
