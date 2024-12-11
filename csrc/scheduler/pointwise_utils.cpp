@@ -225,6 +225,11 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // expecting pointwise scheduler to handle this pattern
   for (IterDomain* id_out : target_tv->getLogicalDomain()) {
     if (id_out->isBroadcast()) {
+      // TODO: open an issue with a summary here on next step: fix split/merge to preserve expanded broadcasts, when this assert fails, we need to evaluate the refactor.
+      NVF_ERROR(ca_map_.uniqueExactDefinitions(id_out).empty(), "broadcast IDs are not expected to have definitions");
+      // Note that ideally we should also be able to handle merge/split on broadcast
+      // IDs, so we should really move this skip inside the loop below
+      // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
       covered_source_ids.insert(id_out);
     }
   }
@@ -346,9 +351,8 @@ IterDomain* DomainMap::anyMapped(
 }
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input (and
-// output, when check_coverage_to_output is set as true)
-bool DomainMap::isValidReference(TensorView* tv, bool check_coverage_to_output)
+// The reference tensor must map to all the iterDomains in each input and output
+bool DomainMap::isValidReference(TensorView* tv)
     const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
@@ -364,16 +368,14 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_coverage_to_output)
   // secondary reference that only applies to a subset of IO tensors. Ideally we
   // should have a more robust check and consider the IO groups instead of
   // blindly skip outputs.
-  if (check_coverage_to_output) {
-    for (auto output_tv :
-         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-      // no need to check for self.
-      if (output_tv == tv) {
-        continue;
-      }
-      if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
-        return false;
-      }
+  for (auto output_tv :
+       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    // no need to check for self.
+    if (output_tv == tv) {
+      continue;
+    }
+    if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
+      return false;
     }
   }
   return true;

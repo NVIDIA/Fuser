@@ -174,7 +174,8 @@ class DomainMap : public pointwise_utils::DomainMap {
       // coverage check of the reference on outputs of the fusion. Note that
       // this is not ideal, we would want to instead have reference tensor
       // checked against all its target IO tensors.
-      if (isValidReference(tv, false)) {
+      // TODO: open an issue for this one. transpose scheduler is not supposed to reuse pointwise_utils::DomainMap::isValidRefrence. This function is too restrictive and doesn't align well with the scheme of transpose scheduler
+      if (isValidReference(tv)) {
         int64_t dims = (int64_t)pointwise_utils::nLogicalDims(tv);
         if (dims > max_dims) {
           result = tv;
@@ -994,12 +995,12 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "max_io_dtype_size: " << max_io_dtype_size << "\n"
             << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
             << "\n"
-            << "reference1: " << reference1 << "\n"
+            << "reference1: " << reference1->toString() << "\n"
             << "inner_most_id1 position: " << inner_most_pos1_in_ref1
             << " (in reference 1)\n"
             << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
             << "\n"
-            << "reference2: " << reference2 << "\n"
+            << "reference2: " << reference2->toString() << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
     if (hasSmallTransposeDimensions(tparams)) {
