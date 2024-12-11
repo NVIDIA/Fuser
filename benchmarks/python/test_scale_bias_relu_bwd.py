@@ -110,6 +110,6 @@ def test_sbr_bwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs, grads],
+        [outputs, grads, *fwd_inputs],
         iobytes=sbr_bwd_iobytes(size, dtype),
     )
