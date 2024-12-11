@@ -30,7 +30,8 @@ NVF_API bool distributedEnabled();
 // TODO: Analyze loop domain for unsharded/sharded IDs and return their
 // parent root IDs.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    Expr* expr);
+    TensorView* producer,
+    TensorView* consumer);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
