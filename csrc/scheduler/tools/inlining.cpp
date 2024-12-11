@@ -5,12 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <utility>
 
@@ -93,7 +95,7 @@ bool MaxPosCalculator::isAllowedID(
     std::unordered_set<Val*> logical_dom_set(
         logical_dom.begin(), logical_dom.end());
     auto all_vals =
-        IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
+        getValsBetween<IRBFS>({logical_dom.begin(), logical_dom.end()}, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
@@ -193,55 +195,45 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    // First we find the consumer root IDs that map to the producer
-    auto c2p =
-        PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
-    // Track the IDs involved in indexing in both producer and consumer
-    std::vector<Val*> consumer_root_indexing_ids;
-    std::vector<Val*> producer_logical_indexing_ids;
-    for (IterDomain* id : consumer->getMaybeRootDomain()) {
-      auto it = c2p.find(id);
-      if (it == c2p.end()) {
-        continue;
-      }
-      // These are the immediately mapped consumer root and producer logical
-      // IDs. This is a starting point for our later traversals, which will fill
-      // these sets out.
-      consumer_root_indexing_ids.push_back(it->first);
-      producer_logical_indexing_ids.push_back(it->second);
-    }
+    std::optional<std::unordered_set<ValGroup>> loop_path_groups = std::nullopt;
+    if (consumer->definition()->isA<MmaOp>()) {
+      // We handle MmaOp specially here since it is currently the only operation
+      // for which we generate code (i.e. not SdpaFwdOp or SdpaBwdOp) that has
+      // some output dimensions that do not map to input dimensions. For this
+      // case, we need to identify potential inlined pairs each ID of which is
+      // not mapped at all to the other TensorView (see example below).
 
-    // Now traverse from the starting set (which, as noted above is a subset of
-    // either the producer logical or consumer root) to the target which is
-    // either the producer allocation domain or the consumer loop domain. These
-    // are the IDs that will actually affect indexing. Any other IDs can be
-    // skipped.
-    auto traverse = [](const std::vector<Val*>& start_domain,
-                       const std::vector<IterDomain*>& target_domain)
-        -> std::unordered_set<Val*> {
-      std::unordered_set<Val*> indexing_ids{
-          start_domain.begin(), start_domain.end()};
-      for ([[maybe_unused]] auto [expr, dir] : IRBFS::getExprsBetween(
-               start_domain,
-               {target_domain.begin(), target_domain.end()},
-               /*require_all_to_visited=*/false)) {
-        for (Val* v : expr->inputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v)) {
-            indexing_ids.insert(id);
-          }
-        }
-        for (Val* v : expr->outputs()) {
-          if (auto* id = dynamic_cast<IterDomain*>(v)) {
-            indexing_ids.insert(id);
-          }
-        }
+      // Get ValGroups in loop domains of producer and consumer that are
+      // connected to _mapped_ IterDomains in the pairwise map.
+      //
+      // Note that for MmaOp, it would be sufficient to traverse from the
+      // producer loop to the consumer loop and identify when _either_ the
+      // consumer or producer ID is not mapped. Here we are instead traversing
+      // from mapped domains to both roots so that we can check that _both_
+      // consumer and producer ID is not mapped. This is slightly safer and this
+      // symmetry might be handy in handling new ops that use this feature in
+      // the future.
+      std::vector<ValGroup> pairwise_mapped_groups;
+      for (auto [c_id, p_id] : PairwiseLogicalDomainMap(producer, consumer)
+                                   .mapConsumerToProducer()) {
+        pairwise_mapped_groups.push_back(inliningGraph().toGroup(c_id));
       }
-      return indexing_ids;
-    };
-    std::unordered_set<Val*> producer_indexing_ids = traverse(
-        producer_logical_indexing_ids, producer->getMaybeAllocationDomain());
-    std::unordered_set<Val*> consumer_indexing_ids =
-        traverse(consumer_root_indexing_ids, consumer->getLoopDomain());
+      // We propagate toward the loop groups from both consumer and producer
+      std::vector<ValGroup> all_loop_groups;
+      for (IterDomain* id : producer->getLoopDomain()) {
+        all_loop_groups.push_back(inliningGraph().toGroup(id));
+      }
+      for (IterDomain* id : consumer->getLoopDomain()) {
+        all_loop_groups.push_back(inliningGraph().toGroup(id));
+      }
+      // getValsBetween does not require all target groups to be visited. The
+      // means the result contains the subset of both loop groups that we are
+      // looking for
+      std::vector<ValGroup> group_path = getValsBetween<ValGraphBFS>(
+          pairwise_mapped_groups, all_loop_groups, inliningGraph());
+      loop_path_groups =
+          std::unordered_set<ValGroup>(group_path.begin(), group_path.end());
+    }
 
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
@@ -262,11 +254,11 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
 
       IterDomain* c_id = *consumer_it;
 
-      // If either ID is involved in indexing then we need to make sure they're
-      // both mapped in the inlining graph or that this is a special case
-      // covered by isAllowedID.
+      // We can inline past positions in which both producer and consumer are
+      // not connected to any mapped logical IterDomain pairs.
       //
-      // For example, an MmaOp with no broadcasts could contain the following:
+      // For example, an MmaOp can be constructed as follows:
+      //
       //  tv0:
       //    root/logical: [ iS0, iS1 ]
       //    loop: [ iS0, bS7, iS1 ]
@@ -276,21 +268,39 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       //  tv2:
       //    root/logical/loop: [ iS4, iS5, rS6 ]
       //
-      //  iS4 maps to iS0 so when producer==tv0 we inline past iS0. When
-      //  producer==tv1, iS4 doesn't map to anything in tv1 and is not used for
-      //  indexing, and bS8 is also not used in indexing (it's a loop broadcast)
-      //  so we inline past the first ID in that case also. Similarly, we inline
-      //  past iS5, iS2, and bS7.
-      if (!(consumer_indexing_ids.count(c_id) == 0 &&
-            producer_indexing_ids.count(p_id) == 0) &&
-          (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
-           !isAllowedID(
-               c_id,
-               consumer,
-               best_effort,
-               /*allow_reduction=*/true,
-               /*allow_vectorize=*/false,
-               /*allow_unmappable=*/true))) {
+      //  iS4 maps to iS0 so when producer==tv0 we can inline past iS0. When
+      //  producer==tv1, iS4 doesn't map to anything in tv1 and bS8 is a loop
+      //  broadcast in that position so we inline past the first ID in that
+      //  case also. Similarly, we inline past iS5, iS2, and bS7.
+      if (loop_path_groups.has_value()) {
+        bool p_id_connected =
+            loop_path_groups->count(inliningGraph().toGroup(p_id));
+        bool c_id_connected =
+            loop_path_groups->count(inliningGraph().toGroup(c_id));
+        NVF_ERROR(
+            p_id_connected ||
+                (consumer->definition()->isA<MmaOp>() && p_id->isBroadcast()),
+            "Expected unmapped producer id to be broadcast domain in MmaOp input but found ",
+            p_id->toString());
+
+        if (!p_id_connected && !c_id_connected) {
+          NVF_ERROR(
+              p_id->isBroadcast(),
+              "Unmapped producer ID must be a broadcast created in scheduling but found ",
+              p_id->toString());
+          ++consumer_it;
+          continue;
+        }
+      }
+
+      if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
+          !isAllowedID(
+              c_id,
+              consumer,
+              best_effort,
+              /*allow_reduction=*/true,
+              /*allow_vectorize=*/false,
+              /*allow_unmappable=*/true)) {
         return producer_pos;
       }
 

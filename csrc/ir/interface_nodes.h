@@ -113,7 +113,7 @@ class TVDomainGuard;
 
 //
 //                 /load 0;\                 \.
-//                / load 1; [prefetch = 3]    | [prologue]
+//                / load 1; [prefetch = 3]    | [prefetching]
 //          [stage] load 2;/                 /'
 //          [ = 6 ] load 3;  wait load 0;  compute 0;                  \.
 //                \ load 4;  wait load 1;  compute 1;                   |
@@ -123,7 +123,7 @@ class TVDomainGuard;
 //                  load 2;  wait load 5;  compute 5;  wait compute 3;  |
 //                  load 3;  wait load 0;  compute 0;  wait compute 4;  |
 //                  load 4;  wait load 1;  compute 1;  wait compute 5;  | [main]
-//                  load 5;  wait load 2;  compute 2;  wait compute 0;  | [loop]
+//                  load 5;  wait load 2;  compute 2;  wait compute 0;  |
 //                  ..................................................  |
 //                  ..................................................  |
 //                  ..................................................  |
@@ -132,7 +132,7 @@ class TVDomainGuard;
 //                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
 //                  load  ;  wait load  ;  compute  ;                  /'
 //                          /wait load  ;  compute  ;                      \.
-// [same number as prefetch] wait load  ;  compute  ;                       | [epilogue]
+// [same number as prefetch] wait load  ;  compute  ;                       | [draining]
 //                          \wait load  ;  compute  ;  wait all computes;  /'
 
 // clang-format on
@@ -142,19 +142,37 @@ class TVDomainGuard;
 // load pipeline depth = prefetch + 1
 // compute pipeline depth = stage - prefetch
 //
-// The above timeline can be implemented as the following loop structure:
+// There are two ways to implement the above timeline: pipelined, and
+// warp-specialization.
+//
+// In the pipelined way, the prefetching stage is implemented as a prologue
+// loop, and main stage is implemented as a main loop, and the draining stage is
+// implemented as an epilogue loop. That is, we will have the following loop
+// structure:
 //
 // Prologue loop:
 //   for i in range(prefetch):
 //     load data[i] to buffer[i]
 //
-// Main loop:
+// Main loop (using syncthreads to avoid WAR harzard):
 //   for i in range(data.size - prefetch):
 //     load data[i + prefetch] to buffer[(i + prefetch) % stage]
-//     wait buffer[i % stage] to be ready
+//     wait buffer[i % stage] to be loaded
 //     compute buffer[i % stage]
 //     wait until the first compute in the queue is done
 //       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     __syncthreads();
+//
+// Main loop (using mbarrier to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     wait buffer[(i + prefetch) % stage] to be empty
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be loaded
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//       loaded again
 //
 // Epilogue loop:
 //   for i in range(data.size - prefetch, data.size):
@@ -166,8 +184,91 @@ class TVDomainGuard;
 // stage - prefetch - 1 iterations and last iteration of the main loop is
 // redundant. We can remove them to further optimize the performance, but
 // we decide to keep them for simplicity.
+//
+// In the warp-specialized approach, we will use different warp/warp-group
+// for loading and computing. We will generate code like below (assuming warp
+// specialized on TIDy):
+//
+//   if (threadIdx.y == blockDim.y - 1) {
+//     // If we use warp specialization on TIDy, then the blockDim.y of the
+//     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
+//     // last threadIdx.y will be used as load warp
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be empty
+//       load data[i] to buffer[i % stage]
+//   } else {
+//     // Every threadIdx.y other than the last will be used for compute
+//     for i in range(prefetch + 1):
+//       signal that buffer i % stage is empty and ready to load
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be loaded
+//       compute buffer[i % stage]
+//       wait until the first compute in the queue is done
+//         (i.e. stage - prefetch - 1 in flight computes remaining)
+//       signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//         loaded again
+//   }
+
+struct Pipelined {
+  bool uses_mbarrier_for_war = false;
+  explicit Pipelined(bool uses_mbarrier_for_war)
+      : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  Pipelined() = default;
+  bool operator==(const Pipelined& other) const {
+    return uses_mbarrier_for_war == other.uses_mbarrier_for_war;
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+  if (pipelined.uses_mbarrier_for_war) {
+    return os << "PipelinedMBarrierForWAR";
+  }
+  return os << "Pipelined";
+}
+
+struct WarpSpecialized {
+  ParallelType on;
+  explicit WarpSpecialized(ParallelType on) : on(on) {}
+  WarpSpecialized() = default;
+  bool operator==(const WarpSpecialized& other) const {
+    return on == other.on;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const WarpSpecialized& warp_specialized) {
+  std::string parallel_type_str = "";
+  switch (warp_specialized.on) {
+    case ParallelType::TIDx:
+      parallel_type_str = "TIDx";
+      break;
+    case ParallelType::TIDy:
+      parallel_type_str = "TIDy";
+      break;
+    case ParallelType::TIDz:
+      parallel_type_str = "TIDz";
+      break;
+    default:
+      NVF_THROW("Invalid parallel type");
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str;
+}
+
+using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferType& type) {
+  return std::visit(
+      [&os](const auto& t) -> std::ostream& { return os << t; }, type);
+}
 
 struct CircularBufferOptions {
+  CircularBufferType type =
+      Pipelined(false); // Type of circular buffer. Currently supports:
+                        // - pipelined using syncthreads for WAR hazards
+                        // - pipelined using mbarrier for WAR hazards.
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
@@ -175,7 +276,27 @@ struct CircularBufferOptions {
   bool isEnable() const {
     return stage > 1;
   }
+
+  bool usesMBarrierForWAR() const {
+    return (std::holds_alternative<Pipelined>(type) &&
+            std::get<Pipelined>(type).uses_mbarrier_for_war) ||
+        std::holds_alternative<WarpSpecialized>(type);
+    return false;
+  }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return type == other.type && stage == other.stage &&
+        prefetch == other.prefetch;
+  }
 };
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferOptions& options) {
+  return os << "CircularBufferOptions{ stage=" << options.stage
+            << ", prefetch=" << options.prefetch << ", type=" << options.type
+            << " }";
+}
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
@@ -507,21 +628,18 @@ class NVF_API TensorView : public Val {
 
   // Apply circular buffering transformation. Negative prefetch_distance
   // means "all but", for example, -1 means number_of_stages - 1.
-  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance = -1);
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
     return circular_buffer_options_.isEnable();
   }
 
-  // Returns the depth of circular buffering if applicable.
-  int64_t circularBufferDepth() const {
-    return circular_buffer_options_.stage;
-  }
-
-  // Returns the prefetch of circular buffering if applicable.
-  int64_t circularBufferPrefetchDistance() const {
-    return circular_buffer_options_.prefetch;
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,

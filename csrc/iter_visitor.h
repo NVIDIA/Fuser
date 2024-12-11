@@ -581,62 +581,86 @@ struct IROutputs {
   }
 };
 
+template <>
+struct GetValType<Expr*> {
+  using type = Val*;
+};
+
 class IRBFS
     : public BFS<Expr*, Val*, IRDefinitions, IRUses, IRInputs, IROutputs> {
- protected:
+ public:
   IRBFS(
       std::vector<NodeType> from_groups,
       std::vector<NodeType> to_groups,
-      bool require_all_to_visited)
+      bool require_all_to_visited,
+      Direction allowed_direction = Direction::Undefined)
       : BFS(IRDefinitions{},
             IRUses{},
             IRInputs{},
             IROutputs{},
             std::move(from_groups),
             std::move(to_groups),
-            require_all_to_visited) {}
+            require_all_to_visited,
+            allowed_direction) {}
+};
 
+inline std::vector<Val*> getInputsOfExpr(Expr* expr, Direction dir) {
+  return getInputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
+}
+
+inline std::vector<Val*> getOutputsOfExpr(Expr* expr, Direction dir) {
+  return getOutputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
+}
+
+// Unlike the default IRBFS behavior, Expr is considered ready to
+// visit as long as one of the inputs or outputs has its dependency met
+class IRBFSWithPermissiveDependence : public IRBFS {
  public:
-  // Find the shortest path from the from_groups_ to to_groups_ on a
-  // given graph. Dependency between vals and exprs must be satisfied.
-  // It is an error if no valid path is found.
-  static ExprPath getExprsBetween(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to,
-      bool require_all_to_visited = true) {
-    IRBFS bfs(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
-        require_all_to_visited);
-    bfs.traverse();
-    return bfs.getShortestExprPath();
+  IRBFSWithPermissiveDependence(
+      const std::vector<Val*>& from_ids,
+      const std::vector<Val*>& to_ids,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : IRBFS(
+            {from_ids.begin(), from_ids.end()},
+            {to_ids.begin(), to_ids.end()},
+            require_all_to_visited,
+            allowed_direction) {}
+
+  std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
+      const ExprType& expr) const override {
+    // Either any inputs or any outputs must have been visited
+    decltype(auto) inputs = inputs_(expr);
+    if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
+        std::any_of(
+            inputs.begin(), inputs.end(), [&](const ValType& input) -> bool {
+              return isDependencySatisfied(input);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          inputs.begin(),
+          inputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValType& input) -> bool { return isVisited(input); });
+      return std::make_pair(Direction::Forward, prev_nodes);
+    }
+
+    decltype(auto) outputs = outputs_(expr);
+    if (!outputs.empty() && allowed_direction_ != Direction::Forward &&
+        std::any_of(
+            outputs.begin(), outputs.end(), [&](const ValType& output) -> bool {
+              return isDependencySatisfied(output);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          outputs.begin(),
+          outputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValType& output) -> bool { return isVisited(output); });
+      return std::make_pair(Direction::Backward, prev_nodes);
+    }
+    return std::nullopt;
   }
-
-  // Given a set of vals, get all reachable ones from another set of vals
-  static std::vector<Val*> getReachableValsFrom(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& vals);
-
-  // Traverse from a given set of vals to another set of vals and
-  // return all vals between them. Note that if none of the Vals in the
-  // second set is reachable, nothing will be returned. For example,
-  // if a forward Merge needs to be traversed to get to the target Val
-  // set, both of the two inputs must be given or reachable from the
-  // given starting Val set.
-  //
-  // NOTE: getValsBetween(from, to) != getValsBetween(to, from). For
-  // example, suppose from={i0}, to={i2}, and merge(i0, i1) =
-  // i2. Since i1 is missing, nothing will be returned. However, if
-  // from={i2} and to={i0}, then the backward merge can be traversed
-  // as its sole input is available, so {i0} would be returned.
-  static std::vector<Val*> getValsBetween(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to);
-
-  // Get all dependencies of to in from.
-  static std::vector<Val*> getDependenciesTo(
-      const std::vector<Val*>& from,
-      const std::vector<Val*>& to);
 };
 
 } // namespace nvfuser

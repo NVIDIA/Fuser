@@ -232,7 +232,6 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};

@@ -97,12 +97,6 @@ bool isTV(const Val* const);
 // Returns if Expr is a TensorView or TensorIndex Expr.
 NVF_API bool isTvOp(const Expr*);
 
-// Returns the first output of Expr that is a TensorView
-NVF_API TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.
@@ -235,8 +229,12 @@ bool isScalarExpr(Expr* expr);
 
 //! Test if provided IterDomain instance has an extent that matches maximum
 //!  extent stored in parallel dimension map for parallel type of provided
-//!  IterDomain object.
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
+//!  IterDomain object. `in_compute_warp` specifies we are checking an
+//!  expression in the compute warp, if so, we need to get the parallel type
+//!  extent of the compute warp, instead of the global parallel type extent.
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp = false);
 
 //! Get the uint32_t index of a scalar TensorView. This is usually used for
 //! indexing special items in shared memory, like mbarrier.

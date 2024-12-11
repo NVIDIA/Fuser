@@ -475,6 +475,8 @@ struct CompareDomainResult {
   bool dom0_has_unreachable_ids = false;
   bool dom1_has_unreachable_ids = false;
 };
+
+// TODO: Completely replace this with compareDomainWithReference
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
@@ -486,6 +488,50 @@ void validateDomainEquivalence(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids = {});
+
+struct CompareDomainWithReferenceResult {
+  // Redundant IDs found in the given domain
+  std::vector<IterDomain*> redundant_ids;
+  // IDs found in the given domain that are not connected with the
+  // reference domain
+  std::vector<IterDomain*> additional_ids;
+  // Reference IDs that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+
+  bool empty() const {
+    return redundant_ids.empty() && additional_ids.empty() &&
+        unreachable_reference_ids.empty();
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "{redundant_ids: " << toDelimitedString(redundant_ids)
+       << ", additional_ids: " << toDelimitedString(additional_ids)
+       << ", unreachable_reference_ids: "
+       << toDelimitedString(unreachable_reference_ids) << "}";
+    return ss.str();
+  }
+};
+
+// Given a reference domain that has no redundancy, check if a given
+// domain completely covers the reference domain with no
+// redundancy. Redundant or extra IDs will be identified if
+// any.
+//
+// Once caveat is that if any of the IDs of the reference domain is not
+// reachable, it may not identify all of the redundant or extra IDs as
+// it is unclear if they should be considered redundant or extra. For example,
+// suppose we have a domain of {i0}, and there's an expession
+// of `merge(i0, i1) -> i2`. Comparing {i0} with {i2} as a
+// i2 will be returned as an unreachable ID. In this case, i0 is
+// not used sicne i1 is missing, but it doesn't seem right to cnsider
+// it's an extra ID since it would have been used if i1 were not
+// missing. Similarly, it should not be considered redundant. This
+// should not be a concern in practice since if any of the reference
+// IDs is unreachable, it should be considered an error.
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference);
 
 //! Check if all the inputs required to compute needed_val are known
 template <
@@ -722,5 +768,39 @@ bool isRecursivelyDefined(Val* val);
 // Return the number of operations that are used to define val. One
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
+
+// Create a ForLoop IR node that represents:
+//   for (int i = 0; i < size; i++)
+ForLoop* createRangeLoop(int64_t size);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
+
+// Generates the allocation domain for the given logical domain based on the
+// stride order.
+std::vector<IterDomain*> strideOrderToAllocation(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<int64_t>& stride_order);
 
 } // namespace nvfuser::ir_utils

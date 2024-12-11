@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <sstream>
+
 #include <debug.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -20,9 +23,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
-#include <algorithm>
-
-#include <sstream>
+#include <transform_iter.h>
 
 namespace nvfuser {
 
@@ -1860,35 +1861,61 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    NVF_ERROR(new_logical_domain.size() == tv->domain()->contiguity().size());
     TensorDomain* new_td = nullptr;
-
     if (tv->domain()->hasAllocation()) {
       // we need to reorder the logical domain into allocation domain
       // consistently with the mapping from the old TensorView logical domain to
       // its allocation domain
-      const auto& alloc = tv->getAllocationDomain();
-      NVF_ERROR(
-          alloc.size() == logical.size(),
-          "size between logical and alloc doesn't match");
-      const auto rank = alloc.size();
-      std::vector<int64_t> stride_order(rank, -1);
-      for (auto i : c10::irange(rank)) {
-        bool found_match = false;
-        for (auto j : c10::irange(rank)) {
-          if (alloc[i] == logical[j]) {
-            stride_order[j] = static_cast<int64_t>(rank - 1 - i);
-            found_match = true;
-            break;
-          }
-        }
-        NVF_ERROR(
-            found_match,
-            "cannot match IterDomain between allocation domain to logical domain");
+      std::unordered_map<IterDomain*, IterDomain*> old_to_new;
+      for (const auto i : c10::irange(logical.size())) {
+        old_to_new.emplace(logical[i], new_logical_domain[i]);
       }
+
+      ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
+      // Without this,
+      // https://github.com/NVIDIA/Fuser/blob/e613929a6c21b3095c8817b01b8f177096a26e60/csrc/transform_iter.cpp#L299
+      // tries to look for root IDs in the map, which shouldn't exist because
+      // the whole purpose of this function is to remove the root domain.
+      replay.setErrorOnFailure(false);
+      // We don't need replay.setReplayRFactor(true). The new root is the same
+      // as the new logical so there aren't any expressions between them.
+
+      std::vector<IterDomain*> new_alloc;
+      new_alloc.reserve(tv->getAllocationDomain().size());
+      for (IterDomain* alloc_id : tv->getAllocationDomain()) {
+        IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
+        // ReplayTransformations replay transforms but not paralelization, so
+        // we have to manually parallelize the new allocation ID. In other
+        // places, parallelization is usually done through parallelizeAllLike.
+        new_alloc_id->parallelize(alloc_id->getParallelType());
+        new_alloc.push_back(new_alloc_id);
+      }
+
+      std::vector<IterDomain*> new_loop;
+      if (tv->getLoopDomain() == tv->getAllocationDomain()) {
+        new_loop = new_alloc;
+      } else {
+        NVF_ERROR(
+            tv->getLoopDomain() == tv->getLogicalDomain(),
+            tv,
+            " has an unexpected loop domain:\n",
+            tv->domain()->toString(0, /*loop_only=*/false));
+
+        new_loop = new_logical_domain;
+      }
+
       new_td = IrBuilder::create<TensorDomain>(
-          new_logical_domain, stride_order, tv->domain()->contiguity());
+          /*root_domain=*/std::vector<IterDomain*>(),
+          new_logical_domain,
+          new_alloc,
+          new_loop,
+          tv->domain()->contiguity());
     } else {
+      NVF_ERROR(
+          tv->getLoopDomain() == tv->getLogicalDomain(),
+          tv,
+          " has an unexpected loop domain:\n",
+          tv->domain()->toString(0, /*loop_only=*/false));
       new_td = IrBuilder::create<TensorDomain>(
           new_logical_domain, tv->domain()->contiguity());
     }
@@ -1909,7 +1936,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
             /*root_domain=*/std::vector<IterDomain*>{},
             /*logical_domain=*/new_logical,
             /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/new_logical,
+            /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
             /*contiguity=*/no_red_contiguity);
       } else {
         new_td = IrBuilder::create<TensorDomain>(
@@ -2641,7 +2668,8 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
           schedulerType(),
           runtime_info.fusion(),
           runtime_info,
-          heuristic_data_cache)) {
+          heuristic_data_cache,
+          /*skip_compile_time_checks=*/true)) {
     return std::nullopt;
   }
   return SchedulerEntry::makeSchedulerInstance(schedulerType())

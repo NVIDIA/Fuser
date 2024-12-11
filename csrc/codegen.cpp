@@ -273,7 +273,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
-    code_ << "__global__ void " << kernel_name << "(";
+    code_ << "__global__ void ";
+    if (kernel_->hasManaged("cluster_dims")) {
+      auto cluster_dims =
+          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+              "cluster_dims");
+      code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
+            << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
+            << ") ";
+    }
+    code_ << kernel_name << "(";
 
     std::unordered_set<Val*> unique_args;
 
@@ -329,6 +338,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << ") ";
   }
 
+  std::string genInlineOrOne(Val* v) {
+    return v == nullptr ? "1" : genInline(v);
+  }
+
   // Generates setup code which is executed before the kernel body
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
@@ -359,7 +372,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
           std::stringstream smem_buf_size_ss;
-          smem_buf_size_ss << "blockDim.x * blockDim.y * blockDim.z * sizeof("
+          const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+          auto bdimx =
+              genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx));
+          auto bdimy =
+              genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy));
+          auto bdimz =
+              genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz));
+          smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
+                           << " * sizeof("
                            << kernel_summary.largest_smem_data_type << ")";
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
@@ -1202,6 +1223,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  std::string genComputeBlockDim() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    if (!pdim_map.hasWarpSpecialization()) {
+      ss << "DefaultBlockDim()";
+    } else {
+      ss << "dim3("
+         << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx)) << ", "
+         << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy)) << ", "
+         << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
+    }
+    return ss.str();
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "
@@ -1240,6 +1275,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
              << ";\n";
@@ -1272,6 +1308,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+    func_args.arg(genComputeBlockDim());
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
@@ -1337,6 +1374,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(write_pred));
     }
     func_args.arg(genCall(data_type, genInline(init)));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
@@ -1566,6 +1604,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(wop->writePredicate()));
     }
     func_args.arg(genStaticCast(data_type, 0));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("blockWelford", template_args, func_args) << ";\n";
   }
@@ -1769,6 +1808,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genCall(data_type, genInline(grop->init())));
     func_args.arg(genInline(grop->entrance_index()));
     func_args.arg(genInline(grop->entrances()));
+    func_args.arg(genComputeBlockDim());
 
     addProfileArguments(func_args, grop);
 
@@ -1903,6 +1943,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(read_pred).arg(write_pred);
     // init_val
     func_args.arg(genCall("LocalTuple", data_type, genInline(grop->init())));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
     // reduction_op
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
@@ -1959,6 +2001,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     // Init val
     func_args.arg(genCall(data_type, genInline(grop->initVal(0))));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
 
     addProfileArguments(func_args, grop);
 
@@ -2047,6 +2091,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     func_args.arg(genInline(grouped_grop->entrance_index()));
     func_args.arg(genInline(grouped_grop->entrances()));
+    func_args.arg(genComputeBlockDim());
 
     addProfileArguments(func_args, grouped_grop);
 
@@ -2259,6 +2304,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genCall("ConstRefTuple", types, inputs));
     func_args.arg(genCall("VolatilePtrTuple", types, work_bufs));
     func_args.arg(genCall("LocalTuple", types, init_vals));
+    func_args.arg(genComputeBlockDim());
 
     // global_sync_buffer
     const auto sync_buffer =
@@ -2395,6 +2441,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genCall("LocalTuple", data_types, init_args[0]));
     func_args.arg(genCall("LocalTuple", data_types, init_args[1]));
     func_args.arg(genCall("LocalTuple", index_types, init_args[2]));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
     // work buffer
     func_args.arg(genCall("VolatilePtrTuple", data_types, work_bufs[0]));
     func_args.arg(genCall("VolatilePtrTuple", data_types, work_bufs[1]));
@@ -2486,6 +2534,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
     func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
         .append("[0]");
+    // block_dim
+    func_args.arg(genComputeBlockDim());
 
     // global buf
     for (const auto i : c10::irange(3)) {
@@ -2640,6 +2690,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genStaticCast(data_type, 0));
     func_args.arg(genInline(gwop->entrance_index()));
     func_args.arg(genInline(gwop->entrances()));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("welford::gridWelford", template_args, func_args)
              << ";\n";
@@ -2739,6 +2790,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(read_pred).arg(write_pred);
     // init_val
     func_args.arg(genCall("LocalTuple", data_type_args, init_args));
+    // block_dim
+    func_args.arg(genComputeBlockDim());
     // reduction_op
     func_args.arg(genTemplate(
         "welfordCombine", ArgumentBuilder().arg(data_type).arg(index_type)));
@@ -2865,6 +2918,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(write_pred));
     }
     func_args.arg(genCall(data_type, genInline(init)));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("blockIterGroupedYdimReduce", template_args, func_args)
              << ";\n";
@@ -2975,12 +3029,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (loop->isUnrolled()) {
       indent() << "#pragma unroll\n";
     } else if (
-        loop->circularBufferLoopStage() == CircularBufferLoopStage::Main) {
-      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
-               << "\n";
-    } else if (
         loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
       indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth() - 1
+               << "\n";
+    } else if (
+        loop->circularBufferLoopStage() !=
+        CircularBufferLoopStage::NotApplicable) {
+      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
                << "\n";
     } else {
       indent() << "#pragma unroll 1\n";
@@ -3303,6 +3358,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(sync_idx)
         .append("]");
     sync_call_args.arg(sync_segment_size);
+    sync_call_args.arg(genComputeBlockDim());
 
     auto sync_call =
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);

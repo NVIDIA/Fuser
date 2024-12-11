@@ -4,10 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
+from .torch_ops import rmsnorm
 
 
 def rmsnorm_fwd_fusion(
@@ -43,12 +44,6 @@ def rmsnorm_fwd_fusion(
 
     fd.add_output(T29)
     fd.add_output(T15)
-
-
-def rmsnorm_fwd_fn(inputs: list):  # [inputs, weights]
-    squared_mean = (inputs[0] ** 2).mean(1, keepdim=True)
-    rms_eps = torch.sqrt(squared_mean + 1e-5)
-    return inputs[1] * (inputs[0] / rms_eps)
 
 
 def rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
@@ -100,14 +95,11 @@ def test_rmsnorm_fwd_baseline_benchmark(
     inputs = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
-    benchmark_fn = {
-        "eager": rmsnorm_fwd_fn,
-        "torchcompile": torch.compile(rmsnorm_fwd_fn),
-    }
+    benchmark_fn = with_executor(executor, rmsnorm)
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        benchmark_fn[executor],
+        benchmark_fn,
         [inputs, weights],
         iobytes=rmsnorm_fwd_iobytes(size, dtype),
     )

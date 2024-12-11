@@ -69,14 +69,15 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<ForLoop*>& loops) const;
 
-  // Get the index of a loop domain. Intended to be used only for testing.
-  Val* getLoopIndex(IterDomain* loop_id) const;
+  // Get the index of a loop domain.
+  Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
+      const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_ids,
       const std::vector<ForLoop*>& loops) const;
 
   // Get the contig indices of the given ID groups with their strides
@@ -137,7 +138,7 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_ids,
       const std::vector<ForLoop*>& for_loops) const;
 
   // Propagate the loop indices of a given list of loop domains to the

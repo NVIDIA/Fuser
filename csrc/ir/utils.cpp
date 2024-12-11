@@ -801,6 +801,166 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference) {
+  if (domain.empty()) {
+    return {{}, {}, reference};
+  }
+  // If domain is not empty but reference is, unclear what it should
+  // mean. Throw an error for now.
+  NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
+
+  const std::unordered_set<IterDomain*> reference_set{
+      reference.begin(), reference.end()};
+
+  std::vector<IterDomain*> redundant_ids;
+
+  // In case domain has duplicates
+  std::vector<IterDomain*> domain_dedup;
+  {
+    std::unordered_set<IterDomain*> domain_set;
+    for (const auto id : domain) {
+      if (domain_set.insert(id).second) {
+        domain_dedup.push_back(id);
+      } else {
+        redundant_ids.push_back(id);
+      }
+    }
+  }
+
+  const auto path_to_ref = getExprsBetween<IRBFS>(
+                               {domain_dedup.begin(), domain_dedup.end()},
+                               {reference.begin(), reference.end()},
+                               false)
+                               .first;
+
+  // All output IDs along the path
+  std::unordered_set<Val*> produced_ids;
+  // All used IDs along the path
+  std::unordered_set<Val*> consumed_ids;
+  // Consider the domain itself as produced and consumed if included in
+  // reference since there's no expr for that case
+  for (const auto id_to_check : domain_dedup) {
+    if (reference_set.find(id_to_check) != reference_set.end()) {
+      produced_ids.insert(id_to_check);
+      consumed_ids.insert(id_to_check);
+    }
+  }
+
+  // Find any produced IDs that are produced multiple times
+  std::vector<IterDomain*> redundantly_produced_ids;
+  for (const auto& [expr, dir] : path_to_ref) {
+    const auto& inputs = getInputsOfExpr(expr, dir);
+    const auto& outputs = getOutputsOfExpr(expr, dir);
+    consumed_ids.insert(inputs.begin(), inputs.end());
+    for (const auto& output : outputs) {
+      bool already_produced = !produced_ids.insert(output).second;
+      if (already_produced) {
+        // This output is redundantly produced. If it's in the
+        // original domain, just mark it as a redundant ID. If not,
+        // find the corresnponding IDs out of the domain by doing
+        // another BFS analysis
+        if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
+            domain_dedup.end()) {
+          redundant_ids.push_back(output->as<IterDomain>());
+        } else {
+          auto inputs_of_already_produced_id = getInputsOfExprPath(
+              getExprsBetween<IRBFS>(
+                  {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
+                  .first,
+              IRInputs(),
+              IROutputs());
+          for (const auto& input : inputs_of_already_produced_id) {
+            redundant_ids.push_back(input->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // IDs of the reference domain that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+  unreachable_reference_ids.reserve(reference.size());
+  std::copy_if(
+      reference.begin(),
+      reference.end(),
+      std::back_inserter(unreachable_reference_ids),
+      [&](const auto reference_id) {
+        return produced_ids.find(reference_id) == produced_ids.end();
+      });
+
+  // Check unused IDs, which should be either redundant or additional
+  // IDs.
+  std::vector<IterDomain*> unused_ids;
+  unused_ids.reserve(domain_dedup.size());
+  std::copy_if(
+      domain_dedup.begin(),
+      domain_dedup.end(),
+      std::back_inserter(unused_ids),
+      [&](const auto id_to_check) {
+        return consumed_ids.find(id_to_check) == consumed_ids.end();
+      });
+
+  std::vector<IterDomain*> additional_ids;
+
+  // If there're unused IDs, they may be redundant or additional
+  // IDs. The latter means the ID has no overlap with any other
+  // ID. This could happen, for example, when we use a concrete loop
+  // ID for a broadcast logical ID.
+  //
+  // If there's unreachable reference IDs, however, the unused IDs may have
+  // been unused because of missing dependencies, which should not be
+  // considered redundant or additional. Different analysis would be
+  // required in that case, which is not implemented since error
+  // reporting of this function is best effort.
+  if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
+    // In order to understand if an unused ID is redundant or just an
+    //  additional ID, check if the unused ID is connected to any of
+    //  the reference domain. If it's connected even with missing
+    //  dependencies, it should be considered redundant. For this
+    //  reason, a variant of IRBFS with a relaxed dependency condition
+    //  is used. IRBFSWithPermissiveDependence can traverse as long as one of
+    //  the inputs or outputs is visited.
+    const auto from_remaining_ids =
+        getExprsBetween<IRBFSWithPermissiveDependence>(
+            {unused_ids.begin(), unused_ids.end()},
+            {reference.begin(), reference.end()},
+            /*require_all_to_visited=*/false)
+            .first;
+    // Nothing is reachable, which means all of the unused IDs are not redundant
+    if (from_remaining_ids.empty()) {
+      additional_ids = unused_ids;
+    } else {
+      // Inputs of the path are redundant, and the rest are not
+      auto inputs =
+          getInputsOfExprPath(from_remaining_ids, IRInputs(), IROutputs());
+      for (const auto inp : inputs) {
+        redundant_ids.push_back(inp->as<IterDomain>());
+      }
+      for (const auto unused_id : unused_ids) {
+        if (std::find(inputs.begin(), inputs.end(), unused_id) ==
+            inputs.end()) {
+          additional_ids.push_back(unused_id);
+        }
+      }
+    }
+  }
+
+  // If an output of the path is not used, i.e., not part of the
+  // reference domain, it's considered an additional ID. For example,
+  // if we have `split i0 -> i1, i2`, and the reference only includes
+  // i1, then i2 is considered an additional ID
+  for (const auto output :
+       getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
+    if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
+      additional_ids.push_back(output->as<IterDomain>());
+    }
+  }
+
+  return {redundant_ids, additional_ids, unreachable_reference_ids};
+}
+
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
@@ -826,8 +986,10 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs = IRBFS::getExprsBetween(
-      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
+  auto exprs =
+      getExprsBetween<IRBFS>(
+          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
+          .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
@@ -927,7 +1089,7 @@ CompareDomainResult compareDomains(
         //
         // The second case means id is redundant
         NVF_ERROR(
-            IRBFS::getReachableValsFrom(
+            getReachableValsFrom<IRBFS>(
                 {target_set.begin(), target_set.end()}, {id})
                 .empty(),
             id->toString(),
@@ -1262,6 +1424,87 @@ int64_t getOperationCount(Val* val) {
   }
 
   return num_ops;
+}
+
+ForLoop* createRangeLoop(int64_t size) {
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/FusionGuard::getCurFusion()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  return loop;
+}
+
+TensorView* getTvOutput(const Expr* expr) {
+  for (auto out : expr->outputs()) {
+    if (auto tv = getTv(out)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+TensorView* getTvInput(const Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    if (auto tv = getTv(inp)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<IterDomain*> strideOrderToAllocation(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<int64_t>& stride_order) {
+  // Verify that stride_order is valid.
+  std::vector<int64_t> inc_vec(stride_order.size());
+  std::iota(inc_vec.begin(), inc_vec.end(), 0);
+  NVF_CHECK(
+      std::is_permutation(
+          stride_order.begin(), stride_order.end(), inc_vec.begin()),
+      "Stride order is not valid: ",
+      toDelimitedString(stride_order));
+
+  const auto& logical_domain_no_red =
+      TensorDomain::noReductions(logical_domain);
+  NVF_CHECK(stride_order.size() == logical_domain_no_red.size());
+
+  auto rank = stride_order.size();
+  std::vector<IterDomain*> allocation_domain_no_red(rank);
+
+  for (auto idx : c10::irange(rank)) {
+    allocation_domain_no_red[rank - 1 - stride_order[idx]] =
+        logical_domain_no_red[idx];
+  }
+  if (rank == logical_domain.size()) {
+    // No reduction axis is present, return early.
+    return allocation_domain_no_red;
+  }
+
+  // Insert reduction axis at the original index in allocation domain
+  std::vector<IterDomain*> allocation_domain(logical_domain.size());
+  auto idx_no_red = 0;
+  for (auto idx : c10::irange(logical_domain.size())) {
+    if (logical_domain.at(idx)->isReduction()) {
+      allocation_domain[idx] = logical_domain[idx];
+    } else {
+      allocation_domain[idx] = allocation_domain_no_red[idx_no_red];
+      idx_no_red++;
+    }
+  }
+  return allocation_domain;
 }
 
 } // namespace nvfuser::ir_utils
