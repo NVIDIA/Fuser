@@ -3954,7 +3954,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
     // of 3
     ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
     inlineMost();
-    tmp_fusion.printMath();
     ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
     EXPECT_EQ(ir_cloner.clone(tv0c)->getComputeAtPosition(), 1);
     // The outermost loop dim of tv1c is a broadcast Mo axis, so
