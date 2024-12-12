@@ -174,7 +174,10 @@ class DomainMap : public pointwise_utils::DomainMap {
       // coverage check of the reference on outputs of the fusion. Note that
       // this is not ideal, we would want to instead have reference tensor
       // checked against all its target IO tensors.
-      // TODO: open an issue for this one. transpose scheduler is not supposed to reuse pointwise_utils::DomainMap::isValidRefrence. This function is too restrictive and doesn't align well with the scheme of transpose scheduler
+      // TODO: open an issue for this one. transpose scheduler is not supposed
+      // to reuse pointwise_utils::DomainMap::isValidRefrence. This function is
+      // too restrictive and doesn't align well with the scheme of transpose
+      // scheduler
       if (isValidReference(tv)) {
         int64_t dims = (int64_t)pointwise_utils::nLogicalDims(tv);
         if (dims > max_dims) {

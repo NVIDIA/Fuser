@@ -219,7 +219,9 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
   for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
-    NVF_ERROR(source_id_ref->definition() == nullptr || source_id_ref->definition()->isA<Resize>());
+    NVF_ERROR(
+        source_id_ref->definition() == nullptr ||
+        source_id_ref->definition()->isA<Resize>());
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
@@ -230,10 +232,11 @@ bool DomainMap::areAllTargetIdsCoveredBy(
       //   continue;
       // }
 
-      // Note that ideally we should also be able to handle merge/split on broadcast
-      // IDs, so we should really move this skip inside the loop below
+      // Note that ideally we should also be able to handle merge/split on
+      // broadcast IDs, so we should really move this skip inside the loop below
       // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
-      // currently we have the issue that split/merge does not preserve expanded broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
+      // currently we have the issue that split/merge does not preserve expanded
+      // broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
 
       covered_source_ids.insert(id_out);
     }
@@ -357,8 +360,7 @@ IterDomain* DomainMap::anyMapped(
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
 // The reference tensor must map to all the iterDomains in each input and output
-bool DomainMap::isValidReference(TensorView* tv)
-    const {
+bool DomainMap::isValidReference(TensorView* tv) const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
       continue;
