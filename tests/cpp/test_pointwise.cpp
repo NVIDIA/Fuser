@@ -316,7 +316,7 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   at::Tensor input1 = at::empty_strided({1, 128, 1}, {128, 1, 128}, options);
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
-  // NOTE: force pointwise scheduler here just for testing purpose
+  // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
@@ -350,7 +350,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   at::Tensor input1 = at::randn({1024, 2, 512}, options);
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
-  // NOTE: force pointwise scheduler here just for testing purpose
+  // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs, false);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
@@ -384,7 +384,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   at::Tensor input1 = at::randn({1024, 512, 2}, options);
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
-  // NOTE: force pointwise scheduler here just for testing purpose
+  // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
@@ -424,7 +424,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   at::Tensor input1 = at::empty_strided({1024, 512, 2}, {2, 2048, 1}, options);
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
-  // NOTE: force pointwise scheduler here just for testing purpose
+  // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
@@ -461,7 +461,7 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   at::Tensor input1 = at::randn({512, 1024, 2}, options);
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
-  // NOTE: force pointwise scheduler here just for testing purpose
+  // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
@@ -803,7 +803,7 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
       {tv2->axis(0)->extent(),
        IrBuilder::create<Val>(4),
        tv2->axis(2)->extent()});
-  // Note that currently expand doesn't introduce an iter domain operation, so
+  // NOTE hat currently expand doesn't introduce an iter domain operation, so
   // we don't see that i4 is produced by realizing the expanded extent of b3{1
   // ex 4} tv4 {i0, i4*i1}
   auto tv4 = reshape(tv3, {2, 4, 3}, {2, 12});
@@ -831,7 +831,7 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
@@ -876,7 +876,7 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({3, 2, 4}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
@@ -921,7 +921,7 @@ TEST_F(PointwiseTest, DomainMapTestEg2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
@@ -941,7 +941,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 
   // tv2 {b2, b3, i1}
   auto tv2 = broadcast(tv0, {true, true, false});
-  // Note: tv1 will be broadcasted to {b2, i0, i1} before the add.
+  // NOTE tv1 will be broadcasted to {b2, i0, i1} before the add.
   // tv3 {b2, i0, i1}
   auto tv3 = add(tv2, tv1);
   fusion->addOutput(tv3);
@@ -1087,7 +1087,7 @@ TEST_F(PointwiseTest, DomainMapPad0) {
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
@@ -1138,7 +1138,7 @@ TEST_F(PointwiseTest, DomainMapPad1) {
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({2, 3, 4, 1}, {12, 4, 1, 1}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
@@ -1187,7 +1187,7 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({2, 4}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
@@ -1236,7 +1236,7 @@ TEST_F(PointwiseTest, DomainMapSlice1) {
   at::Tensor t0 = at::randn({2, 2, 4}, options);
   at::Tensor t1 = at::randn({2, 4}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  // NOTE: force pointwise scheduler here for unit test
+  // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
