@@ -3236,7 +3236,8 @@ class HopperMatmulSchedulerTest
     KernelExecutor ke;
     ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
     auto nvf_out = ke.run(inputs);
-    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-5, 1e-5));
+    // NOTE Relax tolerances for split-k case
+    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-3, 1e-3));
   }
 
  protected:
