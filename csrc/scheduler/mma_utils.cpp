@@ -2093,11 +2093,14 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   const auto recordPresence = [&graph, &flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getLogicalDomain()) {
+      const ValGroup& g = graph.toGroup(id);
+      DimPresence& group_flags = flags[g];
+      // Note: broadcast or device dims will be initialized to have all false
+      // flags above
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      const ValGroup& g = graph.toGroup(id);
-      flags[g].set(tensor_num);
+      group_flags.set(tensor_num);
     }
   };
   recordPresence(A, 0);
