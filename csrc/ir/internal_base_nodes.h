@@ -610,6 +610,9 @@ class TensorDomain : public Val {
   // Similar to allIDs but returns all ID expressions.
   std::vector<Expr*> allExprs() const;
 
+  // Combine allIDs and allExprs
+  std::vector<Statement*> allStatements() const;
+
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();
   };
