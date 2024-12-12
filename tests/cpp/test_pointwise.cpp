@@ -1076,10 +1076,8 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
   // tv4 {i1*i0}
   auto tv4 = reshape(tv3, {2, 4}, {8});
   fusion->addOutput(tv4);
-  // TODO: add a slice that's not merged back into the consumer
 
   DomainMapUnitTest domain_map(fusion);
-
   // tv2 and tv4 has the same source IDs, since b3 = resize(i0 + 0 - 3)
   EXPECT_TRUE(domain_map.testTargetCoverage(tv4, tv2));
   EXPECT_TRUE(domain_map.testTargetCoverage(tv2, tv4));
@@ -1127,10 +1125,8 @@ TEST_F(PointwiseTest, DomainMapSlice1) {
   // tv4 {i2, i1*i0}
   auto tv4 = reshape(tv3, {2, 2, 4}, {2, 8});
   fusion->addOutput(tv4);
-  // TODO: add a slice that's not merged back into the consumer
 
   DomainMapUnitTest domain_map(fusion);
-
   // i2 is missing in tv2
   EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv2));
   EXPECT_TRUE(domain_map.testTargetCoverage(tv2, tv4));
