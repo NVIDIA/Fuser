@@ -386,7 +386,7 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
   std::cout << "======= Fusion after propagateTransformation, parallel, smem vect ======= " << std::endl;
-  fusion->printMath();
+  //fusion->printMath();
   // Inline the schedule
   inlineMost();
 }

@@ -1478,6 +1478,145 @@ TEST_F(PersistentBufferTest, TMA) {
       fusion.get(), cg_outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
 
+TEST_F(PersistentBufferTest, TmaCircularBuffer) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  int64_t tensor_inner_dim = 1024;
+  int64_t tensor_outer_dim = 8192;
+  int64_t number_of_stages = 2;
+  int64_t prefetch_distance= -1;
+  CircularBufferType circular_buffer_type = Pipelined(true);
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  constexpr int64_t correction = 0;
+  constexpr int64_t reduction_axis = 1;
+  constexpr bool keepdim = true;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(x);
+
+  // Algorithm:
+  // x_norm = (x - x_mean) / sqrt(x_var)
+  Val* num_elem = x->getLoopDomain().at(reduction_axis)->extent();
+
+  TensorView* sum_x = sum(x, {reduction_axis}, /*keepdim=*/false);
+  TensorView* mean_x = div(sum_x, num_elem);
+  TensorView* bcast_mean = broadcast(mean_x, {false, true});
+
+  TensorView* x_mean_sub = sub(x, bcast_mean);
+  TensorView* x_mean_sub_sq = mul(x_mean_sub, x_mean_sub);
+  TensorView* sum_x_mean_sub_sq =
+      sum(x_mean_sub_sq, {reduction_axis}, /*keepdim=*/false);
+  TensorView* var_x = div(sum_x_mean_sub_sq, num_elem);
+  TensorView* bcast_var = broadcast(var_x, {false, true});
+
+  TensorView* x_norm = div(sub(x, bcast_mean), sqrt(bcast_var));
+  fusion->addOutput(x_norm);
+
+  // Load input from global to shared memory
+  TensorView* x_cache_smem =
+      x->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  x_cache_smem->setMemoryType(MemoryType::Shared);
+
+  // Load input from shared memory to registers
+  x_cache_smem->cacheAfter();
+
+  // Store results in registers
+  x_norm->cacheBefore();
+
+  std::vector<TensorView*> reduction_tvs =
+      scheduler_utils::getReductionTvs(fusion.get());
+
+  TensorView* reference_tv = x_norm;
+
+  // boxDim array must be non-zero and less than or equal to 256
+  constexpr int64_t width = 32;
+  constexpr int64_t vectorize = 4;
+  int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
+  constexpr int64_t examples_per_cta = 4;
+
+  // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
+  // we require multiple TMA operations to load the entire example in shared
+  // memory for pointwise kernel.
+  //
+  // Define TMA Box
+  // logical domain: [I1, I2]
+  x_cache_smem->split(0, examples_per_cta);
+  // split: [I0 / 4, 4, I2]
+  x_cache_smem->split(-1, 256);
+  // split: [I0/4, 4, I2/256, 256]
+
+  // Schedule reference_tv
+  //   logical domain: [I1, I2]
+  //         split: [I1, I2/V (width / tdx), V]
+  reference_tv->split(-1, vectorize);
+  //         split: [I1, EPCT, I2/V/EPCT (tdx), V]
+  reference_tv->split(-2, elem_per_compute_thread, /*inner_split=*/false);
+  //         split: [I1, EPCT, I2/V/EPCT (tdx), U, V]
+  reference_tv->split(-2, 1);
+  //         reorder: [I1, I2/V/EPCT (tdx), EPCT, U, V]
+  reference_tv->reorder({{-4, -3}, {-3, -4}});
+  //         reorder: [I1/EPC, EPC, I2/V/EPCT (tdx), EPCT, U, V]
+  reference_tv->split(0, examples_per_cta);
+
+  TransformPropagator propagator(reference_tv);
+  std::vector<TensorView*> all_tvs_except_cache =
+      ir_utils::allTvsExcept(fusion.get(), {x_cache_smem});
+  SetSelector selector(
+      {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&propagator);
+
+  std::vector<TensorView*> rfactor_tvs;
+  rfactor_tvs.reserve(reduction_tvs.size());
+  std::transform(
+      reduction_tvs.begin(),
+      reduction_tvs.end(),
+      std::back_inserter(rfactor_tvs),
+      [](TensorView* tv) { return tv->rFactor({-3, -2, -1}); });
+
+  // Define Parallelization Schema
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(2)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(-2)->parallelize(ParallelType::Unroll);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+
+  // Vectorize Cache
+  reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  // Handle TMA Tensor
+  // Apply circular buffer after computeAt
+  x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+  if (examples_per_cta > 1) {
+    x_cache_smem->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor at_tv1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+
+  // Compile with KernelExecutor directly to avoid scheduling
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  std::vector<at::Tensor> cg_outputs = ke.run({at_tv0});
+
+  std::tuple<at::Tensor, at::Tensor> at_var_mean =
+      at::var_mean(at_tv0, {-1}, correction, keepdim);
+  at::Tensor at_var = std::get<0>(at_var_mean);
+  at::Tensor at_mean = std::get<1>(at_var_mean);
+  at::Tensor at_output = (at_tv0 - at_mean) / sqrt(at_var);
+
+  testValidate(
+      fusion.get(), cg_outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
 TEST_F(PersistentBufferTest, TmaMagicScheduler) {
   DataType input_dtype = DataType::Half;
   const std::vector<int64_t> input_shape = {1024, 8192};

@@ -1010,7 +1010,9 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     innerPersistentHeuristic2D(prop, rparams.get());
     if(std::getenv("USE_MAIN") == nullptr) {
       rparams->smem_persistent_buffers = prop.persistent_buffers;
-      rparams->use_tma = true;
+      if(std::getenv("USE_ASYNC") == nullptr){
+        rparams->use_tma = true;
+      }
       for(auto smem : rparams->smem_persistent_buffers) {
         std::cout << "smem: " << smem->toString() << std::endl;
       }
