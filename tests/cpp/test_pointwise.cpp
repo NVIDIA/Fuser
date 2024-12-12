@@ -955,7 +955,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
       EXPECT_EQ(exprs.size(), 2);
       EXPECT_EQ(num_full, 1);
       auto binary_op_iter =
-          std::find(exprs.begin(), exprs.end(), [](Expr* expr) {
+          std::find_if(exprs.begin(), exprs.end(), [](Expr* expr) {
             return expr->isA<BinaryOp>();
           });
       EXPECT_EQ(
@@ -965,7 +965,8 @@ TEST_F(PointwiseTest, DomainMapFactory) {
       // validate that we have a valid reference in the segmented fusion
       DomainMapUnitTest group_dm(group_fusion);
       EXPECT_EQ(group_fusion->outputs().size(), 1);
-      EXPECT_TRUE(group_dm.isValidReference(group_fusion->outputs()[0]));
+      EXPECT_TRUE(group_dm.isValidReference(
+          group_fusion->outputs()[0]->as<TensorView>()));
     } else {
       // validate segmentation has the correct ops
       EXPECT_EQ(exprs.size(), 3);
@@ -1053,7 +1054,7 @@ TEST_F(PointwiseTest, DomainMapSlice) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  // tv1 {i1, i0}
+  // tv0 {i1, i0}
   TensorView* tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
   // tv1 {i1, i2}
