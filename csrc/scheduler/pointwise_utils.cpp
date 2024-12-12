@@ -254,10 +254,19 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 
   // Check all source iter domain involved in producing target_tv
   for (IterDomain* source_id_out : get_source_iter_domains(target_tv)) {
+    // NOTE: we use concrete id instead. This allows us to link indirect
+    // broadcast. So in the example below: T2[i0, i1] = T0[i0, b0] + T1[i0, i1]
+    // T3[i0, i9] = pad(T0[i0, b0])
+    // We have i9 in T3
+    //     -> source ID b0
+    //     -> concrete map to i1
+    // So T3 is contained by T2. See test `PointwiseTest.DomainMapPad1`
+    auto concrete_source_id_out =
+        ca_map_.getConcreteMappedID(source_id_out, IdMappingMode::PERMISSIVE);
     // if we find any source_id_out that's not contained, it's possible our
     // propagation would fail since transformation involving this iter domain
     // can't be resolved.
-    if (!getMappedInputConcreteID(covered_source_ids, source_id_out)) {
+    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out)) {
       return false;
     }
   }

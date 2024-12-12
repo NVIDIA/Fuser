@@ -814,8 +814,9 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   // transformation
   EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv1));
 
-  // tv3 is covered by tv1, because the missing ID b3{1 ex 4} is broadcast
-  EXPECT_TRUE(domain_map.testTargetCoverage(tv3, tv1));
+  // tv3 is not covered by tv1, because the missing ID b3{1 ex 4} is concretized
+  // as i4, which is not mapped on tv1
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv3, tv1));
 
   // tv1 is covered by tv4
   EXPECT_TRUE(domain_map.testTargetCoverage(tv1, tv4));
@@ -875,6 +876,51 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({3, 2, 4}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
+  // NOTE: force pointwise scheduler here for unit test
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, DomainMapTestEg2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv0 {i0, i1}
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  // tv1 {i0, i1}
+  auto tv1 = relu(tv0);
+  fusion->addOutput(tv1);
+  // tv2 {i0, b2, i1}
+  auto tv2 = broadcast(tv1, {false, true, false});
+  // tv3 {i0, b3{1 ex 4}, i1}
+  auto tv3 = expand(
+      tv2,
+      {tv2->axis(0)->extent(),
+       IrBuilder::create<Val>(4),
+       tv2->axis(2)->extent()});
+  fusion->addOutput(tv3);
+
+  DomainMapUnitTest domain_map(fusion);
+  // tv3 is covered by tv1, because the missing ID b3{1 ex 4} is broadcast and
+  // doesn't get resolved to a concrete broadcast ID.
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv3, tv1));
+
+  // tv1 is covered by tv4
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv1, tv3));
+
+  // tv1 is a valid reference
+  EXPECT_TRUE(domain_map.isValidReference(tv1));
+
+  // tv3 is a valid reference
+  EXPECT_TRUE(domain_map.isValidReference(tv3));
+
+  // validate generated kernel
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
   // NOTE: force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
@@ -1078,7 +1124,8 @@ TEST_F(PointwiseTest, DomainMapPad1) {
 
   DomainMapUnitTest domain_map(fusion);
 
-  // tv4 is covered by tv3, because i8 is produced by b1
+  // tv4 is covered by tv3, because i8 is produced by b1, a broadcast dimension
+  // concretized as i4
   EXPECT_TRUE(domain_map.testTargetCoverage(tv4, tv3));
   // tv3 is not covered by tv4, it's missing i2 and i3
   EXPECT_FALSE(domain_map.testTargetCoverage(tv3, tv4));
