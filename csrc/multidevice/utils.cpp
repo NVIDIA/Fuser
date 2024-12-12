@@ -7,13 +7,13 @@
 // clang-format on
 
 #include <device_lower/utils.h>
+#include <host_ir/lower.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
@@ -565,12 +565,12 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
        {ir_utils::filterByType<TensorView>(expr->inputs()),
         ir_utils::filterByType<TensorView>(expr->outputs())}) {
     for (auto* tv : tvs) {
-      NVF_ERROR(
-          tv->hasDeviceMesh(),
-          "the TensorView has no device mesh: ",
-          tv->toString());
-      auto& mesh = tv->getDeviceMesh().vector();
-      std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+      if (tv->hasDeviceMesh()) {
+        auto& mesh = tv->getDeviceMesh().vector();
+        std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+      } else {
+        ret.insert(0);
+      }
     }
   }
   return ret;

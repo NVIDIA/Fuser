@@ -7,17 +7,23 @@
 // clang-format on
 #pragma once
 
+#include <host_ir/container.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
 #include <multidevice/multidevice.h>
 
 namespace nvfuser {
 
-// Returns whether we support transforming a given expression into a series
-// of communication.
-bool isLowerableToCommunication(Expr* expr);
+class HostIrLower {
+ public:
+  static bool canLower(Expr* expr);
 
-// Lower a PipelineCommunication into a series of Communication.
-std::vector<Communication*> lowerCommunication(Expr* c);
+  // Lower a sharded Expr into a series of Communication.
+  static std::vector<Expr*> lower(Expr* c);
+
+  static std::unique_ptr<hir::HostIrContainer> lower(
+      std::unique_ptr<Fusion> fusion,
+      int64_t my_device_index);
+};
 
 } // namespace nvfuser
