@@ -906,7 +906,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   // tv4 {i4{4}, b4, i1}
   auto tv4 = ones({size_val, one_val, tv0->axis(0)->extent()}, DataType::Float);
   // tv5 {i4{4}, i0, i1}
-  auto tv5 = add(tv2, tv4);
+  auto tv5 = mul(tv2, tv4);
   fusion->addOutput(tv5);
 
   DomainMapUnitTest domain_map(fusion);
@@ -920,12 +920,102 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   // tv5 has the same IDs as tv4, and is not a valid reference.
   EXPECT_FALSE(domain_map.isValidReference(tv5));
 
-  // This fusion currently cannot be scheduled as a single kernel. The test
-  // verifies that it generates correct result.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::empty_strided({25}, {1}, options);
   at::Tensor input1 = at::empty_strided({7, 25}, {25, 1}, options);
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  SegmentedFusion* segmented_fusion = runtime->fusionSegments();
+  // This fusion currently cannot be scheduled as a single kernel. It is expected to be segmented as:
+  // g{(pointwise)
+  //   inputs: tv0, tv1
+  //   outputs: tv2, tv3
+  //   tv2 = broadcast(tv0)
+  //   tv3 = add (tv2, broadcast(tv1))
+  // }
+  // 
+  // g{(pointwise)
+  //   inputs: tv2
+  //   outputs: tv5
+  //   tv4 = full({4, 1, i0})
+  //   tv5 = mul(tv2, tv4)
+  // }
+  EXPECT_EQ(segmented_fusion->groups().size(), 2);
+
+  for (SegmentedGroup* group : segmented_fusion->groups()) {
+    const std::vector<Expr*>& exprs = group->exprs();
+
+    size_t num_full = std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<FullOp>();});
+    if (num_full != 0) {
+      // this is the segment contains the factory op.
+      EXPECT_EQ(exprs.size(), 2);
+      EXPECT_EQ(num_full, 1);
+      auto binary_op_iter = std::find(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<BinaryOp>();});
+      EXPECT_EQ(binary_op_iter->as<BinaryOp>()->getBinaryOpType(), BinaryOpType::Mul);
+      Fusion* group_fusion = group->getFusion();
+      // validate that we have a valid reference in the segmented fusion
+      DomainMapUnitTest group_dm(group_fusion);
+      EXPECT_EQ(group_fusion->outputs().size(), 1);
+      EXPECT_TRUE(group_dm.isValidReference(group_fusion->outputs()[0]));
+    } else {
+      // validate segmentation has the correct ops
+      EXPECT_EQ(exprs.size(), 3);
+      EXPECT_EQ(std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<BroadcastOp>();}), 2);
+      EXPECT_EQ(std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<BinaryOp>();}), 1);
+      Fusion* group_fusion = group->getFusion();
+      auto output_add = std::find_if(group_fusion->outputs().begin(), group_fusion->outputs().end(), [](Val* val) {
+        return val->definition()->isA<BinaryOp>();
+      });
+      EXPECT_TRUE(output_add != group_fusion->outputs().end());
+      DomainMapUnitTest group_dm(group_fusion);
+      // validate that the segmented fusion choose the add output as the reference
+      EXPECT_TRUE(group_dm.isValidReference(output_add->as<TensorView>()));
+    }
+  }
+
+  testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, DomainMapPad) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv1 {b1, i0}
+  TensorView* tv0 = TensorViewBuilder().shape({1, -1}).build();
+  fusion->addInput(tv0);
+  // tv1 {i2, b1, i0}
+  TensorView* tv1 = TensorViewBuilder().shape({-1, 1, -1}).build();
+  fusion->addInput(tv1);
+  // tv2 {i2, b1, i0}
+  auto tv2 = add(tv1, tv0);
+  fusion->addOutput(tv2);
+  // i3 = resize(b1 + 4 + 4)
+  // tv3 {i3, i0}
+  auto tv3 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  // tv4 {i3*i0}
+  auto tv4 = reshape(tv3, {9, 5}, {45});
+  fusion->addOutput(tv4);
+
+  DomainMapUnitTest domain_map(fusion);
+
+  // tv4 is covered by tv2, because i3 is produced by b1
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv2));
+  // tv1 is not covered by tv4, since it's missing i0
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv1, tv4));
+
+  EXPECT_FALSE(domain_map.isValidReference(tv3));
+  // tv5 has the same IDs as tv4, and is not a valid reference.
+  EXPECT_FALSE(domain_map.isValidReference(tv5));
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = at::empty_strided({1, 5}, {5, 1}, options);
+  at::Tensor input1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
   auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
   testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
