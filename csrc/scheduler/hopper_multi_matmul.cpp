@@ -29,18 +29,24 @@
 
 namespace nvfuser {
 
-void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
+void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
+    TensorView* tv,
+    bool is_mma_result) {
   // TODO Add constraints
 
+  auto apply_k_dim_offset = [is_mma_result](int64_t idx) {
+    return (is_mma_result) ? idx - 1 : idx;
+  };
+
   // Original: [..., Mo, No, Mi, Ni]
-  tv->split(-2, getM(params_->mma_macro));
-  tv->split(-1, getN(params_->mma_macro));
+  tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
+  tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
   // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-  tv->reorder({{-3, -2}});
+  tv->reorder({{apply_k_dim_offset(-3), apply_k_dim_offset(-2)}});
   // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-  tv->merge(-4);
+  tv->merge(apply_k_dim_offset(-4));
   // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-  tv->axis(-3)->parallelize(ParallelType::TIDy);
+  tv->axis(apply_k_dim_offset(-3))->parallelize(ParallelType::TIDy);
   // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
 }
 
@@ -418,14 +424,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       splitk_sums_.push_back(splitk_sum);
     }
 
-    mma_result->split(-3, getM(params_->mma_macro));
-    mma_result->split(-2, getN(params_->mma_macro));
-    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
-    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
-    mma_result->reorder({{-4, -3}});
-    mma_result->merge(-5);
-    mma_result->axis(-4)->parallelize(ParallelType::TIDy);
-
+    transformLikeMmaOutput(mma_result, /*is_mma_result=*/true);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -522,7 +521,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Apply mma common transformation
       for (auto tv : {dc, d}) {
-        transformLikeMmaOutput(tv);
+        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             tv->getLoopDomain());
         tv->setLoopDomain(s.as<IterDomain*>());
@@ -571,7 +570,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Apply mma common transformation
       for (auto tv : {dc, d_smem, d}) {
-        transformLikeMmaOutput(tv);
+        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
       // Schedule register cache; Output from epilogue
@@ -643,7 +642,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-    transformLikeMmaOutput(splitk_sum);
+    transformLikeMmaOutput(splitk_sum, /*is_mma_result=*/false);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         splitk_sum->getLoopDomain());
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
