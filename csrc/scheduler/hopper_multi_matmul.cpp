@@ -409,9 +409,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
     mma_result->reorder({{-4, -3}});
     mma_result->merge(-5);
-    // if (params_->splitk_factor == 1) {
     mma_result->axis(-4)->parallelize(ParallelType::TIDy);
-    //}
 
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
