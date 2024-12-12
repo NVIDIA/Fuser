@@ -1908,7 +1908,7 @@ MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
       for (size_t a_axis : c10::irange((size_t)A->nDims() - 1)) {
         // Output is [ ... M, N, K ]
         // This loop maps everything but N and K to A
-        int64_t out_axis = a_axis + (out_dims - 1 - A->nDims());
+        int64_t out_axis = (int64_t)a_axis + (out_dims - 1 - A->nDims());
         axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
       }
       // Map the K dim, skipping one position
@@ -1917,7 +1917,7 @@ MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
       for (size_t b_axis : c10::irange((size_t)B->nDims() - 2)) {
         // Output is [ ... M, N, K ]
         // This loop maps everything before M to B, skipping the output M dim
-        int64_t out_axis = b_axis + (out_dims - B->nDims()) - 1;
+        int64_t out_axis = (int64_t)b_axis + (out_dims - B->nDims()) - 1;
         axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
       }
       // Skip the K dim and map N and K
