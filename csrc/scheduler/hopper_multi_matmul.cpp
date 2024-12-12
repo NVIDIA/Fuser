@@ -9,7 +9,6 @@
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
-#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -508,40 +507,43 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // NOTE: cacheBefore does not work with blockTileTensors
       TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
 
-      std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
-          mma_results_.end()) {
-        // Skip scheduling dc if it is an mma_result. This can happen if we are
-        // not casting back to half-precision in the output
-        tvs_to_schedule.push_back(dc);
-      }
-
       // Set MemoryType
       dc->setMemoryType(MemoryType::Local);
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Set LoadStoreOp
+      // TODO: extend support when mma is not cast to half
+      NVF_ERROR(
+          dc->dtype() == DataType::Half && !dc->definition()->isA<MmaOp>(),
+          "We support smem_epilogue on hopper only when the output of mma is cast to half")
       d_smem->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::StMatrix);
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
-      // Block Schedule and Parallelize
-      blockTileTensors(tvs_to_schedule);
-      parallelizeBlocks(tvs_to_schedule);
+      blockTileTensors({d});
+      parallelizeBlocks({d});
+      transformLikeMmaOutput(d, /*is_mma_result=*/false);
 
-      // Apply mma common transformation
-      for (auto tv : tvs_to_schedule) {
-        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
-      }
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          d,
+          -1,
+          {dc},
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType()
+              .propagateToBoundary());
 
-      // Schedule register cache; Output from epilogue
-      {
-        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-            dc->getLoopDomain());
-        dc->setLoopDomain(s.as<IterDomain*>());
-        dc->setAllocationDomain(s.as<IterDomain*>(), true);
-      }
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          dc->getLoopDomain());
+      dc->setLoopDomain(s.as<IterDomain*>());
+      dc->setAllocationDomain(s.as<IterDomain*>(), true);
+
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          dc,
+          -1,
+          propagate_to,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
