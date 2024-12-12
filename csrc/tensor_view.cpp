@@ -804,7 +804,12 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
-
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. Thus, the original logical domain is moved to
+  // the root domain.
+  NVF_CHECK(
+      definition()->isA<MmaOp>() || !domain()->hasRoot(),
+      "Cannot call rfactor on the same view twice.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
@@ -932,6 +937,13 @@ std::vector<TensorView*> TensorView::rFactor(
       "Error rfactoring multi-output reduction op ",
       this,
       " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
+
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. Thus, the original logical domain is moved to
+  // the root domain.
+  NVF_CHECK(
+      definition()->isA<MmaOp>() || !domain()->hasRoot(),
+      "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       definition()->outputs().size() == tvs.size(),
