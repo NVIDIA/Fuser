@@ -928,14 +928,14 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
-  // This fusion currently cannot be scheduled as a single kernel. It is expected to be segmented as:
-  // g{(pointwise)
+  // This fusion currently cannot be scheduled as a single kernel. It is
+  // expected to be segmented as: g{(pointwise)
   //   inputs: tv0, tv1
   //   outputs: tv2, tv3
   //   tv2 = broadcast(tv0)
   //   tv3 = add (tv2, broadcast(tv1))
   // }
-  // 
+  //
   // g{(pointwise)
   //   inputs: tv2
   //   outputs: tv5
@@ -947,13 +947,20 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   for (SegmentedGroup* group : segmented_fusion->groups()) {
     const std::vector<Expr*>& exprs = group->exprs();
 
-    size_t num_full = std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<FullOp>();});
+    size_t num_full = std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
+      return expr->isA<FullOp>();
+    });
     if (num_full != 0) {
       // this is the segment contains the factory op.
       EXPECT_EQ(exprs.size(), 2);
       EXPECT_EQ(num_full, 1);
-      auto binary_op_iter = std::find(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<BinaryOp>();});
-      EXPECT_EQ(binary_op_iter->as<BinaryOp>()->getBinaryOpType(), BinaryOpType::Mul);
+      auto binary_op_iter =
+          std::find(exprs.begin(), exprs.end(), [](Expr* expr) {
+            return expr->isA<BinaryOp>();
+          });
+      EXPECT_EQ(
+          (*binary_op_iter)->as<BinaryOp>()->getBinaryOpType(),
+          BinaryOpType::Mul);
       Fusion* group_fusion = group->getFusion();
       // validate that we have a valid reference in the segmented fusion
       DomainMapUnitTest group_dm(group_fusion);
@@ -962,16 +969,28 @@ TEST_F(PointwiseTest, DomainMapFactory) {
     } else {
       // validate segmentation has the correct ops
       EXPECT_EQ(exprs.size(), 3);
-      EXPECT_EQ(std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<BroadcastOp>();}), 2);
-      EXPECT_EQ(std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {return expr->isA<BinaryOp>();}), 1);
+      EXPECT_EQ(
+          std::count_if(
+              exprs.begin(),
+              exprs.end(),
+              [](Expr* expr) { return expr->isA<BroadcastOp>(); }),
+          2);
+      EXPECT_EQ(
+          std::count_if(
+              exprs.begin(),
+              exprs.end(),
+              [](Expr* expr) { return expr->isA<BinaryOp>(); }),
+          1);
       Fusion* group_fusion = group->getFusion();
-      auto output_add = std::find_if(group_fusion->outputs().begin(), group_fusion->outputs().end(), [](Val* val) {
-        return val->definition()->isA<BinaryOp>();
-      });
+      auto output_add = std::find_if(
+          group_fusion->outputs().begin(),
+          group_fusion->outputs().end(),
+          [](Val* val) { return val->definition()->isA<BinaryOp>(); });
       EXPECT_TRUE(output_add != group_fusion->outputs().end());
       DomainMapUnitTest group_dm(group_fusion);
-      // validate that the segmented fusion choose the add output as the reference
-      EXPECT_TRUE(group_dm.isValidReference(output_add->as<TensorView>()));
+      // validate that the segmented fusion choose the add output as the
+      // reference
+      EXPECT_TRUE(group_dm.isValidReference((*output_add)->as<TensorView>()));
     }
   }
 
@@ -996,7 +1015,12 @@ TEST_F(PointwiseTest, DomainMapPad) {
   fusion->addOutput(tv2);
   // i3 = resize(b1 + 4 + 4)
   // tv3 {i3, i0}
-  auto tv3 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  auto tv3 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(4L)});
   // tv4 {i3*i0}
   auto tv4 = reshape(tv3, {9, 5}, {45});
   fusion->addOutput(tv4);
@@ -1004,20 +1028,73 @@ TEST_F(PointwiseTest, DomainMapPad) {
   DomainMapUnitTest domain_map(fusion);
 
   // tv4 is covered by tv2, because i3 is produced by b1
-  EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv2));
-  // tv1 is not covered by tv4, since it's missing i0
-  EXPECT_FALSE(domain_map.testTargetCoverage(tv1, tv4));
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv4, tv2));
+  // tv2 is not covered by tv4, it's missing i2
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv2, tv4));
 
-  EXPECT_FALSE(domain_map.isValidReference(tv3));
-  // tv5 has the same IDs as tv4, and is not a valid reference.
-  EXPECT_FALSE(domain_map.isValidReference(tv5));
+  EXPECT_FALSE(domain_map.isValidReference(tv4));
+  EXPECT_TRUE(domain_map.isValidReference(tv2));
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // validate generated kernel
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input0 = at::empty_strided({1, 5}, {5, 1}, options);
-  at::Tensor input1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
-  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
-  testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
+  at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
+  at::Tensor t1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  // NOTE: force pointwise scheduler here for unit test
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, DomainMapSlice) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv1 {i1, i0}
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  // tv1 {i1, i2}
+  TensorView* tv1 = makeContigTensor(2);
+  fusion->addInput(tv1);
+
+  // b3 = resize(i2 + 4 + 4)
+  // tv2 {i1, b3}
+  auto tv2 = slice(
+      tv1,
+      {Slice(),
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(1L),
+        IrBuilder::create<Val>(1L)}});
+  fusion->addOutput(tv2);
+  // tv3 {i1, i0}
+  auto tv3 = add(tv0, tv2);
+  // tv4 {i1*i0}
+  auto tv4 = reshape(tv3, {2, 4}, {8});
+  fusion->addOutput(tv4);
+  // TODO: add a slice that's not merged back into the consumer
+
+  DomainMapUnitTest domain_map(fusion);
+
+  // tv4 is not covered by tv2, because i0 is missing
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv2));
+  // tv2 is covered by tv4
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv2, tv4));
+
+  EXPECT_FALSE(domain_map.isValidReference(tv2));
+  EXPECT_TRUE(domain_map.isValidReference(tv4));
+
+  // validate generated kernel
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 4}, options);
+  at::Tensor t1 = at::randn({2, 8}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  // NOTE: force pointwise scheduler here for unit test
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
