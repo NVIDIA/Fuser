@@ -398,7 +398,6 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     // do split-K rFactor to define splitk_sum and smem_epilogue
     if (params_->splitk_factor != 1) {
       // Note that the split-K split is already done in blockTileTensors
-      std::cout << mma_result->toString() << std::endl;
       TensorView* splitk_sum = mma_result->rFactor({-4, -1});
       std::swap(splitk_sum, mma_result);
       splitk_sums_.push_back(splitk_sum);
@@ -410,9 +409,9 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
     mma_result->reorder({{-4, -3}});
     mma_result->merge(-5);
-    if (params_->splitk_factor == 1) {
-      mma_result->axis(-4)->parallelize(ParallelType::TIDy);
-    }
+    // if (params_->splitk_factor == 1) {
+    mma_result->axis(-4)->parallelize(ParallelType::TIDy);
+    //}
 
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
@@ -644,13 +643,25 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
-  fusion_->printMath();
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-    splitk_sum->reorder({{-3, -1}});
-    splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
-    std::cout << "splitk\t" << splitk_sum->toString() << std::endl;
+
+    // [..., Mo, No, Mi, Ni]
+    splitk_sum->split(-2, getM(params_->mma_macro));
+    splitk_sum->split(-1, getN(params_->mma_macro));
+    // [..., Mo, No, Mio, Mii, Nio, Nii]
+    // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+    splitk_sum->reorder({{-3, -2}});
+    splitk_sum->merge(-4);
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        splitk_sum->getLoopDomain());
+    splitk_sum->setLoopDomain(s.as<IterDomain*>());
+    splitk_sum->axis(-5)->parallelize(ParallelType::TIDy);
+
+    // splitk_sum->reorder({{2, -2}});
+    splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
+    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
 
