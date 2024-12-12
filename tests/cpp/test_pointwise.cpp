@@ -1047,7 +1047,7 @@ TEST_F(PointwiseTest, DomainMapPad) {
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, DomainMapSlice) {
+TEST_F(PointwiseTest, DomainMapSlice0) {
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -1057,12 +1057,13 @@ TEST_F(PointwiseTest, DomainMapSlice) {
   // tv0 {i1, i0}
   TensorView* tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
-  // tv1 {i1, i2}
-  TensorView* tv1 = makeContigTensor(2);
+  // tv1 {i1, i0}
+  // use concrete tensor to avoid need of concretization
+  TensorView* tv1 = makeContigConcreteTensor({2, 4});
   fusion->addInput(tv1);
 
-  // b3 = resize(i2 + 4 + 4)
-  // tv2 {i1, b3}
+  // b3 = resize(i0 + 0 - 3)
+  // tv2 {i1, b2}
   auto tv2 = slice(
       tv1,
       {Slice(),
@@ -1071,7 +1072,7 @@ TEST_F(PointwiseTest, DomainMapSlice) {
         IrBuilder::create<Val>(1L)}});
   fusion->addOutput(tv2);
   // tv3 {i1, i0}
-  auto tv3 = add(tv0, tv2);
+  auto tv3 = add(tv0, tv1);
   // tv4 {i1*i0}
   auto tv4 = reshape(tv3, {2, 4}, {8});
   fusion->addOutput(tv4);
@@ -1079,9 +1080,59 @@ TEST_F(PointwiseTest, DomainMapSlice) {
 
   DomainMapUnitTest domain_map(fusion);
 
-  // tv4 is not covered by tv2, because i0 is missing
+  // tv2 and tv4 has the same source IDs, since b3 = resize(i0 + 0 - 3)
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv4, tv2));
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv2, tv4));
+
+  EXPECT_TRUE(domain_map.isValidReference(tv2));
+  EXPECT_TRUE(domain_map.isValidReference(tv4));
+
+  // validate generated kernel
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 4}, options);
+  at::Tensor t1 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  // NOTE: force pointwise scheduler here for unit test
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, DomainMapSlice1) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv0 {i2, i1, i0}
+  TensorView* tv0 = makeContigTensor(3);
+  fusion->addInput(tv0);
+  // tv1 {i1, i0}
+  // use concrete tensor to avoid need of concretization
+  TensorView* tv1 = makeContigConcreteTensor({2, 4});
+  fusion->addInput(tv1);
+
+  // b3 = resize(i0 + 0 - 3)
+  // tv2 {i1, b3}
+  auto tv2 = slice(
+      tv1,
+      {Slice(),
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(1L),
+        IrBuilder::create<Val>(1L)}});
+  fusion->addOutput(tv2);
+  // tv3 {i2, i1, i0}
+  auto tv3 = add(tv0, tv1);
+  // tv4 {i2, i1*i0}
+  auto tv4 = reshape(tv3, {2, 2, 4}, {2, 8});
+  fusion->addOutput(tv4);
+  // TODO: add a slice that's not merged back into the consumer
+
+  DomainMapUnitTest domain_map(fusion);
+
+  // i2 is missing in tv2
   EXPECT_FALSE(domain_map.testTargetCoverage(tv4, tv2));
-  // tv2 is covered by tv4
   EXPECT_TRUE(domain_map.testTargetCoverage(tv2, tv4));
 
   EXPECT_FALSE(domain_map.isValidReference(tv2));
@@ -1089,8 +1140,8 @@ TEST_F(PointwiseTest, DomainMapSlice) {
 
   // validate generated kernel
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({2, 4}, options);
-  at::Tensor t1 = at::randn({2, 8}, options);
+  at::Tensor t0 = at::randn({2, 2, 4}, options);
+  at::Tensor t1 = at::randn({2, 4}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE: force pointwise scheduler here for unit test
   auto cg_results =
