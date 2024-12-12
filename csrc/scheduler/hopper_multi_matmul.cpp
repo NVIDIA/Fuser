@@ -34,7 +34,7 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
     bool is_mma_result) {
   // TODO Add constraints
 
-  auto apply_k_dim_offset = [is_mma_result](int64_t idx) {
+  auto apply_k_dim_offset = [is_mma_result](int64_t idx) constexpr {
     return (is_mma_result) ? idx - 1 : idx;
   };
 
