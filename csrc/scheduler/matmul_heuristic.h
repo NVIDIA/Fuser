@@ -41,10 +41,18 @@ class MatmulParams : public HeuristicParams {
     // greater than one. Otherwise it is ignored.
     int smem_circular_buffer_stage = 2;
 
+    // The circular buffering prefetch distance will be set to
+    //   smem_circular_buffer_stage - smem_circular_buffer_prefetch_gap
+    // This value must be positive since the prefetch distance must be strictly
+    // less than the number of stages.
+    int smem_circular_buffer_prefetch_gap = 1;
+
     bool operator==(const CircularBufferOptions& other) const {
       return other.circular_buffer_smem_write == circular_buffer_smem_write &&
           other.circular_buffer_smem_read == circular_buffer_smem_read &&
-          other.smem_circular_buffer_stage == smem_circular_buffer_stage;
+          other.smem_circular_buffer_stage == smem_circular_buffer_stage &&
+          other.smem_circular_buffer_prefetch_gap ==
+          smem_circular_buffer_prefetch_gap;
     }
 
     std::string toString() const {
@@ -54,12 +62,16 @@ class MatmulParams : public HeuristicParams {
          << (circular_buffer_smem_write ? "true" : "false") << "\n"
          << "  circular_buffer_smem_read: "
          << (circular_buffer_smem_read ? "true" : "false") << "\n"
-         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage;
+         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage
+         << "\n"
+         << "  smem_circular_buffer_prefetch_gap: "
+         << smem_circular_buffer_prefetch_gap;
       return ss.str();
     }
 
     size_t hash() const {
       return std::hash<size_t>{}(
+                 (static_cast<size_t>(smem_circular_buffer_prefetch_gap) << 3) |
                  (static_cast<size_t>(smem_circular_buffer_stage) << 2) |
                  (static_cast<size_t>(circular_buffer_smem_write)) << 1) |
           (static_cast<size_t>(circular_buffer_smem_read));
