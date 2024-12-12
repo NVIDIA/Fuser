@@ -1778,7 +1778,6 @@ std::string MatmulPattern::toString() const {
 }
 
 MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
-  std::cout << " translateToMmaOp " << avoid_intermediates << std::endl;
   if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
     return mma_op;
