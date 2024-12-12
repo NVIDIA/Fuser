@@ -29,6 +29,27 @@
 
 namespace nvfuser {
 
+void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
+    TensorView* tv,
+    bool is_mma_result) {
+  // TODO Add constraints
+
+  auto apply_k_dim_offset = [is_mma_result](int64_t idx) constexpr {
+    return (is_mma_result) ? idx - 1 : idx;
+  };
+
+  // Original: [..., Mo, No, Mi, Ni]
+  tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
+  tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
+  // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+  tv->reorder({{apply_k_dim_offset(-3), apply_k_dim_offset(-2)}});
+  // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+  tv->merge(apply_k_dim_offset(-4));
+  // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+  tv->axis(apply_k_dim_offset(-3))->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+}
+
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
@@ -397,22 +418,13 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
     // do split-K rFactor to define splitk_sum and smem_epilogue
     if (params_->splitk_factor != 1) {
-      // TODO: schedule split-K
-      NVF_THROW("Hopper split-K is not yet tested");
       // Note that the split-K split is already done in blockTileTensors
       TensorView* splitk_sum = mma_result->rFactor({-4, -1});
       std::swap(splitk_sum, mma_result);
       splitk_sums_.push_back(splitk_sum);
     }
 
-    mma_result->split(-3, getM(params_->mma_macro));
-    mma_result->split(-2, getN(params_->mma_macro));
-    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
-    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
-    mma_result->reorder({{-4, -3}});
-    mma_result->merge(-5);
-    mma_result->axis(-4)->parallelize(ParallelType::TIDy);
-
+    transformLikeMmaOutput(mma_result, /*is_mma_result=*/true);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -509,17 +521,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Apply mma common transformation
       for (auto tv : {dc, d}) {
-        // [..., Mo, No, Mi, Ni]
-        tv->split(-2, getM(params_->mma_macro));
-        tv->split(-1, getN(params_->mma_macro));
-        // [..., Mo, No, Mio, Mii, Nio, Nii]
-        // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-        tv->reorder({{-3, -2}});
-        tv->merge(-4);
+        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             tv->getLoopDomain());
         tv->setLoopDomain(s.as<IterDomain*>());
-        tv->axis(-5)->parallelize(ParallelType::TIDy);
       }
       d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
@@ -565,16 +570,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Apply mma common transformation
       for (auto tv : {dc, d_smem, d}) {
-        // Original: [..., Mo, No, Mi, Ni]
-        tv->split(-2, getM(params_->mma_macro));
-        tv->split(-1, getN(params_->mma_macro));
-        // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-        tv->reorder({{-3, -2}});
-        // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-        tv->merge(-4);
-        // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-        tv->axis(-3)->parallelize(ParallelType::TIDy);
-        // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
       // Schedule register cache; Output from epilogue
@@ -643,41 +639,14 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
-  NVF_THROW("Split-K scheduling is not yet implemented for Hopper matmul");
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-
-    if (params_->use_smem_epilogue) {
-      // Now that transforms are propagated backward to smem_epilogue, which
-      // is before splitk_sum, we can vectorize the inner-most non-trivial
-      // dimension of splitk_sum
-      //
-      // Note that the split-K reduction is the inner-most dimension.
-      Val* vec_ext = splitk_sum->axis(-2)->extent();
-      NVF_ERROR(vec_ext->isConstInt());
-      int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
-      splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
-      splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
-      if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
-        // NOTE: We might encounter an illegal vectorization size if we are
-        // using Float for this reduction and Half for output. So here we
-        // first check whether the vectorize size is at most 16 bytes. If not,
-        // then we split into an unrolled loop that will do multiple
-        // vectorized reads/writes instead. Note that we reorder such that the
-        // axes are in order UR TIDx V.
-        splitk_sum->split(
-            -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
-        splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
-        splitk_sum->reorder({{-4, -3}});
-        // In this case, we have [... iUR iTx rBz iS]
-      }
-      splitk_sum->reorder({{-2, -1}});
-    } else { // no smem epilogue
-      // Reorder to place the split-K reduction next to innermost [... rBz iS]
-      splitk_sum->reorder({{-9, -2}});
-    }
-    // Vectorize inner-most dimension [... (iUR iTx) rBz iV]
+    transformLikeMmaOutput(splitk_sum, /*is_mma_result=*/false);
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        splitk_sum->getLoopDomain());
+    splitk_sum->setLoopDomain(s.as<IterDomain*>());
+    splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
