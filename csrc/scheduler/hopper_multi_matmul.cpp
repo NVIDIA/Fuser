@@ -712,18 +712,32 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           params_->async_gmem_load_operands,
           "Circular buffer only supports async load");
     }
+    NVF_CHECK(
+        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap >
+                0 &&
+            params_->circular_buffer_options
+                    .smem_circular_buffer_prefetch_gap <=
+                params_->circular_buffer_options.smem_circular_buffer_stage,
+        "smem_circular_buffer_prefetch_gap is ",
+        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
+        " but is expected to be positive and not greater than number of stages: ",
+        params_->circular_buffer_options.smem_circular_buffer_stage);
 
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
+          params_->circular_buffer_options.smem_circular_buffer_stage -
+              params_->circular_buffer_options
+                  .smem_circular_buffer_prefetch_gap);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
+          params_->circular_buffer_options.smem_circular_buffer_stage -
+              params_->circular_buffer_options
+                  .smem_circular_buffer_prefetch_gap);
     }
   }
 
