@@ -191,6 +191,11 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // Return MatmulDimRole for IterDomain
   MatmulDimRole findMatmulDimRole(IterDomain* id);
 
+  // Schedule a block-tiled TensorView like mma output.
+  // Why? WGMMA has a unique output format. TensorViews after the mma-result in
+  // registers must respect this format for correctness.
+  void transformLikeMmaOutput(TensorView* tv);
+
  private:
   std::vector<ValGroup> canonical_dim_ordering_;
 

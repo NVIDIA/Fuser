@@ -29,6 +29,22 @@
 
 namespace nvfuser {
 
+void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
+  // TODO Add constraints
+
+  // [..., Mo, No, Mi, Ni]
+  tv->split(-2, getM(params_->mma_macro));
+  tv->split(-1, getN(params_->mma_macro));
+  // [..., Mo, No, Mio, Mii, Nio, Nii]
+  // -> [..., Mo, No, Mio, Nio, Mii, Nii]
+  tv->reorder({{-3, -2}});
+  tv->merge(-4);
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
+  tv->setLoopDomain(s.as<IterDomain*>());
+  tv->axis(-5)->parallelize(ParallelType::TIDy);
+}
+
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
@@ -644,20 +660,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-
-    // [..., Mo, No, Mi, Ni]
-    splitk_sum->split(-2, getM(params_->mma_macro));
-    splitk_sum->split(-1, getN(params_->mma_macro));
-    // [..., Mo, No, Mio, Mii, Nio, Nii]
-    // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-    splitk_sum->reorder({{-3, -2}});
-    splitk_sum->merge(-4);
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        splitk_sum->getLoopDomain());
-    splitk_sum->setLoopDomain(s.as<IterDomain*>());
-    splitk_sum->axis(-5)->parallelize(ParallelType::TIDy);
-
-    // splitk_sum->reorder({{2, -2}});
+    transformLikeMmaOutput(splitk_sum);
     splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
