@@ -484,6 +484,11 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     fusion_->manage("st_matrix_m", tma_m);
     fusion_->manage("st_matrix_n", tma_n);
 
+    auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
+    for (auto* c : c_tvs) {
+      c->cacheAfter();
+    }
+
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
       auto* d = dv->as<TensorView>();
@@ -504,30 +509,44 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
       // Block Schedule and Parallelize
-      blockTileTensors({dc, d_smem, d});
-      parallelizeBlocks({dc, d_smem, d});
+      blockTileTensors({d});
+      parallelizeBlocks({d});
 
-      // Apply mma common transformation
-      for (auto tv : {dc, d_smem, d}) {
-        // Original: [..., Mo, No, Mi, Ni]
-        tv->split(-2, getM(params_->mma_macro));
-        tv->split(-1, getN(params_->mma_macro));
-        // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-        tv->reorder({{-3, -2}});
-        // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-        tv->merge(-4);
-        // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-        tv->axis(-3)->parallelize(ParallelType::TIDy);
-        // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
-      }
+      // Original: [..., Mo, No, Mi, Ni]
+      d->split(-2, getM(params_->mma_macro));
+      d->split(-1, getN(params_->mma_macro));
+      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+      d->reorder({{-3, -2}});
+      // d After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+      d->merge(-4);
+      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+      d->axis(-3)->parallelize(ParallelType::TIDy);
+      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          d,
+          -1,
+          mma_results_,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
 
       // Schedule register cache; Output from epilogue
-      {
-        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-            dc->getLoopDomain());
-        dc->setLoopDomain(s.as<IterDomain*>());
-        dc->setAllocationDomain(s.as<IterDomain*>(), true);
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          dc->getLoopDomain());
+      dc->setLoopDomain(s.as<IterDomain*>());
+      dc->setAllocationDomain(s.as<IterDomain*>(), true);
+
+      std::vector<TensorView*> propagate_to = mma_results_;
+      if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
+        propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
       }
+
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          dc,
+          -1,
+          propagate_to,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 

@@ -3298,10 +3298,6 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 }
 
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
-  if (use_smem_epilogue) {
-    GTEST_SKIP()
-        << "TODO: We don't support smem epilogue in the Hopper matmul scheduler right now";
-  }
   const auto& [A, B] =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
   const auto& C = matmulAtInput2D(
