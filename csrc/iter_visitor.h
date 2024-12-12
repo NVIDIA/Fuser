@@ -242,6 +242,31 @@ class BackwardVisitor : public OptOutDispatch {
   bool must_cover_all_expr_outputs_ = true;
 };
 
+class MemberStatements : public OptOutDispatch {
+ public:
+  // Return all members of the stmt if it's a Val. For expressions it returns
+  // nothing.
+  static std::vector<Statement*> get(Statement* stmt);
+
+ private:
+  MemberStatements() = default;
+
+  MemberStatements(Statement* stmt);
+
+  using OptOutDispatch::dispatch;
+  using OptOutDispatch::handle;
+
+  void dispatch(Val* val) final;
+
+  void handle(IterDomain* stmt) final;
+
+  void handle(TensorDomain* stmt) final;
+
+  void handle(TensorView* tv) final;
+
+  std::vector<Statement*> next_stmts_;
+};
+
 class DependencyCheck {
  public:
   // Returns if "dependency" is a dependency of "of".
