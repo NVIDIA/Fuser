@@ -55,7 +55,7 @@ void checkLoopDomainEquivalence(
 
 } // namespace
 
-using ResizeTest = NVFuserFixtureParamTest<bool>;
+using ResizeTest = NVFuserTest;
 
 using testing::Each;
 using testing::HasSubstr;
@@ -64,14 +64,8 @@ using testing::Property;
 using testing::ThrowsMessage;
 using testing::UnorderedElementsAre;
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    ResizeTest,
-    testing::Bool(),
-    testing::PrintToStringParamName());
-
 // Simple pad test
-TEST_P(ResizeTest, Pad1) {
+TEST_F(ResizeTest, Pad1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -89,11 +83,7 @@ TEST_P(ResizeTest, Pad1) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -105,7 +95,7 @@ TEST_P(ResizeTest, Pad1) {
 }
 
 // pad + split
-TEST_P(ResizeTest, Pad2) {
+TEST_F(ResizeTest, Pad2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -125,11 +115,7 @@ TEST_P(ResizeTest, Pad2) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -141,7 +127,7 @@ TEST_P(ResizeTest, Pad2) {
 }
 
 // pad, merge + split, inlineMost
-TEST_P(ResizeTest, Pad3) {
+TEST_F(ResizeTest, Pad3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -178,11 +164,7 @@ TEST_P(ResizeTest, Pad3) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -192,7 +174,7 @@ TEST_P(ResizeTest, Pad3) {
 }
 
 // pad + parallelization
-TEST_P(ResizeTest, Pad4) {
+TEST_F(ResizeTest, Pad4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -212,11 +194,7 @@ TEST_P(ResizeTest, Pad4) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -228,7 +206,7 @@ TEST_P(ResizeTest, Pad4) {
 }
 
 // pad + parallelization + RAW sync
-TEST_P(ResizeTest, Pad5) {
+TEST_F(ResizeTest, Pad5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -267,11 +245,7 @@ TEST_P(ResizeTest, Pad5) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -283,7 +257,7 @@ TEST_P(ResizeTest, Pad5) {
 }
 
 // pad + merge + split parallelization
-TEST_P(ResizeTest, Pad6) {
+TEST_F(ResizeTest, Pad6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -318,11 +292,7 @@ TEST_P(ResizeTest, Pad6) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -333,7 +303,7 @@ TEST_P(ResizeTest, Pad6) {
 
 // pad + unswitch. Having different extents in an unswitched loop nest
 // needs a special care (see UnrollPass::canOmitElseClause)
-TEST_P(ResizeTest, Pad7) {
+TEST_F(ResizeTest, Pad7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -369,11 +339,7 @@ TEST_P(ResizeTest, Pad7) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -430,7 +396,7 @@ TEST_F(ResizeTest, Pad8) {
 }
 #endif
 
-TEST_P(ResizeTest, PadScheduler1) {
+TEST_F(ResizeTest, PadScheduler1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -448,11 +414,7 @@ TEST_P(ResizeTest, PadScheduler1) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -462,7 +424,7 @@ TEST_P(ResizeTest, PadScheduler1) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
-TEST_P(ResizeTest, PadScheduler2) {
+TEST_F(ResizeTest, PadScheduler2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -487,11 +449,7 @@ TEST_P(ResizeTest, PadScheduler2) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -540,7 +498,7 @@ TEST_F(ResizeTest, PadScheduler3) {
 // Two pad exprs, both using the same symbolic pad widths, segmented
 // into two kernels. Make sure the symbolic inputs are available to
 // both of the segmented kernels.
-TEST_P(ResizeTest, PadScheduler4) {
+TEST_F(ResizeTest, PadScheduler4) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -569,11 +527,7 @@ TEST_P(ResizeTest, PadScheduler4) {
   std::vector<c10::IValue> aten_inputs({t0, 1, 1});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -584,7 +538,7 @@ TEST_P(ResizeTest, PadScheduler4) {
 
 // Pad a broadcast
 // See https://github.com/NVIDIA/Fuser/issues/798
-TEST_P(ResizeTest, PadBroadcastInput) {
+TEST_F(ResizeTest, PadBroadcastInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -609,11 +563,7 @@ TEST_P(ResizeTest, PadBroadcastInput) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -1437,7 +1387,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
-TEST_P(ResizeTest, PadReduceScheduler1) {
+TEST_F(ResizeTest, PadReduceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1472,11 +1422,7 @@ TEST_P(ResizeTest, PadReduceScheduler1) {
       [](auto pad_extent) { return pad_extent; });
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -1761,7 +1707,7 @@ TEST_F(ResizeTest, SoftmaxSliceScheduler2) {
 }
 
 // Same as Pad1 but pad by specified value
-TEST_P(ResizeTest, PadWithValue) {
+TEST_F(ResizeTest, PadWithValue) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1782,11 +1728,7 @@ TEST_P(ResizeTest, PadWithValue) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -1798,7 +1740,7 @@ TEST_P(ResizeTest, PadWithValue) {
 }
 
 // Same as Pad1 but pad by negative value to create an empty tensor
-TEST_P(ResizeTest, PadToEmptyTensor) {
+TEST_F(ResizeTest, PadToEmptyTensor) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1821,11 +1763,7 @@ TEST_P(ResizeTest, PadToEmptyTensor) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -1836,7 +1774,7 @@ TEST_P(ResizeTest, PadToEmptyTensor) {
 }
 
 // Test that padding Half tensor by Double does not promote output
-TEST_P(ResizeTest, PadHalfWithDoubleValue) {
+TEST_F(ResizeTest, PadHalfWithDoubleValue) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1857,11 +1795,7 @@ TEST_P(ResizeTest, PadHalfWithDoubleValue) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -2421,7 +2355,7 @@ TEST_F(ResizeTest, SliceVectorization) {
 // Concretize a symbolic pad that results in a broadcast (static pads)
 // In this test, the sizes and pad widths are static, so there should be nothing
 // to concretize.
-TEST_P(ResizeTest, ResizePadToBroadcastStatic) {
+TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
   std::vector<int64_t> t0_size = {2, 3, 2, 5, 6};
   std::vector<int64_t> t1_size = {2, 4, 4, 3, 5};
   // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
@@ -2471,11 +2405,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastStatic) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -2495,7 +2425,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastStatic) {
 }
 
 // Concretize a symbolic pad that results in a broadcast (dynamic pads)
-TEST_P(ResizeTest, ResizePadToBroadcastDynamic) {
+TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2543,11 +2473,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastDynamic) {
   aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -2569,7 +2495,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastDynamic) {
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/596
-TEST_P(ResizeTest, ResizePadToBroadcastIssue596) {
+TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2592,11 +2518,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastIssue596) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion), args);
@@ -3091,7 +3013,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
 // Test concretizing a pad that follows a reshape. This requires the
 // ExpressionEvaluator used in concretization to propagate shapes properly
 // across symbolic reshapes in order to infer the size of the downstream pad.
-TEST_P(ResizeTest, ReshapeToPad) {
+TEST_F(ResizeTest, ReshapeToPad) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -3113,11 +3035,7 @@ TEST_P(ResizeTest, ReshapeToPad) {
   fusion.addOutput(tv2);
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
@@ -3262,7 +3180,7 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 // padded in the empty dim as well as the expanded dims.
 // This should match test_python_frontend.py::test_pad_expanded_empty
 // See https://github.com/NVIDIA/Fuser/issues/870
-TEST_P(ResizeTest, PadExpandedEmpty) {
+TEST_F(ResizeTest, PadExpandedEmpty) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(&fusion);
@@ -3296,11 +3214,7 @@ TEST_P(ResizeTest, PadExpandedEmpty) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -3311,7 +3225,7 @@ TEST_P(ResizeTest, PadExpandedEmpty) {
 
 // Test that we can pad properly along broadcast dims
 // See https://github.com/NVIDIA/Fuser/issues/868
-TEST_P(ResizeTest, PadOfBroadcast) {
+TEST_F(ResizeTest, PadOfBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3329,11 +3243,7 @@ TEST_P(ResizeTest, PadOfBroadcast) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);
@@ -3344,7 +3254,7 @@ TEST_P(ResizeTest, PadOfBroadcast) {
 
 // Test that we can cat along broadcast dims that have been expanded
 // See https://github.com/NVIDIA/Fuser/issues/868
-TEST_P(ResizeTest, PadOfExpandedBroadcast) {
+TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3365,11 +3275,7 @@ TEST_P(ResizeTest, PadOfExpandedBroadcast) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs);

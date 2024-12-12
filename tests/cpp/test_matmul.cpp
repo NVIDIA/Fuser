@@ -3657,7 +3657,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   const auto dtype = DataType::Half;
 
   constexpr bool use_smem_epilogue = false;
-  constexpr bool use_warp_specialization = true;
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
@@ -3801,13 +3800,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   inlineMost();
 
-  if (use_warp_specialization) {
-    tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-    tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-  } else {
-    tv0c->circularBuffer(stages, prefetch);
-    tv1c->circularBuffer(stages, prefetch);
-  }
+  tv0c->circularBuffer(stages, prefetch);
+  tv1c->circularBuffer(stages, prefetch);
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
@@ -3825,9 +3819,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // constexpr int64_t M = 2048, N = 2048, K = 8192;
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
-  // constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
@@ -3948,7 +3942,30 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   }
   tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
+  {
+    // Check using a copy that improperly aligned axis are not inlined
+    Fusion tmp_fusion;
+    IrCloner ir_cloner = Fusion::copy(&fusion, &tmp_fusion);
+    FusionGuard tmp_fg(&tmp_fusion);
+    // [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    // Swap the No and Ko axes, but only in tv2, the mma output
+    // [Mo, Ko, No, Mio, Nio, Mii, Nii, Ki]
+    // This should mean the smem operands are now inlined at position 1 instead
+    // of 3
+    ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
+    inlineMost();
+    ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
+    EXPECT_EQ(ir_cloner.clone(tv0c)->getComputeAtPosition(), 1);
+    // The outermost loop dim of tv1c is a broadcast Mo axis, so
+    // tv1c->inlineAt(1) does not inline past that axis and we wind up with
+    // compute-at position 0.
+    EXPECT_EQ(ir_cloner.clone(tv1c)->getComputeAtPosition(), 0);
+  }
+
   inlineMost();
+
+  EXPECT_EQ(tv0c->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv1c->getComputeAtPosition(), 3);
 
   if (stages > 1) {
     tv0c->circularBuffer(stages, prefetch);
@@ -3963,7 +3980,17 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   pred_checker.handle(kernel->topLevelExprs());
   ASSERT_TRUE(pred_checker.found_mma);
 
-  // TODO: compile and run kernel once inlining is fixed
+  auto [A3d, B3d] =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  at::Tensor A = A3d.squeeze();
+  at::Tensor B = B3d.squeeze();
+  std::vector<c10::IValue> inputs{A, B};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams);
+  auto cg_outputs = ke.run(inputs);
+  auto tref = atMatmul(A, B, layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 } // namespace nvfuser
