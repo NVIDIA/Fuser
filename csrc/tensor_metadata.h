@@ -115,4 +115,9 @@ inferAndValidateAllocationSizesAndStrides(
     TensorView* tv,
     ExpressionEvaluator ee);
 
+// Given a tensorview, compute the strides according to the allocation domain
+// for re-striding the corresponding ATen tensor.
+std::vector<int64_t> computeStrides(
+    TensorView* tv,
+    const c10::IntArrayRef sizes);
 } // namespace nvfuser

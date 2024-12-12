@@ -18,6 +18,7 @@
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
+#include <tensor_metadata.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -4371,7 +4372,17 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
-  return {at::matmul(a, b)};
+
+  auto matmul_out = at::matmul(a, b);
+  if (ir_utils::hasTrivialAllocationDomain(out())) {
+    return {matmul_out};
+  }
+  auto matmul_sizes = matmul_out.sizes();
+  auto strides = computeStrides(out(), matmul_sizes);
+  auto strided_matmul_out =
+      at::empty_strided(matmul_sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
 }
 
 LinearOp::LinearOp(
