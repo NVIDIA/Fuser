@@ -804,8 +804,6 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
-  // NVF_CHECK(
-  //! domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
@@ -934,9 +932,6 @@ std::vector<TensorView*> TensorView::rFactor(
       "Error rfactoring multi-output reduction op ",
       this,
       " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
-
-  NVF_CHECK(
-      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       definition()->outputs().size() == tvs.size(),
