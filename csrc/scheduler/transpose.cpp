@@ -155,9 +155,9 @@ bool hasSmallTransposeDimensions(
 
 // DomainMap uses the ComputeAtMap to find a reference TensorView
 // that maps to all iterDomains in the fusion.
-class DomainMap : public pointwise_utils::DomainMap {
+class DomainMap : public scheduler_tools::DomainMap {
  public:
-  using pointwise_utils::DomainMap::DomainMap;
+  using scheduler_tools::DomainMap::DomainMap;
 
   // Note that this may not be able to find any reference if any
   // tensor in the group is only connected with an input through
