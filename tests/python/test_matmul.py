@@ -203,22 +203,23 @@ class TestMatmul(NVFuserTest):
         assert outputs[0].ndim == 3
 
     def test_matmul_stride(self):
-        b, m, n, k = 3, 2, 5, 4
+        n, h, l, s, e = 4, 8, 16, 16, 8
         inputs = [
-            torch.randn(b, b, m, k, device="cuda", dtype=torch.float16),
-            torch.randn(k, n, device="cuda", dtype=torch.float16),
+            torch.randn(n, h, l, e, device="cuda", dtype=torch.float16),
+            torch.randn(n, h, s, e, device="cuda", dtype=torch.float16),
         ]
         for perm in itertools.permutations(range(4), 4):
 
             def fusion_func(fd: FusionDefinition) -> None:
-                a = fd.from_pytorch(inputs[0])
-                b = fd.from_pytorch(inputs[1])
-                out = fd.ops.matmul(a, b)
+                q = fd.from_pytorch(inputs[0])
+                k = fd.from_pytorch(inputs[1])
+                kt = fd.ops.permute(k, [0, 1, 3, 2])
+                out = fd.ops.matmul(q, kt)
                 fd.add_output(out, stride_order=perm)
 
             with FusionDefinition() as fd:
                 fusion_func(fd)
-            out = fd.execute(inputs)
-            eager_out = torch.matmul(inputs[0], inputs[1])
-            verify_stride_order(out[0].stride(), perm)
-            torch.testing.assert_close(out[0], eager_out)
+            nvf_out = fd.execute(inputs)
+            eager_out = torch.matmul(inputs[0], torch.transpose(inputs[1], -2, -1))
+            verify_stride_order(nvf_out[0].stride(), perm)
+            torch.testing.assert_close(nvf_out[0], eager_out)
