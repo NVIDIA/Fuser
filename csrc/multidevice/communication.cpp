@@ -429,12 +429,22 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
       scattered_axis);
-// reduce_scatter primitive in c10d induces extra buffering time to copy the
-// user's input tensors to an internal source buffer. It is therefore always
-// preferable to use _reduce_scatter_base (which does not perform any extra
-// copy) when the tensors are stored contiguously (i.e., when
-// scattered_axis==0). Note however than only nccl supports
-// _reduce_scatter_base, not ucc.
+
+  std::vector<at::Tensor> input_tensors = at::tensor_split(
+      input_tensor, communication->team_size(), scattered_axis);
+  // We could have checked the output shape as well if reduction_axis is
+  // available. It's not always available via
+  // `communication->out()->getReductionAxis()` for manually constructed host
+  // IRs like
+  // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
+  assertBuffersHaveSameSize(input_tensors, {});
+
+  // reduce_scatter primitive in c10d induces extra buffering time to copy the
+  // user's input tensors to an internal source buffer. It is therefore always
+  // preferable to use _reduce_scatter_base (which does not perform any extra
+  // copy) when the tensors are stored contiguously (i.e., when
+  // scattered_axis==0). Note however than only nccl supports
+  // _reduce_scatter_base, not ucc.
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   if (scattered_axis == 0 &&
       backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
@@ -442,14 +452,13 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
         output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
   }
 #endif
-  std::vector<std::vector<at::Tensor>> input_tensors(1);
-  input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
 
-  std::vector<at::Tensor> output_tensors({output_tensor});
-
-  assertBufferCount(input_tensors[0], communication->team().size());
+  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
+  std::vector<at::Tensor> output_tensor_vec({output_tensor});
   return backend->reduce_scatter(
-      output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
+      output_tensor_vec,
+      input_tensors_vec,
+      {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
