@@ -998,14 +998,14 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, DomainMapPad) {
+TEST_F(PointwiseTest, DomainMapPad0) {
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  // tv1 {b1, i0}
+  // tv0 {b1, i0}
   TensorView* tv0 = TensorViewBuilder().shape({1, -1}).build();
   fusion->addInput(tv0);
   // tv1 {i2, b1, i0}
@@ -1040,6 +1040,56 @@ TEST_F(PointwiseTest, DomainMapPad) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  // NOTE: force pointwise scheduler here for unit test
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, DomainMapPad1) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv0 {b1, i0}
+  TensorView* tv0 = TensorViewBuilder().shape({1, -1}).build();
+  fusion->addInput(tv0);
+  // tv1 {i2, i3, i4, b5}
+  TensorView* tv1 = TensorViewBuilder().shape({-1, -1, -1, 1}).build();
+  fusion->addInput(tv1);
+
+  // tv2 {b6, b7, b1, i0}
+  auto tv2 = broadcast(tv0, {true, true, false, false});
+  // tv3 {i2, i3, i4, i0}
+  auto tv3 = add(tv1, tv2);
+  fusion->addOutput(tv3);
+  // i8 = resize(b1 + 4 + 4)
+  // tv4 {i8, i0}
+  auto tv4 =
+      pad(tv0,
+          {IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)});
+  fusion->addOutput(tv4);
+
+  DomainMapUnitTest domain_map(fusion);
+
+  // tv4 is covered by tv3, because i8 is produced by b1
+  EXPECT_TRUE(domain_map.testTargetCoverage(tv4, tv3));
+  // tv3 is not covered by tv4, it's missing i2 and i3
+  EXPECT_FALSE(domain_map.testTargetCoverage(tv3, tv4));
+
+  EXPECT_FALSE(domain_map.isValidReference(tv4));
+  EXPECT_TRUE(domain_map.isValidReference(tv3));
+
+  // validate generated kernel
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
+  at::Tensor t1 = at::empty_strided({2, 3, 4, 1}, {12, 4, 1, 1}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE: force pointwise scheduler here for unit test
   auto cg_results =
