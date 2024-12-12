@@ -800,16 +800,22 @@ class DomainMerger {
   std::unordered_set<ValGroup>& bulk_groups_;
   std::unordered_set<ValGroup>& nonbulk_groups_;
   std::list<TMADim>& dim_info_;
+  MmaInputSmemSwizzle swizzle_;
+  int64_t item_size_bytes_;
 
  public:
   DomainMerger(
       std::list<std::tuple<ValGroup, bool, Val*>> raw_tma_domain,
       std::unordered_set<ValGroup>& bulk_groups,
       std::unordered_set<ValGroup>& nonbulk_groups,
-      std::list<TMADim>& dim_info)
+      std::list<TMADim>& dim_info,
+      MmaInputSmemSwizzle swizzle,
+      int64_t item_size_bytes)
       : bulk_groups_(bulk_groups),
         nonbulk_groups_(nonbulk_groups),
-        dim_info_(dim_info) {
+        dim_info_(dim_info),
+        swizzle_(swizzle),
+        item_size_bytes_(item_size_bytes) {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
     contiguity_and_stride_.reserve(raw_tma_domain.size());
     for (auto& item : raw_tma_domain) {
@@ -866,6 +872,49 @@ class DomainMerger {
     }
     NVF_ERROR(nonbulk_groups_.count(g) > 0);
     return C;
+  }
+
+  bool shouldMerge(int64_t i) {
+    auto type0 = type(i);
+    auto type1 = type(i + 1);
+
+    bool may_increasing_box_size = (type0 == CB && type1 == CB);
+    if (!may_increasing_box_size) {
+      return true;
+    }
+
+    auto extent0 = (*this)[i]->front()->as<IterDomain>()->extent();
+    auto extent1 = (*this)[i + 1]->front()->as<IterDomain>()->extent();
+    Val* merged_extent = SimplifyingIrBuilder::mulExpr(extent0, extent1);
+
+    bool merging_innermost = ((int64_t)size() == i + 2);
+
+    // If merging makes the size of a dimension larger than 256, we should not
+    // merge.
+    constexpr int64_t largest_dim_size =
+        256; // Dimension size must be <= 256 as limited by hardware.
+    Val* too_large_after_merge = SimplifyingIrBuilder::gtExpr(
+        merged_extent, IrBuilder::create<Val>(largest_dim_size));
+    if (simplifyExpr(too_large_after_merge)->isTrue()) {
+      return false;
+    }
+
+    // If merging makes the inner size larger than the swizzle size,
+    // we should not merge
+    if (merging_innermost && swizzle_ != MmaInputSmemSwizzle::None) {
+      const int64_t swizzle_size =
+          getBytesFromSwizzle(swizzle_) / item_size_bytes_;
+      Val* merging_makes_gt_swizzle_size = SimplifyingIrBuilder::gtExpr(
+          merged_extent, IrBuilder::create<Val>(swizzle_size));
+      if (simplifyExpr(merging_makes_gt_swizzle_size)->isTrue()) {
+        return false;
+      }
+    }
+
+    // Because the shape is dynamic, we don't know if we should merge or
+    // not. For this case, we always assume merging is better than not
+    // merging.
+    return true;
   }
 
   void merge(int64_t i) {
@@ -941,9 +990,15 @@ std::vector<TMADim> run(
     std::unordered_set<ValGroup>& bulk_groups,
     std::unordered_set<ValGroup>& nonbulk_groups,
     std::list<TMADim>& dim_info,
-    int64_t item_size_bytes) {
+    int64_t item_size_bytes,
+    MmaInputSmemSwizzle swizzle) {
   DomainMerger tma_domain(
-      std::move(raw_tma_domain), bulk_groups, nonbulk_groups, dim_info);
+      std::move(raw_tma_domain),
+      bulk_groups,
+      nonbulk_groups,
+      dim_info,
+      swizzle,
+      item_size_bytes);
   // merge contiguous C groups and CB groups
   for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!tma_domain.contiguity(i)) {
@@ -951,8 +1006,10 @@ std::vector<TMADim> run(
     }
     if ((tma_domain.type(i) == C && tma_domain.type(i + 1) == C) ||
         (tma_domain.type(i) == CB && tma_domain.type(i + 1) == CB)) {
-      tma_domain.merge(i);
-      i--;
+      if (tma_domain.shouldMerge(i)) {
+        tma_domain.merge(i);
+        i--;
+      }
     }
   }
   // merge contiguous C with SB/CB
@@ -962,8 +1019,10 @@ std::vector<TMADim> run(
     }
     if (tma_domain.type(i) == C &&
         (tma_domain.type(i + 1) == SB || tma_domain.type(i + 1) == CB)) {
-      tma_domain.merge(i);
-      i--;
+      if (tma_domain.shouldMerge(i)) {
+        tma_domain.merge(i);
+        i--;
+      }
     }
   }
 
@@ -1024,10 +1083,11 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   std::list<std::pair<ExprGroup, Direction>> exprs = [&]() {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-    auto exprs_vec = ValGraphBFS::getExprsBetween(
-        id_graph,
-        id_graph.toGroups(consumer_tv->getLoopDomain()),
-        id_graph.toGroups(gmem_tv->getMaybeAllocationDomain()));
+    auto exprs_vec = ValGraphBFS::getExprGroupsBetween(
+                         id_graph,
+                         id_graph.toGroups(consumer_tv->getLoopDomain()),
+                         id_graph.toGroups(gmem_tv->getMaybeAllocationDomain()))
+                         .first;
     return std::list(exprs_vec.begin(), exprs_vec.end());
   }();
 
@@ -1055,6 +1115,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       "(this is always the case for nvFuser now)",
       ", the first element of elementStrides must be one.");
 
+  MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
+
   // Handle "defining box by compositing" by collapsing some dimensions in the
   // raw TMA domain to get the final TMA domain.
   auto final_tma_domain = collapse_tma_domain::run(
@@ -1062,12 +1124,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       bulk_groups,
       nonbulk_groups,
       inferred_dims,
-      dataTypeSize(gmem_tv->dtype()));
-  return TMAInfo(
-      std::move(final_tma_domain),
-      getSwizzleFromBytes(
-          getCpAsyncBulkTensorSwizzleSize(smem_tv) * core_matrix_width_bytes),
-      gmem_tv);
+      dataTypeSize(gmem_tv->dtype()),
+      swizzle);
+  return TMAInfo(std::move(final_tma_domain), swizzle, gmem_tv);
 }
 
 } // namespace
@@ -1137,6 +1196,12 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     }
   }
   return result;
+}
+
+MmaInputSmemSwizzle getSwizzle(TensorView* tv) {
+  NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
+  return getSwizzleFromBytes(
+      getCpAsyncBulkTensorSwizzleSize(tv) * core_matrix_width_bytes);
 }
 
 } // namespace nvfuser

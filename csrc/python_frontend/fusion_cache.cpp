@@ -186,9 +186,14 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+UserSchedule::UserSchedule(int64_t fusion_id, int64_t device_id)
+    : scheduled_fusion(nullptr),
+      executor(nullptr),
+      fusion_id_(fusion_id),
+      device_id_(device_id) {
   scheduled_fusion = std::make_unique<Fusion>();
-  executor = std::make_unique<FusionExecutor>();
+  executor =
+      std::make_unique<KernelExecutor>(fusion_id, /*concrete_id=*/device_id);
 }
 
 bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
@@ -227,7 +232,8 @@ HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   NVF_CHECK(
       heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  heuristic_params = scheduler->computeHeuristics(
+      fusion(), runtime_info_ref, data_cache.get());
   return heuristic_params.get();
 }
 
@@ -590,22 +596,20 @@ UserSchedule* FusionCache::createUserSchedule(
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
   auto& user_scheds = scheds->user_def_schedules;
   auto input_id = user_def_input_encodings_.lookupId(inputs);
-  auto user_sched = user_scheds.find(input_id.id);
-  if (user_sched == user_scheds.end()) {
-    user_scheds[input_id.id] = std::vector<UserSchedule>(device + 1);
+
+  // Create UserSchedule for device
+  if (user_scheds[input_id.id].count(device) == 0) {
+    user_scheds[input_id.id].emplace(
+        device, UserSchedule(scheds->fusion_id_, device));
   } else {
-    if (static_cast<size_t>(device) >= user_scheds[input_id.id].size()) {
-      user_scheds[input_id.id].resize(device + 1);
-    } else {
-      if (!overwrite_existing_schedule) {
-        TORCH_WARN(
-            "You are overwriting the current user schedule for a definition!");
-      }
-      user_scheds[input_id.id].at(device) = UserSchedule();
+    if (!overwrite_existing_schedule) {
+      TORCH_WARN(
+          "You are overwriting the current user schedule for a definition!");
     }
+    user_scheds[input_id.id].at(device) =
+        UserSchedule(scheds->fusion_id_, device);
   }
-  user_scheds[input_id.id].at(device).fusion_id_ = scheds->fusion_id_;
-  user_scheds[input_id.id].at(device).device_id_ = device;
+
   return &user_scheds[input_id.id].at(device);
 }
 
@@ -687,7 +691,7 @@ void FusionCache::serialize(std::string filename) const {
       &fb_nodes,
       &terminal_node_idx,
       &fb_auto_gen_schedules,
-      FusionExecutor::getGlobalFusionCount(),
+      KernelExecutor::getGlobalFusionCount(),
       device_prop->major,
       device_prop->minor,
       cuda_major,
@@ -721,7 +725,7 @@ void FusionCache::deserialize(std::string filename) {
   NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");
 
   // 0. Set static fusion count in Fusion Executor
-  FusionExecutor::setGlobalFusionCount(
+  KernelExecutor::setGlobalFusionCount(
       fusion_cache_buffer->global_fusion_count());
 
   // 1. Deserialize max_fusions field
@@ -780,8 +784,8 @@ void FusionCache::deserialize(std::string filename) {
       NVF_CHECK(
           trie_ptr->fusion_id == fb_trie_node->fusion_id(),
           "The fusion id for this TrieNode should already be set.")
-      Fusion* fusion =
-          queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
+      FusionSchedules* fs = queryFusionSchedules(fb_trie_node->fusion_id());
+      Fusion* fusion = fs->preschedFusion();
       try {
         // There could be bad fusion in the serialization.
         state->buildFusionIr(fusion);
@@ -789,6 +793,14 @@ void FusionCache::deserialize(std::string filename) {
         // catch exception and setException for the terminal node
         trie_ptr->setException(e.what());
       }
+      // The FusionState creates a mapping from CPP Fusion to its State objects.
+      // Since the CPP Fusion is cached in FusionCache and the FusionState is
+      // temporary, the information linking CPP Fusion and Python
+      // FusionDefinition is stored in FusionCache.
+      fs->inputs_fid_ = state->inputs();
+      fs->outputs_fid_ = state->outputs();
+      fs->extents_fid_ = state->extents();
+      fs->map_value_to_fid_ = state->getValueMap();
     }
 
     // Table TrieNode => Field: children: [ulong]

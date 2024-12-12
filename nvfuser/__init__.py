@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from typing import Callable, Optional, Union, List  # noqa: F401
+import warnings
 
 import torch
 
@@ -53,7 +54,48 @@ class FusionDefinition(_C._FusionDefinition):
     def __init__(self, id=None, max_length=1024):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
-        self.inputs = None
+
+    def segment(self, inputs):
+        """
+        Decompose this FusionDefinition into a sequence of segment
+        FusionDefinitions.
+
+        This function runs the nvfuser segmentation algorithm and translates the
+        segments into their corresponding FusionDefinitions.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Returns:
+            List[FusionDefinition]: The FusionDefinitions corresponding to the
+            sub-fusion segments of this FusionDefinition.
+        """
+        num_segments = self._setup_segmentation(inputs)
+        if num_segments == 1:
+            self._finalize_segmentation()
+            return []
+
+        # Track all segments for this FusionDefinition
+        self.segments = []
+
+        # Track map_segment_fid_to_original_fid for each segment
+        self.segment_index_space_maps = {}
+
+        # Track the last segment a value is used as an input
+        self.map_value_to_last_used_segment = {}
+
+        for idx in range(num_segments):
+            new_fd = FusionDefinition()
+            map_segment_fid_to_original_fid = self._build_segment(new_fd, idx)
+
+            for segment_input in new_fd.inputs():
+                original_input = map_segment_fid_to_original_fid[segment_input]
+                self.map_value_to_last_used_segment[original_input] = idx
+
+            self.segment_index_space_maps[new_fd] = map_segment_fid_to_original_fid
+            self.segments.append(new_fd)
+        self._finalize_segmentation()
+        return self.segments
 
     def __enter__(self):
         return self._setup_definition()
@@ -68,6 +110,82 @@ class FusionDefinition(_C._FusionDefinition):
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
 
+    def _execute_segments(self, input_arguments, *, device=None, profile=False):
+        """
+        Run the sequence of FusionDefinition segments to generate the results
+        of this FusionDefinition.
+
+        This FusionDefinition acts an argument manager. It gathers input
+        arguments for the segments and stores their output results. After
+        running a segment, any redundant intermediate values, which are
+        unnecessary for any other segments, are deleted to save memory.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Kwargs:
+            device (Optional[Union[int, str, torch.device]]): This is a hint to run
+                the Fusion on the given CUDA device. This is not typically
+                necessary, as the device is usually inferred from the locations
+                of input tensors. However, for some fusion definitions, no
+                tensors will be input (for example when all tensors are
+                generated with `full` or `uniform` ops). In these cases, we
+                must either tell NVFuser where to run the resulting kernel, or
+                let it default to 0. Note that passing this option providing
+                and input tensors that lie on another device is an error.
+            profile (bool): Captures a CUPTI based profile of a fusion.
+
+
+        Returns:
+            List[Tensor]: The output results for this FusionDefinition.
+        """
+        assert len(self.segments) > 0
+        assert len(self.segments) == len(self.segment_index_space_maps)
+
+        input_arguments_with_extents = [*input_arguments]
+        for a in input_arguments:
+            if type(a) is torch.Tensor:
+                input_arguments_with_extents.extend(a.size())
+
+        # Map inputs arguments to original fid
+        map_original_fid_to_value = {
+            fd_state: argument
+            for fd_state, argument in zip(
+                self.inputs() + self.extents(), input_arguments_with_extents
+            )
+        }
+
+        # Run all segments in correct order
+        for idx, segment in enumerate(self.segments):
+            segment_to_original_map = self.segment_index_space_maps[segment]
+
+            # Gather segment input arguments
+            segment_arguments = [
+                map_original_fid_to_value[segment_to_original_map[fd_state]]
+                for fd_state in segment.inputs()
+            ]
+
+            # Run segment
+            segment_outputs = segment.execute(
+                segment_arguments, device=device, profile=profile
+            )
+
+            # Update original fusion definition indices to outputs
+            for fd_state, output in zip(segment.outputs(), segment_outputs):
+                map_original_fid_to_value[segment_to_original_map[fd_state]] = output
+
+            # Destroy any arguments that are not used by future segments
+            for segment_input in segment.inputs():
+                original_input = segment_to_original_map[segment_input]
+                if (
+                    original_input not in self.outputs()
+                    and self.map_value_to_last_used_segment[original_input] == idx
+                ):
+                    del map_original_fid_to_value[original_input]
+
+        # Map output fid to actual results
+        return [map_original_fid_to_value[fd_state] for fd_state in self.outputs()]
+
     def execute(
         self,
         inputs,
@@ -78,6 +196,8 @@ class FusionDefinition(_C._FusionDefinition):
         print_repro=False,
         profile=False,
         save_repro_inputs=False,
+        _enable_options: list[str] = [],
+        _disable_options: list[str] = [],
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -120,6 +240,11 @@ class FusionDefinition(_C._FusionDefinition):
             profile (bool): Captures a CUPTI based profile of a fusion.
             save_repro_inputs (bool): Saves the inputs for last_repro_script() to
                 provide a provide a reproduction script.
+            _enable_options/_disable_options (list): NVFUSER_ENABLE/DISABLE options to use.
+                This is an alternative to environment variables.
+                Note: Currently, we do not cache/store these options in the FusionCache which makes it
+                    plausible to reuse kernels when executing the same fusion definition with different sets of options.
+                    Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
 
         Returns:
             List[Tensor]
@@ -159,7 +284,9 @@ class FusionDefinition(_C._FusionDefinition):
             #
             # Note: there's a plan to embed multidevice schedules into FusionDefinition
             # as annotating nodes. This may eventually replace `multidevice_schedule`.
+            self._setup_multidevice_schedule()
             self.multidevice_schedule()
+            self._finalize_multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
@@ -176,17 +303,28 @@ class FusionDefinition(_C._FusionDefinition):
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
+        if hasattr(self, "segments") and len(self.segments) > 0:
+            return self._execute_segments(inputs, device=device, profile=profile)
+
         results = None
+
         try:
+            if print_repro:
+                print(self.repro_script_for(inputs))
+            if len(_enable_options) or len(_disable_options):
+                warnings.warn(
+                    "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
+                )
+
             results = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
                 profile=profile,
+                _enable_options=_enable_options,
+                _disable_options=_disable_options,
             )
-            if print_repro:
-                print(self.repro_script_for(inputs))
             return results
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
@@ -365,24 +503,27 @@ class FusionDefinition(_C._FusionDefinition):
             msg += "\ninputs = [\n"
             for i in inputs:
                 if isinstance(i, torch.Tensor):
-                    # max linear index determines number of elements to generate
-                    sz = 1
-                    for szi, stri in zip(i.size(), i.stride()):
-                        if szi == 0:
-                            sz = 0
-                            break
-                        sz += (szi - 1) * stri
-                    if i.dtype.is_floating_point:
-                        msg += (
-                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
+                    if i.is_contiguous():
+                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'),\n"
                     else:
-                        upper_bound = 2 if i.dtype == torch.bool else 10
-                        msg += (
-                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
+                        # max linear index determines number of elements to generate
+                        sz = 1
+                        for szi, stri in zip(i.size(), i.stride()):
+                            if szi == 0:
+                                sz = 0
+                                break
+                            sz += (szi - 1) * stri
+                        if i.dtype.is_floating_point:
+                            msg += (
+                                f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
+                        else:
+                            upper_bound = 2 if i.dtype == torch.bool else 10
+                            msg += (
+                                f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
                 else:
                     input_as_string = str(i)
                     # `nan` and `inf` are stringified as is, which are not

@@ -6,10 +6,12 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
+
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+#include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
@@ -25,39 +27,10 @@
 
 namespace nvfuser {
 
-namespace {
-
-// returns a copied fusion where the original outputs have been replaced by
-// the ones given as argument
-std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
-    Fusion* fusion,
-    const std::vector<Val*>& outputs) {
-  std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
-  std::unordered_map<Val*, Val*> copy_to_original_map;
-  auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
-
-  auto original_outputs = fusion_copy->outputs();
-
-  // Remove original outputs
-  std::for_each(
-      original_outputs.begin(), original_outputs.end(), [&](auto& output) {
-        fusion_copy->removeOutput(output);
-      });
-
-  // Add new outputs
-  std::for_each(outputs.begin(), outputs.end(), [&](Val* const& output) {
-    fusion_copy->addOutput(original_to_copy_cloner.clone(output));
-  });
-
-  return fusion_copy;
-}
-
-} // namespace
-
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    hir::HostIrExecutorParams params)
+    hir::HostIrEvaluatorParams params)
     : comm_(comm), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
@@ -113,23 +86,30 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
           return isResharding(expr);
         });
-    if (!is_resharding) {
-      auto host_unit = IrBuilder::create<hir::HostUnit>(
-          staged_fusion->makeFusion(group).second);
-      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-          host_unit, clone(group->inputs()), clone(group->outputs()));
-      hic->pushBackTopLevelExprs(post_on_stream);
-    } else {
+    if (is_resharding) {
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
       std::vector<Communication*> communications =
           lowerCommunication(ir_cloner.clone(group->exprs().at(0)));
       for (Communication* communication : communications) {
-        auto wait = IrBuilder::create<hir::Wait>(communication);
+        // Allocate the recv buffers of communications
+        TensorView* tv = communication->out();
+        if (tv->getDeviceMesh().has(comm_.deviceId())) {
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          hic->pushBackTopLevelExprs(allocate);
+        }
         hic->pushBackTopLevelExprs(communication);
+        auto wait = IrBuilder::create<hir::Wait>(communication);
         hic->pushBackTopLevelExprs(wait);
       }
+    } else {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
     }
   }
   for (auto input : staged_fusion->inputs()) {
@@ -139,30 +119,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     hic->addOutput(ir_cloner.clone(output));
   }
 
-  // Create the HostIrExecutor representing the host program
+  // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
-      std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, params);
-
-  // Allocator setup
-  // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
-  // which correspond to the destination buffers of interdevice communications.
-  // TODO: reuse allocated buffers and support inplace collectives
-  // TODO: handle allocation as Host Ir
-  for (SegmentedGroup* group : staged_fusion->groups()) {
-    if (isResharding(group->exprs().at(0))) {
-      NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
-      auto val = group->exprs().at(0)->outputs().at(0);
-      NVF_ERROR(val->isA<TensorView>());
-      auto tv = val->as<TensorView>();
-      NVF_ERROR(tv->hasDeviceMesh());
-      if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate_.push_back(val);
-      }
-    }
-  }
-  allocator_fusion_ = copyFusionAndChangeOutputs(
-      staged_fusion->completeFusion(), vals_to_allocate_);
-  vals_to_allocate_ = clone(vals_to_allocate_);
+      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
@@ -183,13 +142,6 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   for (auto input_idx : c10::irange(inputs.size())) {
     val_to_IValue[host_ir_executor_->inputs().at(input_idx)] =
         inputs.at(input_idx);
-  }
-
-  auto allocations =
-      allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
-  NVF_ERROR(vals_to_allocate_.size() == allocations.size());
-  for (auto i : c10::irange(allocations.size())) {
-    val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
   return host_ir_executor_->runWithInput(val_to_IValue);

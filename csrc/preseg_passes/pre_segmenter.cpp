@@ -18,11 +18,13 @@
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/move_pad.h>
 #include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <preseg_passes/segment_inplace_update.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -47,10 +49,24 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
+  // MovePadPass needs to happen:
+  // 1. before MarkAliasPrepare; and
+  //    avoid moving pad operatoins around, which could disturb the analysis
+  //    from MarkAliasPrepare
+  // 2. after MoveSplitCat
+  //    to avoid this pass moving PadOp around to break the MoveSplitCat.
+  OptimizationPass<MovePadPass>::runPass(fusion);
+  // NOTE vvv this doesn't really work, since our type promotion to higher
+  // precision for Add cannot be canceled out with previous cast to lower
+  // precision. Since it's not an no-op and it has a quantization effect. I'll
+  // open an issue for this and see if we want to have a more aggressive
+  // approach inside MovePadPass instead. removes extra cast added from pushing
+  // pad out OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
+  OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

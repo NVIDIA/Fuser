@@ -22,6 +22,13 @@ class ComputeType(Enum):
     BACKWARD = auto()
 
 
+class Parallelism(Enum):
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism
+    TENSOR_PARALLEL = auto()
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
+    SEQUENCE_PARALLEL = auto()
+
+
 @pytest.fixture(scope="module")
 def setup_process_group(mpi_test) -> None:
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
@@ -40,14 +47,19 @@ def setup_process_group(mpi_test) -> None:
 # ```bash
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
-# and then display the status using e.g. `nsys stats --report=cuda_gpu_kernel_sum report1.nsys-rep`.
+# and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(setup_process_group, benchmark, compute_type):
+@pytest.mark.parametrize(
+    "parallelism",
+    [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
+    ids=["tp", "sp"],
+)
+def test_transformer_layer(setup_process_group, benchmark, compute_type, parallelism):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -65,13 +77,24 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
         hidden_size,
         ffn_hidden_size,
         num_heads,
+        # https://github.com/NVIDIA/TransformerEngine/issues/1350: the
+        # benchmark fails to execute on H100 with the default format (SBHD).
+        attn_input_format="bshd",
         set_parallel_mode=True,
+        sequence_parallel=(parallelism == Parallelism.SEQUENCE_PARALLEL),
         tp_group=dist.group.WORLD,
     )
     transformer_layer.to(dtype).to("cuda")
 
+    match parallelism:
+        case Parallelism.TENSOR_PARALLEL:
+            local_sequence_length = sequence_length
+        case Parallelism.SEQUENCE_PARALLEL:
+            assert sequence_length % size == 0
+            local_sequence_length = sequence_length // size
+
     x = torch.randn(
-        batch_size, sequence_length, hidden_size, dtype=dtype, device="cuda"
+        batch_size, local_sequence_length, hidden_size, dtype=dtype, device="cuda"
     )
 
     match compute_type:
@@ -90,7 +113,9 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
 
             # Warmup.
             y = benchmark_fn(False)
-            assert y.size() == torch.Size([batch_size, sequence_length, hidden_size])
+            assert y.size() == torch.Size(
+                [batch_size, local_sequence_length, hidden_size]
+            )
 
             benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
         case ComputeType.BACKWARD:

@@ -414,10 +414,11 @@ class VectorizeValidator : public OptInDispatch {
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-    auto expr_path = ValGraphBFS::getExprsBetween(
-        graph,
-        graph.toGroups(tv->getMaybeAllocationDomain()),
-        graph.toGroups(std::vector<Val*>{v_id}));
+    auto expr_path = ValGraphBFS::getExprGroupsBetween(
+                         graph,
+                         graph.toGroups(tv->getMaybeAllocationDomain()),
+                         graph.toGroups(std::vector<Val*>{v_id}))
+                         .first;
     expr_path = reverse(expr_path);
 
     ValGroup cur_group = graph.toGroup(v_id);
@@ -553,9 +554,13 @@ class VectorizeValidator : public OptInDispatch {
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
-    if (!is_ldmatrix_trans) {
+    if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
+      // We don't think allocation domain of consumer is used in allocation. We
+      // skip it in validation here. Note that this assert was hit for
+      // vectorized pad, because we do not propagate allocation domain for
+      // PadOp. See: https://github.com/NVIDIA/Fuser/pull/3439
       NVF_CHECK(
           last_alloc_dim == vec_alloc_id,
           "Vectorized dim for ",
@@ -668,17 +673,31 @@ class VectorizeValidator : public OptInDispatch {
         tv_def != nullptr,
         "Tv has no definition, cannot validate vectorization:",
         tv);
-    auto producer_tv = tv_def->inputs().at(0)->as<TensorView>();
-    auto producer_word_size_it =
-        GpuLower::current()->vectorizedAccesses().find(producer_tv);
-    if (producer_word_size_it !=
-        GpuLower::current()->vectorizedAccesses().end()) {
-      producer_word_size_it->second =
-          std::max(vector_word_size, producer_word_size_it->second);
-    } else {
-      GpuLower::current()->vectorizedAccesses().emplace(
-          producer_tv, vector_word_size);
+    // TernaryOp(where) is a could have multiple inputs. But we only support
+    // single TensorView input for vectorization.
+    TensorView* producer_tv = nullptr;
+    for (auto input : tv_def->inputs()) {
+      if (!input->isA<TensorView>()) {
+        continue;
+      }
+      NVF_ERROR(
+          producer_tv == nullptr,
+          "Vectorization validation only support op with a single TensorView input");
+      producer_tv = input->as<TensorView>();
+      auto producer_word_size_it =
+          GpuLower::current()->vectorizedAccesses().find(producer_tv);
+      if (producer_word_size_it !=
+          GpuLower::current()->vectorizedAccesses().end()) {
+        producer_word_size_it->second =
+            std::max(vector_word_size, producer_word_size_it->second);
+      } else {
+        GpuLower::current()->vectorizedAccesses().emplace(
+            producer_tv, vector_word_size);
+      }
     }
+    NVF_ERROR(
+        producer_tv != nullptr,
+        "Vectorization validation requires a TensorView input");
 
     VectorizedSetInfo vectorized_set_info;
     vectorized_set_info.consumer_tv = tv;
@@ -798,6 +817,10 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       Expr* def = tv->definition();
       NVF_ERROR(
           def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+              def->isA<PadOp>() ||
+              (def->isA<TernaryOp>() &&
+               def->as<TernaryOp>()->getTernaryOpType() ==
+                   TernaryOpType::Where) ||
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()),
           "Vectorized accesses cannot be inline with computation: ",

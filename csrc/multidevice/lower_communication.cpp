@@ -8,6 +8,7 @@
 #include <device_lower/utils.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
@@ -195,7 +196,7 @@ void lowerToReduceScatter(
     std::vector<Communication*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedAxis(output_tv);
+  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
   // The output tensor is sharded on scattered_axis and needs to be mapped
   // back onto the input. The input has an reduced axis, so the scattered axis
   // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
@@ -232,10 +233,13 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
   NVF_ERROR(
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
-      "I/O must be TensorViews");
+      "Input/Output must be single TensorView: ",
+      c);
   auto* input_tv = c->input(0)->as<TensorView>();
   auto* output_tv = c->output(0)->as<TensorView>();
-  at::Tensor dummy;
+
+  input_tv->setMemoryType(MemoryType::Global);
+  output_tv->setMemoryType(MemoryType::Global);
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();

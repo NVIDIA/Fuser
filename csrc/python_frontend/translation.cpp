@@ -11,6 +11,7 @@
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <utils.h>
 
 #include <vector>
 
@@ -28,6 +29,27 @@ namespace {
 // _C._FusionDefinition class created by pybind11. It is easier to operate on
 // the child class directly than to create a new child instance from parent
 // instance.
+//
+// How to add support for an expression not yet overriden by FusionTranslator?
+//  1. Create handle function for expression.
+//     a. void handle(const SomeOp* op) final
+//
+//  2. Add RecordFunctor corresponding to Statement to FusionDefinition.
+//     a. fd_->defineRecord(new RecordFunctor(inputs, outputs)
+//
+//  3. If input argument already exists in FusionDefinition, map expressions
+//  input values to FusionDefinition State.
+//     a. map_val_to_fd_index_ maps CPP Val to fusion definition index.
+//     b. fd_->recordingState(map_val_to_fd_index_.at(op->inputs(...)))
+//
+//  4. If input argument is a vector, use createVector function.
+//
+//  5. If input argument is a scalar constant, use createScalar function.
+//
+//  6. Create output states expressions inputs.
+//     a. Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims())
+//
+//  7. Add CPP Val and output state pair to map_val_to_fd_index_.
 class FusionTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
@@ -431,6 +453,18 @@ class FusionTranslator : public OptInConstDispatch {
     return createVector(logical_domain_extents);
   }
 
+  // Find integer index corresponding with reduction iterDomains
+  std::vector<int64_t> getReductionAxes(TensorView* tv) {
+    std::vector<int64_t> axes;
+    const std::vector<IterDomain*>& logical_domain = tv->domain()->logical();
+    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+      if (logical_domain.at(dim)->isReduction()) {
+        axes.push_back(dim);
+      }
+    }
+    return axes;
+  }
+
   // =================================================================================
   // Handle add_output variants
 
@@ -672,16 +706,7 @@ class FusionTranslator : public OptInConstDispatch {
   void handle(const ReductionOp* rop) final {
     TensorView* out_tv = rop->out()->as<TensorView>();
 
-    std::vector<int64_t> axes;
-    const std::vector<IterDomain*>& logical_domain =
-        out_tv->domain()->logical();
-    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
-      if (logical_domain.at(dim)->isReduction()) {
-        axes.push_back(dim);
-      }
-    }
-
-    // The min and max reduction operations expect the dtype argument to be
+    // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
     PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
                           rop->getReductionOpType() == BinaryOpType::Max)
@@ -701,9 +726,38 @@ class FusionTranslator : public OptInConstDispatch {
             const std::vector<int64_t>&,
             bool,
             DataType>(rop),
-        axes,
+        getReductionAxes(out_tv),
         /*keep_dim=*/false,
         dtype));
+  }
+
+  // Map WelfordOp to python frontend
+  void handle(const WelfordOp* wop) final {
+    NVF_ERROR(wop->initAvg()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initVar()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initN()->evaluate().as<int64_t>() == 0);
+
+    NVF_ERROR(wop->outAvg()->isA<TensorView>());
+    TensorView* out_avg_tv = wop->outAvg()->as<TensorView>();
+    Tensor out_avg = fd_->defineTensor(out_avg_tv->nDims());
+    map_val_to_fd_index_.emplace(wop->outAvg(), out_avg());
+
+    NVF_ERROR(wop->outVar()->isA<TensorView>());
+    TensorView* out_var_tv = wop->outVar()->as<TensorView>();
+    Tensor out_var = fd_->defineTensor(out_var_tv->nDims());
+    map_val_to_fd_index_.emplace(wop->outVar(), out_var());
+
+    NVF_ERROR(wop->outN()->isA<TensorView>());
+    TensorView* out_N_tv = wop->outN()->as<TensorView>();
+    Tensor out_N = fd_->defineTensor(out_N_tv->nDims());
+    map_val_to_fd_index_.emplace(wop->outN(), out_N());
+
+    fd_->defineRecord(new WelfordOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(wop->inAvg()))},
+        {fd_->recordingState(out_avg()),
+         fd_->recordingState(out_var()),
+         fd_->recordingState(out_N())},
+        getReductionAxes(out_avg_tv)));
   }
 
   // If input and output values share the same type, a LoadStoreOp will be
@@ -720,6 +774,7 @@ class FusionTranslator : public OptInConstDispatch {
     map_val_to_fd_index_.emplace(lsop->out(), input_fid);
   }
 
+  // Add DimsOpRecord to create permutation in FusionDefinition
   void handlePermute(const LoadStoreOp* lsop) {
     TensorView* out_tv = lsop->out()->as<TensorView>();
 
@@ -827,7 +882,84 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(new_start()),
          fd_->recordingState(new_stop()),
          fd_->recordingState(new_strides())},
+        {fd_->recordingState(output())},
+        /*manual_normalization=*/true));
+  }
+
+  // Map PadOp to python frontend
+  void handle(const PadOp* pad_op) final {
+    Tensor output = fd_->defineTensor(pad_op->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(pad_op->out(), output());
+
+    // Step 1: Get pad widths in normalized order.
+    std::vector<Val*> normalized_pad_widths = pad_op->getPadWidths();
+    const int64_t total_size = (int64_t)normalized_pad_widths.size();
+
+    // Step 2: Get indices for normalized pad widths.
+    std::vector<int64_t> normalized_indices(total_size);
+    std::iota(normalized_indices.begin(), normalized_indices.end(), 0);
+
+    // Step 3: Transform to indices for original pad widths
+    std::vector<int64_t> original_indices;
+    original_indices.reserve(normalized_indices.size());
+    std::transform(
+        normalized_indices.begin(),
+        normalized_indices.end(),
+        std::back_inserter(original_indices),
+        [=](int64_t normalized_idx) {
+          int64_t offset = total_size - normalized_idx;
+          int64_t dim = ceilDiv(offset, 2) - 1;
+
+          int64_t original_idx = dim * 2;
+          // right pad values require an additional offset
+          if (offset % 2 == 1) {
+            original_idx += 1;
+          }
+          return original_idx;
+        });
+
+    // Step 4: Get pad widths in original order.
+    std::vector<Val*> original_order_pad_widths(total_size, nullptr);
+    for (int64_t normalized_idx : normalized_indices) {
+      original_order_pad_widths.at(original_indices.at(normalized_idx)) =
+          normalized_pad_widths.at(normalized_idx);
+    }
+
+    // Check that no pad width values are nullptr.
+    NVF_ERROR(std::all_of(
+        original_order_pad_widths.begin(),
+        original_order_pad_widths.end(),
+        [](Val* v) { return v != nullptr; }));
+
+    Vector pad_widths = createVector(original_order_pad_widths);
+    fd_->defineRecord(new PadOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(pad_op->in())),
+         fd_->recordingState(pad_widths()),
+         fd_->recordingState(map_val_to_fd_index_.at(pad_op->value()))},
         {fd_->recordingState(output())}));
+  }
+
+  // Map CatOp to python frontend
+  void handle(const CatOp* cat_op) final {
+    Tensor output =
+        fd_->defineTensor(cat_op->output(0)->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(cat_op->output(0), output());
+
+    std::vector<State> tensor_states;
+    tensor_states.reserve(cat_op->inputs().size());
+    std::transform(
+        cat_op->inputs().begin(),
+        cat_op->inputs().end(),
+        std::back_inserter(tensor_states),
+        [&](Val* v) {
+          return fd_->recordingState(map_val_to_fd_index_.at(v));
+        });
+
+    fd_->defineRecord(new CatOpRecord(
+        tensor_states,
+        {fd_->recordingState(output())},
+        cat_op->concatenatedDim(),
+        /*manual_padding=*/true));
   }
 
   // Map RNGOp to RandomDistOpRecord
@@ -957,6 +1089,143 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(step())},
         {fd_->recordingState(output())},
         std::get<PrimDataType>(iop->dtype().type)));
+  }
+
+  // Map IndexSelectOp to IndexSelectOpRecord
+  void handle(const IndexSelectOp* isop) final {
+    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new IndexSelectOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(isop->lookupTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(isop->indexTv()))},
+        {fd_->recordingState(output())},
+        isop->dim()));
+  }
+
+  // Map SelectOp to IndexSelectOpRecord
+  void handle(const SelectOp* sop) final {
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new SelectOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->lookupTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->input(1)))},
+        {fd_->recordingState(output())},
+        sop->dim()));
+  }
+
+  // Map TorchGatherOp to python frontend
+  void handle(const TorchGatherOp* gop) final {
+    TensorView* out_tv = gop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new TorchGatherOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(gop->lookupTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(gop->indexTv()))},
+        {fd_->recordingState(output())},
+        gop->dim()));
+  }
+
+  // Map MatmulOp to TensorView-Only OpRecord
+  void handle(const MatmulOp* matmul_op) final {
+    Tensor output =
+        fd_->defineTensor(matmul_op->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(matmul_op->out(), output());
+
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+        {fd_->recordingState(map_val_to_fd_index_.at(matmul_op->inA())),
+         fd_->recordingState(map_val_to_fd_index_.at(matmul_op->inB()))},
+        {fd_->recordingState(output())},
+        ("ops.matmul"),
+        serde::RecordType::Binary_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul)));
+  }
+
+  // Map SdpaFwdOp to SdpaFwdOpRecord
+  void handle(const SdpaFwdOp* sdpa_fwd_op) final {
+    // Create outputs for this RecordFunctor
+    std::vector<State> fd_outputs;
+    fd_outputs.reserve(sdpa_fwd_op->outputs().size());
+    std::transform(
+        sdpa_fwd_op->outputs().begin(),
+        sdpa_fwd_op->outputs().end(),
+        std::back_inserter(fd_outputs),
+        [&](Val* v) {
+          NVF_ERROR(v->isA<TensorView>());
+          Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims());
+          map_val_to_fd_index_.emplace(v, output());
+          return fd_->recordingState(output());
+        });
+
+    State dropout_p_state = (sdpa_fwd_op->dropout_p() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->dropout_p()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State is_causal_state = (sdpa_fwd_op->is_causal() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->is_causal()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State scale_state = (sdpa_fwd_op->scale() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->scale()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    fd_->defineRecord(new SdpaFwdOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->query())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->key())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->value())),
+         dropout_p_state,
+         is_causal_state,
+         scale_state},
+        fd_outputs));
+  }
+
+  // Map SdpaBwdOp to SdpaBwdOpRecord
+  void handle(const SdpaBwdOp* sdpa_bwd_op) final {
+    // Create outputs for this RecordFunctor
+    std::vector<State> fd_outputs;
+    fd_outputs.reserve(sdpa_bwd_op->outputs().size());
+    std::transform(
+        sdpa_bwd_op->outputs().begin(),
+        sdpa_bwd_op->outputs().end(),
+        std::back_inserter(fd_outputs),
+        [&](Val* v) {
+          NVF_ERROR(v->isA<TensorView>());
+          Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims());
+          map_val_to_fd_index_.emplace(v, output());
+          return fd_->recordingState(output());
+        });
+
+    State dropout_p_state = (sdpa_bwd_op->dropout_p() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->dropout_p()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State is_causal_state = (sdpa_bwd_op->is_causal() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->is_causal()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State scale_state = (sdpa_bwd_op->scale() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->scale()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    fd_->defineRecord(new SdpaBwdOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->grad_attn())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->query())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->key())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->value())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->attn_out())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->logsumexp())),
+         dropout_p_state,
+         is_causal_state,
+         fd_->recordingState(
+             map_val_to_fd_index_.at(sdpa_bwd_op->philox_seed())),
+         fd_->recordingState(
+             map_val_to_fd_index_.at(sdpa_bwd_op->philox_offset())),
+         scale_state},
+        fd_outputs));
   }
 
  private:

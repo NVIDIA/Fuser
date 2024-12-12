@@ -264,8 +264,9 @@ void IterVisitor::traverseBetween(
                 })) {
           std::unordered_set<Statement*> from_stmt(from.begin(), from.end());
           auto cycle = ir_utils::checkCycle(fusion, from_stmt, to);
+          TORCH_WARN("A cycle is detected in the fusion.");
           std::stringstream ss;
-          ss << "cycle detected in fusion: " << std::endl;
+          ss << "Statements found in the cycle: " << std::endl;
           for (auto expr :
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;
@@ -1147,72 +1148,6 @@ bool DeadCodeRemover::modifyFusion() const {
         " was marked for removal but has not yet been removed.");
   }
   return modified_fusion;
-}
-
-std::vector<Val*> IRBFS::getReachableValsFrom(
-    const std::vector<Val*>& from,
-    const std::vector<Val*>& vals) {
-  IRBFS bfs(
-      {from.begin(), from.end()},
-      {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false);
-
-  bfs.traverse();
-
-  std::vector<Val*> reachable_vals;
-  for (auto val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.push_back(val);
-    }
-  }
-
-  return reachable_vals;
-}
-
-std::vector<Val*> IRBFS::getValsBetween(
-    const std::vector<Val*>& from,
-    const std::vector<Val*>& to) {
-  auto path =
-      IRBFS::getExprsBetween(from, to, /*require_all_to_visited=*/false);
-
-  VectorOfUniqueEntries<Val*> unique_vals;
-  for (auto [expr, _] : path) {
-    unique_vals.pushBack(expr->outputs());
-    unique_vals.pushBack(expr->inputs());
-  }
-
-  // If a val in from is found in to, just copy it to the returned val
-  // set since there's no corresponding expr.
-  for (auto from_val : from) {
-    if (std::find(to.begin(), to.end(), from_val) != to.end()) {
-      unique_vals.pushBack(from_val);
-    }
-  }
-
-  return unique_vals.vector();
-}
-
-std::vector<Val*> IRBFS::getDependenciesTo(
-    const std::vector<Val*>& vals,
-    const std::vector<Val*>& to) {
-  auto path = IRBFS::getExprsBetween(vals, to, /*require_all_to_visited=*/true);
-
-  VectorOfUniqueEntries<Val*> unique_vals;
-
-  std::unordered_set<Val*> val_set{vals.begin(), vals.end()};
-
-  for (auto [expr, direction] : path) {
-    auto inputs =
-        (direction == Direction::Forward) ? expr->inputs() : expr->outputs();
-    for (auto val : inputs) {
-      if (val_set.find(val) != val_set.end()) {
-        unique_vals.pushBack(val);
-      }
-    }
-  }
-
-  return unique_vals.vector();
 }
 
 } // namespace nvfuser

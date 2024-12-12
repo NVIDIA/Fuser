@@ -7,8 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <c10/util/ArrayRef.h>
+
 #include <compute_at_map.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/multidevice.h>
 #include <visibility.h>
@@ -27,7 +30,8 @@ NVF_API bool distributedEnabled();
 // TODO: Analyze loop domain for unsharded/sharded IDs and return their
 // parent root IDs.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    Expr* expr);
+    TensorView* producer,
+    TensorView* consumer);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
@@ -81,7 +85,8 @@ bool isResharding(const Expr* expr);
 // producer/consumer relationship between the arguments.
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer);
+    const TensorView* consumer,
+    const IdModel& id_model);
 
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
@@ -119,10 +124,64 @@ int64_t requestedNumberOfDevices(Fusion*);
 void unshard(Fusion*);
 void unshard(TensorView*);
 
-// Returns the index of the a sharded axis if none return -1.
-// TODO: Assumes no merges/splits on sharded axis.
-int64_t getShardedAxis(TensorView*);
+// Returns the index of the sharded logical axis that produces the allocation
+// IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
+// type, returns -1.
+//
+// This is used to correlate `tv` and its corresponding at::Tensor, e.g., by
+// `unshardedSizes` and `shardTensor`. `at::Tensor::sizes` and
+// `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
+// `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
+// extent if that IterDomain is sharded.
+int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+
+// Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
+// is determined by `mesh` and `device_id`. Returns the sharded tensor.
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh,
+    DeviceIdxType device_id);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
 void reorderDIDToFront(TensorView*);
+
+// Given a TensorView and the shape of a sharded tensor of which certain
+// dimensions are partially allocated, returns the global shape that'll be used
+// to bind to the TensorView's logical domain. This is to solve #3282 so we can
+// bind a sharded tensor to a TensorView that has a DID-parallel loop domain.
+//
+// For example, when `tv` is
+//   logical: iM, iN
+//   allocation: iDIDx{D}, iN/D, iM
+// and `sizes` is [2, 3], the returned shape will be [2, 3D]. This is because,
+// according to the allocation domain, iM is fully allocated and iN is sharded
+// and thus partially allocated.
+//
+// If the TensorView is not sharded, this function returns `sizes`.
+//
+// Limitations:
+// - The function assumes that there are no Merges from logical to the
+// DID-parallel IterDomains in allocation. Otherwise, it's unclear which logical
+// dimension this DID-parallelization should be attributed to.
+// - The function assumes that all Splits from logical to the DID-parallel
+// IterDomains in allocation are even. This is because there are currently no
+// ways to pass in the global shape.
+//
+// Despite these limitations, I took this approach as a shortcut to fix #3282,
+// which blocked many other tasks. I'm however open to other better, long-term
+// solutions. Some alternatives considered in #3282 are:
+// - Try to bind `at::Tensor`s to allocation domains instead of logical. Many
+// `*Op::evaluate` methods (e.g.
+// https://github.com/NVIDIA/Fuser/blob/2415d904d1e9a5da7ca6fb1a55d3045bbd510341/csrc/ir/nodes.cpp#L4321-L4329)
+// assume the input/output `at::Tensor`s have the same dimension order as the
+// logical domain. Doing so would have to change them all.
+// - Try to pass into FusionExecutorCache both logical (global) shapes and
+// allocated (local) tensors for sharded TensorViews. The logical shapes would
+// have to be passed through FusionKernelRuntime, FusionExecutor,
+// ExpressionEvaluator, and so on, which is an API overhaul.
+std::vector<int64_t> unshardedSizes(
+    const TensorView* tv,
+    c10::IntArrayRef sizes);
+
 } // namespace nvfuser

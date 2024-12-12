@@ -120,18 +120,23 @@ class NVF_API IterDomain : public Val {
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  //! the result IterDomain.
+  //! The optional parameters of rfactor_domain and iter_type can be
+  //! used to override the default behavior.
   static IterDomain* merge(
       IterDomain* outer,
       IterDomain* inner,
-      bool rfactor_domain = false);
+      std::optional<bool> rfactor_domain = std::nullopt,
+      std::optional<IterType> iter_type = std::nullopt);
 
+  //! The optional parameters of rfactor_domain, outer_iter_type and
+  //! inner_iter_type can be used to override the default behavior.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      bool rfactor_domain = false);
+      std::optional<bool> rfactor_domain = std::nullopt,
+      std::optional<IterType> outer_iter_type = std::nullopt,
+      std::optional<IterType> inner_iter_type = std::nullopt);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
@@ -436,7 +441,8 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      std::vector<IterDomain*> additional_ids = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 

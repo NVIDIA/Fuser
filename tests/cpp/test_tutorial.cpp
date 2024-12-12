@@ -80,93 +80,94 @@ TEST_F(Tutorial, Memcpy) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
+  {
+    // Next, lower the fusion to Kernel, generate CUDA kernel source and then
+    // compile it with nvrtc. All of them are done by KernelExecutor
+    KernelExecutor ke;
+    ke.compile(&fusion, aten_inputs);
 
-  // Next, lower the fusion to Kernel, generate CUDA kernel source and then
-  // compile it with nvrtc. All of them are done by FusionExecutor
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+    // KernelExecutor now has a compiled kernel, which can be executed as:
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
+    // Note that this run is done using just one thread, which will be
+    // corrected below.
 
-  // FusionExecutor now has a compiled kernel, which can be executed as:
-  std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
-  // Note that this run is done using just one thread, which will be
-  // corrected below.
+    // To validate the output, we can just assert that the output is
+    // equal to the input as this is just a copy fusion. More commonly,
+    // though, testValidate is used to validate outputs while
+    // automatically adjusting thresholds of valid deviations
+    ASSERT_TRUE(outputs[0].equal(t0));
 
-  // To validate the output, we can just assert that the output is
-  // equal to the input as this is just a copy fusion. More commonly,
-  // though, testValidate is used to validate outputs while
-  // automatically adjusting thresholds of valid deviations
-  ASSERT_TRUE(outputs[0].equal(t0));
+    // Next, instead of just running the fusion as is, we manually
+    // schedule it so that it runs in parallel. In this case, we only
+    // have one expression, i.e., the set expression, so we just need to
+    // schedule tv1.
 
-  // Next, instead of just running the fusion as is, we manually
-  // schedule it so that it runs in parallel. In this case, we only
-  // have one expression, i.e., the set expression, so we just need to
-  // schedule tv1.
+    // tv1 is a 2D tensor. Let its domain be [i0, i1]. What we are going
+    // to do is to transform this 2D domain to the multi-dimensional
+    // CUDA parallelism, i.e., a grid consisting of multiple thread
+    // blocks, each of which consisting of multiple threads. A common
+    // transformation pattern is to merge all of each axis to get a
+    // flattened domain, and then split the domain to factor out axes
+    // that are parallelized by threads and thread blocks.
 
-  // tv1 is a 2D tensor. Let its domain be [i0, i1]. What we are going
-  // to do is to transform this 2D domain to the multi-dimensional
-  // CUDA parallelism, i.e., a grid consisting of multiple thread
-  // blocks, each of which consisting of multiple threads. A common
-  // transformation pattern is to merge all of each axis to get a
-  // flattened domain, and then split the domain to factor out axes
-  // that are parallelized by threads and thread blocks.
+    // For example, the current domain of tv1 looks like [i0, i1]. We
+    // can merge the two axes by:
+    tv1->merge(0, 1);
+    // This creates a single axis that merges i0 and i1. Its extent is a
+    // multiplication of the extents of i0 and i1, so we commonly
+    // represent it as [i0*i1]. It can be also examined with:
+    if (verbose_) {
+      std::cout << tv1->toString() << std::endl;
+    }
 
-  // For example, the current domain of tv1 looks like [i0, i1]. We
-  // can merge the two axes by:
-  tv1->merge(0, 1);
-  // This creates a single axis that merges i0 and i1. Its extent is a
-  // multiplication of the extents of i0 and i1, so we commonly
-  // represent it as [i0*i1]. It can be also examined with:
-  if (verbose_) {
-    std::cout << tv1->toString() << std::endl;
-  }
+    // Next, we factor out a subdomain for threads in each thread
+    // block.
+    tv1->split(0, 256);
+    // In this case, the flattened domain is now 2D domain with an inner
+    // domain of extent 256 and an outer domain of extent i0*i1/256, so
+    // the tensor should now look like [i0*i1/256, 256]. Note that in
+    // reality we do ceil division as i0*i1 may not be divisible by
+    // 256.
+    if (verbose_) {
+      std::cout << tv1->toString() << std::endl;
+    }
 
-  // Next, we factor out a subdomain for threads in each thread
-  // block.
-  tv1->split(0, 256);
-  // In this case, the flattened domain is now 2D domain with an inner
-  // domain of extent 256 and an outer domain of extent i0*i1/256, so
-  // the tensor should now look like [i0*i1/256, 256]. Note that in
-  // reality we do ceil division as i0*i1 may not be divisible by
-  // 256.
-  if (verbose_) {
-    std::cout << tv1->toString() << std::endl;
-  }
+    // Now that we have two domains, we can parallelize each domain
+    // using IterDomain::parallelize(ParallelType). Specifically, to
+    // parallelize the inner domain with threads, we can do:
+    tv1->axis(1)->parallelize(ParallelType::TIDx);
+    // Similarly, to paralllize the outer domain with thread blocks:
+    tv1->axis(0)->parallelize(ParallelType::BIDx);
+    // This way, the inner and outer axes are divided by blockDim.x
+    // threads and gridDim.x blocks, respectively. Each element in each
+    // axis is computed by one thread or one block, so this means that
+    // the size of each thread block and a grid must match the size of
+    // each domain. Specifically, blockDim.x and gridDim.x must be 256
+    // and i0*i1/256, respectively.
 
-  // Now that we have two domains, we can parallelize each domain
-  // using IterDomain::parallelize(ParallelType). Specifically, to
-  // parallelize the inner domain with threads, we can do:
-  tv1->axis(1)->parallelize(ParallelType::TIDx);
-  // Similarly, to paralllize the outer domain with thread blocks:
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  // This way, the inner and outer axes are divided by blockDim.x
-  // threads and gridDim.x blocks, respectively. Each element in each
-  // axis is computed by one thread or one block, so this means that
-  // the size of each thread block and a grid must match the size of
-  // each domain. Specifically, blockDim.x and gridDim.x must be 256
-  // and i0*i1/256, respectively.
+    // Now that the fusion is parallelized, it can be examined again
+    if (verbose_) {
+      fusion.printMath();
+      // Notice that the axes of tv1 are now printed with blockIdx.x and
+      // threadIdx.x, which shows they are parallelized by the
+      // respective parallel types
 
-  // Now that the fusion is parallelized, it can be examined again
-  if (verbose_) {
-    fusion.printMath();
-    // Notice that the axes of tv1 are now printed with blockIdx.x and
-    // threadIdx.x, which shows they are parallelized by the
-    // respective parallel types
-
-    // The CUDA kernel should look very differently as there should be
-    // no for-loops
-    fusion.printKernel();
+      // The CUDA kernel should look very differently as there should be
+      // no for-loops
+      fusion.printKernel();
+    }
   }
 
   // Since the fusion is modified, we need to recompile it.
-  FusionExecutor fe2;
-  fe2.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
 
   // This time, the kernel is launched with multiple threads and
   // thread blocks. Note that the launch configurations, i.e., the
   // thread block and grid shapes, are autoatically inferred from the
   // given inputs. To see how many threads are used, run this test
   // with NVFUSER_DUMP=launch_param
-  outputs = fe2.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   ASSERT_TRUE(outputs[0].equal(t0));
 }
@@ -205,9 +206,9 @@ TEST_F(Tutorial, Reduction) {
   at::Tensor ref = t0.sum({1});
 
   {
-    FusionExecutor fe;
-    fe.compileFusion(&fusion);
-    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 
@@ -221,9 +222,9 @@ TEST_F(Tutorial, Reduction) {
   }
 
   {
-    FusionExecutor fe;
-    fe.compileFusion(&fusion);
-    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 
@@ -239,19 +240,19 @@ TEST_F(Tutorial, Reduction) {
   }
 
   {
-    FusionExecutor fe;
-    fe.compileFusion(&fusion);
+    KernelExecutor ke;
+    ke.compile(&fusion);
     // Running this fusion, however, should fail as it would require
     // thread blocks of shape 1024x10, i.e., the same shape as the
     // input tensor, which is too large in CUDA.
     //
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-    ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
+    ASSERT_ANY_THROW(ke.run(aten_inputs));
 
     // Try again with a smaller input. This should launch a kernel
     // with thread blocks of shape 32x10
     at::Tensor t1 = at::randn({10, 32}, options);
-    std::vector<at::Tensor> outputs = fe.runFusion({t1});
+    std::vector<at::Tensor> outputs = ke.run({t1});
     testValidate(
         &fusion, outputs, aten_inputs, {t1.sum({1})}, __LINE__, __FILE__);
   }
@@ -266,13 +267,13 @@ TEST_F(Tutorial, Reduction) {
   }
 
   {
-    FusionExecutor fe;
-    fe.compileFusion(&fusion);
+    KernelExecutor ke;
+    ke.compile(&fusion);
     // The original input should not fail in this case. The kernel
     // will be launched with 10 thread blocks, each of which has 1024
     // threads. Try running this test with NVFUSER_DUMP=launch_param
     // to see the launch configuration of each kernel lauch
-    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 }
@@ -380,13 +381,13 @@ TEST_F(Tutorial, ReductionRFactor) {
     std::vector<c10::IValue> aten_inputs = {t0};
     at::Tensor ref = t0.sum({0});
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion_copy);
+    KernelExecutor ke;
+    ke.compile(&fusion_copy);
 
     // Since the size of the input is 10000, which is split by a
     // factor of 1024, the first per-thread reduction is done for
     // ceilDiv(10000, 1024) = 10 elements.
-    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion_copy, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 
@@ -439,10 +440,10 @@ TEST_F(Tutorial, ReductionRFactor) {
     std::vector<c10::IValue> aten_inputs = {t0};
     at::Tensor ref = t0.sum({0});
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion_copy);
+    KernelExecutor ke;
+    ke.compile(&fusion_copy);
 
-    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    std::vector<at::Tensor> outputs = ke.run(aten_inputs);
     testValidate(&fusion_copy, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 }
@@ -786,9 +787,9 @@ TEST_F(Tutorial, BasicTMA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -870,9 +871,9 @@ TEST_F(Tutorial, BasicTMA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -953,9 +954,9 @@ TEST_F(Tutorial, BasicTMA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -1033,9 +1034,9 @@ TEST_F(Tutorial, BasicTMA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -1138,9 +1139,9 @@ TEST_F(Tutorial, BasicTMA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 
@@ -1244,9 +1245,9 @@ TEST_F(Tutorial, BasicTMA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     std::vector<int64_t> shape(3, 300);
     auto t = at::randn(shape, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t}, {}, index32bit);
-    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = ke.run({t});
     ASSERT_TRUE(at::equal(t, outputs[0]));
   }
 }
@@ -1343,10 +1344,10 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
   at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
 
-  // Compile with FusionExecutor directly to avoid scheduling
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
-  auto outputs = fe.runFusion({at_tv0, at_tv1});
+  // Compile with KernelExecutor directly to avoid scheduling
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
 
   auto at_output = at_tv0 + at_tv1;
   testValidate(
@@ -1447,10 +1448,10 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   at::Tensor at_tv0 = at::randn({dim1, dim2, dim3}, options);
   at::Tensor at_tv1 = at::randn({dim0, dim1, dim2, dim3}, options);
 
-  // Compile with FusionExecutor directly to avoid scheduling
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
-  auto outputs = fe.runFusion({at_tv0, at_tv1});
+  // Compile with KernelExecutor directly to avoid scheduling
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
 
   auto at_output = at_tv0 + at_tv1;
   testValidate(
@@ -1551,10 +1552,10 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t = at::randn({10000, 10000}, options);
-  FusionExecutor fe;
+  KernelExecutor ke;
   CompileParams index32bit{DataType::Int32, 255, false};
-  fe.compileFusion(&fusion, {t}, {}, index32bit);
-  std::vector<at::Tensor> outputs = fe.runFusion({t});
+  ke.compile(&fusion, {t}, {}, index32bit);
+  std::vector<at::Tensor> outputs = ke.run({t});
   ASSERT_TRUE(at::equal(t.t(), outputs[0]));
 }
 

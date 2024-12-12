@@ -39,7 +39,7 @@ enum class DebugDumpOption {
   FusionIrPresched, //!< Dump the segmented Fusion IR before it is scheduled
   // TODO(wujingyue): name the following FusionIrSched
   FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
-            //!< to `FusionExecutor::compileFusion`.
+            //!< to `KernelExecutor::compileFusion`.
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
@@ -64,6 +64,7 @@ enum class DebugDumpOption {
                     //! associated with what's running
   PreSegmenterLogging,
   PythonDefinition, //! Python Frontend Fusion Definition.
+  PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
@@ -249,6 +250,9 @@ NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
+std::optional<EnableOption> stringToEnableOption(
+    const std::string& enable_option);
+
 bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
@@ -266,6 +270,9 @@ NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv();
 
 using DisableOptions = Options<DisableOption>;
+
+std::optional<DisableOption> stringToDisableOption(
+    const std::string& disable_option);
 
 NVF_API bool isOptionDisabled(DisableOption option);
 

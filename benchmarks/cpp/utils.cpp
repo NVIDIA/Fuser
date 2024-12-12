@@ -97,8 +97,11 @@ std::string toString(const PointwiseParams* pparams) {
   if (pparams->vectorization_factor > 1) {
     ss << "Vectorize, Factor: " << pparams->vectorization_factor << "\n";
   }
-  if (pparams->unroll_factor > 1) {
-    ss << "Unroll, Factor: " << pparams->unroll_factor << "\n";
+  if (pparams->unroll_factor_outer > 1) {
+    ss << "Outer Unroll, Factor: " << pparams->unroll_factor_outer << "\n";
+  }
+  if (pparams->unroll_factor_inner > 1) {
+    ss << "Inner Unroll, Factor: " << pparams->unroll_factor_inner << "\n";
   }
   return ss.str();
 }
@@ -167,29 +170,30 @@ int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
-  fusion_executor_cache->profile(true);
+  executor_cache->profile(true);
 
   int64_t io_bytes = getSizeOfInputs(aten_inputs);
 
   // Segment and compile the fusion
   {
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
     io_bytes += getSizeOfOutputs(cg_outputs);
   }
 
   bool segmented =
-      fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
-      fusion_executor_cache->getMostRecentKernelRuntime()
+      executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
+      executor_cache->getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
               .size() > 1;
 
-  const auto& compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  const auto& compile_log = executor_cache->getMostRecentExecutorInfo();
   auto params = toString(compile_log.params);
-  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
+  auto lparams = toString(
+      compile_log.fusion_executor->as<KernelExecutor>()->lastLaunchParams());
   // Only set if not segmented. In the case of segmented fusions,
   // this could be confusing as the log would refect only the last
   // segment. Revisit if necessary.
@@ -197,7 +201,7 @@ int64_t runBenchmarkIterations(
     benchmark_state.SetLabel(params + lparams);
   }
 
-  fusion_executor_cache->profile(false);
+  executor_cache->profile(false);
 
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
@@ -205,7 +209,7 @@ int64_t runBenchmarkIterations(
 
   for (auto _ : benchmark_state) {
     clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);
   }
@@ -220,19 +224,18 @@ int64_t runBenchmarkIterations(
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
+    KernelExecutor* ke,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
   int64_t io_bytes = getSizeOfInputs(aten_inputs);
   {
     // Warm-up run
-    auto cg_outputs = fusion_executor->runFusion(
-        aten_inputs, launch_constraints, compile_params);
+    auto cg_outputs = ke->run(aten_inputs, launch_constraints, compile_params);
     io_bytes += getSizeOfOutputs(cg_outputs);
   }
 
-  auto lparams = toString(fusion_executor->lastLaunchParams());
+  auto lparams = toString(ke->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
   // Sync everything up before we start
@@ -243,8 +246,7 @@ int64_t runBenchmarkIterations(
     clearL2Cache();
     FusionProfiler::start();
     FusionProfiler::createSegments(1);
-    auto cg_outputs = fusion_executor->runFusion(
-        aten_inputs, launch_constraints, compile_params);
+    auto cg_outputs = ke->run(aten_inputs, launch_constraints, compile_params);
     FusionProfiler::stop();
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);

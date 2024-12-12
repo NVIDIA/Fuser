@@ -1185,15 +1185,16 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
   return true;
 }
 
-void movePersistentBufferToSmem(
+std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs) {
+  std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
   // associated cached tensors.
   if (rparams->smem_persistent_buffers.empty()) {
-    return;
+    return {};
   }
   const auto& persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
@@ -1206,6 +1207,22 @@ void movePersistentBufferToSmem(
           // smem_persistent_buffers are from a cloned fusion.
           return tv->name() == lookup_tv->name();
         });
+  };
+  auto supportCpAsync = [rparams](const TensorView* smem_tv) {
+    // Only supported after device 8.0
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major < 8) {
+      return false;
+    }
+    // requires 4, 8, or 16 loading bytes.
+    int vect_factor = rparams->vectorize_inner_reduction
+        ? (int)rparams->unroll_factor_inner_reduction
+        : 1;
+    size_t loading_size =
+        dataTypeSize(smem_tv->getDataType().value()) * vect_factor;
+    bool is_supported_bytes =
+        (loading_size == 4 || loading_size == 8 || loading_size == 16);
+    return is_supported_bytes;
   };
   for (auto tv : persistent_buffers) {
     // Persistent buffers are categorized into two types:
@@ -1235,14 +1252,38 @@ void movePersistentBufferToSmem(
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
-      int hw_major = at::cuda::getCurrentDeviceProperties()->major;
-      if (is_cached_input && hw_major >= 8) {
+      if (supportCpAsync(tv) && is_cached_input) {
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
       }
+      // do a register cache for all the uses of this smem tv.
+      // The load from smem to register cache will then be vectorized to avoid
+      // bank conflicts. The determination of bank conflicts is made per
+      // transaction, with 16 bytes vectorized load, each warp needs 4
+      // transactions (32 threads * 16 bytes per thread / 128 bytes per
+      // transaction). In each transaction, different banks are visited, e.g.
+      // transaction-1, threads 0-7 visit banks 0-31
+      auto cached_tv = tv->cacheAfter();
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of tv due to the way the persistent buffer
+      // selector works. To make tv remain as the persistent buffer, all of the
+      // uses must be privatized.
+      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+      smem_consumers.push_back(cached_tv);
+      for (auto i = 1; i < (int)consumers.size(); i++) {
+        auto consumer = consumers.at(i);
+        // recompute cached_tv for each consumer, so it is no longer persistent
+        // similar to project to inputs, here we are projecting to the shared
+        // memory buffer.
+        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+        ir_utils::replaceValInExprInputs(
+            consumer->definition(), cached_tv, cached_tv_replicate);
+        smem_consumers.push_back(cached_tv_replicate);
+      }
     }
   }
+  return smem_consumers;
 }
 
 // common prepare for all persistent schedulers
@@ -1252,6 +1293,7 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
+    std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
@@ -1278,7 +1320,7 @@ void beforeSchedule(
 
   // move persistent buffer marked in [smem_persistent_buffers] from register to
   // smem
-  movePersistentBufferToSmem(fusion, rparams, cached_inputs);
+  smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1339,7 +1381,8 @@ void schedulePersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
+      smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   beforeSchedule(
       fusion,
@@ -1347,6 +1390,7 @@ void schedulePersistentKernel(
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
+      smem_consumers,
       cached_outputs);
 
   TensorView* reference_tv =
@@ -1376,9 +1420,11 @@ void schedulePersistentKernel(
       unroll,
       vectorize,
       is_outer_grid_persistence,
+      rparams->unroll_factor_inner_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       dummy_outputs);
 
   if (rparams->compute_persistent_buffer_with_first_consumer) {
@@ -1530,8 +1576,11 @@ class PersistentBufferResolution : public IterVisitor {
       // with the persistence of the persistent tensor
       const auto& producer_logical_ids =
           exact_graph_.toGroups(tv->getLogicalDomain());
-      auto reachable_ids = ValGraphBFS::getReachableValsFrom(
-          exact_graph_, persistent_ids, producer_logical_ids);
+      auto reachable_ids = getReachableValsFrom<ValGraphBFS>(
+          persistent_ids.vector(),
+          producer_logical_ids.vector(),
+          Direction::Undefined,
+          exact_graph_);
 
       return !reachable_ids.empty();
     };

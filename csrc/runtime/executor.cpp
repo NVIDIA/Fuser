@@ -19,10 +19,6 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/lower_communication.h>
-#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <runtime/allocations.h>
@@ -138,10 +134,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 }
 } // namespace
 
-FusionExecutor::FusionExecutor()
-    : communicator_(&Communicator::getInstance()) {}
-
-std::unique_ptr<PrecomputedValues>& FusionExecutor::
+std::unique_ptr<PrecomputedValues>& KernelExecutor::
     evaluatorPrecomputedValues() {
   if (!evaluator_precomputed_values_) {
     evaluator_precomputed_values_ =
@@ -150,7 +143,7 @@ std::unique_ptr<PrecomputedValues>& FusionExecutor::
   return evaluator_precomputed_values_;
 }
 
-std::string FusionExecutor::getStructuredCode(
+std::string KernelExecutor::getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type) const {
   // generating cuda code;
@@ -181,21 +174,132 @@ std::string FusionExecutor::getStructuredCode(
   return code;
 }
 
-std::string FusionExecutor::getStructuredCode() const {
+std::string KernelExecutor::getStructuredCode() const {
   return getStructuredCode(kernelString(), kernel()->indexType());
 }
 
-void FusionExecutor::compileFusion(
+bool ExprEvalExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::supported");
+  return std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
+}
+
+void ExprEvalExecutor::compile(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).startCompile();
+  }
+  NVF_ERROR(
+      supported(fusion),
+      "ExprEvalExecutor does not support the Fusion provided.");
+  fusion_ = std::make_unique<Fusion>(*fusion);
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopCompile();
+  }
+}
+
+bool ExprEvalExecutor::isCompiled() const {
+  return fusion_ != nullptr;
+}
+
+std::vector<at::Tensor> ExprEvalExecutor::run(
+    KernelArgumentHolder& args,
+    std::vector<at::Tensor> outputs) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::run");
+
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(computeBytes(args));
+    sprof.scheduler(toString(SchedulerType::ExprEval));
+    sprof.startKernel();
+  }
+
+  NVF_ERROR(fusion_, "Need to compile before you can run.");
+  // Bind fusion inputs
+  auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
+  {
+    NVF_ERROR(
+        outputs.empty(),
+        "Fusion executor is using expression evaluator,",
+        " and expects that the outputs are not populated, which they were.");
+    if (outputs.empty()) {
+      for (const auto& out_val : fusion_->outputs()) {
+        auto out_tensor =
+            expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+        expr_eval.bind(out_val, out_tensor);
+        outputs.emplace_back(out_tensor);
+      }
+    }
+  }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopKernel();
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+  }
+  return outputs;
+}
+
+namespace {
+bool hasCpuScalarOutputs(Fusion* fusion) {
+  if (fusion->exprs().empty()) {
+    return false;
+  }
+
+  std::unordered_map<TensorView*, bool> tv_is_cpu_map;
+  for (Expr* expr : StmtSort::getExprs(fusion)) {
+    bool has_cpu_scalar_input = false;
+    bool has_cuda_input = false;
+    for (Val* inp : expr->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        if (inp_tv->isCpuScalar()) {
+          has_cpu_scalar_input = true;
+        } else {
+          has_cuda_input = true;
+          // Return early -- found atleast one CUDA input
+          break;
+        }
+      }
+    }
+    if (!has_cuda_input && has_cpu_scalar_input) {
+      // Expr is of the second category, and has all CPU scalar outputs
+      for (Val* out : expr->outputs()) {
+        if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+          tv_is_cpu_map[out_tv] = true;
+        }
+      }
+    }
+  }
+
+  bool has_any_cpu_output = std::any_of(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      [&tv_is_cpu_map](Val* out) {
+        return out->isA<TensorView>() && tv_is_cpu_map[out->as<TensorView>()];
+      });
+  return has_any_cpu_output;
+}
+} // namespace
+
+bool KernelExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("KernelExecutor::supported");
+  return !hasCpuScalarOutputs(fusion);
+}
+
+void KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    SchedulerType scheduler_type,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id) {
-  FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
+    SchedulerType scheduler_type) {
+  FUSER_PERF_SCOPE("KernelExecutor::compileFusion");
+  NVF_ERROR(
+      supported(fusion),
+      "KernelExecutor does not support the Fusion provided.");
 
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
@@ -203,35 +307,13 @@ void FusionExecutor::compileFusion(
   // TODO: refactor the options_ passed through
   options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
-  if (isExpressionEvaluated(fusion)) {
-    fusion_ = std::make_unique<Fusion>(*fusion);
-    return;
-  }
-
-  const std::vector<Expr*>& exprs = fusion->exprs();
-  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && isLowerableToCommunication(e);
-      })) {
-    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
-    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
-    for (Expr* e : exprs) {
-      std::vector<Communication*> communications =
-          lowerCommunication(cloner.clone(e));
-      for (auto* communication : communications) {
-        host_ir_container_->pushBackTopLevelExprs(communication);
-      }
-    }
-    return;
-  }
-
-  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
-  // given the conditional can exit early from compilation.
   if (isProfilerEnabled()) {
     NVF_CHECK(
-        group_id >= 0,
+        group_id_ >= 0,
         "An invalid segment id is passed to FusionProfiler!:",
-        group_id);
-    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+        group_id_);
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+    FusionProfiler::segment(group_id_).startCompile();
   }
 
   for (auto out : fusion->outputs()) {
@@ -272,6 +354,7 @@ void FusionExecutor::compileFusion(
 
   //! Force index_type to int and disable magic zero if we detect that the
   //! kernel contains any TMA memory operations.
+  std::vector<Expr*> exprs = fusion->exprs();
   bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
     return ir_utils::isCpAsyncBulk(e);
   });
@@ -335,7 +418,8 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  createKernelId(scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
+  createKernelId(
+      scheduler_type, fusion_id_, concrete_id_, runtime_id_, group_id_);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -456,7 +540,7 @@ void FusionExecutor::compileFusion(
       kernel_id_,
       compile_params,
       block_size);
-  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for KernelExecutor.");
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -471,16 +555,16 @@ void FusionExecutor::compileFusion(
     debug() << disassembledKernelSASS() << std::endl;
   }
   if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id).stopCompile();
+    FusionProfiler::segment(group_id_).stopCompile();
   }
 }
 
-LaunchParams FusionExecutor::computeLaunchParams(
+LaunchParams KernelExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     ExpressionEvaluator& expr_eval,
     const int64_t warp_size,
     DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::computeLaunchParams");
+  FUSER_PERF_SCOPE("KernelExecutor::computeLaunchParams");
   NVF_ERROR(warp_size > 0, "WARP_SIZE should be larger than 0");
 
   LaunchParams launch_params;
@@ -555,7 +639,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
 
   // Run through the rest of the parallel IterDomains and infer their size
   for (auto [p_type, extent] : simplified_parallel_iter_extents) {
-    FUSER_PERF_SCOPE("FusionExecutor::ParallelBindingResolution");
+    FUSER_PERF_SCOPE("KernelExecutor::ParallelBindingResolution");
     auto val = expr_eval.evaluate(extent);
     NVF_ERROR(
         val.hasValue(),
@@ -635,10 +719,10 @@ LaunchParams FusionExecutor::computeLaunchParams(
   return launch_params;
 }
 
-std::vector<GlobalBufferInfo> FusionExecutor::getIntermediateBufferInfo(
+std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     ExpressionEvaluator& expr_eval,
     DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
+  FUSER_PERF_SCOPE("KernelExecutor::getIntermediateBufferInfo");
   std::vector<GlobalBufferInfo> global_buffers;
 
   const auto kernel = lowered_->kernel();
@@ -685,7 +769,7 @@ std::vector<GlobalBufferInfo> FusionExecutor::getIntermediateBufferInfo(
   return global_buffers;
 }
 
-void FusionExecutor::setUsedTVs() {
+void KernelExecutor::setUsedTVs() {
   auto used_vals = fusion()->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
@@ -744,7 +828,7 @@ void validateCooperativeLaunch(
 
 // Dump fusion inputs and outputs as well as some useful fusion
 // information. Note that inputs and outputs are those that are passed
-// to FusionExecutor::runFusion, so outputs may not be given.
+// to KernelExecutor::runFusion, so outputs may not be given.
 void dumpFusionArgs(
     int64_t fusion_id,
     const KernelArgumentHolder& args,
@@ -768,17 +852,19 @@ void dumpFusionArgs(
 // Dump arguments that are passed to a CUDA kernel call, which include
 // the inputs and outputs of the fusion as well as temporary
 // global-memory buffers. Unlike dumpFusionArgs, which dumps inputs
-// and outputs passed to FusionExecutor::runFusion, this function
+// and outputs passed to KernelExecutor::runFusion, this function
 // dumps those that are passed to a CUDA kernel.
 void dumpKernelArgs(
-    int64_t fusion_id,
+    const int64_t fusion_id,
+    const int64_t group_id,
     const KernelArgumentHolder& args,
     size_t num_inputs,
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
     const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
-  debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
+  debug() << "Arguments for fusion " << fusion_id << " group " << group_id
+          << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
     debug() << "  " << toString(*args[i]) << std::endl;
@@ -803,14 +889,14 @@ void dumpKernelArgs(
 
 } // namespace
 
-void FusionExecutor::initializeExecutorEntry(
+void KernelExecutor::initializeExecutorEntry(
     ExecutorEntry& executor_entry,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<at::Tensor>& outputs,
     DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::initializeExecutorEntry");
+  FUSER_PERF_SCOPE("KernelExecutor::initializeExecutorEntry");
 
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
@@ -882,7 +968,7 @@ void FusionExecutor::initializeExecutorEntry(
 /// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
 ///                      computing how large the arrays to copy are.
 static void fillTensorArgMetadata(
-    FusionExecutor::ExecutorEntry& entry,
+    KernelExecutor::ExecutorEntry& entry,
     const PolymorphicValue& tensor_metadata,
     size_t idx,
     size_t idx_type_size) {
@@ -943,11 +1029,11 @@ static void fillTensorArgMetadata(
 // when we change the rank of a tensor or the number of arguments to a kernel.
 // It does not need to happen when only shapes change---use recomputeArgs for
 // that.
-void FusionExecutor::computeArgs(
+void KernelExecutor::computeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("FusionExecutor::computeArgs");
+  FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
 
   const std::vector<Val*>& params = kernel->parameters();
   entry.args.resize(params.size());
@@ -961,11 +1047,11 @@ void FusionExecutor::computeArgs(
 
 // Reset the arguments that we'll pass to cuLaunchKernel. This needs to be
 // invoked on every shape change.
-void FusionExecutor::recomputeArgs(
+void KernelExecutor::recomputeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("FusionExecutor::recomputeArgs");
+  FUSER_PERF_SCOPE("KernelExecutor::recomputeArgs");
   // assert(entry.init && "entry was never initialized");
 
   const std::vector<Val*>& params = kernel->parameters();
@@ -996,10 +1082,10 @@ void FusionExecutor::recomputeArgs(
   }
 }
 
-void FusionExecutor::recompileKernel(
+void KernelExecutor::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
-  FUSER_PERF_SCOPE("FusionExecutor::runFusion::recompileKernel");
+  FUSER_PERF_SCOPE("KernelExecutor::runFusion::recompileKernel");
 
   const auto structured_code = getStructuredCode();
   block_size_high_water_mark_ = new_launch_params.nThreads();
@@ -1026,7 +1112,7 @@ void FusionExecutor::recompileKernel(
   }
 }
 
-int64_t FusionExecutor::getAvailableDynamicSmemSize() {
+int64_t KernelExecutor::getAvailableDynamicSmemSize() {
   NVF_ERROR(
       hasCompiledKernel(),
       "Cannot get dynamic smem size unless kernel is compiled");
@@ -1041,7 +1127,7 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
   return available_dynamic_smem_size_.value();
 }
 
-int64_t FusionExecutor::getStaticSmemSize() {
+int64_t KernelExecutor::getStaticSmemSize() {
   NVF_ERROR(
       hasCompiledKernel(),
       "Cannot get static smem size unless kernel is compiled");
@@ -1057,7 +1143,7 @@ int64_t FusionExecutor::getStaticSmemSize() {
   return static_smem_size_.value();
 }
 
-void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
+void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
   // If specified, check that dynamic smem size matches what the scheduler
   // expects
   int64_t expected_dynamic_smem_size = fusion()->expectedDynamicSmemBytes();
@@ -1082,7 +1168,7 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
       device_smem_limit_);
 }
 
-int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
+int64_t KernelExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
       hasCompiledKernel(),
@@ -1098,51 +1184,17 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
   return getAvailableDynamicSmemSize();
 }
 
-void FusionExecutor::resetCompiledKernelProperties() {
+void KernelExecutor::resetCompiledKernelProperties() {
   available_dynamic_smem_size_.reset();
   static_smem_size_.reset();
 }
 
-std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
-    std::vector<at::Tensor> outputs,
-    ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluateFusionOutputs");
-  NVF_ERROR(
-      outputs.empty(),
-      "Fusion executor is using expression evaluator,",
-      " and expects that the outputs are not populated, which they were.");
-  if (outputs.empty()) {
-    for (const auto& out_val : fusion()->outputs()) {
-      auto out_tensor =
-          expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
-      expr_eval.bind(out_val, out_tensor);
-      outputs.emplace_back(out_tensor);
-    }
-  }
-  return outputs;
-}
-
-namespace {
-// Host IR specific function, returns the at:Tensor (ordered list) associated
-// with the provdied Fusion output tv
-at::Tensor findBufferForFusionOutput(
-    const std::vector<at::Tensor>& out_tensors,
-    const Val* fusion_out,
-    const Fusion* fusion) {
-  auto i =
-      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
-  NVF_ERROR(i != fusion->outputs().end());
-  auto index = std::distance(fusion->outputs().begin(), i);
-  return out_tensors[index];
-}
-} // namespace
-
-std::vector<at::Tensor> FusionExecutor::runFusion(
+std::vector<at::Tensor> KernelExecutor::run(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
-  FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+  FUSER_PERF_SCOPE("KernelExecutor::runFusion");
 
   if (isProfilerEnabled()) {
     NVF_CHECK(
@@ -1150,9 +1202,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         "An invalid segment id is passed to FusionProfiler!:",
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
-    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.inputBytesAccessed(computeBytes(args));
     sprof.scheduler(toString(scheduler_type_));
-    sprof.startKernel(args.getDeviceIndex());
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+    sprof.startKernel();
   }
 
   NVF_ERROR(isCompiled());
@@ -1161,50 +1214,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       __func__,
       " provided number of outputs does not match fusion output");
 
-  // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, fusion());
-
-  if (isExpressionEvaluated(fusion())) {
-    FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
-    outputs = evaluateFusionOutputs(outputs, expr_eval);
-    if (isProfilerEnabled()) {
-      auto& sprof = FusionProfiler::segment(group_id_);
-      sprof.stopKernel();
-      sprof.outputBytesAccessed(outputBytesProcessed(outputs));
-    }
-    return outputs;
-  }
-
-  if (host_ir_container_ != nullptr) {
-    FUSER_PERF_SCOPE("FusionExecutor::runFusion::host_ir_evaluate");
-    if (outputs.empty()) {
-      std::vector<GlobalBufferInfo> output_info = getBufferInfos(
-          expr_eval, PrimDataType::Int, host_ir_container_->outputs());
-      outputs = allocateOutputs(
-          host_ir_container_.get(), output_info, options_.device, expr_eval);
-    }
-    for (Expr* e : host_ir_container_->topLevelExprs()) {
-      NVF_ERROR(e->isA<Communication>());
-      auto* communication = e->as<Communication>();
-      c10d::Backend* backend =
-          communicator_->getBackendForTeam(communication->team(), std::nullopt);
-      auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
-      at::Tensor out_tensor = findBufferForFusionOutput(
-          outputs, communication->out(), host_ir_container_.get());
-      c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
-          communication,
-          communicator_->deviceId(),
-          backend,
-          in_tensor,
-          out_tensor);
-      if (work != nullptr) {
-        work->wait();
-      }
-    }
-    return outputs;
-  }
-
-  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for KernelExecutor.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
@@ -1254,6 +1264,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
+  // Bind fusion inputs
+  auto expr_eval = executor_utils::bindInputs(args, fusion());
+
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
@@ -1276,7 +1289,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
   {
-    FUSER_PERF_SCOPE("FusionExecutor::runFusion::intermediates");
+    FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;
@@ -1342,6 +1355,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
     dumpKernelArgs(
         fusion_id_,
+        group_id_,
         args,
         num_inputs,
         outputs,
@@ -1353,10 +1367,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
 
-  executor_utils::CudaKernelTimer timer(stream);
-
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
-    FUSER_PERF_SCOPE("FusionExecutor::runFusion::execute_kernel");
+    FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     recomputeArgs(*executor_entry, expr_eval, kernel());
@@ -1429,42 +1441,18 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id_);
     sprof.stopKernel();
-    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    sprof.outputBytesAccessed(computeBytes(outputs));
   }
 
   return outputs;
 }
 
-int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
-  int64_t num_bytes = 0;
-  // Figure how many bytes are inputs, outputs, and temporary buffers
-  for (auto i : c10::irange(args.size())) {
-    if (args[i]->is<at::Tensor>()) {
-      auto t = args[i]->as<at::Tensor>();
-      num_bytes += static_cast<int64_t>(t.storage().nbytes());
-    }
-  }
-  return num_bytes;
-}
-
-int64_t FusionExecutor::outputBytesProcessed(
-    const std::vector<at::Tensor>& outputs) {
-  int64_t num_bytes = 0;
-  for (auto i : c10::irange(outputs.size())) {
-    const auto& output = outputs.at(i);
-    // NOTE: this assumes that all output elements correspond to a single
-    // store
-    num_bytes += static_cast<int64_t>(output.storage().nbytes());
-  }
-  return num_bytes;
-}
-
-void FusionExecutor::compileRtc(
+void KernelExecutor::compileRtc(
     const std::string& code,
     const std::string& name,
     bool structured,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::compileRtc");
+  FUSER_PERF_SCOPE("KernelExecutor::compileRtc");
   NVF_ERROR(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
@@ -1482,11 +1470,11 @@ void FusionExecutor::compileRtc(
       executor_utils::getCompiledKernel(std::nullopt, scode, name, kernel_id_);
 }
 
-float FusionExecutor::runRtc(
+float KernelExecutor::runRtc(
     const LaunchParams& launch_params,
     const std::vector<at::Tensor>& args,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::runRtc");
+  FUSER_PERF_SCOPE("KernelExecutor::runRtc");
 
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -1547,9 +1535,9 @@ float FusionExecutor::runRtc(
   return kernel_time_ms;
 }
 
-flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
+flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  // See table definition for KernelExecutor in serde/fusion_cache.fbs
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
@@ -1564,10 +1552,10 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   // When compilation is skipped, avoid serializing cubin because it doesn't
   // exist. The remaining fields are also not necessary in this case.
   if (!hasCompiledKernel()) {
-    return serde::CreateFusionExecutorDirect(builder);
+    return serde::CreateKernelExecutorDirect(builder);
   }
 
-  return serde::CreateFusionExecutorDirect(
+  return serde::CreateKernelExecutorDirect(
       builder,
       device_smem_limit_,
       block_size_high_water_mark_,
@@ -1585,13 +1573,13 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       serialize(builder, compiled_kernel_.get()));
 }
 
-flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
+flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const executor_utils::CompiledKernel* compiled_kernel) const {
   NVF_ERROR(
       compiled_kernel_ != nullptr &&
           (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
-      "Expected compiled cuda kernel before serializing FusionExecutor.");
+      "Expected compiled cuda kernel before serializing KernelExecutor.");
 
   auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
   auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
@@ -1631,7 +1619,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   return ckb.Finish();
 }
 
-flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
+flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
@@ -1683,7 +1671,7 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
       &intermediates_fb);
 }
 
-flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
+flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const GlobalBufferInfo& data,
     int64_t tv_position,
@@ -1701,8 +1689,8 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       is_fusion_output);
 }
 
-void FusionExecutor::deserialize(
-    const serde::FusionExecutor* buffer,
+void KernelExecutor::deserialize(
+    const serde::KernelExecutor* buffer,
     Fusion* fusion,
     int8_t device_index,
     CompileParams compile_params,
@@ -1711,17 +1699,10 @@ void FusionExecutor::deserialize(
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id) {
-  // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  // See table definition for KernelExecutor in serde/fusion_cache.fbs
 
-  NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
-
-  // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
-  // skip compilation?
-  if (isExpressionEvaluated(fusion)) {
-    fusion_ = std::make_unique<Fusion>(*fusion);
-    NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
-    return;
-  }
+  NVF_ERROR(buffer != nullptr, "serde::KernelExecutor is nullptr.");
+  NVF_ERROR(fusion != nullptr, "Fusion is nullptr.");
 
   NVF_ERROR(
       fusion_id == buffer->fusion_id(),
@@ -1781,10 +1762,10 @@ void FusionExecutor::deserialize(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
-  NVF_ERROR(hasCompiledKernel(), "Failed to deserialize FusionExecutor");
+  NVF_ERROR(hasCompiledKernel(), "Failed to deserialize KernelExecutor");
 }
 
-FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
+KernelExecutor::ExecutorEntry KernelExecutor::deserialize(
     const serde::ExecutorEntry* buffer) {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
@@ -1807,7 +1788,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   return entry;
 }
 
-GlobalBufferInfo FusionExecutor::deserialize(
+GlobalBufferInfo KernelExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
 

@@ -13,7 +13,10 @@
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <python_frontend/fusion_definition.h>
+#include <python_frontend/translation.h>
 #include <runtime/executor.h>
+#include <runtime/executor_dispatch.h>
 #include <runtime/fusion_cache_utils.h>
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
@@ -82,7 +85,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     if (!communicator.is_available() || communicator.local_rank() == 0) {
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
-      fusion->printMath();
+      fusion->print();
     }
   }
 
@@ -125,7 +128,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  would go directly to kernel launch.
   prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 
-  executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
+  executors_.resize(segmented_fusion_->groups().size());
+
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();
   }
@@ -142,16 +146,18 @@ FusionKernelRuntime::FusionKernelRuntime(
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
-  for (auto& fe : executors_) {
-    fe.evictCache(input_id);
+  for (auto& ea : executors_) {
+    if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
+      ke->evictCache(input_id);
+    }
   }
 }
 
-bool FusionKernelRuntime::isCompiled() {
+bool FusionKernelRuntime::isCompiled() const {
   std::lock_guard<std::mutex> guard(mutex_);
   return std::all_of(
       executors_.begin(), executors_.end(), [](const auto& executor) {
-        return executor.isCompiled();
+        return ExecutorDispatch::isCompiled(executor.get());
       });
 }
 
@@ -159,11 +165,17 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
-  // 1. Serialize FusionExecutor objects
-  std::vector<flatbuffers::Offset<serde::FusionExecutor>> executors_fb;
+  NVF_CHECK(
+      isCompiled(),
+      "Tried to serialize entries of executors before they were initialized.");
+
+  // 1. Serialize KernelExecutor objects
+  std::vector<flatbuffers::Offset<serde::KernelExecutor>> executors_fb;
   executors_fb.reserve(executors_.size());
-  for (auto& executor : executors_) {
-    executors_fb.push_back(executor.serialize(builder));
+  for (auto& ea : executors_) {
+    if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
+      executors_fb.push_back(ke->serialize(builder));
+    }
   }
 
   flatbuffers::Offset<serde::SegmentedFusion> segmented_fusion_fb = 0;
@@ -198,8 +210,19 @@ void FusionKernelRuntime::deserialize(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
-  // 1. Deserialize FusionExecutor objects
-  for (auto idx : c10::irange(buffer->executors()->size())) {
+  // find the flatbuffer with the same group_id for SegmentedGroup
+  auto get_buffer = [&](int64_t group_id) {
+    for (auto buffer : *buffer->executors()) {
+      if (buffer->group_id() == group_id) {
+        return buffer;
+      }
+    }
+    NVF_THROW(
+        "Could not find the serialized group associated with id: ", group_id);
+  };
+
+  // 1. Deserialize KernelExecutor objects
+  for (auto idx : c10::irange(executors_.size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
     // Create and schedule Fusion for this SegmentedGroup
@@ -213,16 +236,32 @@ void FusionKernelRuntime::deserialize(
     SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
         ->schedule(fusion_to_run.get(), heuristic_params);
 
-    executors_.at(group_id).deserialize(
-        buffer->executors()->Get(group_id),
-        fusion_to_run.get(),
-        device_index,
-        heuristic_params->cparams,
-        heuristic_params->scheduler_type,
-        fusion_id_,
-        concrete_id_,
-        runtime_id_,
-        group_id);
+    // Initialize associated executors
+    executors_[group_id] = ExecutorDispatch::makeExecutor(
+        fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+
+    // Deserialize KernelExecutor; Otherwise use ExecutorDispatch
+    if (auto ke =
+            dynamic_cast<KernelExecutor*>(executors_.at(group_id).get())) {
+      ke->deserialize(
+          get_buffer(group_id),
+          fusion_to_run.get(),
+          device_index,
+          heuristic_params->cparams,
+          heuristic_params->scheduler_type,
+          fusion_id_,
+          concrete_id_,
+          runtime_id_,
+          group_id);
+    } else {
+      ExecutorDispatch::compile(
+          executors_.at(group_id).get(),
+          fusion_to_run.get(),
+          args_metadata_,
+          heuristic_params->lparams,
+          heuristic_params->cparams,
+          heuristic_params->scheduler_type);
+    }
   }
 }
 
@@ -271,6 +310,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(
@@ -297,6 +338,14 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::mutex thread_pool_error_message_mutex;
   for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+
+    if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
+      debug() << "Python definition for segmented group "
+              << group_to_run->groupId() << ":" << std::endl;
+      python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
+      python_frontend::translate(group_to_run->getFusion(), &fd);
+      fd.print(debug());
+    }
 
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
@@ -368,14 +417,24 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 }
 
 void FusionKernelRuntime::disableLaunchParamCache() {
+  NVF_CHECK(
+      isCompiled(),
+      "Tried to set parameters of executors before they were initialized.");
   for (auto& executor : executors_) {
-    executor.disableLaunchParamCache();
+    if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+      ke->disableLaunchParamCache();
+    }
   }
 }
 
 void FusionKernelRuntime::disableKernelLaunch() {
+  NVF_CHECK(
+      isCompiled(),
+      "Tried to set parameters of executors before they were initialized.");
   for (auto& executor : executors_) {
-    executor.setExecuteKernelFlag(false);
+    if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+      ke->setExecuteKernelFlag(false);
+    }
   }
 }
 
@@ -405,7 +464,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   std::unique_ptr<HeuristicParamsList> heuristics =
       std::make_unique<HeuristicParamsList>(num_groups);
 
-  // We make a mutable copy of args so that we can use it in an ArgumentManager
+  // We make a mutable copy of args so that we can use it in an
+  // ArgumentManager
   KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
       mutable_args, runtime_workspace_, segmented_fusion_->inputs());
@@ -432,8 +492,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       evaluator_precomputed_values =
           std::make_unique<PrecomputedValues>(fusion_to_run);
       evaluator_precomputed_values->bindInputs(group_runtime_inputs);
-      // TODO Remove binding the original fusion inputs when creating heuristics
-      // for fusion segment.
+      // TODO Remove binding the original fusion inputs when creating
+      // heuristics for fusion segment.
       evaluator_precomputed_values->bindValues(
           group_to_run->getCompleteFusionInputs(), args);
       evaluator_precomputed_values->evaluate();
@@ -457,6 +517,14 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
               group_to_run, fusion_to_run_info);
     } else {
       // Try to get scheduler entry
+      // NOTE: we are able to skip compile time checks here since the fusion
+      // has already been segmented. During segmentation, each segment must
+      // pass both canScheduleCompileTime and canScheduleRuntime for the
+      // scheduler that accepts the segment. Since we might have different
+      // runtime info than was used during segmentation, we cannot skip
+      // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
+      // skip it here to avoid performing expensive fusion traversals on the
+      // dynamic shape path.
       auto maybe_heuristic_params =
           group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
       // If unavailable, then return std::nullopt
@@ -497,7 +565,8 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   }
 }
 
-const std::vector<FusionExecutor>& FusionKernelRuntime::executors() const {
+const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
+    executors() const {
   return executors_;
 }
 
@@ -582,20 +651,21 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
-  auto& executor = executors_.at(group_id);
+  ExecutorAbstract* ea = executors_.at(group_id).get();
 
   if (profiling_) {
-    most_recent_executor_log_.fusion_executor = &executor;
+    most_recent_executor_log_.fusion_executor = ea;
     most_recent_executor_log_.params = heuristic_params->clone();
   }
 
-  // TODO: This is a work around for the fallback execution path where a kernel
-  // is not compiled. Perhaps the gorup/segment Id needs to be specified to the
-  // executor at its constructor.  Currently, initialization is ad hoc.
-  if (executor.groupId() < 0) {
-    executor.setGroupId(group_id);
+  // TODO: This is a work around for the fallback execution path where a
+  // kernel is not compiled. Perhaps the group/segment Id needs to be
+  // specified to the executor at its constructor.  Currently, initialization
+  // is ad hoc.
+  if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
+    ke->setGroupId(group_id);
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  auto outputs = ExecutorDispatch::run(ea, args, launch_params, compile_params);
 
   return outputs;
 }
@@ -609,7 +679,6 @@ void FusionKernelRuntime::compileKernel(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
-  NVF_ERROR(!executors_.at(group_id).isCompiled());
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
@@ -625,16 +694,18 @@ void FusionKernelRuntime::compileKernel(
   NVF_ERROR(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
-  executors_.at(group_id).compileFusion(
+
+  // Initialize associated executors
+  executors_[group_id] = ExecutorDispatch::makeExecutor(
+      fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+
+  ExecutorDispatch::compile(
+      executors_.at(group_id).get(),
       fusion_to_run.get(),
       args,
       heuristic_params->lparams,
       heuristic_params->cparams,
-      heuristic_params->scheduler_type,
-      fusion_id_,
-      concrete_id_,
-      runtime_id_,
-      group_id);
+      heuristic_params->scheduler_type);
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

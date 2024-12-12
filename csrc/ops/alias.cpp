@@ -588,7 +588,8 @@ TensorView* pad(
 TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t cat_dim,
-    std::optional<IterType> iter_type_opt) {
+    std::optional<IterType> iter_type_opt,
+    bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
@@ -627,6 +628,24 @@ TensorView* cat(
   // Special handling for the case where there's only one input
   if (inputs.size() == 1) {
     return set(inputs.at(0));
+  }
+
+  // short-circuit: If manual_padding is true, check that all inputs are already
+  // padded. Assume the padding is correct and create the catOp immediately.
+  // Primarily used for FusionTranslation, which adds the padOp for each tensor
+  // separately.
+  if (manual_padding) {
+    bool all_padded =
+        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
+          return tv->definition()->isA<PadOp>();
+        });
+    NVF_ERROR(
+        all_padded,
+        "Expected all inputs to be padded when manual_padding is True.");
+    std::vector<Val*> input_vals(inputs.begin(), inputs.end());
+    auto out = ops::newOutputTV(input_vals, dtype);
+    IrBuilder::create<CatOp>(out, input_vals, cat_dim);
+    return out;
   }
 
   Val* concat_ext = nullptr;
@@ -714,7 +733,10 @@ TensorView* cat(
   return out;
 }
 
-TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<Slice>& ranges,
+    bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
@@ -725,7 +747,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+  const auto normalize_slice_range = [&manual_normalization](
+                                         Slice range, Val* extent) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
@@ -737,12 +760,14 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.start->isZeroInt()) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
-      range.start = SimplifyingIrBuilder::maxExpr(
-          zero,
-          SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::ltExpr(range.start, zero),
-              SimplifyingIrBuilder::addExpr(range.start, cast_extent),
-              range.start));
+      if (!manual_normalization) {
+        range.start = SimplifyingIrBuilder::maxExpr(
+            zero,
+            SimplifyingIrBuilder::whereExpr(
+                SimplifyingIrBuilder::ltExpr(range.start, zero),
+                SimplifyingIrBuilder::addExpr(range.start, cast_extent),
+                range.start));
+      }
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
@@ -751,14 +776,16 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      range.stop = SimplifyingIrBuilder::maxExpr(
-          range.start,
-          SimplifyingIrBuilder::minExpr(
-              cast_extent,
-              SimplifyingIrBuilder::whereExpr(
-                  SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                  SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
-                  range.stop)));
+      if (!manual_normalization) {
+        range.stop = SimplifyingIrBuilder::maxExpr(
+            range.start,
+            SimplifyingIrBuilder::minExpr(
+                cast_extent,
+                SimplifyingIrBuilder::whereExpr(
+                    SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                    SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                    range.stop)));
+      }
     }
 
     // Ensure step is of type Index

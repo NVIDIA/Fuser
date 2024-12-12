@@ -135,10 +135,12 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   };
   config->load_stages =
       mparams->circular_buffer_options.smem_circular_buffer_stage;
+  config->prefetch_gap =
+      mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap;
   config->async_gmem_load_operands = mparams->async_gmem_load_operands;
   setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
-  setConfigTile(config->instruction_tile, mparams->tile_sizes.instruction_tile);
+  setConfigTile(config->instruction_tile, getMmaOpShape(mparams->mma_macro));
   config->splitk_factor = mparams->splitk_factor;
   config->grid_swizzle_factor = mparams->grid_swizzle_factor;
   config->cta_order =
@@ -146,8 +148,6 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
                                                                            : 1;
   config->circular_buffer_smem_read =
       mparams->circular_buffer_options.circular_buffer_smem_read;
-  config->rotate_ldmatrix_out_of_main_loop =
-      mparams->rotate_ldmatrix_out_of_main_loop;
   config->problem.supported_vec_size.a = (uint8_t)mparams->supported_vec_size.a;
   config->problem.supported_vec_size.b = (uint8_t)mparams->supported_vec_size.b;
   config->problem.supported_vec_size.epilogue =
@@ -163,11 +163,12 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   };
   setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
-  setGemmTile(mparams->tile_sizes.instruction_tile, config->instruction_tile);
   mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
+  mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap =
+      config->prefetch_gap;
   mparams->async_gmem_load_operands = config->async_gmem_load_operands;
-  // Update mma macro if necessary to match instruction tile
+  // Update mma macro if necessary to match provided instruction tile
   MmaMacroEncode menc(mparams->mma_macro); // this will record the family
   menc.m = config->instruction_tile[0]; // update instruction tile size
   menc.n = config->instruction_tile[1];
@@ -190,8 +191,6 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   }
   mparams->circular_buffer_options.circular_buffer_smem_read =
       config->circular_buffer_smem_read;
-  mparams->rotate_ldmatrix_out_of_main_loop =
-      config->rotate_ldmatrix_out_of_main_loop;
 
   // enable circular buffering if configured
   mparams->circular_buffer_options.circular_buffer_smem_write =

@@ -36,7 +36,7 @@ static void setupFusion(Fusion* fusion) {
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, 0, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, 0, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
   auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 
@@ -132,8 +132,8 @@ static void NvFuserScheduler_IndexSelect_Compile(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    FusionExecutor executor;
-    executor.compileFusion(
+    KernelExecutor ke;
+    ke.compile(
         &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }
@@ -155,8 +155,8 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
-  executor.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -164,7 +164,7 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   at::Tensor output = at::empty_like(inputs[0].toTensor());
 
   for (auto _ : benchmark_state) {
-    executor.runFusion(
+    ke.run(
         c10::ArrayRef<c10::IValue>(inputs),
         {output},
         heuristic_params->lparams);
@@ -196,7 +196,7 @@ static void setupIndexSelectSimple(
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, select_dim, t_idx); // select at dim=0
   if (is_fp16) {
     t2 = castOp(DataType::Half, t2);
   }
@@ -221,7 +221,7 @@ static void setupIndexSelect(Fusion* fusion, DataType dtype, int select_dim) {
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, select_dim, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
   auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 
@@ -235,7 +235,7 @@ static void setupIndexSelect(Fusion* fusion, DataType dtype, int select_dim) {
 
 static void NvFuserScheduler_IndexSelectSimple(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int select_dim) {
   auto elem_size = benchmark_state.range(0);
@@ -257,7 +257,7 @@ static void NvFuserScheduler_IndexSelectSimple(
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -267,7 +267,7 @@ static void NvFuserScheduler_IndexSelectSimple(
 
 static void NvFuserScheduler_IndexSelect(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int select_dim) {
   auto elem_size = benchmark_state.range(0);
@@ -289,7 +289,7 @@ static void NvFuserScheduler_IndexSelect(
 
   std::vector<c10::IValue> aten_inputs = {t2, t0, t1};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

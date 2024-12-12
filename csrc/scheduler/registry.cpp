@@ -120,7 +120,8 @@ bool canSchedule(
     SchedulerType scheduler_type,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
+    HeuristicDataCache* data_cache,
+    bool skip_compile_time_checks) {
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since during segmentation the segmenter will call
   // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
@@ -130,8 +131,12 @@ bool canSchedule(
 
   std::unique_ptr<SchedulerEntry> scheduler =
       SchedulerEntry::makeSchedulerInstance(scheduler_type);
-  return scheduler->canScheduleCompileTime(fusion) &&
-      scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
+
+  if (!skip_compile_time_checks && !scheduler->canScheduleCompileTime(fusion)) {
+    return false;
+  }
+
+  return scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
 }
 
 // Simply loop through the list as baseline strategy
@@ -224,4 +229,6 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
+template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser

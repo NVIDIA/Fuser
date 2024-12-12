@@ -13,6 +13,10 @@ set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
+option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
+if (NVFUSER_EXPLICIT_ERROR_CHECK)
+  add_compile_definitions(NVFUSER_EXPLICIT_ERROR_CHECK)
+endif()
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 include(CMakeDependentOption)
@@ -188,15 +192,18 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/insert_reshardings.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
@@ -208,6 +215,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/ampere_multi_matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/hopper_multi_matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
@@ -227,6 +236,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/resize_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
@@ -262,6 +272,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/segmentation.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/translation.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
@@ -541,6 +552,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
@@ -548,6 +560,8 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
@@ -762,46 +776,6 @@ if(BUILD_NVFUSER_BENCHMARK)
       -Wall -Wno-unused-function
       -Werror -Wno-deprecated-copy
     )
-  endif()
-
-  # multidevice benchmarks
-  if (NVFUSER_DISTRIBUTED)
-    set(MULTIDEVICE_BENCHMARK_SRCS)
-    list(APPEND MULTIDEVICE_BENCHMARK_SRCS
-      ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/utils.cpp
-    )
-
-    add_executable(nvfuser_multidevice_bench ${MULTIDEVICE_BENCHMARK_SRCS})
-    set_target_properties(nvfuser_multidevice_bench PROPERTIES
-      C_STANDARD ${NVFUSER_C_STANDARD}
-      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-      CXX_STANDARD_REQUIRED ON
-      CXX_VISIBILITY_PRESET hidden
-      POSITION_INDEPENDENT_CODE Yes
-      VISIBILITY_INLINES_HIDDEN Yes
-    )
-
-    target_include_directories(nvfuser_multidevice_bench SYSTEM PRIVATE
-      ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
-      ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    )
-    target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
-    target_link_libraries(nvfuser_multidevice_bench PRIVATE
-      benchmark::benchmark
-      codegen_internal
-    )
-    add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
-
-    if(NOT MSVC)
-    target_compile_options(nvfuser_bench PRIVATE
-      -Wall -Wno-unused-function
-      -Werror -Wno-deprecated-copy
-    )
-    endif()
   endif()
 endif()
 
