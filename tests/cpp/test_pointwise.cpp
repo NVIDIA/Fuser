@@ -1070,10 +1070,10 @@ TEST_F(PointwiseTest, DomainMapPad1) {
   // tv4 {i8, i0}
   auto tv4 =
       pad(tv0,
-          {IrBuilder::create<Val>(4L),
-           IrBuilder::create<Val>(4L),
+          {IrBuilder::create<Val>(0L),
            IrBuilder::create<Val>(0L),
-           IrBuilder::create<Val>(0L)});
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(4L)});
   fusion->addOutput(tv4);
 
   DomainMapUnitTest domain_map(fusion);
