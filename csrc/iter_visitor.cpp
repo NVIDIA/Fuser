@@ -36,38 +36,51 @@ void remove_visited(
   }
 }
 
+class MemberStatements : public OptOutDispatch {
+ public:
+  // Return all members of the stmt if it's a Val. For expressions it returns
+  // nothing.
+  static std::vector<Statement*> next(Statement* stmt) {
+    MemberStatements find_next(stmt);
+    return find_next.next_stmts_;
+  }
+
+ private:
+  MemberStatements() = default;
+
+  MemberStatements(Statement* stmt) {
+    dispatch(stmt);
+  }
+
+  using OptOutDispatch::dispatch;
+  using OptOutDispatch::handle;
+
+  void dispatch(Val* val) final {
+    FusionGuard::getCurFusion()->assertInContainer(
+        val,
+        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
+    OptOutDispatch::dispatch(val);
+  }
+
+  void handle(IterDomain* stmt) final {
+    next_stmts_.push_back(stmt->start());
+    next_stmts_.push_back(stmt->extent());
+    next_stmts_.push_back(stmt->stopOffset());
+  }
+
+  void handle(TensorDomain* stmt) final {
+    next_stmts_.insert(
+        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
+  }
+
+  void handle(TensorView* tv) final {
+    next_stmts_.push_back(tv->domain());
+  }
+
+  std::vector<Statement*> next_stmts_;
+};
+
 } // namespace
-
-std::vector<Statement*> MemberStatements::get(Statement* stmt) {
-  MemberStatements find_next(stmt);
-  return find_next.next_stmts_;
-}
-
-MemberStatements::MemberStatements(Statement* stmt) {
-  dispatch(stmt);
-}
-
-void MemberStatements::dispatch(Val* val) {
-  FusionGuard::getCurFusion()->assertInContainer(
-      val,
-      "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
-  OptOutDispatch::dispatch(val);
-}
-
-void MemberStatements::handle(IterDomain* stmt) {
-  next_stmts_.push_back(stmt->start());
-  next_stmts_.push_back(stmt->extent());
-  next_stmts_.push_back(stmt->stopOffset());
-}
-
-void MemberStatements::handle(TensorDomain* stmt) {
-  next_stmts_.insert(
-      next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
-}
-
-void MemberStatements::handle(TensorView* tv) {
-  next_stmts_.push_back(tv->domain());
-}
 
 std::vector<Statement*> IterVisitor::next(Statement* stmt) {
   if (stmt->isVal()) {
@@ -216,7 +229,7 @@ void IterVisitor::traverseBetween(
       }
 
       if (traverse_into_members) {
-        auto members = MemberStatements::get(stmt);
+        auto members = MemberStatements::next(stmt);
         next_stmts.insert(next_stmts.end(), members.begin(), members.end());
       }
 
