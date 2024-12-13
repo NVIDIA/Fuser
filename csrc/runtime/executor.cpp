@@ -955,7 +955,15 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   // Placeholder for the case where parameter cache is not used
   ExecutorEntry temporary_executor_entry;
-
+  std::cout << "========================" << std::endl;
+  std::cout << (args.getCacheId().has_value() ? "Has value"
+                                              : "Doesn't have value")
+            << std::endl;
+  std::cout << (compiled_kernel_->disablePaarameterCache()
+                    ? "Param cache disabled"
+                    : "Param cache not disabled")
+            << std::endl;
+  std::cout << "========================" << std::endl;
   ExecutorEntry* executor_entry = args.getCacheId().has_value() &&
           !compiled_kernel_->disablePaarameterCache()
       ? &executor_entry_lookup_[*args.getCacheId()]
@@ -1185,6 +1193,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 
 flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
+  std::cout << "KernelExecutor::serialize 1" << std::endl;
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
@@ -1192,7 +1201,9 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
   // vectors. The key value is the cache_id value in the KernelArgumentHolder.
   std::vector<size_t> executor_entry_lookup_keys_fb;
   std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
+  std::cout << "Lookup: " << executor_entry_lookup_.size() << std::endl;
   for (const auto& [key, value] : executor_entry_lookup_) {
+    std::cout << "---------Serialize entry---------------" << std::endl;
     executor_entry_lookup_keys_fb.push_back(key);
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
@@ -1224,6 +1235,7 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
 flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const executor_utils::CudaExecutable* compiled_kernel) const {
+  std::cout << "KernelExecutor::serialize 2" << std::endl;
   NVF_ERROR(
       compiledKernel()->cudaExecutable() != nullptr &&
           (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
@@ -1270,6 +1282,8 @@ flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
 flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
+  std::cout << "KernelExecutor::serialize 3" << std::endl;
+  std::cout << "=========ExecutorEntry Serialize===============" << std::endl;
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
   // Serialize GlobalBufferInfo for outputs.

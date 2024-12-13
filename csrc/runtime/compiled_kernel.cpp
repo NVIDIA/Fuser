@@ -1097,6 +1097,7 @@ void CompiledKernel::compileFusion(
     if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
           return val->isFusionInput();
         })) {
+      std::cout << "!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
       // TODO: parameter cache is too big a hammer here. We should consider
       // separate the caching logic of output sizes & launch params. Since
       // output size dependency should only invalidate the output sizes
