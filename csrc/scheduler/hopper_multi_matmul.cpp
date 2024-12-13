@@ -515,12 +515,20 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
       auto* dc = d->definition()->input(0)->as<TensorView>();
 
+      std::vector<TensorView*> tvs_to_schedule{d};
+      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
+          mma_results_.end()) {
+        // Skip scheduling dc if it is an mma_result. This can happen if we are
+        // not casting back to half-precision in the output
+        tvs_to_schedule.push_back(dc);
+      }
+
       // Block Schedule and Parallelize
-      blockTileTensors({dc, d});
-      parallelizeBlocks({dc, d});
+      blockTileTensors(tvs_to_schedule);
+      parallelizeBlocks(tvs_to_schedule);
 
       // Apply mma common transformation
-      for (auto tv : {dc, d}) {
+      for (auto tv : tvs_to_schedule) {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             tv->getLoopDomain());
@@ -554,6 +562,14 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // NOTE: cacheBefore does not work with blockTileTensors
       TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
 
+      std::vector<TensorView*> tvs_to_schedule{d, d_smem};
+      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
+          mma_results_.end()) {
+        // Skip scheduling dc if it is an mma_result. This can happen if we are
+        // not casting back to half-precision in the output
+        tvs_to_schedule.push_back(dc);
+      }
+
       // Set MemoryType
       dc->setMemoryType(MemoryType::Local);
       d_smem->setMemoryType(MemoryType::Shared);
@@ -565,11 +581,11 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
       // Block Schedule and Parallelize
-      blockTileTensors({dc, d_smem, d});
-      parallelizeBlocks({dc, d_smem, d});
+      blockTileTensors(tvs_to_schedule);
+      parallelizeBlocks(tvs_to_schedule);
 
       // Apply mma common transformation
-      for (auto tv : {dc, d_smem, d}) {
+      for (auto tv : tvs_to_schedule) {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
