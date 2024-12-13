@@ -327,34 +327,6 @@ inferAndValidateAllocationSizesAndStrides(
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
 
-std::vector<int64_t> computeStrides(
-    TensorView* tv,
-    const c10::IntArrayRef sizes) {
-  const auto& logical_domain = tv->getLogicalDomain();
-  const auto& allocation_domain = tv->getMaybeAllocationDomain();
-
-  std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
-      TensorDomain::noReductions(logical_domain),
-      TensorDomain::noReductions(allocation_domain));
-  NVF_CHECK(
-      out_order.has_value(),
-      "Valid permute from logical to allocation domain was not found.");
-
-  auto rank = sizes.size();
-  std::vector<int64_t> sorted_strides(rank);
-  auto permuted_sizes = ir_utils::applyPermutation(sizes.vec(), *out_order);
-  sorted_strides[rank - 1] = 1;
-  for (int64_t idx = rank - 2; idx >= 0; idx--) {
-    sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];
-  }
-  // Rearrange the strides in correct order of allocation
-  std::vector<int64_t> strides(rank);
-  for (auto idx : c10::irange(rank)) {
-    strides[out_order.value()[idx]] = sorted_strides[idx];
-  }
-  return strides;
-}
-
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {

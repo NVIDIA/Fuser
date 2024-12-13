@@ -205,8 +205,8 @@ class TestMatmul(NVFuserTest):
     def test_matmul_stride(self):
         n, h, l, s, e = 4, 8, 16, 16, 8
         inputs = [
-            torch.randn(n, h, l, e, device="cuda", dtype=torch.float16),
-            torch.randn(n, h, s, e, device="cuda", dtype=torch.float16),
+            torch.randn(n, h, l, e, device="cuda", dtype=torch.float16, requires_grad=True),
+            torch.randn(n, h, s, e, device="cuda", dtype=torch.float16, requires_grad=True),
         ]
         for perm in itertools.permutations(range(4), 4):
 
