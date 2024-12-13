@@ -2065,7 +2065,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   // python's operator __truediv__ (/). The div function in csrc/ops/arith.h
   // truncates the result instead of promoting it to float. It has the same
   // semantics as the C++'s (/) operator. In pytorch,
-  // torch.div(a, b, rounding_mode='trunc') corresponds C-style integerw
+  // torch.div(a, b, rounding_mode='trunc') corresponds C-style integer
   // division.
   //
   // Hence, in the python frontend, the __truediv__ (/) python operator maps to
