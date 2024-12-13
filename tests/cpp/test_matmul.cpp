@@ -3819,9 +3819,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // constexpr int64_t M = 2048, N = 2048, K = 8192;
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
-  // constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
@@ -3954,7 +3954,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
     // of 3
     ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
     inlineMost();
-    tmp_fusion.printMath();
     ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
     EXPECT_EQ(ir_cloner.clone(tv0c)->getComputeAtPosition(), 1);
     // The outermost loop dim of tv1c is a broadcast Mo axis, so
@@ -3981,7 +3980,17 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   pred_checker.handle(kernel->topLevelExprs());
   ASSERT_TRUE(pred_checker.found_mma);
 
-  // TODO: compile and run kernel once inlining is fixed
+  auto [A3d, B3d] =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  at::Tensor A = A3d.squeeze();
+  at::Tensor B = B3d.squeeze();
+  std::vector<c10::IValue> inputs{A, B};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams);
+  auto cg_outputs = ke.run(inputs);
+  auto tref = atMatmul(A, B, layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 } // namespace nvfuser

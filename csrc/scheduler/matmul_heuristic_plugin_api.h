@@ -74,6 +74,9 @@ struct KernelConfig {
   Tile instruction_tile = {16, 16, 16};
   uint16_t splitk_factor = 1;
   uint8_t load_stages = 2;
+  // The circular buffering prefetch distance will be set to
+  //   load_stages - prefetch_gap
+  uint8_t prefetch_gap = 1;
   uint8_t grid_swizzle_factor = 0;
   uint8_t cta_order = 0;
   bool circular_buffer_smem_read = true;
