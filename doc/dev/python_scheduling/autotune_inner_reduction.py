@@ -218,6 +218,19 @@ class AutotuneInnerReduction:
                 scheduler_config.grdim = remaining_reduction
                 yield scheduler_config
 
+                # When iteration dim is small, there may be unused SMs. We need
+                # to shift work from block reduction to grid reduction to
+                # increase SM usage.
+                godim = scheduler_config.godim
+                grdim = 1
+                while (
+                    godim * grdim * 2 <= self.gpu_properties.multi_processor_count
+                    and (remaining_reduction / grdim) >= 2
+                ):
+                    grdim *= 2
+                scheduler_config.grdim = grdim
+                yield scheduler_config
+
             # grid stride across reduction iterDomain is 1
             scheduler_config.grdim = 1
             yield scheduler_config
