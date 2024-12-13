@@ -4714,7 +4714,7 @@ fd.execute(inputs)
         # extents range from [-1, -6].
         self.assertEqual(fd.extents(), [idx for idx in range(-1, -7, -1)])
 
-    def test_issue_3292(self):
+    def test_issue3292(self):
         inputs = [
             torch.testing.make_tensor(
                 (5, 5, 576), dtype=torch.float32, device="cuda:0"
@@ -4827,3 +4827,32 @@ fd.execute(inputs)
         # Serializing error test cases corrupts the serialized binary causing subsequent tests to fail.
         # Reset the fusion cache to avoid this.
         FusionCache.reset()
+
+    def test_issue1279(self):
+        inputs = [
+            torch.randn(2, 1, 2, dtype=torch.float16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, 1, -1],
+                contiguity=[True, None, True],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
+            T4 = fd.ops.cast(T0, dtype=DataType.Float)
+            T5, T6 = fd.ops.var_mean(T4, dims=[1], correction=1, keepdim=False)
+            T7 = fd.ops.cast(T5, dtype=DataType.Half)
+            T8 = fd.ops.cast(T6, dtype=DataType.Half)
+            fd.add_output(T7)
+            fd.add_output(T8)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        a = inputs[0].type(torch.float32)
+        b, c = torch.var_mean(a, dim=1)
+        d = b.type(torch.float16)
+        e = c.type(torch.float16)
+
+        self.assertEqual(nvf_out[0], d)
+        self.assertEqual(nvf_out[1], e)
