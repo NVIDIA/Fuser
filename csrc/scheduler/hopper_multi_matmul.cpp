@@ -435,17 +435,19 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 }
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
-  // Load/cache the epilogue inputs if there are any.
-  auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
   std::vector<TensorView*> cached_tvs;
-  for (auto* c : c_tvs) {
-    cached_tvs.push_back(c->cacheAfter());
-  }
+  std::vector<TensorView*> c_tvs;
 
-  // Propato to (not including) the splitk output if there is a splitk
+  // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
-  std::vector<TensorView*> propagate_to = splitk_sums_;
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
+    auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
+    // Load/cache the epilogue inputs if there are any.
+    for (auto* c : c_tvs) {
+      cached_tvs.push_back(c->cacheAfter());
+    }
     propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
   }
 
@@ -464,6 +466,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           d->getLoopDomain());
       d->setLoopDomain(s.as<IterDomain*>());
 
+      // TODO: We need to check bank conflicts in this path.
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           d,
           -1,
@@ -476,9 +479,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // TODO: support vectorization_factor.
       d->axis(-1)->parallelize(ParallelType::Vectorize);
       scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
-
-      // The cached EPILOGUE_INPUT tvs are not needed anymore
-      cached_tvs.clear();
     }
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
