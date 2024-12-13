@@ -2660,6 +2660,66 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
+  // TODO: fix up params or switch to FusionExecutorCache when ready, then
+  // enable Ampere
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  const int M = 504, N = 136, K = 1024;
+
+  at::manual_seed(0);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto a = at::randn({M, K}, options);
+  auto b = at::randn({N, K}, options);
+  auto t0 = a.unsqueeze(1);
+  auto t1 = b.unsqueeze(0);
+  auto tref = at::matmul(a.to(at::kFloat), b.to(at::kFloat).t());
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 16);
+  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
+  // TODO: Currently we use stmatrix whenever this is true. We cannot do that
+  // when the dtype is not 16 bits.
+  mparams.use_smem_epilogue = false;
+  mparams.promote_prologue_smem_reuse = false;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams);
+  auto outputs = ke.run(inputs);
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+}
+
 class MatmulFusionTest : public MatmulSchedulerTest,
                          public ::testing::WithParamInterface<bool> {
  protected:

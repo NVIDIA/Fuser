@@ -353,6 +353,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       options.setConsumerIndex(true);
       options.setInlinePredicate(true);
       options.setUnswitchPredicate(true);
+      options.setLoop(true);
       continue;
     } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
