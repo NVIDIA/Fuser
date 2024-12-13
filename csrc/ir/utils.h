@@ -802,4 +802,5 @@ TensorView* getTvInput(const Expr*);
 std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
+
 } // namespace nvfuser::ir_utils

@@ -114,4 +114,5 @@ inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee);
+
 } // namespace nvfuser
