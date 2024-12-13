@@ -4090,8 +4090,6 @@ TEST_F(ResizeTest, PropagateSliceToInputsWithReshape1) {
   // Fusion should have a uniform loop domain
   checkLoopDomainEquivalence(ref_tv);
 
-  fusion.print();
-
   // Schedule the reference
   ref_tv->flatten();
   // For TIDx
@@ -4240,8 +4238,6 @@ TEST_F(ResizeTest, PropagateMultipleSlicesToInputs) {
 
   // Fusion should have a uniform loop domain
   checkLoopDomainEquivalence(ref_tv);
-
-  fusion.print();
 
   // Schedule the reference
   ref_tv->flatten();
