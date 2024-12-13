@@ -3763,8 +3763,10 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
   while (!ids_to_be_sorted.empty()) {
     auto it = ids_to_be_sorted.begin();
     while (it != ids_to_be_sorted.end()) {
-      auto in_it = out2in.find(*it);
-      if (in_it == out2in.end() || sorted_ids.has(in_it->second)) {
+      auto range = out2in.equal_range(*it);
+      if (std::all_of(range.first, range.second, [&](const auto& kv) {
+            return sorted_ids.has(kv.second);
+          })) {
         sorted_ids.pushBack(*it);
         it = ids_to_be_sorted.erase(it);
       } else {
