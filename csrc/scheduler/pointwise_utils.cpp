@@ -10,7 +10,8 @@
 namespace nvfuser {
 namespace pointwise_utils {
 
-TensorView* DomainMap::findReferenceTensor(int64_t minimum_num_axes) const {
+TensorView* PointwiseDomainMap::findReferenceTensor(
+    int64_t minimum_num_axes) const {
   TensorView* result = nullptr;
   int64_t max_dims = -1;
   for (auto output_tv :
@@ -30,7 +31,7 @@ TensorView* DomainMap::findReferenceTensor(int64_t minimum_num_axes) const {
 
 TensorView* getReferenceTensor(Fusion* fusion) {
   FusionGuard fg(fusion);
-  DomainMap domain_map(fusion);
+  PointwiseDomainMap domain_map(fusion);
   auto reference_tv = domain_map.findReferenceTensor();
   return reference_tv;
 }

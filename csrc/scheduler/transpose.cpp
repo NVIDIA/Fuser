@@ -155,7 +155,7 @@ bool hasSmallTransposeDimensions(
 
 // DomainMap uses the ComputeAtMap to find a reference TensorView
 // that maps to all iterDomains in the fusion.
-class DomainMap : public scheduler_tools::DomainMap {
+class TransposeDomainMap : public scheduler_tools::DomainMap {
  public:
   using scheduler_tools::DomainMap::DomainMap;
 
@@ -196,7 +196,7 @@ class DomainMap : public scheduler_tools::DomainMap {
 
   static bool hasAtLeastTwoValidGroups(Fusion* fusion) {
     FusionGuard fg(fusion);
-    DomainMap domain_map(fusion);
+    TransposeDomainMap domain_map(fusion);
     auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
     if (grouped_inputs_outputs.size() < 2) {
       return false;
@@ -560,12 +560,14 @@ HeuristicDataCacheEntry<HeuristicCompileTime::TransposeDomainMap> getDomainMap(
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::TransposeDomainMap>(
           data_cache,
-          [fusion]() { return std::make_unique<DomainMap>(fusion); });
+          [fusion]() { return std::make_unique<TransposeDomainMap>(fusion); });
   return domain_map_entry;
 }
 
 HeuristicDataCacheEntry<HeuristicCompileTime::InputsOutputsInnerDimGroups>
-getInputsOutputsGroups(HeuristicDataCache* data_cache, DomainMap& domain_map) {
+getInputsOutputsGroups(
+    HeuristicDataCache* data_cache,
+    TransposeDomainMap& domain_map) {
   auto grouped_inputs_outputs_entry = HeuristicDataCacheEntry<
       HeuristicCompileTime::InputsOutputsInnerDimGroups>(
       data_cache, [&domain_map]() {
@@ -584,7 +586,7 @@ getInputsOutputsGroups(HeuristicDataCache* data_cache, DomainMap& domain_map) {
 HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensorsForGroups>
 getReferenceTensors(
     HeuristicDataCache* data_cache,
-    DomainMap& domain_map,
+    TransposeDomainMap& domain_map,
     std::vector<std::vector<TensorView*>>& grouped_inputs_outputs) {
   auto reference_tensors_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensorsForGroups>(
@@ -609,7 +611,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
-    DomainMap& domain_map) {
+    TransposeDomainMap& domain_map) {
   auto ref_logical = reference->getLogicalDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
@@ -635,7 +637,7 @@ getInnerMostDimInfoInReference(
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& group_references,
     TensorView* global_reference,
-    DomainMap& domain_map) {
+    TransposeDomainMap& domain_map) {
   auto innermost_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>(
           data_cache, [&]() {
@@ -659,7 +661,7 @@ std::string getTransposeRuntimeRejectReason(
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
   auto domain_map_entry = getDomainMap(data_cache, fusion);
-  auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
+  auto& domain_map = dynamic_cast<TransposeDomainMap&>(domain_map_entry.get());
   auto grouped_inputs_outputs_entry =
       getInputsOutputsGroups(data_cache, domain_map);
   auto grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
@@ -789,7 +791,7 @@ std::string getTransposeRuntimeRejectReason(
 } // namespace
 
 bool hasAtLeastTwoValidGroups(Fusion* fusion) {
-  return DomainMap::hasAtLeastTwoValidGroups(fusion);
+  return TransposeDomainMap::hasAtLeastTwoValidGroups(fusion);
 }
 
 std::unique_ptr<TransposeParams> getTransposeHeuristics(
@@ -802,7 +804,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   const auto index_type = runtime_info.getIndexType();
 
   auto domain_map_entry = getDomainMap(data_cache, fusion);
-  auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
+  auto& domain_map = dynamic_cast<TransposeDomainMap&>(domain_map_entry.get());
   auto grouped_inputs_outputs_entry =
       getInputsOutputsGroups(data_cache, domain_map);
   auto grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
@@ -1057,7 +1059,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     return;
   }
 
-  DomainMap domain_map(fusion);
+  TransposeDomainMap domain_map(fusion);
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
   NVF_ERROR(grouped_inputs_outputs.size() >= 2);
 

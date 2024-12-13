@@ -30,7 +30,7 @@ inline int64_t nRootDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
-class DomainMap : public scheduler_tools::DomainMap {
+class PointwiseDomainMap : public scheduler_tools::DomainMap {
  public:
   using scheduler_tools::DomainMap::DomainMap;
 

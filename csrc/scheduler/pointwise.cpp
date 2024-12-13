@@ -49,10 +49,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
           data_cache, [fusion]() {
-            return std::make_unique<pointwise_utils::DomainMap>(fusion);
+            return std::make_unique<pointwise_utils::PointwiseDomainMap>(
+                fusion);
           });
-  const auto& domain_map =
-      dynamic_cast<pointwise_utils::DomainMap&>(domain_map_entry.get());
+  const auto& domain_map = dynamic_cast<pointwise_utils::PointwiseDomainMap&>(
+      domain_map_entry.get());
 
   auto largest_out_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
