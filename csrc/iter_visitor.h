@@ -341,6 +341,18 @@ class StmtSort : public IterVisitor {
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
+  NVF_API static std::vector<Statement*> getAllStmts(
+      Fusion* fusion,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
+  NVF_API static std::vector<Statement*> getAllStmtsTo(
+      const std::vector<Val*>& to,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
   // Returns ordered Statements required to produce from, including from.
   // Stops traversal once hiting any Statements in to. Includes Statements in
   // to.

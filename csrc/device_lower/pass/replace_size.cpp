@@ -137,75 +137,6 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   return simplification_map;
 }
 
-class IterDomainReplacementMutator : private OptOutMutator {
- public:
-  IterDomainReplacementMutator(
-      Fusion* fusion,
-      const std::unordered_map<Val*, Val*>& replacement_map)
-      : replacement_map_(replacement_map) {
-    FusionGuard fg(fusion);
-
-    std::unordered_map<TensorView*, std::vector<Statement*>> tv_stmts;
-    for (auto tv : fusion->allTvs()) {
-      auto all_stmts = tv->domain()->allStatements();
-
-      std::vector<Statement*> stmts_to_visit;
-      for (auto stmt : all_stmts) {
-        if (auto id = dynamic_cast<IterDomain*>(stmt)) {
-          auto id_members = MemberStatements::get(id);
-          for (auto id_member : id_members) {
-            for (auto stmt_dep :
-                 StmtSort::getStmtsTo({id_member->as<Val>()}, true, true)) {
-              stmts_to_visit.push_back(stmt_dep);
-            }
-          }
-          stmts_to_visit.push_back(id);
-        } else {
-          auto expr = dynamic_cast<Expr*>(stmt);
-          NVF_ERROR(expr != nullptr);
-          for (auto attr : expr->attributes()) {
-            for (auto stmt_dep :
-                 StmtSort::getStmtsTo({attr->as<Val>()}, true, true)) {
-              stmts_to_visit.push_back(stmt_dep);
-            }
-          }
-          stmts_to_visit.push_back(expr);
-        }
-      }
-
-      tv_stmts.emplace(tv, stmts_to_visit);
-    }
-
-    std::unordered_set<Statement*> visited;
-    for (auto tv : fusion->allTvs()) {
-      const auto& stmts_to_visit = tv_stmts.at(tv);
-      for (auto stmt : stmts_to_visit) {
-        if (visited.count(stmt)) {
-          continue;
-        }
-        dispatchMutate(stmt);
-        visited.insert(stmt);
-      }
-
-      dispatchMutate(tv->domain());
-      dispatchMutate(tv);
-    }
-  }
-
- private:
-  using OptOutMutator::dispatchMutate;
-
-  void dispatchMutate(Val* val) final {
-    if (replacement_map_.find(val) == replacement_map_.end()) {
-      return OptOutMutator::dispatchMutate(val);
-    }
-    auto replaced_val = replacement_map_.at(val);
-    registerMutation(val, replaced_val);
-  }
-
-  const std::unordered_map<Val*, Val*>& replacement_map_;
-};
-
 } // namespace
 
 void replaceSymbolicSizes(Fusion* fusion) {
@@ -335,8 +266,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  // NOLINTNEXTLINE(bugprone-unused-raii)
-  IterDomainReplacementMutator(fusion, extent_simplification_map);
+  ir_utils::replaceValue(fusion, extent_simplification_map);
 }
 
 } // namespace nvfuser

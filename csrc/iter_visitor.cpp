@@ -925,6 +925,87 @@ std::vector<Statement*> StmtSort::getStmtsTo(
   return es.stmts;
 }
 
+std::vector<Statement*> StmtSort::getAllStmts(
+    Fusion* fusion,
+    bool traverse_members,
+    bool traverse_attributes,
+    bool traverse_siblings) {
+  return getAllStmtsTo(
+      fusion->getTerminatingOutputs(),
+      traverse_members,
+      traverse_attributes,
+      traverse_siblings);
+}
+
+std::vector<Statement*> StmtSort::getAllStmtsTo(
+    const std::vector<Val*>& to,
+    bool traverse_members,
+    bool traverse_attributes,
+    bool traverse_siblings) {
+  // If members are not traversed, this can just be handled by getStmts
+  if (!traverse_members) {
+    return getStmtsTo(
+        to, traverse_members, traverse_attributes, traverse_siblings);
+  }
+
+  // to is assumed to include only scalar or TensorView
+  NVF_ERROR(std::all_of(to.begin(), to.end(), [](Val* to_val) {
+    return to_val->vtype() == ValType::TensorView ||
+        to_val->vtype() == ValType::Others;
+  }));
+
+  // First, grab all statements without traversing tensor members
+  auto stmts = getStmtsTo(to, false, traverse_attributes, traverse_siblings);
+
+  VectorOfUniqueEntries<Statement*> all_stmts;
+
+  for (auto stmt : stmts) {
+    auto tv = dynamic_cast<TensorView*>(stmt);
+    if (tv == nullptr) {
+      all_stmts.pushBack(stmt);
+      continue;
+    }
+
+    auto all_id_stmts = tv->domain()->allStatements();
+    for (auto id_stmt : all_id_stmts) {
+      if (auto id = dynamic_cast<IterDomain*>(id_stmt)) {
+        auto id_members = MemberStatements::get(id);
+        // Note that traverse_members is always true at this point
+        for (auto id_member : id_members) {
+          for (auto stmt_dep : StmtSort::getStmtsTo(
+                   {id_member->as<Val>()},
+                   /*traverse_members=*/true,
+                   traverse_attributes,
+                   traverse_siblings)) {
+            all_stmts.pushBack(stmt_dep);
+          }
+        }
+        all_stmts.pushBack(id);
+      } else {
+        auto expr = dynamic_cast<Expr*>(id_stmt);
+        NVF_ERROR(expr != nullptr);
+        if (traverse_attributes) {
+          for (auto attr : expr->attributes()) {
+            for (auto stmt_dep : StmtSort::getStmtsTo(
+                     {attr->as<Val>()},
+                     /*traverse_members=*/true,
+                     traverse_attributes,
+                     traverse_siblings)) {
+              all_stmts.pushBack(stmt_dep);
+            }
+          }
+        }
+        all_stmts.pushBack(expr);
+      }
+    }
+
+    all_stmts.pushBack(tv->domain());
+    all_stmts.pushBack(tv);
+  }
+
+  return all_stmts.vector();
+}
+
 std::vector<Statement*> StmtSort::getStmtsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
