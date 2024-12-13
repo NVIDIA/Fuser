@@ -327,7 +327,8 @@ class StmtSort : public IterVisitor {
 
   // Returns ordered Statements required to produce 'to', including
   // 'to'. Unlike getStmtsTo, for TensorDomain, all of its iter domains and
-  // exprs are grabbed and returned in a topological order.
+  // exprs are grabbed and returned in a topological order, regardless of
+  // `traverse_members`.
   //
   // The to vals are assumed to be either TensorView or scalar
   // Val. This assumption could be removed if desired.
