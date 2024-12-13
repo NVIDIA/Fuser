@@ -111,7 +111,6 @@ MlpResult DistributedTransformer::mlp(
     x->axis(0)->parallelize(ParallelType::Serial);
     // Reshape back to 2D. This is uncessary except to keep
     // the shapes of linear0 the same for TP and TP+SP.
-    auto D = w0->axis(0)->extent()->value().as<int64_t>();
     x = reshape(x, {D, B * S / D, E}, {B * S, E});
   }
   // Linear 0
@@ -124,7 +123,6 @@ MlpResult DistributedTransformer::mlp(
   if (sequence_parallel) {
     // Remove after https://github.com/NVIDIA/Fuser/issues/2563
     // Reshape to explicitly pull the sharded axis into the logical domain
-    auto D = w0->axis(0)->extent()->value().as<int64_t>();
     local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
   }
   TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce or Reduce scatter
@@ -162,7 +160,6 @@ MhaResult DistributedTransformer::mha(
     TensorView* b1,
     const DeviceMesh& mesh,
     bool sequence_parallel) {
-  const auto D = w0->axis(0)->extent()->value().as<int64_t>();
   auto dtype = w0->dtype();
 
   if (sequence_parallel) {
@@ -202,7 +199,6 @@ MhaResult DistributedTransformer::mha(
   if (sequence_parallel) {
     // Remove after https://github.com/NVIDIA/Fuser/issues/2563
     // Reshape to explicitly pull the sharded axis into the logical domain
-    auto D = w0->axis(0)->extent()->value().as<int64_t>();
     local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
   }
   TensorView* matmul1 = sum(local_matmul1, {0}); // allreduce
@@ -301,7 +297,6 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
     TensorView* linear0,
     const DeviceMesh& mesh) {
   DataType dtype = w0->dtype();
-  const auto D = w0->axis(0)->extent()->value().as<int64_t>();
   // Reform qkv from linear0 output
   TensorView* qkv_cat = reshape(
       castOp(DataType::Float, linear0),
