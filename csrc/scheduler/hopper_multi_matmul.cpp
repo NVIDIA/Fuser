@@ -9,7 +9,6 @@
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
-#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
