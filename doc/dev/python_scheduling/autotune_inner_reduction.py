@@ -207,8 +207,10 @@ class AutotuneInnerReduction:
 
             # number of reduction elements not handled by a CTA
             remaining_reduction = ceil_div(
-                num_reductions,
-                (scheduler_config.bdimx * vectorize_factor * reduction_unroll_factor),
+                ceil_div(
+                    ceil_div(num_reductions, vectorize_factor), scheduler_config.bdimx
+                ),
+                reduction_unroll_factor,
             )
 
             if iteration_unroll_factor == 1 and remaining_reduction > 1:
