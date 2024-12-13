@@ -4294,6 +4294,51 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs) {
 
   fusion.addOutput(tv4);
 
+  // Propagate the first slice to tv1
+  scheduler_tools::propagateResizeToInputs(tv2->definition());
+
+  // Propagate the second slice to tv1 and tv2
+  scheduler_tools::propagateResizeToInputs(tv3->definition());
+
+  // Each of tv1 and tv2 has two resize ops.
+  for (auto tv : {tv1, tv2}) {
+    auto resize1 = dynamic_cast<Resize*>(tv->axis(-1)->definition());
+    EXPECT_NE(resize1, nullptr);
+    auto resize2 = dynamic_cast<Resize*>(resize1->in()->definition());
+    EXPECT_NE(resize2, nullptr) << tv->toString();
+  }
+
+  auto ref_tv = tv4;
+
+  // Fusion should have a uniform loop domain
+  checkLoopDomainEquivalence(ref_tv);
+
+  // Schedule the reference
+  ref_tv->flatten();
+  // For TIDx
+  ref_tv->split(0, 128);
+  // For BIDx
+  ref_tv->split(0, 4);
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      fusion.allTvs(), ref_tv->getLoopDomain());
+
+  // Fusion should still have a uniform loop domain
+  checkLoopDomainEquivalence(ref_tv);
+
+  inlineMost();
+
+  // All tensors, except for fusion inputs, should be fully inlined
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), tv->nDims());
+  }
+
+  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
   std::vector<c10::IValue> inputs({t0});
