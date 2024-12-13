@@ -70,6 +70,8 @@ FusionKernelRuntime::FusionKernelRuntime(
       runtime_id_{runtime_id},
       auto_schedule_{auto_schedule} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
+  std::cout << "FusionKernelRuntime::FusionKernelRuntime" << args.toString()
+            << std::endl;
 
   NVF_ERROR(
       !fusion->hasDynamicTransform(),
@@ -279,6 +281,8 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
+  std::cout << "FusionKernelRuntime::runWithInputs" << std::endl;
+  std::cout << "Run with:\n" << args.toString() << std::endl;
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "=================RUNNING FUSION SEGMENTS================="
@@ -311,6 +315,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+  std::cout << "FusionKernelRuntime::compileFusionParallel" << std::endl;
 
   std::lock_guard<std::mutex> guard(mutex_);
 
@@ -360,6 +365,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+      std::cout << "FusionKernelRuntime::compileFusionParallel" << std::endl;
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
@@ -373,6 +379,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             &thread_pool_error_message,
                             &thread_pool_error_message_mutex]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+        std::cout << "FusionKernelRuntime::compileFusionParallel" << std::endl;
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
@@ -456,6 +463,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         const KernelArgumentHolder& args,
         std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
+  std::cout << "FusionKernelRuntime::getMaybeHeuristicsFor" << std::endl;
 
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using HeuristicParamsList::emplaceBack, we initialize
@@ -469,6 +477,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
       mutable_args, runtime_workspace_, segmented_fusion_->inputs());
+  std::cout << "FusionKernelRuntime::getMaybeHeuristicsFor Argument Manager: "
+            << args_manager.toString() << std::endl;
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -489,6 +499,9 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     {
       FUSER_PERF_SCOPE(
           "FusionKernelRuntime::getMaybeHeuristicsFor::PrecomputedValues");
+      std::cout
+          << "FusionKernelRuntime::getMaybeHeuristicsFor::PrecomputedValues"
+          << std::endl;
       evaluator_precomputed_values =
           std::make_unique<PrecomputedValues>(fusion_to_run);
       evaluator_precomputed_values->bindInputs(group_runtime_inputs);
@@ -573,6 +586,7 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
+  std::cout << "FusionKernelRuntime::runSegmentsWithInputs" << std::endl;
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -640,6 +654,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
+  std::cout << "FusionKernelRuntime::runKernelWithInput" << std::endl;
   std::lock_guard<std::mutex> guard(mutex_);
   // This function will be called once on un-segmented fusion,
   // for segmented fusion, this function will be called on each segment
@@ -674,6 +689,7 @@ void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
+  std::cout << "FusionKernelRuntime::compileKernel" << std::endl;
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
 

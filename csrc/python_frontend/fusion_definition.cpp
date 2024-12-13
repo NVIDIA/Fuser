@@ -341,6 +341,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
     bool profile,
     std::vector<std::string> _enable_options,
     std::vector<std::string> _disable_options) const {
+  std::cout << "FusionDefinition::execute" << std::endl;
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);

@@ -81,6 +81,7 @@ fs::path getSerdeFilePath(const std::string& file_name) {
 
 BinaryBuffer openFusionCache(std::string filename) {
   FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
+  std::cout << "Flatbuffers::openFusionCache" << std::endl;
   auto file_handle = std::fopen(filename.c_str(), "rb");
   NVF_CHECK(file_handle != nullptr, "Failed to open FusionCache buffer.");
 
@@ -101,6 +102,7 @@ const serde::FusionCache* verifyFusionCache(
     const BinaryBuffer& buffer,
     std::optional<int64_t> device_id) {
   FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
+  std::cout << "Flatbuffers::verifyFusionCache" << std::endl;
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
   // Check flatbuffer integrity
@@ -317,6 +319,7 @@ FusionCache* FusionCache::get(
     std::optional<int64_t> selected_device,
     bool load_from_default_workspace) {
   FUSER_PERF_SCOPE("FusionCache::get");
+  std::cout << "FusionCache::get" << std::endl;
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new FusionCache(max_fusions, selected_device);
@@ -539,6 +542,7 @@ bool FusionCache::existUserSchedule(
 
 TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
   FUSER_PERF_SCOPE("FusionCache::createChild");
+  std::cout << "FusionCache::createChild" << std::endl;
   TrieNode* child = nullptr;
   NVF_CHECK(
       !node->isTerminal(), "Cannot create a trie node from a terminal node!");
@@ -593,6 +597,7 @@ UserSchedule* FusionCache::createUserSchedule(
     int device,
     bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
+  std::cout << "FusionCache::createUserSchedule" << std::endl;
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
   auto& user_scheds = scheds->user_def_schedules;
   auto input_id = user_def_input_encodings_.lookupId(inputs);
@@ -620,6 +625,7 @@ TrieNode* FusionCache::rootTriePtr() {
 
 void FusionCache::serialize(std::string filename) const {
   FUSER_PERF_SCOPE("FusionCache::serialize");
+  std::cout << "FusionCache::serialize" << std::endl;
   flatbuffers::FlatBufferBuilder builder(1024);
   // TODO: Serialize Fusion IR containers
 
@@ -713,6 +719,7 @@ void FusionCache::deserialize(std::string filename) {
   // See table definition for FusionCache in serde/fusion_cache.fbs
   // 0. Load flatbuffer binary from file
   FUSER_PERF_SCOPE("FusionCache::deserialize");
+  std::cout << "FusionCache::deserialize" << std::endl;
   NVF_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
@@ -722,6 +729,7 @@ void FusionCache::deserialize(std::string filename) {
 
   // See table definition for FusionCache in serde/fusion_cache.fbs
   FUSER_PERF_SCOPE("FusionCache::deserialize");
+  std::cout << "FusionCache::deserialize" << std::endl;
   NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");
 
   // 0. Set static fusion count in Fusion Executor
@@ -848,6 +856,7 @@ void FusionCache::deserialize(std::string filename) {
       // Parallelize the deserialization of each FusionExecutorCache.
       getThreadPool()->run([=, &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
+        std::cout << "FusionCache::deserializeFusionParallel" << std::endl;
         try {
           fusion_schedule->auto_gen_schedules->deserialize(
               fb_fec_node, (int64_t)trie_node->fusion_id);
@@ -859,6 +868,7 @@ void FusionCache::deserialize(std::string filename) {
       });
     } else {
       FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
+      std::cout << "FusionCache::deserializeFusionSerial" << std::endl;
       fusion_schedule->auto_gen_schedules->deserialize(
           fb_fec_node, (int64_t)trie_node->fusion_id);
     }

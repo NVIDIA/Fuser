@@ -49,12 +49,16 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  std::cout << "FusionExecutorCache::runFusionWithInputs" << std::endl;
   // NOTE: This should be the first code in the method to capture all host time
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
 
   KernelArgumentHolder args = prepareInputs(inputs, selected_device);
+  std::cout << "FusionExecutorCache::runFusionWithInputs" << args.toString()
+            << std::endl;
+
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
@@ -112,6 +116,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
+  std::cout << "FusionExecutorCache::prepareInputs" << std::endl;
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, selected_device);
@@ -140,6 +145,7 @@ bool FusionExecutorCache::isCompiled(
     const at::ArrayRef<c10::IValue>& inputs,
     int8_t device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
+  std::cout << "FusionExecutorCache::isCompiled" << std::endl;
 
   // Access kernels associated with the common device id
   KernelArgumentHolder args = prepareInputs(inputs);
@@ -557,6 +563,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case (Path 1)
   FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor");
+  std::cout << "FusionExecutorCache::getKernelRuntimeFor" << std::endl;
   auto unique_id_opt = args.getCacheId();
   NVF_CHECK(
       unique_id_opt.has_value(),
@@ -616,6 +623,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // have Path 1 (hottest re-use path) and Path 4 (full recompile).
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
     FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::reuseKRT");
+    std::cout << "FusionExecutorCache::getKernelRuntimeFor::reuseKRT"
+              << std::endl;
     auto runtime_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
@@ -638,6 +647,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   {
     FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::compileNewKRT");
+    std::cout << "FusionExecutorCache::getKernelRuntimeFor::compileNewKRT"
+              << std::endl;
     // Paths 3 or 4
     // cache miss, need to re-build an optimized graph for this case
 

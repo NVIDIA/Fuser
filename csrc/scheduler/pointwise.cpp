@@ -365,6 +365,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
+  std::cout << "HERE: " << params->vectorization_factor << std::endl;
+
   // preserve the old heuristic where unroll is used only when vectorization is
   // not used. should allow to use both unroll and vectorization together in
   // heuristics tuning.
