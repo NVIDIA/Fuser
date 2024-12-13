@@ -2056,14 +2056,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__rshift__", "bitwise_right_shift", bitwise_right_shift)
-  // In PyTorch, __div__ (//) and __truediv__ (/) are different.
-  // When applied to integer-dtype arguments, they do as expected, returning
-  // integer and float outputs, respectively. When applied to two floating-type
-  // arguments, they return the floor of division for // and plain division for
-  // /. When applied to mixed types, the types are promoted, so the
-  // floating-point behavior is returned.
-  // Our div operator matches the __truediv__ behavior, so we do not implement
-  // __div__.
+  // In python, __truediv__ (/) always returns a float regardless of whether
+  // the input arguments are float or integer. __truediv__ (/) corresponds with
+  // pytorch torch.true_divide(a, b). The __div__ operator is depreciated in
+  // python 3.
+  //
+  // In nvfuser, truediv function has the same semantics as python's
+  // operator __truediv__ (/). The div function truncates the result instead
+  // of promoting it to float, so it has the same semantics as the C++'s (/)
+  // operator. In pytorch, torch.div(a, b, rounding_mode='trunc') corresponds
+  // C-style integer division.
+  //
+  // Hence, in the python frontend, the __truediv__ (/) python operator maps to
+  // trunc division.
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__truediv__", "div", div)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL
 
