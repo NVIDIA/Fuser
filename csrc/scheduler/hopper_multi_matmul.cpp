@@ -9,6 +9,7 @@
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -481,7 +482,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
       }
     }
-    scheduleFusionInputsForEpilogue();
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
