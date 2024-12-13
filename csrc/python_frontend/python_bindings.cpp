@@ -2058,14 +2058,15 @@ void initNvFuserPythonBindings(PyObject* module) {
       "__rshift__", "bitwise_right_shift", bitwise_right_shift)
   // In python, __truediv__ (/) always returns a float regardless of whether
   // the input arguments are float or integer. __truediv__ (/) corresponds with
-  // pytorch torch.true_divide(a, b). The __div__ operator is depreciated in
+  // pytorch torch.true_divide(a, b). The __div__ operator is deprecated in
   // python 3.
   //
-  // In nvfuser, truediv function has the same semantics as python's
-  // operator __truediv__ (/). The div function truncates the result instead
-  // of promoting it to float, so it has the same semantics as the C++'s (/)
-  // operator. In pytorch, torch.div(a, b, rounding_mode='trunc') corresponds
-  // C-style integer division.
+  // In nvfuser, truediv function in csrc/ops/arith.h has the same semantics as
+  // python's operator __truediv__ (/). The div function in csrc/ops/arith.h
+  // truncates the result instead of promoting it to float. It has the same
+  // semantics as the C++'s (/) operator. In pytorch,
+  // torch.div(a, b, rounding_mode='trunc') corresponds C-style integerw
+  // division.
   //
   // Hence, in the python frontend, the __truediv__ (/) python operator maps to
   // trunc division.
