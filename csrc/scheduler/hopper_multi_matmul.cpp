@@ -9,6 +9,7 @@
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -434,32 +435,21 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
   }
 }
 
-void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
-  // Block Schedule and Parallelize
-  blockTileTensors({c});
-  parallelizeBlocks({c});
-
-  // Apply mma common transformation
-  c->split(-2, getM(params_->mma_macro));
-  c->split(-1, getN(params_->mma_macro));
-  // [..., Mo, No, Mio, Mii, Nio, Nii]
-  // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-  c->reorder({{-3, -2}});
-  c->merge(-4);
-
-  // [...., Mii, Nii] ->
-  // [...,  Mii/16,  Miioi(2), Miii(8), Nii/8, Niio(4), Niii(2)] ->
-  // [.., Mii/16,  Miii(8), Niio(4),  Nii/8, Miioi(2), Niii(2)   ]
-  // [..., Mii/16 * Miii(8) * Niio(4), Nii/8, Miioi(2), Niii(2)  ]
-  // Mii/16 * Miii(8) * Niio(4) is 128 for Hopper and this is parallelized as
-  // TIDx.
-  auto s =
-      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(c->getLoopDomain());
-  c->setLoopDomain(s.as<IterDomain*>());
-  c->axis(-5)->parallelize(ParallelType::TIDy);
-}
-
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
+  // Load/cache the epilogue inputs if there are any.
+  auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
+  std::vector<TensorView*> cached_tvs;
+  for (auto* c : c_tvs) {
+    cached_tvs.push_back(c->cacheAfter());
+  }
+
+  // Propato to (not including) the splitk output if there is a splitk
+  // else this is just mma_results_
+  std::vector<TensorView*> propagate_to = splitk_sums_;
+  if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
+    propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
+  }
+
   if (!params_->use_smem_epilogue) {
     for (Val* dv : fusion_->outputs()) {
       auto* d = dv->as<TensorView>();
@@ -467,27 +457,30 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Schedule the output TV and propagate it back to the outputs of the Mma
       // op.
-      scheduleOutputTensor(d);
+      blockTileTensors({d});
+      parallelizeBlocks({d});
+      transformLikeMmaOutput(d, /*is_mma_result=*/false);
+
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          d->getLoopDomain());
+      d->setLoopDomain(s.as<IterDomain*>());
+
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           d,
           -1,
-          mma_results_,
+          propagate_to,
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType());
 
-      // Apply mma common transformation
-      for (auto tv : tvs_to_schedule) {
-        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
-        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-            tv->getLoopDomain());
-        tv->setLoopDomain(s.as<IterDomain*>());
-      }
       // We don't respect vectorization_factor as yet. We vectorize the
       // inner-dim with extent 2.
       // TODO: support vectorization_factor.
       d->axis(-1)->parallelize(ParallelType::Vectorize);
+      scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
+
+      // The cached EPILOGUE_INPUT tvs are not needed anymore
+      cached_tvs.clear();
     }
-    scheduleFusionInputsForEpilogue();
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
@@ -558,48 +551,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // Schedule global memory output; Output from TMA Store
       mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
     }
-  }
-}
-
-//! Propagates transformations from fusion output to fusion tv inputs that are
-//!  producers in the epilogue. Transformations' propagation aims at input tvs
-//!  which are not assigned to core roles, that is, are not MMA inputs.
-void HopperMultipleMatmulScheduler::scheduleFusionInputsForEpilogue() {
-  std::vector<TensorView*> cached_tvs;
-
-  // Handling transformations in fusion input tvs with assigned EPILOGUE_INPUT
-  //  role by propagating fusion output transformations through cached views
-  //  of EPILOGUE_INPUT fusion input tvs and by setting vectorization of the
-  //  inner most iterdomain of these cached views
-  if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
-    auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
-
-    // The system supports only scenario where there is only one fusion output
-    //  with assigned OUTPUT role, this condition is already verified so there
-    //  is no need for an additional checks here
-    auto output_d = tensor_roles_.at(MatmulTensorRole::OUTPUT).front();
-    for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
-    }
-
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        output_d, -1, c_tvs);
-
-    std::unordered_set<ParallelType> parallel_types = {};
-    if (params_->use_smem_epilogue) {
-      // In cases where smem epilogue feature is enabled, the vectorization
-      //  of domains will be propagated to fusion inputs that are epilogue
-      //  inputs, this may result in unaligned memory reads. Vectorization is
-      //  explicitly excluded form parallelization types to avoid this issue.
-      // This should be changed when vectorization analysis is available and
-      //  enabled for matmul scheduler.
-      parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
-    }
-    scheduler_utils::parallelizeAllLike(
-        output_d, -1, cached_tvs, parallel_types);
-
-    // The cached EPILOGUE_INPUT tvs are not needed anymore
-    cached_tvs.clear();
   }
 }
 

@@ -3376,6 +3376,8 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   tref = atMatmul(A.squeeze(), B.squeeze(), layout);
 }
 
+// TODO: Remove this test once the architecture agnostic can be
+// run on hopper.
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
   if (use_smem_epilogue) {
     GTEST_SKIP()
