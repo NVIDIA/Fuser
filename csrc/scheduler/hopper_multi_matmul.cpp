@@ -436,7 +436,6 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   std::vector<TensorView*> cached_tvs;
-  std::vector<TensorView*> c_tvs;
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -478,7 +477,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // inner-dim with extent 2.
       // TODO: support vectorization_factor.
       d->axis(-1)->parallelize(ParallelType::Vectorize);
-      scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
+      if (!cached_tvs.empty()) {
+        scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
+      }
     }
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
