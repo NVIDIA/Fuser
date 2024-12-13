@@ -4082,7 +4082,6 @@ TEST_F(ResizeTest, PropagateSliceToInputs) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
