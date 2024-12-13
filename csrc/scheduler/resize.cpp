@@ -164,18 +164,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
   // Make sure the DID ID located at the outermost position
-  int64_t reorder_pos = 0;
-  std::unordered_map<int64_t, int64_t> old2new;
-  for (const auto i : c10::irange(ref_tv->getLoopDomain().size())) {
-    if (isParallelTypeDeviceDim(ref_tv->axis((int64_t)i)->getParallelType())) {
-      old2new.emplace((int64_t)i, reorder_pos);
-      ++reorder_pos;
-    }
-  }
-  ref_tv->reorder(old2new);
+  const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
   // Schedule only the remaining IDs
-  const auto outermost_pos = (int64_t)old2new.size();
   ref_tv->flatten(outermost_pos);
   ref_tv->split(outermost_pos, 128);
   ref_tv->split(outermost_pos, 1 << 14);
