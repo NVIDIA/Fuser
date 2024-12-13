@@ -972,6 +972,8 @@ std::vector<Statement*> StmtSort::getAllStmtsTo(
 
   VectorOfUniqueEntries<Statement*> all_stmts;
 
+  // For TensorView, further traversing into its members. Note that
+  // traverse_members is always true here
   for (auto stmt : stmts) {
     auto tv = dynamic_cast<TensorView*>(stmt);
     if (tv == nullptr) {
@@ -979,10 +981,17 @@ std::vector<Statement*> StmtSort::getAllStmtsTo(
       continue;
     }
 
+    // Instead of using MemberStatements, grab the iter domains and
+    // their exprs with TensorDomain::allStatements(), which
+    // internally uses IRBFS.
     auto all_id_stmts = tv->domain()->allStatements();
+
+    // For iter domains, traverse further their members and then visit
+    // themselves. For ID exprs, traverse attributes then the expr
+    // themselves.
     for (auto id_stmt : all_id_stmts) {
       if (auto id = dynamic_cast<IterDomain*>(id_stmt)) {
-        auto id_members = MemberStatements::get(id);
+        auto id_members = MemberStatements::next(id);
         // Note that traverse_members is always true at this point
         for (auto id_member : id_members) {
           for (auto stmt_dep : StmtSort::getStmtsTo(
@@ -1012,6 +1021,8 @@ std::vector<Statement*> StmtSort::getAllStmtsTo(
       }
     }
 
+    // All depednent vals and exprs for this TensorDomain are in
+    // all_stmts. Append TensorDomain and then TensorView
     all_stmts.pushBack(tv->domain());
     all_stmts.pushBack(tv);
   }
