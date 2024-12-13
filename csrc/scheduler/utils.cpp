@@ -2664,14 +2664,14 @@ void moveNonConcretizedBroadcastInnermost(
 int64_t reorderDevicesToOuter(TensorView* tv) {
   int64_t reorder_pos = 0;
   std::unordered_map<int64_t, int64_t> old2new;
-  for (const auto i : c10::irange(ref_tv->getLoopDomain().size())) {
-    if (ref_tv->axis((int64_t)i)->isDeviceDim()) {
+  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    if (tv->axis((int64_t)i)->isDeviceDim()) {
       old2new.emplace((int64_t)i, reorder_pos);
       ++reorder_pos;
     }
   }
-  ref_tv->reorder(old2new);
-  return old2new.size();
+  tv->reorder(old2new);
+  return (int64_t)old2new.size();
 }
 
 } // namespace scheduler_utils
