@@ -24,6 +24,10 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
 // simplifies scheduling by making the fusion more uniform.
 void propagateSqueezedSliceToOutputs(Fusion* fusion);
 
+// For a given resize-based tensor op such as SliceOp and PadOp, make the loop
+// domain of each dependent producer tensor exact-mapped by propagating
+// the iter-domain ops of the output tensor of the given op. Note that
+// fusion inputs are skipped as their loop domains don't matter.
 void propagateResizeToInputs(Expr* resize_op);
 
 } // namespace scheduler_tools

@@ -149,6 +149,14 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   std::vector<std::vector<MatmulDimRole>> blockTileTensors(
       const std::vector<TensorView*>& tvs);
 
+  //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
+  //! data
+  void setCGADims() const {
+    if (params_->cluster_dims != std::tuple<int, int, int>{1, 1, 1}) {
+      fusion_->manage("cluster_dims", params_->cluster_dims);
+    }
+  }
+
   //! Schedule the loads of all operands from global memory to shared memory.
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during
@@ -178,23 +186,15 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void setUpCircularBuffering();
 
-  //! Schedules the copy operation of output of a Mma op which resided in the
-  //! registers to shared memory.
-  void scheduleStMatrixForMmaOutput(
-      TensorView* tv,
-      int64_t tile_m,
-      int64_t tile_n,
-      int64_t tma_m,
-      int64_t tma_n);
-
-  //! Schedules the copy operation of output of a Mma op which resided in the
-  //! shared memory to global memory.
-  void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
-
   // Map TensorView's iterDomain to its ValGroup.
   // Then, find the MatmulDimRole for the ValGroup.
   // Return MatmulDimRole for IterDomain
   MatmulDimRole findMatmulDimRole(IterDomain* id);
+
+  // Schedule a block-tiled TensorView like mma output.
+  // Why? WGMMA has a unique output format. TensorViews after the mma-result in
+  // registers must respect this format for correctness.
+  void transformLikeMmaOutput(TensorView* tv, bool is_mma_result);
 
  private:
   std::vector<ValGroup> canonical_dim_ordering_;

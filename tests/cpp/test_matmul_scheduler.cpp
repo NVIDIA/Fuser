@@ -2660,6 +2660,66 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
+  // TODO: fix up params or switch to FusionExecutorCache when ready, then
+  // enable Ampere
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+
+  const int M = 504, N = 136, K = 1024;
+
+  at::manual_seed(0);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto a = at::randn({M, K}, options);
+  auto b = at::randn({N, K}, options);
+  auto t0 = a.unsqueeze(1);
+  auto t1 = b.unsqueeze(0);
+  auto tref = at::matmul(a.to(at::kFloat), b.to(at::kFloat).t());
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 16);
+  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
+  // TODO: Currently we use stmatrix whenever this is true. We cannot do that
+  // when the dtype is not 16 bits.
+  mparams.use_smem_epilogue = false;
+  mparams.promote_prologue_smem_reuse = false;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams);
+  auto outputs = ke.run(inputs);
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+}
+
 class MatmulFusionTest : public MatmulSchedulerTest,
                          public ::testing::WithParamInterface<bool> {
  protected:
@@ -3119,7 +3179,9 @@ using HopperMatmulSchedulerTestParams = std::tuple<
     bool, // b_k_inner
     int64_t, // M
     int64_t, // N
-    int64_t // K
+    int64_t, // K
+    MmaMacro,
+    int64_t // SplitK Factor
     >;
 
 std::string hopperTestName(
@@ -3128,13 +3190,42 @@ std::string hopperTestName(
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
-  std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = info.param;
+  MmaMacro mma_macro;
+  int64_t splitk_factor;
+  std::tie(
+      use_smem_epilogue,
+      a_k_inner,
+      b_k_inner,
+      M,
+      N,
+      K,
+      mma_macro,
+      splitk_factor) = info.param;
   os << (a_k_inner ? "K" : "M");
   os << (b_k_inner ? "K" : "N");
   os << "_" << M << "_" << N << "_" << K;
+  os << "_MmaMacro_" << macroToString(mma_macro);
   if (use_smem_epilogue) {
     os << "_tma_store";
   }
+  if (splitk_factor > 1) {
+    os << "_splitk_" << splitk_factor;
+  }
+  return os.str();
+}
+
+std::string hopperTestNameSwizzle(
+    const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
+  std::unordered_map<MmaMacro, std::string> mma_macro_to_swizzle_str_map = {
+      {MmaMacro::Hopper_64_256_16, "128BSwizzle"},
+      {MmaMacro::Hopper_64_128_16, "128BSwizzle"},
+      {MmaMacro::Hopper_64_64_16, "128BSwizzle"},
+      {MmaMacro::Hopper_64_32_16, "64BSwizzle"},
+      {MmaMacro::Hopper_64_16_16, "32BSwizzle"}};
+  MmaMacro mma_macro = std::get<6>(info.param);
+  std::ostringstream os;
+  os << hopperTestName(info);
+  os << "_" << mma_macro_to_swizzle_str_map.at(mma_macro);
   return os.str();
 }
 
@@ -3144,7 +3235,15 @@ class HopperMatmulSchedulerTest
   void SetUp() {
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
-    std::tie(use_smem_epilogue, a_k_inner, b_k_inner, M, N, K) = GetParam();
+    std::tie(
+        use_smem_epilogue,
+        a_k_inner,
+        b_k_inner,
+        M,
+        N,
+        K,
+        mma_macro,
+        splitk_factor) = GetParam();
 
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
@@ -3159,25 +3258,26 @@ class HopperMatmulSchedulerTest
     // Create custom Matmul Params
     MatMulTileOptions gemm_tile;
     // TODO cta tile is a multiple of mma macro for hopper.
-    gemm_tile.cta_tile = GemmTile(128, 256, 16);
+    // Default cta_tile configuration is 2-CTA.
+    gemm_tile.cta_tile =
+        GemmTile(2 * getM(mma_macro), getN(mma_macro), getK(mma_macro));
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
-    gemm_tile.warp_tile = GemmTile(64, 128, 16);
+    gemm_tile.warp_tile =
+        GemmTile(getM(mma_macro), getN(mma_macro), getK(mma_macro));
 
     mparams.supported_vec_size = {8, 8, 4};
 
-    mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    mparams.mma_macro = mma_macro;
 
     mparams.use_smem_epilogue = use_smem_epilogue;
 
+    mparams.splitk_factor = splitk_factor;
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.circular_buffer_smem_read = true;
-    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-
-    // TODO Create prefetch parameter
-    // mparams.circular_buffer_options.smem_circular_buffer_prefetch = 3;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
   }
 
   void TearDown() {
@@ -3196,13 +3296,16 @@ class HopperMatmulSchedulerTest
     KernelExecutor ke;
     ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
     auto nvf_out = ke.run(inputs);
-    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-5, 1e-5));
+    // NOTE Relax tolerances for split-k case
+    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-3, 1e-3));
   }
 
  protected:
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
   int64_t M, N, K;
+  MmaMacro mma_macro;
+  int64_t splitk_factor;
   std::unique_ptr<Fusion> fusion_up;
   Fusion* fusion;
   std::unique_ptr<FusionGuard> fusion_guard;
@@ -3275,7 +3378,7 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    General,
     HopperMatmulSchedulerTest,
     testing::Combine(
         testing::Bool(), // use_smem_epilogue
@@ -3283,8 +3386,30 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // b_k_inner
         testing::Values(512), // M
         testing::Values(256), // N
-        testing::Values(64) // K
+        testing::Values(64), // K
+        testing::Values(MmaMacro::Hopper_64_128_16), // mma_macros
+        testing::Values(1, 2) // SplitK Factor
         ),
     hopperTestName);
+
+INSTANTIATE_TEST_SUITE_P(
+    Swizzle,
+    HopperMatmulSchedulerTest,
+    testing::Combine(
+        testing::Values(true), // use_smem_epilogue
+        testing::Bool(), // a_k_inner
+        testing::Bool(), // b_k_inner
+        testing::Values(512), // M
+        testing::Values(256), // N
+        testing::Values(64), // K
+        testing::Values(
+            MmaMacro::Hopper_64_256_16,
+            MmaMacro::Hopper_64_128_16,
+            MmaMacro::Hopper_64_64_16,
+            MmaMacro::Hopper_64_32_16,
+            MmaMacro::Hopper_64_16_16), // mma_macros
+        testing::Values(1) // SplitK Factor
+        ),
+    hopperTestNameSwizzle);
 
 } // namespace nvfuser

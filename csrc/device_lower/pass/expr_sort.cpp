@@ -1088,7 +1088,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
     NVF_ERROR(
         !fallback_mode_enabled_,
         "Couldn't succcessfully sort out the fusion expressions. ",
-        "There are remaining connections of the heirarchical segmentation which should have been ",
+        "There are remaining connections of the hierarchical segmentation which should have been ",
         "flattened to a single ordered group, or disjoint ordered groups.\n",
         toString());
     // We didn't finish, but we haven't tried the fallback, try again with that.

@@ -1559,15 +1559,15 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
-  int warp_group_size = isHopper(macro) ? 128 : 32;
-  int size = getM(macro) * getK(macro) / warp_group_size /
-      2 /* halves per 32bit register */;
+  int64_t warp_group_size = isHopper(macro) ? 128L : 32L;
+  int64_t size = getM(macro) * getK(macro) / warp_group_size /
+      2L /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
 static DataType getMmaInputBType(MmaMacro macro) {
-  int size = getN(macro) * getK(macro) / 32 /* threads per warp */ /
-      2 /* halves per 32bit register */;
+  int64_t size = getN(macro) * getK(macro) / 32L /* threads per warp */ /
+      2L /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
@@ -1842,8 +1842,8 @@ Val* hardCodedIndexGenerationForStMatrix(
 // To account for the threadIdx.y, we have to add it to the offset:
 //   offset_from_tdy = threadIdx.y * tma_m * tma_n * 2 (half)
 //
-// Now, lets apply stmatrix tile to the TMA Box.
-// [NO(2), MO(4), MI(16), NIO(4), NII(16)].
+// Now, lets apply stmatrix tile (16, 16) to the TMA Box [NO(2), M(64), NI(64)].
+//   [NO(2), MO(4), MI(16), NIO(4), NII(16)].
 //
 // A warp group of 128 threads contains four warps. StMatrix is a warp-level
 // operation, so four StMatrix operations can be issued simultaneously by the
@@ -1865,6 +1865,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 // domain is scheduled as [NO(2), M(64), NI(64)]. Therefore, we must store the
 // data in shared memory in [M(64), NI(64)] contiguous tiles.
 //
+// NOTE: This offset is skipped if for-loop is trivial
 // To account for the outer_index, we have to add it to the offset:
 //   offset_from_outer_index = outer_index * tma_m * NI(64) * 2 (half)
 //
@@ -1928,8 +1929,13 @@ Val* hardCodedIndexGenerationForStMatrix(
 // with the 8 rows of the matrix to avoid bank conflicts. This swizzle pattern
 // is repeated along the rows of the TMA box.
 //
+// The number of distinct swizzle rows is number of bytes for swizzle divided by
+// size of megabank (16B). The number of times a swizzle pattern is repeated to
+// fill core (8, 8) matrix is number of swizzle rows (8) divided by number of
+// distinct rows.
+//
 // Swizzle column
-//   row_in_swizzle_pattern = row % swizzle_row_size(8)
+//   row_in_swizzle_pattern = (row % swizzle_row_size(8)) / swizzle_repetitions
 //   swizzle_col = column XOR row_in_swizzle_pattern
 //
 // Calculate Tile Offset
@@ -1939,7 +1945,7 @@ Val* hardCodedIndexGenerationForStMatrix(
 //
 // Get shared memory offset
 //   smem_offset = offset_from_tdy + offset_from_outer_index + tile_offset
-Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
+Val* hardCodedIndexGenerationForStMatrixSwizzle(
     const LoadStoreOp* ldst,
     ForLoop* loop,
     const int64_t stsm_m_tile,
@@ -1958,16 +1964,20 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
-  NVF_ERROR(getSwizzle(out_tv) == MmaInputSmemSwizzle::B128);
+  MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+  int64_t swizzle_bytes = getBytesFromSwizzle(swizzle);
 
   // Constants
   constexpr int64_t dtype_size = 2;
   constexpr int64_t warp_size = 32;
   constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t stsm_column_size = 8;
-  constexpr int64_t swizzle_n_tile = 64;
+  constexpr int64_t max_stsm_n_tile = 16;
+  constexpr int64_t megabank_size_bytes = 16;
 
   // Derived constants
+  const int64_t swizzle_n_tile = swizzle_bytes / dtype_size;
+  const int64_t distinct_swizzle_row_size = swizzle_bytes / megabank_size_bytes;
   constexpr int64_t stsm_column_stride = stsm_column_size * dtype_size;
   const int64_t swizzle_n_iter = swizzle_n_tile / stsm_n_tile;
   const int64_t swizzle_n_tile_stride = swizzle_n_tile * dtype_size;
@@ -1978,7 +1988,8 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   // NvFuser Val for constants
   Val* warp_size_val = IrBuilder::create<Val>(warp_size, DataType::Index);
   Val* stsm_m_tile_val = IrBuilder::create<Val>(stsm_m_tile, DataType::Index);
-  Val* stsm_n_tile_val = IrBuilder::create<Val>(stsm_n_tile, DataType::Index);
+  Val* max_stsm_n_tile_val =
+      IrBuilder::create<Val>(max_stsm_n_tile, DataType::Index);
   Val* stsm_n_tile_stride_val =
       IrBuilder::create<Val>(stsm_n_tile_stride, DataType::Index);
   Val* swizzle_row_size_val =
@@ -2000,8 +2011,6 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* warp_id = SimplifyingIrBuilder::divExpr(TDX, warp_size_val);
   Val* lane_id = SimplifyingIrBuilder::modExpr(TDX, warp_size_val);
 
-  Val* outer_index =
-      SimplifyingIrBuilder::divExpr(loop->index(), swizzle_n_iter_val);
   Val* inner_index =
       SimplifyingIrBuilder::modExpr(loop->index(), swizzle_n_iter_val);
 
@@ -2013,7 +2022,7 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   row = GpuLower::current()->commonScalarMap().hoistScalar(row, {loop});
 
   // Calculate Column
-  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, stsm_n_tile_val);
+  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, max_stsm_n_tile_val);
   Val* iter_col =
       SimplifyingIrBuilder::mulExpr(inner_index, stsm_n_tile_stride_val);
   Val* col = SimplifyingIrBuilder::addExpr(lane_col, iter_col);
@@ -2021,6 +2030,17 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   // Swizzle Column
   Val* row_in_swizzle_pattern =
       SimplifyingIrBuilder::modExpr(row, swizzle_row_size_val);
+
+  // The swizzle pattern is repeated to fill (8, 8) matrix for 64B and 32B
+  // swizzles. swizzle_row_iter is the number of repetitions to fill 8 rows
+  // with distict swizzle rows.
+  const int64_t swizzle_row_iter = swizzle_row_size / distinct_swizzle_row_size;
+  if (swizzle_row_iter > 1) {
+    Val* swizzle_row_iter_val =
+        IrBuilder::create<Val>(swizzle_row_iter, DataType::Index);
+    row_in_swizzle_pattern = SimplifyingIrBuilder::divExpr(
+        row_in_swizzle_pattern, swizzle_row_iter_val);
+  }
   Val* swizzle_col = bitwise_xor(col, row_in_swizzle_pattern);
 
   // Calculate Tile Offset
@@ -2031,16 +2051,22 @@ Val* hardCodedIndexGenerationForStMatrix128BSwizzle(
   Val* offset = SimplifyingIrBuilder::addExpr(row_offset, col_offset);
 
   // Calculate Tile offset
-  Val* tile_offset = IrBuilder::mulExpr(outer_index, tile_stride_val);
+  // Skip tile offset if loop is trivial.
+  if (!loop->stop()->isOneInt()) {
+    Val* outer_index =
+        SimplifyingIrBuilder::divExpr(loop->index(), swizzle_n_iter_val);
+    Val* tile_offset =
+        SimplifyingIrBuilder::mulExpr(outer_index, tile_stride_val);
+    offset = SimplifyingIrBuilder::addExpr(tile_offset, offset);
+  }
 
   // Calculate TDY offset
-  Val* tdy_offset = IrBuilder::mulExpr(TDY, tdy_stride_val);
+  Val* tdy_offset = SimplifyingIrBuilder::mulExpr(TDY, tdy_stride_val);
+  offset = SimplifyingIrBuilder::addExpr(tdy_offset, offset);
 
   // Create shared memory TensorIndex
   Val* out_index = SimplifyingIrBuilder::addExpr(
-      IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-      SimplifyingIrBuilder::addExpr(
-          tdy_offset, SimplifyingIrBuilder::addExpr(tile_offset, offset)));
+      IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)), offset);
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);
   return out;
@@ -2092,11 +2118,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
               ldst, for_loops_[0], m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
-          out = hardCodedIndexGenerationForStMatrix128BSwizzle(
+        case MmaInputSmemSwizzle::B64:
+        case MmaInputSmemSwizzle::B32:
+          out = hardCodedIndexGenerationForStMatrixSwizzle(
               ldst, for_loops_[0], m_tile, n_tile, m, n);
           break;
-        case MmaInputSmemSwizzle::B32:
-        case MmaInputSmemSwizzle::B64:
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
       }

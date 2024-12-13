@@ -20,9 +20,14 @@ namespace scheduler_tools {
 // Create the loop domain of given tensors as specified by the
 // reference. The new loop domain is connected to the existing IDs of
 // each tensor by replaying exprs found in the Exact ValGraph.
+//
+// If update_loop_domain_only is true, uses the current loop domain as
+// the starting domain and updates it to make it look like the given
+// reference loop domain.
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom);
+    const std::vector<IterDomain*>& ref_loop_dom,
+    bool update_loop_domain_only = false);
 
 // Replay a transform expr on the loop domain of each of the given
 // tensors. If the input of the transform is exact mapped with the loop
