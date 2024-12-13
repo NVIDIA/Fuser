@@ -27,7 +27,6 @@ struct MhaResult {
   TensorView* output;
 };
 
-
 class DistributedTransformer {
  public:
   DistributedTransformer(
@@ -46,7 +45,9 @@ class DistributedTransformer {
         kDropoutProb(dropout_prob),
         kSdpaProb(sdpa_dropout_prob) {}
 
-  std::unique_ptr<FusionExecutorCache> forward(DataType dtype);
+  std::unique_ptr<FusionExecutorCache> forward(
+      DataType dtype,
+      bool sequence_parallel = false);
   std::unique_ptr<FusionExecutorCache> backward(DataType dtype);
 
   MlpResult mlp(

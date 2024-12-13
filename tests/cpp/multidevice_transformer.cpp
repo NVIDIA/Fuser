@@ -398,12 +398,15 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
 }
 
 std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
-    DataType dtype) {
+    DataType dtype,
+    bool sequence_parallel) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
-  TensorView* x = makeContigConcreteTensor({B * S, E}, dtype);
+  TensorView* x = sequence_parallel
+      ? makeContigConcreteTensor({D, B * S / D, E}, dtype)
+      : makeContigConcreteTensor({B * S, E}, dtype);
   TensorView* ln0_w = makeContigTensor(1);
   TensorView* ln0_b = makeContigTensor(1);
   TensorView* mha_w0 = makeContigConcreteTensor({D, 3 * E / D, E}, dtype);
@@ -412,10 +415,10 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
   TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
   TensorView* ln1_w = makeContigTensor(1);
   TensorView* ln1_b = makeContigTensor(1);
-  TensorView* mlp_w0 = makeContigTensor(3, dtype);
-  TensorView* mlp_b0 = makeContigTensor(2, dtype);
-  TensorView* mlp_w1 = makeContigTensor(3, dtype);
-  TensorView* mlp_b1 = makeContigTensor(1, dtype);
+  TensorView* mlp_w0 = makeContigConcreteTensor({D, 4 * E / D, E}, dtype);
+  TensorView* mlp_b0 = makeContigConcreteTensor({D, 4 * E / D}, dtype);
+  TensorView* mlp_w1 = makeContigConcreteTensor({D, E, 4 * E / D}, dtype);
+  TensorView* mlp_b1 = makeContigConcreteTensor({E}, dtype);
 
   fusion->addInput(x);
   fusion->addInput(ln0_w);
@@ -438,27 +441,48 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
   auto ln_input = castOp(DataType::Float, x);
   auto ln0 = layer_norm(ln_input, norm_shape, ln0_w, ln0_b, eps);
   auto mha_in = castOp(dtype, ln0.output);
-  auto mha_out = mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh).output;
-  auto resid0 = add(ln_input, mha_out);
+  auto mha_tvs =
+      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh, sequence_parallel);
+  auto resid0 = add(ln_input, mha_tvs.output);
   auto ln1 = layer_norm(resid0, norm_shape, ln1_w, ln1_b, eps);
   auto mlp_in = castOp(dtype, ln1.output);
-  auto mlp_out = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh).output;
-  auto resid1 = add(resid0, mlp_out);
+  auto mlp_tvs =
+      mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh, sequence_parallel);
+  auto resid1 = add(resid0, mlp_tvs.output);
   resid1 = castOp(dtype, resid1);
 
   fusion->addOutput(ln0.output);
-  fusion->addOutput(mha_out);
+  fusion->addOutput(mha_tvs.output);
   fusion->addOutput(ln1.output);
-  fusion->addOutput(mlp_out);
+  fusion->addOutput(mlp_tvs.output);
   fusion->addOutput(resid1);
-  
-  for (auto tv : {x, ln0.output, ln1.output, resid1}) {
-    tv->setDeviceMesh(mesh);
-  }
 
-  shardBetween({mha_in->definition()}, {mha_out->definition()}, mha_w0);
-  shardBetween({mlp_in->definition()}, {mlp_out->definition()}, mlp_w0);
-  shardBetween({x}, {mha_in}, x);
+  x->setDeviceMesh(mesh);
+  if (sequence_parallel) {
+    // Input arrives sharded
+    x->axis(0)->parallelize(ParallelType::DIDx);
+    // Propagate SP shardings from x through layernorms, dropouts, residual
+    // adds. Even though mha_in is part of the boundary set, residuals allow the
+    // shardings to propagate up the graph so we must cut off the propagation at
+    // the outputs of reduce scatters (mha and mlp matmul1)
+    shardBetween({x}, {mha_in, mlp_in, mha_tvs.matmul1, mlp_tvs.matmul1}, x);
+    // Propagate TP sharding for MLP and MHA from sharded weights. We do not
+    // need to shard from mha_b0 or mlp_b0 because they are only consumed by
+    // their respective linear0 expression which is sharded from *_w0.
+    shardBetween({mha_w0}, {mha_tvs.matmul1}, mha_w0);
+    shardBetween({mha_w1}, {mha_tvs.matmul1}, mha_w1);
+    shardBetween({mlp_w0}, {mlp_tvs.matmul1}, mlp_w0);
+    shardBetween({mlp_w1}, {mlp_tvs.matmul1}, mlp_w1);
+  } else {
+    // TP only shardings
+    // Layernorm, residuals, are all replicated like x. shardBetween
+    // shards all tvs reachable from x, so the input and output tvs must
+    // be in the boundary set.
+    shardBetween({x}, {mha_in, mha_tvs.output, mlp_in, mlp_tvs.output}, x);
+    // TP sharded regions within mha and mlp
+    shardBetween({mha_in}, {mha_tvs.output}, mha_w0);
+    shardBetween({mlp_in}, {mlp_tvs.output}, mlp_w0);
+  }
 
   return std::make_unique<FusionExecutorCache>(std::move(fusion));
 }
