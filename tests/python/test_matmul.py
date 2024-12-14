@@ -217,8 +217,8 @@ class TestMatmul(NVFuserTest):
             def fusion_func(fd: FusionDefinition) -> None:
                 q = fd.from_pytorch(inputs[0])
                 k = fd.from_pytorch(inputs[1])
-                kt = fd.ops.permute(k, [0, 1, 3, 2])
-                out = fd.ops.matmul(q, kt)
+                k_t = fd.ops.permute(k, [0, 1, 3, 2])
+                out = fd.ops.matmul(q, k_t)
                 fd.add_output(out, stride_order=perm)
 
             with FusionDefinition() as fd:
