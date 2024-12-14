@@ -110,6 +110,7 @@ class Val;
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
+  f(EmbeddingOp);                 \
   f(Communication);               \
   f(ForLoop);                     \
   f(P2PCommunication);
