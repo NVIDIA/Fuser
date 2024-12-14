@@ -5336,4 +5336,82 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       slice_last_dim(grad_value)};
 }
 
+EmbeddingOp::EmbeddingOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse)
+    : Expr(passkey) {
+  addOutput(output);
+
+  addInput(input);
+  addInput(weight);
+  addInput(norm_type);
+  addInput(scale_grad_by_freq);
+  addInput(sparse);
+  if (padding_idx != nullptr) {
+    addInput(padding_idx);
+    has_padding_idx = true;
+  }
+  if (max_norm != nullptr) {
+    addInput(max_norm);
+    has_max_norm = true;
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingOp)
+
+std::string EmbeddingOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << " = embedding(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << weight()->toString() << ",\n";
+  if (padding_idx() != nullptr){
+    indent(ss, indent_size + 1)
+      << "          padding_idx = " << padding_idx()->toString() << ",\n";
+  }
+  if (max_norm() != nullptr){
+    indent(ss, indent_size + 1)
+      << "          max_norm = " << max_norm()->toString() << ",\n";
+  }
+  indent(ss, indent_size + 1)
+      << "          norm_type = " << norm_type()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          scale_grad_by_freq = " << scale_grad_by_freq()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          sparse = " << sparse()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string EmbeddingOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> EmbeddingOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  
+  auto input = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
+  auto norm_type = inputs.at(2).as<double>();
+  auto scale_grad_by_freq = inputs.at(3).as<bool>();
+  auto sparse = inputs.at(4).as<bool>();
+  std::optional<int64_t> padding_idx = std::nullopt;
+  if (this->has_padding_idx){
+    padding_idx = inputs.at(5).as<int64_t>();
+  }
+  std::optional<double> max_norm = std::nullopt;
+  if (this->has_max_norm){
+    auto idx = 5 + this->has_padding_idx;
+    max_norm = inputs.at(idx).as<double>();
+  }
+  return {at::embedding(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse)};
+}
+
 } // namespace nvfuser

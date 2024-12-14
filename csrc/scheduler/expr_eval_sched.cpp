@@ -29,7 +29,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp>()) {
+  if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingOp>()) {
     return true;
   }
 
