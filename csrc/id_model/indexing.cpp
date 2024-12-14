@@ -14,9 +14,11 @@
 #include <id_model/contiguity.h>
 #include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
+#include <id_model/indexing_traversal.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <index_compute.h>
 #include <ir/builder.h>
 #include <ir/graphviz.h>
@@ -342,8 +344,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                          allocation_domain) != tv->getLoopDomain().end();
       IterDomain* promotion_domain = nullptr;
       if (is_loop) {
-        promotion_domain =
-            indexing_utils::getLoopPromotion(allocation_domain, id_model);
+        promotion_domain = getLoopPromotion(allocation_domain, id_model);
       } else {
         promotion_domain = allocation_domain;
       }
@@ -412,10 +413,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
   }
 
   // Reorder non-logical allocation domains to follow the ordering of
-  // the logical domain. This is necessary when an allocation domain
-  // includes a vectorized loop iter domain since it must be at the
+  // the set allocation domain. This is necessary when an allocation
+  // domain includes a vectorized loop iter domain since it must be at the
   // innermost position but that may not be the case in the loop
-  // domain. Not strictly necessary otherwise, but this should also
+  // domain. It is also necessary when the tensor is a producer of a
+  // vectorized store. Not strictly necessary otherwise, but this should also
   // minimize the deviation from the old indexing scheme which always
   // uses the logical domain to index.
   //
@@ -423,8 +425,17 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
+    // Use getMaybeAllocationDomain instead of getLogicalDomain. When
+    // this tv is a producer of a vectorized store, the consumer
+    // tensor shoud be a global memory tensor and this is likely a
+    // cache tensor created by cacheBefore. The consumer tensor may
+    // have a reordered allocation domain and that dictates the actual
+    // allocation ordering of this producer local tensor as well. If
+    // getLogicalDomain is used, DistributedTransformerTest.Backward
+    // fails at the result validation.
     auto exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+        {tv->getMaybeAllocationDomain().begin(),
+         tv->getMaybeAllocationDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
 
     if (exprs.empty()) {
@@ -433,7 +444,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
     // Replay exprs from the logical domain to get the non-reordered
     // domains
-    auto ordered_domains = tv->getLogicalDomain();
+    auto ordered_domains = tv->getMaybeAllocationDomain();
     for (auto expr : exprs) {
       // Find the position to insert the outputs.
       int64_t insertion_pos = -1;
@@ -731,28 +742,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::unordered_set<TensorView*> used_as_producer;
 };
 
-ParallelType getParallelType(const ValGroup& loop_group) {
-  ParallelType common_pt = ParallelType::Serial;
-  for (const auto val : *loop_group) {
-    auto pt = val->as<IterDomain>()->getParallelType();
-    if (common_pt == pt || pt == ParallelType::Serial) {
-      continue;
-    } else if (common_pt == ParallelType::Serial) {
-      common_pt = pt;
-    } else {
-      // Inconsistent parallelization
-      NVF_THROW(
-          "Inconsistent parallelization detected. ",
-          "Known type: ",
-          common_pt,
-          "New type: ",
-          pt);
-    }
-  }
-
-  return common_pt;
-}
-
 } // namespace
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
@@ -791,37 +780,10 @@ void TensorIndexer::buildLoopIndexMap() {
 
       Val* loop_index = nullptr;
 
-      ParallelType ptype = getParallelType(loop_group);
-      if (
-          // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
-          // should be used, but that means we would need to consider
-          // multiple outputs with different memory types, though it
-          // should be uncommon in practice.
-          shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
+      if (shouldUseZeroIndex(loop_group, id_model_)) {
         loop_index = fusion->zeroVal();
-      } else if (isParallelTypeThread(ptype)) {
-        loop_index = NamedScalar::getParallelIndex(ptype);
       } else {
-        // Until the transition to the IdModel-based indexing is
-        // completed, use the index Vals assigned for ComputeAtMap
-        // groups if available.
-        if (GpuLower::hasCurrent()) {
-          const auto& ca_map = GpuLower::current()->caMap();
-          for (const auto& id :
-               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
-              continue;
-            }
-            loop_index = ca_map->getIndexVariable(id);
-            break;
-          }
-          NVF_ERROR(
-              loop_index != nullptr,
-              "No existing index found for ",
-              nvfuser::toString(loop_group));
-        } else {
-          loop_index = IrBuilder::create<Val>(DataType::Index);
-        }
+        loop_index = GpuLower::current()->getLoopIndexVariable(loop_id);
       }
 
       loop_index_map_[loop_group] = loop_index;
@@ -829,19 +791,9 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 }
 
-bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
-  // Trivial loop
-  auto promotion_id = indexing_utils::getLoopPromotion(
-      loop_group->front()->as<IterDomain>(), id_model_);
-  if (promotion_id->isBroadcast() ||
-      simplifyExpr(promotion_id->extent())->isOneInt()) {
-    return true;
-  }
-
-  return false;
-}
-
-Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
+Val* TensorIndexer::getLoopIndex(
+    IterDomain* loop_id,
+    const std::vector<ForLoop*>& for_loops) const {
   // loop_id must be a loop domain.
   const auto& loop_group =
       id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
@@ -852,6 +804,13 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
       loop_id->toString());
 
   Val* loop_index = loop_index_map_it->second;
+
+  // War for circular buffering
+  if (auto circular_buffer_loop_index =
+          getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
+    loop_index = circular_buffer_loop_index;
+  }
+
   return loop_index;
 }
 
@@ -863,16 +822,16 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   // For a given list of the loop domains, assign its corresponding
   // index Val.
   for (IterDomain* loop_id : loop_domains) {
-    Val* loop_index = getLoopIndex(loop_id);
+    Val* initial_index = getLoopIndex(loop_id, for_loops);
     const auto& almost_exact_group = traversalGraph().toGroup(loop_id);
 
     if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as this is an
       // almost exact group. It should be just size-1 domain.
       NVF_ERROR(
-          loop_index->isZeroInt(),
+          initial_index->isZeroInt(),
           "Unexpected initial index: ",
-          loop_index->toInlineString());
+          initial_index->toInlineString());
       auto existing_index = initial_index_map.at(almost_exact_group);
       NVF_ERROR(
           existing_index->isZeroInt(),
@@ -881,13 +840,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
-    // War for circular buffering
-    if (auto circular_buffer_loop_index =
-            getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
-      loop_index = circular_buffer_loop_index;
-    }
-
-    initial_index_map.emplace(almost_exact_group, loop_index);
+    initial_index_map.emplace(almost_exact_group, initial_index);
   }
 
   return initial_index_map;
@@ -896,18 +849,24 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
-    const ValGroups& index_groups,
+    const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
-  auto info = computeIndex(expr, index_groups, for_loops);
+  auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
+  // Note that IDs of index_ids may be mapped as the traversal graph
+  // is the AlmostExact graph.
+
   std::vector<Val*> result;
-  result.reserve(index_groups.size());
-  for (const auto& g : index_groups) {
-    auto it = info.index_map.find(g);
+  result.reserve(index_ids.size());
+  for (IterDomain* index_id : index_ids) {
+    const auto& index_group = traversalGraph().toGroup(index_id);
+    auto it = info.index_map.find(index_group);
     NVF_ERROR(
-        it != info.index_map.end(), "Index not found for ", g->toString());
+        it != info.index_map.end(),
+        "Index not found for ",
+        index_id->toString());
     result.push_back(
         ir_utils::replaceValRecursively(it->second, replacement_map));
   }
@@ -968,7 +927,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
   for (auto& loop_id : loop_domains) {
-    loop_id = indexing_utils::getLoopPromotion(loop_id, id_model_);
+    loop_id = getLoopPromotion(loop_id, id_model_);
   }
 
   return loop_domains;
@@ -976,13 +935,13 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const ValGroups& index_groups,
+    const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
-  const auto loop_domains = getLoopDomains(expr);
+  const auto loop_domains = getLoopIds(expr, id_model_);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
-      expr, traversalGraph(), loop_groups, index_groups);
+      expr, traversalGraph(), loop_domains, index_ids);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains, for_loops);
@@ -1038,11 +997,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
-    auto index_it = index_map.find(loop_group);
-    NVF_ERROR(index_it != index_map.end());
-    Val* cur_index = index_it->second;
-    NVF_ERROR(cur_index != nullptr);
+    Val* cur_index = getLoopIndex(loop_id, for_loops);
 
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
@@ -1109,8 +1064,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
 
-  const IndexingInfo& index_info = computeIndex(
-      expr, traversalGraph().toGroups(predicate_domains), for_loops);
+  const IndexingInfo& index_info =
+      computeIndex(expr, predicate_domains, for_loops);
 
   const auto& index_map = index_info.index_map;
 
@@ -1342,8 +1297,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
-  const auto& index_groups = traversalGraph().toGroups(alloc_info.domains);
-  auto index_info = computeIndex(expr, index_groups, for_loops);
+  auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_domains, for_loops, index_map);

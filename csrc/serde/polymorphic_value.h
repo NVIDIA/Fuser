@@ -8,7 +8,7 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
-#include <fusion_executor/executor_kernel_arg.h>
+#include <runtime/executor_kernel_arg.h>
 #include <serde/factory.h>
 #include <serde/fusion_cache_generated.h>
 #include <visibility.h>
@@ -21,7 +21,7 @@ namespace nvfuser::serde {
 //! PolymorphicValue table. This factory creates Bool, ComplexDouble, Double,
 //! Long, CPU Scalar, and CUDA Tensor objects. These arguments are stored in
 //! KernelArgumentHolder, which is used to schedule the fusion in
-//! FusionKernelRuntime and to run a kernel in FusionExecutor.
+//! FusionKernelRuntime and to run a kernel in KernelExecutor.
 class PolymorphicValueFactory
     : public Factory<PolymorphicValue, nvfuser::PolymorphicValue> {
  public:

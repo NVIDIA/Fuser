@@ -451,7 +451,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmtsTo(allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getAllStmtsTo(allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -475,6 +475,12 @@ class ValReplacementMutator : private OptOutMutator {
     for (auto stmt : more_stmts) {
       dispatchMutate(stmt);
     }
+
+    for (const auto& [old_v, new_v] : replacement_map_) {
+      if (old_v->isFusionOutput()) {
+        fusion->replaceOutput(old_v, new_v);
+      }
+    }
   }
 
  private:
@@ -495,6 +501,24 @@ class ValReplacementMutator : private OptOutMutator {
     std::unordered_set<Val*> outputs;
     std::vector<Val*> ordered_outputs;
     for (auto expr : exprs) {
+      // Iter domains and their exprs are taken care by traversing
+      // from TensorDomain with TensorDomain::allStatements, so they
+      // don't need to be included here
+      if (std::any_of(
+              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+                return output->isA<IterDomain>();
+              })) {
+        NVF_ERROR(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<IterDomain>();
+            }));
+        NVF_ERROR(std::all_of(
+            expr->inputs().begin(), expr->inputs().end(), [](Val* input) {
+              return input->isA<IterDomain>();
+            }));
+        continue;
+      }
+
       inputs.insert(expr->inputs().begin(), expr->inputs().end());
       outputs.insert(expr->outputs().begin(), expr->outputs().end());
       ordered_outputs.insert(
@@ -523,6 +547,7 @@ class ValReplacementMutator : private OptOutMutator {
 void replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map) {
+  // NOLINTNEXTLINE(bugprone-unused-raii)
   ValReplacementMutator(fusion, replacement_map);
 }
 
@@ -794,6 +819,166 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference) {
+  if (domain.empty()) {
+    return {{}, {}, reference};
+  }
+  // If domain is not empty but reference is, unclear what it should
+  // mean. Throw an error for now.
+  NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
+
+  const std::unordered_set<IterDomain*> reference_set{
+      reference.begin(), reference.end()};
+
+  std::vector<IterDomain*> redundant_ids;
+
+  // In case domain has duplicates
+  std::vector<IterDomain*> domain_dedup;
+  {
+    std::unordered_set<IterDomain*> domain_set;
+    for (const auto id : domain) {
+      if (domain_set.insert(id).second) {
+        domain_dedup.push_back(id);
+      } else {
+        redundant_ids.push_back(id);
+      }
+    }
+  }
+
+  const auto path_to_ref = getExprsBetween<IRBFS>(
+                               {domain_dedup.begin(), domain_dedup.end()},
+                               {reference.begin(), reference.end()},
+                               false)
+                               .first;
+
+  // All output IDs along the path
+  std::unordered_set<Val*> produced_ids;
+  // All used IDs along the path
+  std::unordered_set<Val*> consumed_ids;
+  // Consider the domain itself as produced and consumed if included in
+  // reference since there's no expr for that case
+  for (const auto id_to_check : domain_dedup) {
+    if (reference_set.find(id_to_check) != reference_set.end()) {
+      produced_ids.insert(id_to_check);
+      consumed_ids.insert(id_to_check);
+    }
+  }
+
+  // Find any produced IDs that are produced multiple times
+  std::vector<IterDomain*> redundantly_produced_ids;
+  for (const auto& [expr, dir] : path_to_ref) {
+    const auto& inputs = getInputsOfExpr(expr, dir);
+    const auto& outputs = getOutputsOfExpr(expr, dir);
+    consumed_ids.insert(inputs.begin(), inputs.end());
+    for (const auto& output : outputs) {
+      bool already_produced = !produced_ids.insert(output).second;
+      if (already_produced) {
+        // This output is redundantly produced. If it's in the
+        // original domain, just mark it as a redundant ID. If not,
+        // find the corresnponding IDs out of the domain by doing
+        // another BFS analysis
+        if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
+            domain_dedup.end()) {
+          redundant_ids.push_back(output->as<IterDomain>());
+        } else {
+          auto inputs_of_already_produced_id = getInputsOfExprPath(
+              getExprsBetween<IRBFS>(
+                  {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
+                  .first,
+              IRInputs(),
+              IROutputs());
+          for (const auto& input : inputs_of_already_produced_id) {
+            redundant_ids.push_back(input->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // IDs of the reference domain that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+  unreachable_reference_ids.reserve(reference.size());
+  std::copy_if(
+      reference.begin(),
+      reference.end(),
+      std::back_inserter(unreachable_reference_ids),
+      [&](const auto reference_id) {
+        return produced_ids.find(reference_id) == produced_ids.end();
+      });
+
+  // Check unused IDs, which should be either redundant or additional
+  // IDs.
+  std::vector<IterDomain*> unused_ids;
+  unused_ids.reserve(domain_dedup.size());
+  std::copy_if(
+      domain_dedup.begin(),
+      domain_dedup.end(),
+      std::back_inserter(unused_ids),
+      [&](const auto id_to_check) {
+        return consumed_ids.find(id_to_check) == consumed_ids.end();
+      });
+
+  std::vector<IterDomain*> additional_ids;
+
+  // If there're unused IDs, they may be redundant or additional
+  // IDs. The latter means the ID has no overlap with any other
+  // ID. This could happen, for example, when we use a concrete loop
+  // ID for a broadcast logical ID.
+  //
+  // If there's unreachable reference IDs, however, the unused IDs may have
+  // been unused because of missing dependencies, which should not be
+  // considered redundant or additional. Different analysis would be
+  // required in that case, which is not implemented since error
+  // reporting of this function is best effort.
+  if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
+    // In order to understand if an unused ID is redundant or just an
+    //  additional ID, check if the unused ID is connected to any of
+    //  the reference domain. If it's connected even with missing
+    //  dependencies, it should be considered redundant. For this
+    //  reason, a variant of IRBFS with a relaxed dependency condition
+    //  is used. IRBFSWithPermissiveDependence can traverse as long as one of
+    //  the inputs or outputs is visited.
+    const auto from_remaining_ids =
+        getExprsBetween<IRBFSWithPermissiveDependence>(
+            {unused_ids.begin(), unused_ids.end()},
+            {reference.begin(), reference.end()},
+            /*require_all_to_visited=*/false)
+            .first;
+    // Nothing is reachable, which means all of the unused IDs are not redundant
+    if (from_remaining_ids.empty()) {
+      additional_ids = unused_ids;
+    } else {
+      // Inputs of the path are redundant, and the rest are not
+      auto inputs =
+          getInputsOfExprPath(from_remaining_ids, IRInputs(), IROutputs());
+      for (const auto inp : inputs) {
+        redundant_ids.push_back(inp->as<IterDomain>());
+      }
+      for (const auto unused_id : unused_ids) {
+        if (std::find(inputs.begin(), inputs.end(), unused_id) ==
+            inputs.end()) {
+          additional_ids.push_back(unused_id);
+        }
+      }
+    }
+  }
+
+  // If an output of the path is not used, i.e., not part of the
+  // reference domain, it's considered an additional ID. For example,
+  // if we have `split i0 -> i1, i2`, and the reference only includes
+  // i1, then i2 is considered an additional ID
+  for (const auto output :
+       getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
+    if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
+      additional_ids.push_back(output->as<IterDomain>());
+    }
+  }
+
+  return {redundant_ids, additional_ids, unreachable_reference_ids};
+}
+
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
@@ -819,8 +1004,10 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs = IRBFS::getExprsBetween(
-      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
+  auto exprs =
+      getExprsBetween<IRBFS>(
+          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
+          .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
@@ -920,7 +1107,7 @@ CompareDomainResult compareDomains(
         //
         // The second case means id is redundant
         NVF_ERROR(
-            IRBFS::getReachableValsFrom(
+            getReachableValsFrom<IRBFS>(
                 {target_set.begin(), target_set.end()}, {id})
                 .empty(),
             id->toString(),
@@ -1151,217 +1338,191 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv) {
   return all_alloc_id_on_path && all_logical_id_on_path;
 }
 
-} // namespace nvfuser::ir_utils
+bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
+  return ir_utils::hasRootToLoopLinearTransformations(tv) &&
+      !ir_utils::compareDomains(
+           tv->getLoopDomain(),
+           tv->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+}
 
-namespace nvfuser::MmaOpUtils {
+AsyncOpType getAsyncOpType(const Expr* expr) {
+  if (auto mma = dynamic_cast<const MmaOp*>(expr)) {
+    if (mma->isHopper()) {
+      return AsyncOpType::WgMma;
+    }
+  } else if (ir_utils::isCpAsyncBulkStore(expr)) {
+    return AsyncOpType::CpAsyncBulk;
+  } else if (ir_utils::isCpAsyncOp(expr)) {
+    return AsyncOpType::CpAsync;
+  }
+  return AsyncOpType::NotAsync;
+}
 
-// A helper for gathering details about TensorView object
-TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
-  TensorViewDetails details;
-  for (auto pos : c10::irange((int64_t)dims.size())) {
-    const auto axis = dims.at(pos);
-    if (axis->isReduction()) {
-      details.rdomains.push_back(pos);
-    } else if (axis->isBroadcast()) {
-      details.bcasts.push_back(pos);
+std::string nullOrToString(const Statement* val) {
+  return val ? val->toString() : "nullptr";
+}
+
+std::string nullOrToInlineString(const Statement* id) {
+  return id ? id->toInlineString() : "nullptr";
+}
+
+bool isFunctional(const Val* v) {
+  auto def = v->definition();
+  if (def == nullptr) {
+    return true;
+  }
+  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+    // ElectSync is not functional, it does not return the same value
+    // every time it is called, so we do not want to reuse it.
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
+  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
+bool isRecursivelyDefined(Val* val) {
+  NVF_ERROR(val != nullptr);
+
+  std::deque<Val*> vals_to_visit;
+  vals_to_visit.push_back(val);
+
+  std::unordered_set<Val*> visited_vals;
+
+  while (!vals_to_visit.empty()) {
+    auto v = vals_to_visit.front();
+    vals_to_visit.pop_front();
+
+    visited_vals.insert(v);
+
+    auto v_def = v->definition();
+    if (v_def == nullptr) {
+      continue;
+    }
+
+    for (const auto inp : v_def->inputs()) {
+      if (inp == val) {
+        // Recursive dependency detected
+        return true;
+      }
+      // Don't visit the same multiple times
+      if (!visited_vals.count(inp)) {
+        vals_to_visit.push_back(inp);
+      }
+    }
+  }
+
+  return false;
+}
+
+int64_t getOperationCount(Val* val) {
+  int64_t num_ops = 0;
+
+  // Start with the given val and recursively count the number of ops
+  // by traversing inputs
+  std::deque<Val*> vals;
+  vals.push_back(val);
+
+  while (!vals.empty()) {
+    auto v = vals.front();
+    vals.pop_front();
+
+    auto def = v->definition();
+    if (def == nullptr) {
+      continue;
+    }
+    ++num_ops;
+
+    for (auto inp : def->inputs()) {
+      vals.push_back(inp);
+    }
+  }
+
+  return num_ops;
+}
+
+ForLoop* createRangeLoop(int64_t size) {
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/FusionGuard::getCurFusion()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  return loop;
+}
+
+TensorView* getTvOutput(const Expr* expr) {
+  for (auto out : expr->outputs()) {
+    if (auto tv = getTv(out)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+TensorView* getTvInput(const Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    if (auto tv = getTv(inp)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<IterDomain*> strideOrderToAllocation(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<int64_t>& stride_order) {
+  // Verify that stride_order is valid.
+  std::vector<int64_t> inc_vec(stride_order.size());
+  std::iota(inc_vec.begin(), inc_vec.end(), 0);
+  NVF_CHECK(
+      std::is_permutation(
+          stride_order.begin(), stride_order.end(), inc_vec.begin()),
+      "Stride order is not valid: ",
+      toDelimitedString(stride_order));
+
+  const auto& logical_domain_no_red =
+      TensorDomain::noReductions(logical_domain);
+  NVF_CHECK(stride_order.size() == logical_domain_no_red.size());
+
+  auto rank = stride_order.size();
+  std::vector<IterDomain*> allocation_domain_no_red(rank);
+
+  for (auto idx : c10::irange(rank)) {
+    allocation_domain_no_red[rank - 1 - stride_order[idx]] =
+        logical_domain_no_red[idx];
+  }
+  if (rank == logical_domain.size()) {
+    // No reduction axis is present, return early.
+    return allocation_domain_no_red;
+  }
+
+  // Insert reduction axis at the original index in allocation domain
+  std::vector<IterDomain*> allocation_domain(logical_domain.size());
+  auto idx_no_red = 0;
+  for (auto idx : c10::irange(logical_domain.size())) {
+    if (logical_domain.at(idx)->isReduction()) {
+      allocation_domain[idx] = logical_domain[idx];
     } else {
-      details.cdomains.push_back(pos);
+      allocation_domain[idx] = allocation_domain_no_red[idx_no_red];
+      idx_no_red++;
     }
   }
-  return details;
+  return allocation_domain;
 }
 
-MmaLayout getInputLayout(
-    const TensorViewDetails& in_a,
-    const TensorViewDetails& in_b,
-    const MmaOp::AxesData& m_axes,
-    const MmaOp::AxesData& n_axes,
-    const MmaOp::AxesData& k_axes) {
-  // TT layout (b - broadcast, r - reduction):
-  // A = [M, K, b]
-  // B = [b, K, N]
-  // C = [M, r, N] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_a.bcasts.front()) &&
-      (in_b.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaLayout::TT;
-  }
-  // TN layout (b - broadcast, r - reduction):
-  // A = [M, b, K]
-  // B = [b, N, K]
-  // C = [M, N, r] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (in_a.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front()) &&
-      (in_b.bcasts.front() < k_axes.front())) {
-    return MmaLayout::TN;
-  }
-  // NT layout (b - broadcast, r - reduction):
-  // A = [K, M, b]
-  // B = [K, b, N]
-  // C = [r, M, N] (root domain)
-  if ((k_axes.front() < in_a.bcasts.front()) &&
-      (m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_b.bcasts.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaLayout::NT;
-  }
-  // NN layout (b - broadcast, r - reduction):
-  // A = [b, K, M]
-  // B = [N, K, b]
-  // C = [N, r, M] (root domain)
-  if ((in_a.bcasts.front() < k_axes.front()) &&
-      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
-      (k_axes.front() < in_b.bcasts.front())) {
-    return MmaLayout::NN;
-  }
-
-  NVF_THROW("Unsupported input layout");
-}
-
-MmaOpDetails getMmaOpDetails(
-    TensorView* out,
-    TensorView* in_a,
-    TensorView* in_b) {
-  const auto in_a_details =
-      getDetailsFor(TensorDomain::noDevices(in_a->getLogicalDomain()));
-  const auto in_b_details =
-      getDetailsFor(TensorDomain::noDevices(in_b->getLogicalDomain()));
-  const auto out_details =
-      getDetailsFor(TensorDomain::noDevices(out->getMaybeRootDomain()));
-
-  using AxesData = MmaOp::AxesData;
-
-  const auto getMOrNaxes = [](const AxesData& cdomains,
-                              const AxesData& bcasts,
-                              const AxesData& rdomains) {
-    AxesData result;
-    // For all concrete domains
-    for (const auto& cdomain : cdomains) {
-      // That are in broadcast domains but are not in reduction domains
-      if ((std::find(bcasts.begin(), bcasts.end(), cdomain) != bcasts.end()) &&
-          (std::find(rdomains.begin(), rdomains.end(), cdomain) ==
-           rdomains.end())) {
-        result.push_back(cdomain);
-      }
-    }
-    return result;
-  };
-
-  const auto getKaxes = [](const AxesData& cdomains_a,
-                           const AxesData& cdomains_b,
-                           const AxesData& rdomains) {
-    AxesData result;
-    // For all concrete domains from in_a
-    for (const auto& cdomain_a : cdomains_a) {
-      // That are in concrete domains in in_b and are in reduction domains
-      if ((std::find(cdomains_b.begin(), cdomains_b.end(), cdomain_a) !=
-           cdomains_b.end()) &&
-          (std::find(rdomains.begin(), rdomains.end(), cdomain_a) !=
-           rdomains.end())) {
-        result.push_back(cdomain_a);
-      }
-    }
-    return result;
-  };
-
-  const auto getBatchAxes = [](const TensorViewDetails& in_a_details,
-                               const TensorViewDetails& in_b_details,
-                               const TensorViewDetails& out_details) {
-    AxesData result;
-    // Batch candidates:
-    //  concrete domains that are in all of inputs and output
-    for (const auto& domain : in_a_details.cdomains) {
-      if ((std::find(
-               in_b_details.cdomains.begin(),
-               in_b_details.cdomains.end(),
-               domain) != in_b_details.cdomains.end()) &&
-          (std::find(
-               out_details.cdomains.begin(),
-               out_details.cdomains.end(),
-               domain) != out_details.cdomains.end())) {
-        result.push_back(domain);
-      }
-    }
-    // Batch candidates:
-    //  broadcast domains that are in all of inputs and output
-    for (const auto& domain : in_a_details.bcasts) {
-      if ((std::find(
-               in_b_details.bcasts.begin(),
-               in_b_details.bcasts.end(),
-               domain) != in_b_details.bcasts.end()) &&
-          (std::find(
-               out_details.bcasts.begin(), out_details.bcasts.end(), domain) !=
-           out_details.bcasts.end())) {
-        result.push_back(domain);
-      }
-    }
-    std::sort(result.begin(), result.end());
-    return result;
-  };
-
-  const auto validateInputDetails = [](const TensorViewDetails& details,
-                                       const std::string& desc) {
-    NVF_ERROR(!details.bcasts.empty(), desc, ": has no broadcast domains.");
-    NVF_ERROR(details.rdomains.empty(), desc, ": has reduction domains.");
-    NVF_ERROR(
-        details.cdomains.size() >= expected_gemm_cdomains,
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
-  };
-
-  const auto validateOutputDetails = [](const TensorViewDetails& details,
-                                        const std::string& desc) {
-    // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
-    NVF_ERROR(
-        (details.cdomains.size() >= expected_gemm_cdomains),
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
-  };
-
-  validateInputDetails(in_a_details, "MmaOp input A");
-  validateInputDetails(in_b_details, "MmaOp input B");
-  validateOutputDetails(out_details, "MmaOp output");
-
-  MmaOpDetails details;
-
-  // For details, check MmaOpDetails
-  details.m_axes = getMOrNaxes(
-      in_a_details.cdomains, in_b_details.bcasts, out_details.rdomains);
-  details.n_axes = getMOrNaxes(
-      in_b_details.cdomains, in_a_details.bcasts, out_details.rdomains);
-  details.k_axes = getKaxes(
-      in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
-  details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
-
-  NVF_ERROR(
-      !details.m_axes.empty(),
-      "MmaOp inputs must define at least a single M dimension");
-  NVF_ERROR(
-      !details.n_axes.empty(),
-      "MmaOp inputs must define at least a single N dimension");
-  NVF_ERROR(
-      !details.k_axes.empty(),
-      "MmaOp inputs must define at least a single K dimension");
-
-  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
-  // rules may be needed
-  details.input_layout = getInputLayout(
-      in_a_details,
-      in_b_details,
-      details.m_axes,
-      details.n_axes,
-      details.k_axes);
-
-  return details;
-}
-
-} // namespace nvfuser::MmaOpUtils
+} // namespace nvfuser::ir_utils

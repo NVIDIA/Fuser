@@ -35,9 +35,11 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<TensorView*> smem_persistent_buffer_consumers = {},
     std::vector<TensorView*> dummy_outputs = {});
 
 // Propagate transformations with internal cutoff boundary at boundaryNodesSet
@@ -55,21 +57,51 @@ void propagateRFactor(
     TensorView* reduction_tv,
     const std::vector<TensorView*>& reduction_tvs);
 
-// Propagate Parallelization from reference TensorView to other TensorViews
-// Parallel types Unroll, Vectorize, and MisalignedVectorize are explicitly
-// handled for tensorviews in cached_inputs and cached_outputs.
-// If reduction_tv and reference_tv shouldn't be unrolled, clear that parallel
-// type. unroll and vectorize are members of ReductionParams
+// Get all cached input/output and shared memory TensorViews that are
+// vectorizable and unrollable.
+//
+// Parameters:
+//   reference_tv: TensorView created during RFactor, used to find vectorizable
+//                 TensorViews.
+//   is_vectorize: Indicates if vectorization is applied in the scheduler.
+//   cached_inputs: Inputs cached in registers or shared memory.
+//   cached_outputs: Outputs cached in registers.
+NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
+    TensorView* reference_tv,
+    bool is_vectorize,
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
+
+// Propagate parallelization from the reference TensorView to other TensorViews.
+// Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for
+// TensorViews in unroll_vectorizable_cached_tvs. Clears unroll parallelization
+// for reduction_tv and reference_tv if they shouldn't be unrolled.
+//
+// Parameters:
+//   reduction_tv: The reduction TensorView being scheduled and parallelized.
+//                 Needs to clear its vectorization or convert to grouped
+//                 reduction.
+//
+//   reference_tv: The reference TensorView being scheduled and parallelized,
+//                 propagates parallelization to other selected TensorViews.
+//
+//   is_unroll_or_vectorization: Indicates if unroll or vectorization is used in
+//                               the scheduler.
+//
+//   reduction_tvs: All reduction TensorViews in the fusion. May add grouped
+//                  parallelization.
+//
+//   unroll_vectorizable_cached_tvs: Cached TensorViews that are unrollable
+//                                   or vectorizable.
+//
+//   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
 NVF_API void propagateParallelization(
-    Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
-    const bool unroll,
-    const bool vectorize,
+    const bool is_unroll_or_vectorization,
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
-    const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
     const std::vector<TensorView*>& selected_tvs = {});
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
@@ -104,6 +136,24 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type);
 std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
+
+/**
+ * @brief Vectorize shared memory consumers
+ *
+ * Applies vectorization to shared memory consumers.
+ * If extent of the last dim multiples vectorization factor exceeds hardware
+ * limitations, additional split is added.
+ *
+ * @param smem_consumers Vector of TensorView pointers representing shared
+ * memory consumers
+ * @param io_vectorization_factor Vectorization factor set for fusion inputs and
+ * outputs
+ * @note TODO: Optimize writing to shared memory and address bank conflicts for
+ * float32 with innermost extent of 8
+ */
+void sharedMemoryConsumerVectorization(
+    std::vector<TensorView*>& smem_consumers,
+    const int64_t io_vectorization_factor);
 
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

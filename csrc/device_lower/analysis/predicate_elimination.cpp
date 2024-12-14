@@ -18,6 +18,8 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include "id_model/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
@@ -41,6 +43,46 @@ void assertOnWarpOps(const Expr* expr) {
 
 namespace {
 
+// Check if consumer is in the compute warp of a warp specialized loop,
+// and the id_in_consumer is the parallel type of the warp specialization.
+bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
+  // TODO: This function can not find all the expressions in the compute
+  // warp. For example, if we have:
+  //   if (load warp) {
+  //     T1 = T0;
+  //   } else {
+  //     T2 = T1;
+  //     T3 = T2;
+  //   }
+  // then we will return false for T3, which is a false negative. Having
+  // a false negative is fine in the sense that we will still be
+  // functionally correct, but we will not be able to remove the predicate
+  // around T3, which is a missed optimization opportunity.
+  // For now, because warp specialization is only used for matmul, for
+  // which the circular buffer loop is a reduction loop, and mma is the
+  // only expr in the compute warp, we are fine. In the future, we might
+  // want to improve this function to find all the expressions in the
+  // compute warp, which will require a more sophisticated analysis.
+  auto def = consumer->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  auto producer_tvs = ir_utils::filterByType<TensorView>(def->inputs());
+  if (producer_tvs.empty()) {
+    return false;
+  }
+  return std::all_of(
+      producer_tvs.begin(), producer_tvs.end(), [&](TensorView* producer_tv) {
+        if (!producer_tv->isCircularBuffered()) {
+          return false;
+        }
+        const auto& type = producer_tv->circularBufferOptions().type;
+        return std::holds_alternative<WarpSpecialized>(type) &&
+            std::get<WarpSpecialized>(type).on ==
+            id_in_consumer->getParallelType();
+      });
+}
+
 // Utility to check if the scheduled domain of the given
 //   TensorView represent an exact shared mem access, meaning
 //   that all the thread parallel dimensions on the loop nodes
@@ -51,12 +93,111 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
     if (id->isThreadDim()) {
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+              id, isComputeWarp(tv, id))) {
         return false;
       }
     }
   }
   return true;
+}
+
+// Check for conditions where the predicate cannot be removed
+//  when either producer or consumer is in shared memory.
+bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
+  // Indexing is based on consumer loop ids so check the consumer.
+
+  // If consumer schedule contains in-exact thread parallel
+  //  dimensions, need to predicate against out of bound
+  //  shared memory access by out of bound threads.
+  if (!isExactParallelSharedMemAccess(consumer)) {
+    return true;
+  }
+
+  // TODO: This is directed WAR on FusionPersistentNormLocalShared.
+  //  This use case along with other previous issues motivate a
+  //   joint optimization of predicate removal and buffer reuse.
+  // In this particular case:
+  //   __shared__ T0 [10], T1[10]
+  //   for i in ...
+  //      if(pred)
+  //        T1[i] = T0[i] + ...  // exp0
+  //      T2 = 0;              // init for exp1
+  //      if(pred)
+  //        T2 = T1 ...        // exp1
+  //  If we remove pred around expr1, as the way the pred removal
+  //    pass is set up, the init for expr will be pushed up to
+  //    initialize T1 instead.
+  //  However if we initialize T1, the code will look like:
+  //  for i in ...
+  //    T1[i] = 0;
+  //  for i in ...
+  //    if(pred)
+  //      T1[i] = T0[i] + ...
+  //  Note that we'd be able to reuse buffer of T0 for T1 but
+  //    if we initialze T1 we cannot do that and thus the
+  //    kernel would not fit in smaller devices.
+  if (producer->getMemoryType() == MemoryType::Shared) {
+    if (auto producer_def = producer->definition()) {
+      if (std::any_of(
+              producer_def->inputs().begin(),
+              producer_def->inputs().end(),
+              [](Val* val) {
+                if (auto tv = ir_utils::getTv(val)) {
+                  return tv->getMemoryType() == MemoryType::Shared;
+                }
+                return false;
+              })) {
+        // Disable shared memory producers that is a consumer
+        //  of another shared memory tensor. The initialization would
+        //  break potential opportunity to re-use shared mem buffer.
+        return true;
+      }
+    }
+  }
+
+  for (auto id : consumer->getLoopDomain()) {
+    // TODO: (Enable in a follow up)
+    //  smem predicate removal with init would break unroll and unswitch,
+    //  eg. as in issue 1133, so disabling this removal pattern for now.
+    if (id->getParallelType() == ParallelType::Unroll ||
+        id->getParallelType() == ParallelType::Unswitch) {
+      return true;
+    }
+  }
+
+  // TODO: (Enable in a follow up)
+  //  This cannot yet be removed since smem initialization needs to be
+  //  handled specially, e.g. as in smem_reduce test. Will be able to
+  //  lift this one once the generic pred removal pass with fusion
+  //  traversal is ready.
+  auto consumer_def = consumer->definition();
+  if (ir_utils::isReductionOp(consumer_def)) {
+    if (producer->getMemoryType() == MemoryType::Shared) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool needsPredicateSharedMemAccess(const Expr* expr) {
+  DEBUG_PRINT_SCOPE(expr);
+  // This is initial step to gradually remove predicates around
+  //  sharedmem access in suitable situations.
+  // Using an additional variable to track the predicate-on reasons
+  //  when the predicate around shared mem cannot be removed.
+  for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      if (producer->getMemoryType() == MemoryType::Shared ||
+          consumer->getMemoryType() == MemoryType::Shared) {
+        if (needSharedMemPredicate(producer, consumer)) {
+          RECORD_AND_RETURN(true);
+        }
+      }
+    }
+  }
+  RECORD_AND_RETURN(false);
 }
 
 class ProducerConsumerPairAnalyzer : public OptOutDispatch {
@@ -87,10 +228,56 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+        BestEffortReplay::replayPasC(
+            producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
 
-    ProducerConsumerPairAnalyzer analyzer(c2p);
+    // The variables graph and alloc_to_loop_groups are used to check whether we
+    // need to check a particular consumer ID. The alloc_to_loop_groups set
+    // constaints ValGroups along a shortest path in the loop graph from
+    // non-trivial dimensions in the allocation domain of the producer to the
+    // consumer's loop domain. Other domains might exist in the loop domain of
+    // the consumer: for example, for MmaOp we sometimes do not map the N
+    // dimension of the output logical domain to any ID in the A operand. We
+    // use this set to avoid performing unnecessary checks on these types of
+    // irrelevant consumer IDs.
+    //
+    // NOTE: if graph is nullptr, it will be
+    // ignored. We only fill it for MmaOp for now in order to limit our changes
+    // to the only op that currently requires this analysis.
+    const ValGraph* graph = nullptr;
+    std::unordered_set<ValGroup> alloc_to_loop_groups;
+    if (consumer->definition()->isA<MmaOp>()) {
+      // Fill ValGraph and grab all ValGroups on path from producer alloc to
+      // consumer loop.
+
+      const IdModel& id_model = GpuLower::current()->idModel();
+      graph = &id_model.idGraph(TensorIndexer::traversalGraphType());
+
+      // We flow from the producer's allocation domain to the consumer's loop
+      // domain. Here we assume that producer->getMaybeAllocationDomain()
+      // returns the actual indexed IDs, which is not always the case in
+      // general. However, it is always the case for MmaOp.
+      std::vector<ValGroup> alloc_groups;
+      for (IterDomain* id : producer->getMaybeAllocationDomain()) {
+        if (!id->isBroadcast() && !id->isReduction()) {
+          alloc_groups.push_back(graph->toGroup(id));
+        }
+      }
+      std::vector<ValGroup> loop_groups;
+      for (IterDomain* id : consumer->getLoopDomain()) {
+        id = getLoopPromotion(id, id_model);
+        loop_groups.push_back(graph->toGroup(id));
+      }
+
+      std::vector<ValGroup> indexing_groups =
+          getValsBetween<ValGraphBFS>(alloc_groups, loop_groups, *graph);
+
+      alloc_to_loop_groups.insert(
+          indexing_groups.begin(), indexing_groups.end());
+    }
+    ProducerConsumerPairAnalyzer analyzer(
+        consumer, c2p, graph, alloc_to_loop_groups);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -103,18 +290,35 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
  private:
   ProducerConsumerPairAnalyzer(
-      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
-      : c2p_(c2p) {}
+      TensorView* consumer,
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p,
+      const ValGraph* graph,
+      const std::unordered_set<ValGroup> alloc_to_loop_groups)
+      : consumer_(consumer),
+        c2p_(c2p),
+        graph_(graph),
+        alloc_to_loop_groups_(alloc_to_loop_groups) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
   bool needsPredicate(IterDomain* consumer_id) {
+    // Check that this consumer_id is actually involved in indexing the
+    // producer. If it is not connected to the producer allocation domain in
+    // the indexing graph, then we can skip processing it.
+    if (graph_ != nullptr &&
+        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
+      return false;
+    }
     needs_predicate_ = false;
     handle(consumer_id);
     return needs_predicate_;
   }
 
   void handle(IterDomain* consumer_id) override {
+    if (graph_ != nullptr &&
+        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
+      return;
+    }
     // The traversal should have ended if needs_predicate_ was true
     NVF_ERROR(!needs_predicate_);
 
@@ -128,7 +332,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     // consumer ID may be oversubscribed, which may cause
     // out-of-bounds accesses in the producer
     const auto maybe_oversubscribed = consumer_id->isThread() &&
-        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(consumer_id));
+        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+            consumer_id, isComputeWarp(consumer_, consumer_id)));
     if (maybe_oversubscribed) {
       // If oversubscribed, there must be a mapped producer ID that is
       // parallelized in the same way. Otherwise, needs to be
@@ -196,9 +401,12 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
  private:
+  TensorView* consumer_ = nullptr;
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
+  const ValGraph* graph_ = nullptr;
+  const std::unordered_set<ValGroup> alloc_to_loop_groups_;
 };
 
 class PredicateChcker : public IterVisitor {
@@ -232,27 +440,14 @@ class PredicateChcker : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
+    const bool needs_predicate_smem_access =
+        needsPredicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
         predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
-
-    // A cp.async op would need a predicate for either the global
-    //  input or its shared mem output, or both.
-    // Due to the WAR discussed in [Predicate Inversion for CpAsync],
-    //  we currently cannot support use cases where both the gmem read
-    //  and the smem write need to be predicated.
-    // Adding a check here would make the exclusion of such case as precise as
-    //  possible and avoid duplication of predicateSharedMemAccess
-    //  logic. But this part along with [Predicate Inversion for CpAsync]
-    //  should be cleaned up all together when we extend predicate/masking
-    //  logic to cover this usage.
-    NVF_ERROR(
-        !(ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access),
-        "predicate removal: unsupported use case of cp.async");
 
     if (needs_predicate_) {
       return;
@@ -368,106 +563,6 @@ class PredicateChcker : public IterVisitor {
       }
     }
     RECORD_AND_RETURN(false);
-  }
-
-  bool predicateSharedMemAccess(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    // This is initial step to gradually remove predicates around
-    //  sharedmem access in suitable situations.
-    // Using an additional variable to track the predicate-on reasons
-    //  when the predicate around shared mem cannot be removed.
-    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        if (producer->getMemoryType() == MemoryType::Shared ||
-            consumer->getMemoryType() == MemoryType::Shared) {
-          if (needSharedMemPredicate(producer, consumer)) {
-            RECORD_AND_RETURN(true);
-          }
-        }
-      }
-    }
-
-    RECORD_AND_RETURN(false);
-  }
-
-  // Check for conditions where the predicate cannot be removed
-  //  when either producer or consumer is in shared memory.
-  bool needSharedMemPredicate(TensorView* producer, TensorView* consumer)
-      const {
-    // Indexing is based on consumer loop ids so check the consumer.
-
-    // If consumer schedule contains in-exact thread parallel
-    //  dimensions, need to predicate against out of bound
-    //  shared memory access by out of bound threads.
-    if (!isExactParallelSharedMemAccess(consumer)) {
-      return true;
-    }
-
-    // TODO: This is directed WAR on FusionPersistentNormLocalShared.
-    //  This use case along with other previous issues motivate a
-    //   joint optimization of predicate removal and buffer reuse.
-    // In this particular case:
-    //   __shared__ T0 [10], T1[10]
-    //   for i in ...
-    //      if(pred)
-    //        T1[i] = T0[i] + ...  // exp0
-    //      T2 = 0;              // init for exp1
-    //      if(pred)
-    //        T2 = T1 ...        // exp1
-    //  If we remove pred around expr1, as the way the pred removal
-    //    pass is set up, the init for expr will be pushed up to
-    //    initialize T1 instead.
-    //  However if we initialize T1, the code will look like:
-    //  for i in ...
-    //    T1[i] = 0;
-    //  for i in ...
-    //    if(pred)
-    //      T1[i] = T0[i] + ...
-    //  Note that we'd be able to reuse buffer of T0 for T1 but
-    //    if we initialze T1 we cannot do that and thus the
-    //    kernel would not fit in smaller devices.
-    if (producer->getMemoryType() == MemoryType::Shared) {
-      if (auto producer_def = producer->definition()) {
-        if (std::any_of(
-                producer_def->inputs().begin(),
-                producer_def->inputs().end(),
-                [](Val* val) {
-                  if (auto tv = ir_utils::getTv(val)) {
-                    return tv->getMemoryType() == MemoryType::Shared;
-                  }
-                  return false;
-                })) {
-          // Disable shared memory producers that is a consumer
-          //  of another shared memory tensor. The initialization would
-          //  break potential opportunity to re-use shared mem buffer.
-          return true;
-        }
-      }
-    }
-
-    for (auto id : consumer->getLoopDomain()) {
-      // TODO: (Enable in a follow up)
-      //  smem predicate removal with init would break unroll and unswitch,
-      //  eg. as in issue 1133, so disabling this removal pattern for now.
-      if (id->getParallelType() == ParallelType::Unroll ||
-          id->getParallelType() == ParallelType::Unswitch) {
-        return true;
-      }
-    }
-
-    // TODO: (Enable in a follow up)
-    //  This cannot yet be removed since smem initialization needs to be
-    //  handled specially, e.g. as in smem_reduce test. Will be able to
-    //  lift this one once the generic pred removal pass with fusion
-    //  traversal is ready.
-    auto consumer_def = consumer->definition();
-    if (ir_utils::isReductionOp(consumer_def)) {
-      if (producer->getMemoryType() == MemoryType::Shared) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   // Utility to find the loop iterdomains of the given
@@ -1030,6 +1125,13 @@ bool PredicateElimination::canOmitPredicate(const Expr* expr) const {
 
   assertOnWarpOps(expr);
   return false;
+}
+
+bool PredicateElimination::needsSharedMemoryPredicate(const Expr* expr) const {
+  NVF_ERROR(expr != nullptr);
+  const auto out_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(out_tv != nullptr, "Not a tensor expression");
+  return needsPredicateSharedMemAccess(expr);
 }
 
 void PredicateElimination::propagateRemovalInfo(

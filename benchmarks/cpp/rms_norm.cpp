@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -62,7 +62,7 @@ static void setupRMSNorm(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_RMSNorm(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(
       dtype == DataType::Float || dtype == DataType::Half ||
@@ -80,7 +80,7 @@ static void NvFuserScheduler_RMSNorm(
 
   std::vector<c10::IValue> aten_inputs({input, weight});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

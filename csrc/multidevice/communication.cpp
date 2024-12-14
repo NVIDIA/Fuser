@@ -66,12 +66,15 @@ void assertBuffersHaveSameSize(
   if (bufs1.empty() && bufs2.empty()) {
     return;
   }
-  const auto numel = (bufs1.empty() ? bufs2 : bufs1).at(0).numel();
+  const auto shape = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (const auto& bufs : {bufs1, bufs2}) {
     for (const auto& buf : bufs) {
       NVF_ERROR(
-          buf.numel() == numel,
-          "all buffers must have the same number of elements");
+          buf.sizes() == shape,
+          "all buffers must have the same shape, but got: ",
+          buf.sizes(),
+          " vs ",
+          shape);
     }
   }
 }
@@ -210,6 +213,46 @@ std::string Communication::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
+  switch (type) {
+    case P2PCommunicationType::SEND:
+      os << "send";
+      break;
+    case P2PCommunicationType::RECV:
+      os << "recv";
+      break;
+    default:
+      NVF_THROW("unrecognized P2PCommunicationType: ", type);
+  }
+  return os;
+}
+
+P2PCommunication::P2PCommunication(
+    IrBuilderPasskey passkey,
+    P2PCommunicationType type,
+    TensorView* buffer,
+    Val* peer)
+    : Expr(passkey) {
+  addInput(buffer);
+  addDataAttribute(type);
+  addAttribute(peer);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
+
+std::string P2PCommunication::toString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "P2PCommunication " << name() << " ("
+                          << "type=" << type() << ", "
+                          << "buffer=" << buffer() << ", "
+                          << "peer=" << peer() << ")\n";
+  return ss.str();
+}
+
+std::string P2PCommunication::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
+
 namespace {
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
@@ -285,8 +328,8 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
-  assertBufferCount(splits, communication->team().size());
+  auto splits =
+      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
@@ -386,12 +429,22 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
       scattered_axis);
-// reduce_scatter primitive in c10d induces extra buffering time to copy the
-// user's input tensors to an internal source buffer. It is therefore always
-// preferable to use _reduce_scatter_base (which does not perform any extra
-// copy) when the tensors are stored contiguously (i.e., when
-// scattered_axis==0). Note however than only nccl supports
-// _reduce_scatter_base, not ucc.
+
+  std::vector<at::Tensor> input_tensors = at::tensor_split(
+      input_tensor, communication->team_size(), scattered_axis);
+  // We could have checked the output shape as well if reduction_axis is
+  // available. It's not always available via
+  // `communication->out()->getReductionAxis()` for manually constructed host
+  // IRs like
+  // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
+  assertBuffersHaveSameSize(input_tensors, {});
+
+  // reduce_scatter primitive in c10d induces extra buffering time to copy the
+  // user's input tensors to an internal source buffer. It is therefore always
+  // preferable to use _reduce_scatter_base (which does not perform any extra
+  // copy) when the tensors are stored contiguously (i.e., when
+  // scattered_axis==0). Note however than only nccl supports
+  // _reduce_scatter_base, not ucc.
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   if (scattered_axis == 0 &&
       backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
@@ -399,14 +452,13 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
         output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
   }
 #endif
-  std::vector<std::vector<at::Tensor>> input_tensors(1);
-  input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
 
-  std::vector<at::Tensor> output_tensors({output_tensor});
-
-  assertBufferCount(input_tensors[0], communication->team().size());
+  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
+  std::vector<at::Tensor> output_tensor_vec({output_tensor});
   return backend->reduce_scatter(
-      output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
+      output_tensor_vec,
+      input_tensors_vec,
+      {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
@@ -488,6 +540,60 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     case CommunicationType::SendRecv:
       return postSendRecv(
           communication, my_device_index, backend, input_tensor, output_tensor);
+    default:
+      NVF_THROW("Wrong communication type: ", communication->type());
+      return nullptr;
+  }
+}
+
+namespace {
+
+c10::intrusive_ptr<c10d::Work> postSend(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer) {
+  NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer);
+
+  // Needed to match ProcessGroup API
+  std::vector<at::Tensor> packed_buffer = {buffer};
+  return backend->send(packed_buffer, static_cast<int>(peer), /*tag=*/0);
+}
+
+c10::intrusive_ptr<c10d::Work> postRecv(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer) {
+  NVF_ERROR(
+      peer < backend->getSize(),
+      "invalid peer: ",
+      peer,
+      ", which should be strictly smaller than the world size ",
+      backend->getSize());
+
+  // Needed to match ProcessGroup API
+  std::vector<at::Tensor> packed_buffer = {buffer};
+  return backend->recv(packed_buffer, static_cast<int>(peer), /*tag=*/0);
+}
+
+} // namespace
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer) {
+  NVF_ERROR(backend != nullptr);
+
+  switch (communication->type()) {
+    case P2PCommunicationType::SEND:
+      return postSend(communication, my_device_index, peer, backend, buffer);
+    case P2PCommunicationType::RECV:
+      return postRecv(communication, my_device_index, peer, backend, buffer);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
       return nullptr;

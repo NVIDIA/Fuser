@@ -120,18 +120,23 @@ class NVF_API IterDomain : public Val {
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  //! the result IterDomain.
+  //! The optional parameters of rfactor_domain and iter_type can be
+  //! used to override the default behavior.
   static IterDomain* merge(
       IterDomain* outer,
       IterDomain* inner,
-      bool rfactor_domain = false);
+      std::optional<bool> rfactor_domain = std::nullopt,
+      std::optional<IterType> iter_type = std::nullopt);
 
+  //! The optional parameters of rfactor_domain, outer_iter_type and
+  //! inner_iter_type can be used to override the default behavior.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      bool rfactor_domain = false);
+      std::optional<bool> rfactor_domain = std::nullopt,
+      std::optional<IterType> outer_iter_type = std::nullopt,
+      std::optional<IterType> inner_iter_type = std::nullopt);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
@@ -436,7 +441,8 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      std::vector<IterDomain*> additional_ids = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
@@ -477,6 +483,14 @@ class TensorDomain : public Val {
   const std::vector<std::optional<bool>>& contiguity() const {
     return contiguity_;
   }
+
+  // The python frontend has a stride_order argument in the define_tensor
+  // function. This argument allows the user to specify the allocation domain
+  // for the TensorView. When translating the CPP Fusion into a Python
+  // FusionDefinition, the stride_order argument is required if this
+  // TensorDomain's allocation domain is a permutation of the logical domain.
+  // This function generates the stride_order argument for this TensorDomain.
+  std::vector<int64_t> strideOrder() const;
 
   NVF_API void setContiguity(const std::vector<std::optional<bool>>& contig);
 
@@ -539,6 +553,10 @@ class TensorDomain : public Val {
         std::find(root().begin(), root().end(), id) != root().end();
   }
 
+  bool isMaybeRoot(const IterDomain* id) const {
+    return (hasRoot() && isRoot(id)) || (!hasRoot() && isLogical(id));
+  }
+
   // The output logical domain.
   const std::vector<IterDomain*>& logical() const {
     return logical_domain_;
@@ -588,6 +606,12 @@ class TensorDomain : public Val {
   // definition and uses path. Return values are topologically ordered and
   // unique.
   std::vector<IterDomain*> allIDs() const;
+
+  // Similar to allIDs but returns all ID expressions.
+  std::vector<Expr*> allExprs() const;
+
+  // Combine allIDs and allExprs
+  std::vector<Statement*> allStatements() const;
 
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();

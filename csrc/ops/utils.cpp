@@ -10,7 +10,7 @@
 
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <ops/arith.h>
+#include <ops/alias.h>
 #include <ops/utils.h>
 
 namespace nvfuser {
@@ -30,7 +30,7 @@ TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank) {
   return t;
 }
 
-TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
+TensorView* maybeBroadcastIndexTv(TensorView* t, size_t dim, size_t rank) {
   size_t oli_rank = TensorDomain::noReductions(t->getLogicalDomain()).size();
   NVF_ERROR(
       oli_rank == 1,
@@ -43,11 +43,11 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
       " >= ",
       rank);
   std::vector<bool> bcast_dims(rank, false);
-  // broadcast outter on inp to match rank with other.
+  // outer broadcast on input to match rank with other.
   if (dim + 1 < rank) {
     std::fill(bcast_dims.begin() + (int64_t)dim + 1, bcast_dims.end(), true);
   }
-  // broadcast inner on inp to match rank with other.
+  // inner broadcast on input to match rank with other.
   if (dim > 0) {
     std::fill(bcast_dims.begin(), bcast_dims.begin() + (int64_t)dim, true);
   }
@@ -55,6 +55,23 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
     t = broadcast(t, bcast_dims);
   }
   return t;
+}
+
+bool isIndexAlreadyBroadcast(
+    const std::vector<IterDomain*>& index_domain,
+    size_t dim,
+    size_t rank) {
+  // short-circuit: Expected index domain to be same size as lookup domain
+  if (index_domain.size() != rank) {
+    return false;
+  }
+  // All dimensions except for selected dimension must be a broadcast in index
+  // TensorView.
+  IterDomain* selected_dim = index_domain.at(dim);
+  return std::all_of(
+      index_domain.begin(), index_domain.end(), [&](IterDomain* id) {
+        return (id == selected_dim || id->isBroadcast());
+      });
 }
 
 Val* simplifiedInt(Val* val) {
@@ -232,49 +249,63 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     size_t out_size,
     bool k_bcast) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
-  auto inp_size = input_domain.size();
 
-  NVF_ERROR(
-      input_position == 0 || input_position == 1 || input_position == 2,
-      "Input position must be 0, 1, or 2. Found ",
-      input_position);
-
-  auto red_dims = k_bcast ? 0 : 1;
-
-  // Input A: {*, M, K}
-  // Input B: {*, N, K} / {K}
-  // Bias: {N} / {}
-
-  // Map K if K is not bcast
-  if (input_position != 2 && !k_bcast) {
-    mapping[out_size - 1] = input_domain.back();
-  }
-
-  switch (input_position) {
-    case 0: {
-      // Linear output is same as input for inp_size - 1 dimensions.
-      // K is already mapped above if not broadcast.
-      for (auto inx : c10::irange(inp_size - 1)) {
-        mapping[inx] = input_domain[inx];
-      }
-      break;
+  // Input: {*_i, K}
+  // Weight: {*_wb, N, K}
+  // Bias: {*_wb, N}
+  // Output: {*_wb, *_i, N, (rK)}. rK exists iff K is not a broadcast.
+  if (input_position == 0) {
+    // Fill `mapping` from the back.
+    auto in_r_index = static_cast<int64_t>(input_domain.size()) - 1;
+    auto out_index = static_cast<int64_t>(out_size) - 1;
+    // Map K if K is not a broadcast.
+    if (!k_bcast) {
+      mapping[out_index] = input_domain[in_r_index];
+      out_index--;
     }
-    case 1: {
-      // Map N / out_features if present
-      if (inp_size > 1) {
-        mapping[out_size - 1 - red_dims] = input_domain.front();
-      }
-      break;
+    in_r_index--;
+
+    // Skip N because it's not in the input.
+    out_index--;
+
+    // Map the rest, i.e., *_i.
+    while (in_r_index >= 0) {
+      mapping[out_index] = input_domain[in_r_index];
+      in_r_index--;
+      out_index--;
     }
-    case 2: {
-      if (inp_size > 0) {
-        // Bias is 1D tensor of shape {out_features}
-        mapping[out_size - 1 - red_dims] = input_domain.front();
+  } else {
+    NVF_ERROR(
+        input_position == 1 || input_position == 2,
+        "Input position must be 0, 1, or 2. Found ",
+        input_position);
+
+    auto in_r_index = static_cast<int64_t>(input_domain.size()) - 1;
+    auto out_index = static_cast<int64_t>(out_size) - 1;
+    if (k_bcast) {
+      // If K is a broadcast, don't map K.
+      if (input_position == 1) {
+        // Skip K in the weight.
+        in_r_index--;
       }
-      break;
+    } else {
+      // Otherwise, map K in the weight.
+      if (input_position == 1) {
+        mapping[out_index] = input_domain[in_r_index];
+        in_r_index--;
+      }
+      out_index--;
     }
-    default:
-      NVF_ERROR("Unexpected input type.");
+
+    // Fill `N`
+    mapping[out_index] = input_domain[in_r_index];
+
+    // Fill *_wb from the front.
+    out_index = 0;
+    for (auto in_index : c10::irange(in_r_index)) {
+      mapping[out_index] = input_domain[in_index];
+      out_index++;
+    }
   }
   return mapping;
 }

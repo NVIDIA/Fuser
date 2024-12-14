@@ -8,8 +8,8 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
-#include <inlining.h>
 #include <instrumentation.h>
+#include <ir/printer.h>
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -18,7 +18,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
-#include <scheduler/transpose.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -184,7 +184,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   constexpr int64_t kSixteen = 16; // clang tidy
 
-  auto max_unroll_factor = ceilDiv(
+  auto max_vect_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
       (int64_t)kSixteen / max_input_dtype_size,
       // Reduce max unrolling factor if we have many inputs/outputs to unroll
@@ -197,11 +197,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Don't unroll at the cost of getting a full wave on the GPU
   if (n_elems < device_multiprocessor_count * kThreadX &&
-      max_unroll_factor > 1) {
-    max_unroll_factor = std::min(
-        max_unroll_factor,
+      max_vect_unroll_factor > 1) {
+    max_vect_unroll_factor = std::min(
+        max_vect_unroll_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
+
+  auto max_vect_factor =
+      std::min(kSixteen / max_input_dtype_size, max_vect_unroll_factor);
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -315,7 +318,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // Need to be able to parallelize, don't use break if there's not
         // at least an unrolled warp.
-        if (ceilDiv(cur_right_elem_count, max_unroll_factor) <=
+        if (ceilDiv(cur_right_elem_count, max_vect_unroll_factor) <=
             at::cuda::getCurrentDeviceProperties()->warpSize) {
           continue;
         }
@@ -332,7 +335,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
         // Min transfer found, start setting values
         bdimx = std::min(
-            ceilDiv(cur_right_elem_count, max_unroll_factor), kThreadX);
+            ceilDiv(cur_right_elem_count, max_vect_unroll_factor), kThreadX);
         bdimy = 1;
         // Put remainder in bdimy if there's at least a wave of grid level
         // parallelism.
@@ -341,7 +344,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
         auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
         auto remainder_right =
-            ceilDiv(cur_right_elem_count, bdimx * max_unroll_factor);
+            ceilDiv(cur_right_elem_count, bdimx * max_vect_unroll_factor);
         // Use this break point
         break_point = static_cast<int>(break_point_i);
         min_total_transfer = cur_transfer_size;
@@ -353,11 +356,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
   }
 
-  // Don't try to vectorize if it's not recommended
-  params->unroll_factor = 1;
-
-  const auto vectorize_factor = std::min(
-      max_unroll_factor,
+  params->vectorization_factor = std::min(
+      max_vect_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           largest_out,
@@ -365,12 +365,25 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  if (vectorize_factor == 1) {
-    params->vectorize = false;
-    params->unroll_factor = max_unroll_factor;
-  } else {
-    params->vectorize = true;
-    params->unroll_factor = vectorize_factor;
+  // preserve the old heuristic where unroll is used only when vectorization is
+  // not used. should allow to use both unroll and vectorization together in
+  // heuristics tuning.
+  if (params->vectorization_factor == 1) {
+    auto total_unroll = scheduler_utils::safeDiv(
+        max_vect_unroll_factor, params->vectorization_factor);
+    // for 1D scheduler, unroll the inner dimension
+    // since there is no outer dimension.
+    if (break_point == 0) {
+      params->unroll_factor_inner = total_unroll;
+      params->unroll_factor_outer = 1L;
+    } else {
+      // for 2D scheduler, unroll the outer dimension
+      // to prioritize resue across different rows, will
+      // be revised in heuristics tuning, e.g. unroll different
+      // dims based on the broadcast dimension.
+      params->unroll_factor_inner = 1L;
+      params->unroll_factor_outer = total_unroll;
+    }
   }
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
@@ -394,7 +407,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "vectorize_factor: " << vectorize_factor << std::endl
+            << "unroll_factor_inner: " << params->unroll_factor_inner
+            << std::endl
+            << "unroll_factor_outer: " << params->unroll_factor_outer
+            << std::endl
+            << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
             << "logical_reorder_map: ";
     for (auto [i, j] : logical_reorder_map) {
@@ -473,25 +490,6 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
-  }
-
-  return true;
-}
-
-bool PointWiseScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
-  auto can_schedule_transpose_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
-          data_cache, [fusion]() {
-            return std::make_unique<bool>(
-                TransposeScheduler().canScheduleCompileTime(fusion));
-          });
-  if (can_schedule_transpose_entry.get()) {
-    return !TransposeScheduler().canScheduleRunTime(
-        fusion, runtime_info, data_cache);
   }
 
   return true;
@@ -594,9 +592,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
     // Make sure lhs and rhs groups are disjoint.
     for (auto lhs_val : lhs_all_vals) {
-      NVF_ERROR(
-          rhs_all_vals_set.count(lhs_val) == 0,
-          "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint.");
+      if (rhs_all_vals_set.count(lhs_val) != 0) {
+        std::ostringstream os;
+        IrTransformPrinter printer(os);
+        printer.printTransforms(reference_tv);
+        NVF_THROW(
+            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint. ",
+            lhs_val->toString(),
+            " belongs to both. device_aware_break_point = ",
+            device_aware_break_point,
+            ". reference_tv = ",
+            reference_tv->toString(),
+            " and its transforms are:\n",
+            os.str());
+      }
     }
     NVF_ERROR(
         !rhs_all_vals.empty(),
@@ -683,11 +692,18 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
     reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
 
-    if (pparams->vectorize) {
-      reference_tv->split(1, pparams->unroll_factor);
+    // vectorization without unroll
+    if (pparams->unroll_factor_outer == 1 &&
+        pparams->unroll_factor_inner == 1 &&
+        pparams->vectorization_factor > 1) {
+      reference_tv->split(1, pparams->vectorization_factor);
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
       reference_tv->split(0, 1);
       // [outer, Unswitch | i-remainder, TIDx, Vectorization]
+      // Here and in the following comments:
+      // prefix [i] represent inner dimension
+      // prefix [o] represent inner dimension
+      // [|] separates the outer and inner dimensions
       reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
       reference_tv->axis(3)->parallelize(ParallelType::TIDx);
       // Vectorization are propagated separately
@@ -698,36 +714,66 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->reorder({{1, 2}, {2, 1}, {3, 4}, {4, 3}});
       //[outer | i-remainder, Unswitch, Vectorization, TIDx]
     } else {
+      // [outer | inner]
+      if (pparams->vectorization_factor > 1) {
+        reference_tv->split(1, pparams->vectorization_factor);
+      }
+      // [outer | i-remainder, Vect]
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
-      reference_tv->split(1, pparams->unroll_factor);
+      // [outer | i-remainder, TIDx, Vect]
+
+      if (pparams->unroll_factor_inner > 1) {
+        reference_tv->split(1, pparams->unroll_factor_inner);
+      }
+      // [outer| i-remainder, i-Unroll, TIDx, Vect]
+
+      if (pparams->unroll_factor_outer > 1) {
+        reference_tv->split(0, pparams->unroll_factor_outer);
+      }
+      // [o-remainder, o-Unroll, | i-remainder, i-Unroll, TIDx, Vect]
 
       reference_tv->split(0, 1);
-      // [outer, unswitch | i-remainder, unroll, TIDx ]
-      reference_tv->reorder({{1, 2}});
-      // [outer, i-remainder, unswitch, unroll, TIDx ]
+      // [o-remainder, Unswitch, o-Unroll | i-remainder, i-Unroll, TIDx, Vect]
+
+      int i_remainder_pos = pparams->unroll_factor_outer > 1 ? 3 : 2;
+      reference_tv->reorder({{i_remainder_pos, 1}});
+      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+
       reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
       // Here we do not set axis(3)->parallelize(Unroll) because we do not want
       // it to be propagated. We manually unroll by splitting the inline
       // propagation process into two steps:
       // step 1: inline at the unswitch position for cached inputs and outputs
       // step 2: inline at the inner most dim for the rest of the graph
-      reference_tv->axis(4)->parallelize(ParallelType::TIDx);
-
-      //[outer | i-remainder, Unswitch, Unroll, TIDx]
+      int tidx_pos = 3;
+      if (pparams->unroll_factor_inner > 1) {
+        tidx_pos++;
+      }
+      if (pparams->unroll_factor_outer > 1) {
+        tidx_pos++;
+      }
+      reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
+      if (pparams->vectorization_factor > 1) {
+        // can't use {-1}, there may be deviceId
+        vectorize_id = reference_tv->axis(tidx_pos + 1);
+      }
+      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
     }
 
     // Move out of the way to furthest left point
     reference_tv->reorder({{1, 0}});
-
-    //[i-remainder | outer | Unswitch, Unroll, TIDx]
+    // [i-remainder, o-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
     if (pparams->split_block) {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
+      // [i-remainder, o-remainder, TIDy, Unswitch, o-Unroll, i-Unroll, TIDx,
+      // Vect]
       if (pparams->flip_grid_binding) {
-        // [BIDy | BIDx, TIDy | Unswitch, Unroll, TIDx]
+        // [BIDy | BIDx, TIDy | Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
         reference_tv->axis(1)->parallelize(ParallelType::BIDx);
         reference_tv->axis(2)->parallelize(ParallelType::TIDy);
         if (pparams->split_grid_y_dim) {
-          // [i-remainder, BIDy{65535} | BIDx, TIDy | Unswitch, Unroll, TIDx]
+          // [i-remainder, BIDy{65535} | BIDx, TIDy | Unswitch, o-Unroll,
+          // i-Unroll, TIDx, Vect]
           reference_tv->split(0, 65535);
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 5;
@@ -736,11 +782,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           unswitch_pos = 4;
         }
       } else {
-        // [BIDx | BIDy TIDy | Unswitch, Unroll, TIDx]
+        // [BIDx | BIDy TIDy | Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         reference_tv->axis(2)->parallelize(ParallelType::TIDy);
         if (pparams->split_grid_y_dim) {
-          // [BIDx | i-remainder, BIDy{65535}, TIDy | Unswitch, Unroll, TIDx]
+          // [BIDx | i-remainder, BIDy{65535}, TIDy | Unswitch, o-Unroll,
+          // i-Unroll, TIDx, Vect]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 5;
@@ -750,9 +797,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     } else {
-      // [BIDy | BIDx | Unswitch, Unroll, TIDx]
+      // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
       if (pparams->flip_grid_binding) {
-        // [BIDy | BIDx | Unswitch, Unroll, TIDx]
+        // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(1)->parallelize(ParallelType::BIDx);
         if (pparams->split_grid_y_dim) {
           // [i-remainder, BIDy{65535} | BIDx | Unswitch, Unroll, TIDx]
@@ -760,18 +807,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
+          // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(0)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
       } else {
-        // [BIDx | BIDy | Unswitch, Unroll, TIDx]
+        // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         if (pparams->split_grid_y_dim) {
-          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx]
+          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, Vect]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
+          // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
@@ -786,9 +835,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // unmerged...]
     reference_tv->reorder({{-1, 0}});
 
-    if (pparams->vectorize) {
+    if (pparams->unroll_factor_inner == 1 &&
+        pparams->vectorization_factor > 1) {
       // Vectorize
-      reference_tv->split(0, pparams->unroll_factor);
+      reference_tv->split(0, pparams->vectorization_factor);
       // Unswitch
       reference_tv->split(0, 1);
       // Threads
@@ -805,14 +855,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->reorder({{1, 3}, {2, 1}, {3, 2}});
       //[BIDx, Unswitch, Vectorization, TIDx]
     } else {
+      // Vectorize
+      if (pparams->vectorization_factor > 1) {
+        reference_tv->split(0, pparams->vectorization_factor);
+      }
       // Threads
       reference_tv->split(0, kThreadX);
       // Unroll
-      reference_tv->split(0, pparams->unroll_factor);
+      if (pparams->unroll_factor_inner > 1) {
+        reference_tv->split(0, pparams->unroll_factor_inner);
+      }
       // Unswitch
       reference_tv->split(0, 1);
 
-      // [BIDx, Unswitch, Unroll, TIDx]
+      // [BIDx, Unswitch, Unroll, TIDx, Vect]
       reference_tv->axis(0)->parallelize(ParallelType::BIDx);
       reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
       // Here we do not set axis(2)->parallelize(Unroll) because we do not want
@@ -820,7 +876,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       // propagation process into two steps:
       // step 1: inline at the unswitch position for cached inputs and outputs
       // step 2: inline at the inner most dim for the rest of the graph
-      reference_tv->axis(3)->parallelize(ParallelType::TIDx);
+      int tidx_pos = pparams->unroll_factor_inner > 1 ? 3 : 2;
+      reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
+      if (pparams->vectorization_factor > 1) {
+        vectorize_id = reference_tv->axis(tidx_pos + 1);
+      }
     }
     unswitch_pos = 2;
   }
@@ -830,7 +890,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
-  if (pparams->vectorize) {
+  if (pparams->vectorization_factor > 1) {
     // Grab all tensor views that should be vectorized
     auto inputs_outputs =
         scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);

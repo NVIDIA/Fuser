@@ -7,11 +7,11 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/utils.h>
 
@@ -118,7 +118,7 @@ static void setupDivMaxSoftmaxDropoutBackward(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_DivMaxSoftDropFwd(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   auto w = benchmark_state.range(0);
   auto x = benchmark_state.range(1);
@@ -135,7 +135,7 @@ static void NvFuserScheduler_DivMaxSoftDropFwd(
   std::vector<c10::IValue> at_inputs = {t0, t1};
 
   auto bytes =
-      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
+      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -143,7 +143,7 @@ static void NvFuserScheduler_DivMaxSoftDropFwd(
 
 static void NvFuserScheduler_DivMaxSoftDropBwd(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   auto w = benchmark_state.range(0);
   auto x = benchmark_state.range(1);
@@ -162,7 +162,7 @@ static void NvFuserScheduler_DivMaxSoftDropBwd(
   std::vector<c10::IValue> at_inputs = {t0, t1, t2, t3};
 
   auto bytes =
-      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
+      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   // Some reason t1 isn't used, ignore it.
   bytes -=
@@ -228,7 +228,7 @@ static void setupBiasDropoutAddLayernormFwd(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BiasDropoutAddLayernormFwd(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
@@ -247,7 +247,7 @@ static void NvFuserScheduler_BiasDropoutAddLayernormFwd(
   std::vector<c10::IValue> at_inputs = {t0, t1, t2, t3, t4};
 
   auto bytes =
-      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
+      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -304,7 +304,7 @@ static void setupBiasDropoutAddLayernormBwd1(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BiasDropoutAddLayernormBwd1(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
@@ -322,7 +322,7 @@ static void NvFuserScheduler_BiasDropoutAddLayernormBwd1(
   std::vector<c10::IValue> at_inputs = {t0, t1, t2, t3};
 
   auto bytes =
-      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
+      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -380,7 +380,7 @@ static void setupBiasDropoutAddLayernormBwd2(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BiasDropoutAddLayernormBwd2(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
@@ -398,7 +398,7 @@ static void NvFuserScheduler_BiasDropoutAddLayernormBwd2(
   std::vector<c10::IValue> at_inputs = {t4, t5, t1, t8};
 
   auto bytes =
-      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
+      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -438,7 +438,7 @@ static void setupBiasDropoutAddLayernormBwd3(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BiasDropoutAddLayernormBwd3(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
@@ -454,7 +454,7 @@ static void NvFuserScheduler_BiasDropoutAddLayernormBwd3(
   std::vector<c10::IValue> at_inputs = {t0, t21};
 
   auto bytes =
-      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
+      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));

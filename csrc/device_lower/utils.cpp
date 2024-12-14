@@ -11,6 +11,8 @@
 #include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
+#include <id_model/utils.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -278,24 +280,6 @@ std::vector<TensorView*> getTvs(const std::vector<Val*>& vals) {
   return tvs;
 }
 
-TensorView* getTvOutput(const Expr* expr) {
-  for (auto out : expr->outputs()) {
-    if (auto tv = getTv(out)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
-TensorView* getTvInput(const Expr* expr) {
-  for (auto inp : expr->inputs()) {
-    if (auto tv = getTv(inp)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
 bool isScalarOp(const Expr* expr) {
   for (auto out : expr->outputs()) {
     if (!out->isScalar()) {
@@ -309,7 +293,7 @@ bool isIterDomainOp(const Expr* expr) {
   return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
 }
 
-std::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input) {
   auto tv_out = getTv(output);
@@ -318,7 +302,6 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   auto tv_in = getTv(input);
-
   // only support reducing to registers for now.
   if (tv_in->getMemoryType() != MemoryType::Local ||
       tv_out->getMemoryType() != MemoryType::Local) {
@@ -326,14 +309,19 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
+  IterDomain* reduction_on_ydim = nullptr;
+  IterDomain* reduction_on_zdim = nullptr;
   for (auto id : tv_out->getLoopDomain()) {
-    // Currently warp reduction only allows
-    //  serial and block.x parallel reductions
+    // Currently warp reduction only allows:
+    // (1) block.x parallel reductions
+    // (2) block.x and block.y parallel reductions
     if (id->isReduction() && id->isParallelized()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         reduction_on_xdim = id;
-      } else if (id->isThread()) {
-        return std::nullopt;
+      } else if (id->getParallelType() == ParallelType::TIDy) {
+        reduction_on_ydim = id;
+      } else if (id->getParallelType() == ParallelType::TIDz) {
+        reduction_on_zdim = id;
       }
     }
   }
@@ -345,17 +333,30 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
     return std::nullopt;
   }
 
-  if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
-    return std::optional<IterDomain*>(reduction_on_xdim);
-  }
+  // reduction only in xdim.
+  if (!reduction_on_ydim && !reduction_on_zdim) {
+    if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
+      return std::make_pair(reduction_on_xdim, nullptr);
+    }
 
-  if (reduction_on_xdim->extent()->isConstInt()) {
-    auto extent_value = reduction_on_xdim->extent()->evaluate();
-    if (extent_value % at::cuda::warp_size() == 0) {
-      return std::optional<IterDomain*>(reduction_on_xdim);
+    if (reduction_on_xdim->extent()->isConstInt()) {
+      auto extent_value = reduction_on_xdim->extent()->evaluate();
+      if (extent_value % at::cuda::warp_size() == 0) {
+        return std::make_pair(reduction_on_xdim, nullptr);
+      }
+    }
+  } else if (reduction_on_xdim && reduction_on_ydim && reduction_on_zdim) {
+    // special case used in innerOuter scheduler where bdimx and bdimy are
+    // constants bdimz is always 1.
+    if (reduction_on_xdim->extent()->isConstInt() &&
+        reduction_on_ydim->extent()->isConstInt()) {
+      auto extent_x_value = reduction_on_xdim->extent()->evaluate();
+      auto extent_y_value = reduction_on_ydim->extent()->evaluate();
+      if ((extent_x_value * extent_y_value) % at::cuda::warp_size() == 0) {
+        return std::make_pair(reduction_on_xdim, reduction_on_ydim);
+      }
     }
   }
-
   return std::nullopt;
 }
 
@@ -614,6 +615,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
+          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -783,8 +785,8 @@ BasicAllocInfo getAllocInformation(
       }
     }
 
-    if (GpuLower::current()->caMap()->areMapped(
-            local_id, fl_id, IdMappingMode::PERMISSIVE)) {
+    if (lower_utils::getConcreteLoopID(local_id) ==
+        lower_utils::getConcreteLoopID(fl_id)) {
       info.alloc_pos++;
     }
 
@@ -829,9 +831,16 @@ bool isScalarExpr(Expr* expr) {
   return true;
 }
 
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  Val* pdm_max_extent = nullptr;
+  if (in_compute_warp) {
+    pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
+  } else {
+    pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  }
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -912,7 +921,11 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. In the split-k case, use the root domain for the
+  // mma layout because the k dimension is divided into two iterDomains in the
+  // logical domain.
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;
@@ -1888,6 +1901,11 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain) {
   FusionGuard fg(linear_g->front()->fusion());
+  // This function uses simplifyExpr extensively. If we have disable expression
+  // simplification in order to help inspect generated kernels then we will get
+  // incorrect results here. Instead, we ensure it is enabled using this guard.
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
   if (simplifyExpr(extent(linear_g))->isOne()) {
     // If the extent of the linear group is 1, we always consider it as linear,
     // regardless of its relationship with domain. For this case, we use stride
@@ -1898,7 +1916,8 @@ Val* proveLinearAndGetStride(
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  auto path =
+      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();
@@ -1915,13 +1934,68 @@ Val* proveLinearAndGetStride(
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
-IterDomain* getConcreteLoopID(IterDomain* loop_id) {
-  NVF_ERROR(
-      GpuLower::hasCurrent(),
-      "GpuLower is required for getting a concrete loop domain");
+IterDomain* getConcreteLoopID(IterDomain* id) {
+  // Currently, the concrete loop ID depends on if loops are generated
+  // based on the IdModel loop promotion, which needs to be enabled
+  // explicitly by the IdModelEnableOption::Loop option.
+  if (GpuLower::current()->idModelOptions().loop()) {
+    // If enabled, the concret ID should be basically just the
+    // promotion ID itself. However, just to reduce literacl changes
+    // of generated kernels so that the CI diff check could report
+    // smaller number of errors, we try to see if the concrete ID by
+    // ComputeAtMap could be used as a substitute. If yes, that ID is
+    // returned instead of the promotion ID.
 
-  return GpuLower::current()->caMap()->getConcreteMappedID(
-      loop_id, IdMappingMode::LOOP);
+    const auto& loop_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
+    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
+    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& loop_group = loop_graph.toGroup(id);
+
+    // Try to see if the CA concrete domain can be used instead
+    for (auto loop_val : *loop_group) {
+      IterDomain* loop_id = loop_val->as<IterDomain>();
+      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+        auto ca_map_concrete =
+            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion) &&
+            GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion)) {
+          return ca_map_concrete;
+        }
+      }
+    }
+
+    // The CAMap concrete ID is not a valid concrete ID. Use the
+    // promotion ID instead.
+    return promotion;
+  } else {
+    const auto& ca_map = GpuLower::current()->caMap();
+    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+  }
+}
+
+bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
+  return ir_utils::isCpAsyncBulkLoad(
+             ir_utils::getTv(mma->inA())->definition()) &&
+      ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
+}
+
+std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
+  std::vector<Expr*> sync_exprs;
+  sync_exprs.reserve(2);
+  auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
+  sync_exprs.push_back(commit);
+  auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
+  sync_exprs.push_back(wait);
+  return sync_exprs;
 }
 
 } // namespace lower_utils

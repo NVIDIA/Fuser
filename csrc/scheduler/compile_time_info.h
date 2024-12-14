@@ -46,7 +46,8 @@ enum class CompileTimeEntryType {
   CAN_SCHEDULE_TRANSPOSE,
   CAN_SCHEDULE_MUL_SUM_AS_MMA,
   LOGICAL_REORDER_MAP,
-  VECTORIZATION_BREAK_POINT_OF_RED_PROD
+  VECTORIZATION_BREAK_POINT_OF_RED_PROD,
+  SCHEDULE_HYPERPARAMETERS
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -203,6 +204,15 @@ class VectorizationBreakPointOfReductionProducer {
       CompileTimeEntryType::VECTORIZATION_BREAK_POINT_OF_RED_PROD;
 };
 
+//! Entry type definition class for `SCHEDULE_HYPERPARAMETERS`,
+//!  stores hyperparameters for SchedulerEntry::computeHeuristics
+class SchedulerHyperParameters {
+ public:
+  using DataType = scheduler_utils::SchedulerHyperParameters;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::SCHEDULE_HYPERPARAMETERS;
+};
+
 //! Base abstract class for unified storage in `HeuristicDataCache`,
 //!  each entry in `HeuristicDataCache` will be a subclass.
 class CompileTimeInfoBase : public PolymorphicBase {
@@ -224,7 +234,7 @@ class CompileTimeInfoBase : public PolymorphicBase {
 //! Compile-time information cache for `canSchedule` and `getHeuristics`
 //! interfaces. Each cache instance stores information that could be inferred at
 //! compile time in a fusion and therefore corresponds to an instance of
-//! FusionExecutor.
+//! KernelExecutor.
 class HeuristicDataCache {
   using EntryOwningPtr =
       std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase>;

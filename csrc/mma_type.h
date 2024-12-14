@@ -16,9 +16,6 @@
 #include <cstring>
 #include <ostream>
 
-#if IS_CPP20
-#include <bit>
-#endif
 #include <cstdint>
 
 namespace nvfuser {
@@ -70,47 +67,41 @@ struct GemmTile {
 struct MatMulTileOptions {
   GemmTile cta_tile = GemmTile(128, 128, 32);
   GemmTile warp_tile = GemmTile(64, 64, 32);
-  GemmTile instruction_tile = GemmTile(16, 8, 16);
 
   MatMulTileOptions() = default;
-  MatMulTileOptions(
-      GemmTile cta_tile_,
-      GemmTile warp_tile_,
-      GemmTile instruction_tile_)
-      : cta_tile(cta_tile_),
-        warp_tile(warp_tile_),
-        instruction_tile(instruction_tile_) {}
+  MatMulTileOptions(GemmTile cta_tile_, GemmTile warp_tile_)
+      : cta_tile(cta_tile_), warp_tile(warp_tile_) {}
 
   bool operator==(const MatMulTileOptions& other) const {
-    return cta_tile == other.cta_tile && warp_tile == other.warp_tile &&
-        instruction_tile == other.instruction_tile;
+    return cta_tile == other.cta_tile && warp_tile == other.warp_tile;
   }
 };
 
 enum class MmaMacro : uint64_t;
 
 struct MmaMacroEncode {
-  enum class Arch { NoMma, Volta, Turing, Ampere, Hopper } arch : 16;
-  unsigned m : 16;
-  unsigned n : 16;
-  unsigned k : 16;
+  enum class Arch : uint16_t { NoMma, Volta, Turing, Ampere, Hopper } arch;
+  uint16_t m;
+  uint16_t n;
+  uint16_t k;
 
   constexpr operator uint64_t() {
-#if IS_CPP20 && !defined(__clang__)
-    // std::bit_cast for bit field is not supported by clang yet
-    return std::bit_cast<uint64_t>(*this);
-#else
     return (uint64_t)arch << 48 | (uint64_t)m << 32 | (uint64_t)n << 16 |
         (uint64_t)k;
-#endif
   }
 
-  constexpr operator MmaMacro();
+  constexpr operator MmaMacro() {
+    return static_cast<MmaMacro>(static_cast<uint64_t>(*this));
+  }
 
-  constexpr MmaMacroEncode(MmaMacro macro);
+  constexpr MmaMacroEncode(MmaMacro macro)
+      : arch(Arch(toUnderlying(macro) >> 48)),
+        m((toUnderlying(macro) >> 32) & 0xFFFF),
+        n((toUnderlying(macro) >> 16) & 0xFFFF),
+        k(toUnderlying(macro) & 0xFFFF) {}
 
-  constexpr MmaMacroEncode(Arch arch, unsigned m, unsigned n, unsigned k)
-      : arch(arch), m(m), n(n), k(k) {}
+  constexpr MmaMacroEncode(Arch arch_, uint16_t m_, uint16_t n_, uint16_t k_)
+      : arch(arch_), m(m_), n(n_), k(k_) {}
 };
 
 static_assert(sizeof(MmaMacroEncode) == sizeof(uint64_t));
@@ -175,29 +166,6 @@ enum class MmaMacro : uint64_t {
 
 #undef MACRO
 
-constexpr MmaMacroEncode::operator MmaMacro() {
-#if IS_CPP20 && !defined(__clang__)
-  // std::bit_cast for bit field is not supported by clang yet
-  return std::bit_cast<MmaMacro>(*this);
-#else
-  return static_cast<MmaMacro>(static_cast<uint64_t>(*this));
-#endif
-}
-
-constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
-#if IS_CPP20 && !defined(__clang__)
-{
-  // std::bit_cast for bit field is not supported by clang yet
-  *this = std::bit_cast<MmaMacroEncode>(macro);
-}
-#else
-    : arch((Arch)(toUnderlying(macro) >> 48)),
-      m((toUnderlying(macro) >> 32) & 0xFFFF),
-      n((toUnderlying(macro) >> 16) & 0xFFFF),
-      k(toUnderlying(macro) & 0xFFFF) {
-}
-#endif
-
 //! [Operand Layout Convention]
 //! Operand layout, T=transposed/row_major, N=normal/col_major
 //! Ordered by position of K
@@ -228,17 +196,17 @@ inline bool isHopper(MmaMacro macro) {
 }
 
 //! Get the m size from macro type
-inline int getM(MmaMacro macro) {
+inline int64_t getM(MmaMacro macro) {
   return MmaMacroEncode(macro).m;
 }
 
 //! Get the n size from macro type
-inline int getN(MmaMacro macro) {
+inline int64_t getN(MmaMacro macro) {
   return MmaMacroEncode(macro).n;
 }
 
 //! Get the k size from macro type
-inline int getK(MmaMacro macro) {
+inline int64_t getK(MmaMacro macro) {
   return MmaMacroEncode(macro).k;
 }
 

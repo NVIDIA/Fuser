@@ -41,10 +41,18 @@ class MatmulParams : public HeuristicParams {
     // greater than one. Otherwise it is ignored.
     int smem_circular_buffer_stage = 2;
 
+    // The circular buffering prefetch distance will be set to
+    //   smem_circular_buffer_stage - smem_circular_buffer_prefetch_gap
+    // This value must be positive since the prefetch distance must be strictly
+    // less than the number of stages.
+    int smem_circular_buffer_prefetch_gap = 1;
+
     bool operator==(const CircularBufferOptions& other) const {
       return other.circular_buffer_smem_write == circular_buffer_smem_write &&
           other.circular_buffer_smem_read == circular_buffer_smem_read &&
-          other.smem_circular_buffer_stage == smem_circular_buffer_stage;
+          other.smem_circular_buffer_stage == smem_circular_buffer_stage &&
+          other.smem_circular_buffer_prefetch_gap ==
+          smem_circular_buffer_prefetch_gap;
     }
 
     std::string toString() const {
@@ -54,12 +62,16 @@ class MatmulParams : public HeuristicParams {
          << (circular_buffer_smem_write ? "true" : "false") << "\n"
          << "  circular_buffer_smem_read: "
          << (circular_buffer_smem_read ? "true" : "false") << "\n"
-         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage;
+         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage
+         << "\n"
+         << "  smem_circular_buffer_prefetch_gap: "
+         << smem_circular_buffer_prefetch_gap;
       return ss.str();
     }
 
     size_t hash() const {
       return std::hash<size_t>{}(
+                 (static_cast<size_t>(smem_circular_buffer_prefetch_gap) << 3) |
                  (static_cast<size_t>(smem_circular_buffer_stage) << 2) |
                  (static_cast<size_t>(circular_buffer_smem_write)) << 1) |
           (static_cast<size_t>(circular_buffer_smem_read));
@@ -138,14 +150,10 @@ class MatmulParams : public HeuristicParams {
     }
   } supported_vec_size;
 
-  //! Whether to rotate the ldmatrix out of the main loop
-  bool rotate_ldmatrix_out_of_main_loop = true;
-
   //! (Ampere+) Use cp.async to load operands.
   bool async_gmem_load_operands = false;
 
-  //! Specifies the tiling hierarchy on block,
-  //!  warp, and instruction levels.
+  //! Specifies the tiling hierarchy on block and warp levels.
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.
@@ -183,6 +191,10 @@ class MatmulParams : public HeuristicParams {
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;
 
+  //! This is the CGA size on Hopper+ devices. This parameter is ignored on
+  //! Ampere and Turing.
+  std::tuple<int64_t, int64_t, int64_t> cluster_dims = {2, 1, 1};
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -191,8 +203,6 @@ class MatmulParams : public HeuristicParams {
        << circular_buffer_options.toString() << "\n"
        << supported_vec_size.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
-       << "Rotate ldmatrix out of main loop: "
-       << (rotate_ldmatrix_out_of_main_loop ? "true" : "false") << "\n"
        << "Async global mem load: "
        << (async_gmem_load_operands ? "true" : "false") << "\n"
        << "Indexing mode: "
@@ -201,7 +211,7 @@ class MatmulParams : public HeuristicParams {
                                                                   : "int32_t")
                : "unavailable")
        << "\n"
-       << "Tile rastrization order: "
+       << "Tile rasterization order: "
        << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
                                                            : "column-major")
        << "\n"
@@ -216,9 +226,8 @@ class MatmulParams : public HeuristicParams {
 
   size_t hash() const override {
     // combine boolean flags for hashing
-    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 3) |
-        (static_cast<size_t>(use_smem_epilogue) << 2) |
-        (static_cast<size_t>(rotate_ldmatrix_out_of_main_loop) << 1) |
+    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 2) |
+        (static_cast<size_t>(use_smem_epilogue) << 1) |
         (static_cast<size_t>(async_gmem_load_operands));
 
     // combined hash
@@ -238,10 +247,8 @@ class MatmulParams : public HeuristicParams {
       return false;
     }
 
-    return other->mma_macro == mma_macro &&
+    return other->cparams == cparams && other->mma_macro == mma_macro &&
         other->async_gmem_load_operands == async_gmem_load_operands &&
-        other->rotate_ldmatrix_out_of_main_loop ==
-        rotate_ldmatrix_out_of_main_loop &&
         other->tile_sizes == tile_sizes &&
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&

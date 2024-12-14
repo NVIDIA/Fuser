@@ -7,11 +7,13 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
+#include <functional>
 #include <iostream>
 
-#include <kernel_cache.h>
 #include <python_frontend/fusion_state.h>
+#include <python_frontend/segmentation.h>
 #include <visibility.h>
+#include <unordered_map>
 
 namespace nvfuser::python_frontend {
 
@@ -20,8 +22,9 @@ class FusionDefinition;
 class FusionInterface;
 class FusionState;
 struct RecordFunctor;
-struct UserSchedule;
+class SegmentationState;
 struct TrieNode;
+struct UserSchedule;
 
 //! This is helper function used to print a python formated
 //! Fusion IR DataType when printing a fusion definition.
@@ -175,10 +178,17 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API bool existSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
-  NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void setupSchedule(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool overwrite_existing_schedule = false);
   //! Finalized use scheduling of a fusion
   //! resets FusionGuard, lowers IR to a kernel, compiles kernel
   NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  //! A hook that gets called right before
+  //! FusionDefinition.multidevice_schedule.
+  NVF_API void setupMultideviceSchedule();
+  //! A hook that gets called right after FusionDefinition.multidevice_schedule.
+  NVF_API void finalizeMultideviceSchedule();
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior
@@ -187,7 +197,9 @@ class NVF_API FusionDefinition : public FusionState {
       std::optional<int8_t> device,
       bool override_user_schedule,
       bool capture_debug_output,
-      bool profile) const;
+      bool profile,
+      std::vector<std::string> _enable_options,
+      std::vector<std::string> _disable_options) const;
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
   std::optional<std::string> getDebugOutput() const {
@@ -228,6 +240,9 @@ class NVF_API FusionDefinition : public FusionState {
     return id().has_value();
   }
 
+  //! Return a prescheduled Fusion object
+  Fusion* preschedFusion();
+
   //! Return UserSchedule struct if it exists
   UserSchedule* userSchedule();
 
@@ -249,11 +264,22 @@ class NVF_API FusionDefinition : public FusionState {
   //! Get all Tensors in FusionState.
   NVF_API std::vector<Tensor> tensors();
 
+  //! Run segmentation algorithm on FusionDefinition. Returns the number of
+  //! segments.
+  NVF_API int64_t setupSegmentation(const at::ArrayRef<c10::IValue>& inputs);
+  //! Given an empty FusionDefinition and a segment id, buildSegment creates the
+  //! CPP Fusion, translates it to the python FusionDefinition, then return a
+  //! mapping from segment fusion state indices to the original fusion state
+  //! indices.
+  NVF_API std::unordered_map<int64_t, int64_t> buildSegment(
+      FusionDefinition& segment_fd,
+      int64_t segment_id);
+  //! After creating segments, destroy SegmentationState.
+  NVF_API void finalizeSegmentation();
+
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
-  //! Return a prescheduled Fusion object
-  Fusion* preschedFusion();
   //! Composite operations can create hidden TensorViews in the CPP fusion
   //! These TensorViews are not visible from python definition. This function
   //! finds and adds them to FusionDefinition
@@ -261,6 +287,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Update Symbolic FusionStates after DynamicTransform pass
   void updateSymbolicStates(
       const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
+  // Check that the NvFuser TensorView and the Python Tensor dimensions match.
+  // Apply after buildFusionIr
+  void verifyTensorDimensions();
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
@@ -282,6 +311,9 @@ class NVF_API FusionDefinition : public FusionState {
   UserSchedule* user_sched_;
   //! Number of recording_states_ before applying user schedule
   int64_t num_recording_states_presched_ = 0;
+  //! Data member that creates SegmentedFusion from cloned, prescheduled Fusion
+  //! then translates the segments to python FusionDefinitions.
+  std::unique_ptr<SegmentationState> segmentation_state_;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined

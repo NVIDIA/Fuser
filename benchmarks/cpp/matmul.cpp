@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -64,7 +64,8 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams* mparams) {
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
-  scheduleMatmul(fusion, mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion, mparams);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
@@ -174,19 +175,19 @@ static void SingleMatmulBase(
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  KernelExecutor ke;
+  ke.compile(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+      getBankConflictInfo(ke.kernel(), launch_constraints).empty(),
       "Shared memory bank conflict not removed.");
 
   std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
 
   // TODO: FLOPS calculation
 }
@@ -242,7 +243,6 @@ MatmulParams getMatmulParams(
   gemm_tile.cta_tile = cta_tile;
   // TODO: pipe through split K
   gemm_tile.warp_tile = GemmTile(64, 64, cta_tile.k);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
   params.supported_vec_size = {8, 8, 8};
@@ -335,7 +335,8 @@ static void SingleMatmulPartitionedK(
 
   fusion->addOutput(c);
 
-  scheduleMatmul(fusion, mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion, mparams);
 
   at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
@@ -353,19 +354,19 @@ static void SingleMatmulPartitionedK(
   cparams.index_type = computeIndexType(M, N, K);
 
   // Compile kernel
-  FusionExecutor fe;
+  KernelExecutor ke;
   auto lparams = LaunchParams();
-  fe.compileFusion(fusion, args, lparams, cparams);
+  ke.compile(fusion, args, lparams, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      getBankConflictInfo(ke.kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
 
   // TODO: FLOPS calculation
 }
@@ -403,6 +404,12 @@ static void NvFuserScheduler_Matmul(
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
+
+  if (cudaArchGuardShouldSkip(8, 0, 9, 0)) {
+    benchmark_state.SkipWithError(
+        "This Fusion includes broadcasts on the operands, which is not supported on Hopper+");
+    return;
+  }
 
   // Run benchmark:
   if (partitionedk) {
@@ -459,21 +466,21 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), heuristic_params->lparams).empty(),
+      getBankConflictInfo(ke.kernel(), heuristic_params->lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
+  auto outputs = ke.run(aten_inputs, heuristic_params->lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 
   runBenchmarkIterations(
-      benchmark_state, &fe, aten_inputs, heuristic_params->lparams);
+      benchmark_state, &ke, aten_inputs, heuristic_params->lparams);
 
   // TODO: FLOPS calculation
 }

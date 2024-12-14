@@ -16,7 +16,6 @@
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
 #include <val_graph.h>
-#include <val_graph_visitor.h>
 
 #include <bitset>
 #include <map>
@@ -98,16 +97,10 @@ bool isTV(const Val* const);
 // Returns if Expr is a TensorView or TensorIndex Expr.
 NVF_API bool isTvOp(const Expr*);
 
-// Returns the first output of Expr that is a TensorView
-NVF_API TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.
-std::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input);
 
@@ -236,8 +229,12 @@ bool isScalarExpr(Expr* expr);
 
 //! Test if provided IterDomain instance has an extent that matches maximum
 //!  extent stored in parallel dimension map for parallel type of provided
-//!  IterDomain object.
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
+//!  IterDomain object. `in_compute_warp` specifies we are checking an
+//!  expression in the compute warp, if so, we need to get the parallel type
+//!  extent of the compute warp, instead of the global parallel type extent.
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp = false);
 
 //! Get the uint32_t index of a scalar TensorView. This is usually used for
 //! indexing special items in shared memory, like mbarrier.
@@ -367,6 +364,18 @@ struct IterDomainDependencySorter {
       concrete_id_dependencies_;
   const IterDomain* kernel_scope_domain_ = nullptr;
 };
+
+// Check if all the inputs of the given MmaOp is guarded by mbarrier
+bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
+
+// Create a list of expressions that will be used to wait for async operations.
+// For example, if op_type is AsyncOpType::WgMma, then the returned expressions
+// will be:
+//   wgmma.commit_group.sync.aligned
+//   wgmma.wait_group.sync.aligned
+std::vector<Expr*> getSyncExprs(
+    AsyncOpType async_type,
+    int64_t keep_stages = 0);
 
 } // namespace lower_utils
 

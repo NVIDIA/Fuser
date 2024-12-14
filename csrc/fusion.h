@@ -11,12 +11,12 @@
 #include <exceptions.h>
 
 #include <debug.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
+#include <runtime/executor_params.h>
 #include <visibility.h>
 
 #include <any>
@@ -403,7 +403,7 @@ class NVF_API Fusion : public IrContainer {
   static IrCloner copy(const Fusion* from, Fusion* to);
 
   //! During scheduling, this can be set to a non-negative value. If done, then
-  //! during execution by FusionExecutor, we will check that this value matches
+  //! during execution by KernelExecutor, we will check that this value matches
   //! the corresponding value in LaunchParams.
   int64_t expectedDynamicSmemBytes() const {
     return expected_dynamic_smem_bytes_;
@@ -465,11 +465,6 @@ class NVF_API Fusion : public IrContainer {
   }
 
  private:
-  // Determine if the two values are compatible for aliasing
-  // Same DataType, ValType, and number of dimensions
-  bool isAliasCompatible(Val* left, Val* right);
-
- private:
   // Fusion inputs and outputs
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
@@ -510,8 +505,5 @@ void Fusion::manage(std::string key, T data) {
     return std::any(cloner.clone(std::any_cast<T>(data)));
   });
 }
-
-// Returns true if all fusion outputs are expression evaluated.
-bool isExpressionEvaluated(Fusion* fusion);
 
 } // namespace nvfuser

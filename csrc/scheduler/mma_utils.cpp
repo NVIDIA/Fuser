@@ -8,9 +8,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <abstract_tensor.h>
 #include <device_lower/utils.h>
-#include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <logical_domain_map.h>
@@ -18,6 +16,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
@@ -246,12 +245,15 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       ignore_occupancy_drop);
 }
 
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
@@ -281,12 +283,15 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithNoReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 
@@ -803,8 +808,10 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 // from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
 // -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
 // K_in. If we start with K_in we can end up with M.
-IterDomain* getIDinConsumerRoot(IterDomain* id) {
-  while (Expr* expr = id->definition()) {
+IterDomain* getIDinConsumerRoot(IterDomain* id, TensorView* tv) {
+  while (!tv->domain()->isMaybeRoot(id)) {
+    Expr* expr = id->definition();
+    NVF_ERROR(expr != nullptr);
     NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
     if (expr->isA<Split>()) {
       NVF_CHECK(
@@ -838,8 +845,8 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto producer = ir_utils::getTvInput(ldst);
 
   // Get the innermost ID and go back up the DAG to the root domain.
-  auto corresponding_id_in_consumer_root =
-      getIDinConsumerRoot(consumer->getMaybeAllocationDomain().back());
+  auto corresponding_id_in_consumer_root = getIDinConsumerRoot(
+      consumer->getMaybeAllocationDomain().back(), consumer);
 
   // This gives us the ID in the consumer root domain.
   // We'll later map this ID to one in the producer.
@@ -928,14 +935,9 @@ void MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
   }
 }
 
-// Please note that we currently do not fully support
-// not splitting the outer dimension. This only works when
-// the inner-dimension is not split, that is the inner dim
-// is less or equal to the swizzle size (in bytes).
 void MmaSwizzler::scheduleTMALoadForMma(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    bool permute_outer_dim) {
+    MmaInputSmemSwizzle swizzle) {
   // In the comments below I have kept K as the outer dimension. That is
   // just to have a concrete running example - it can be inner or outer.
 
@@ -967,16 +969,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
     tv->swizzleTMABox(swizzle);
-
-    // If the outer dim is split, then we pull out KO to be outside NO
-    // and KO and NO are both not marked bulk parallel, else NO is outer
-    // and only NO is not marked bulk parallel.
-    if (permute_outer_dim) {
-      // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)] ->
-      // [KO(2), NO(2), KIO(2), KII(4), NIO(2), NII(8)]
-      tv->reorder({{-6, -5}});
-    }
-    num_ids_to_skip += permute_outer_dim ? 2 : 1;
+    num_ids_to_skip += 1;
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);
@@ -1165,14 +1158,14 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
 // multi-matmul refactor is finished.
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
-    const ValGraph& permissive_graph,
+    const ValGraph& graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
   for (size_t i : c10::irange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
-    const ValGroup& g = permissive_graph.toGroup(id);
+    const ValGroup& g = graph.toGroup(id);
     auto order_it = std::find(ordering.begin(), ordering.end(), g);
     NVF_ERROR(
         order_it != ordering.end(),
@@ -1186,8 +1179,8 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
 
   // Now merge dims that have the same role
   NVF_ERROR(tv->nDims() > 0);
-  const auto getRole = [&dim_roles, &permissive_graph](IterDomain* id) {
-    const ValGroup& g = permissive_graph.toGroup(id);
+  const auto getRole = [&dim_roles, &graph](IterDomain* id) {
+    const ValGroup& g = graph.toGroup(id);
     const auto it = dim_roles.find(g);
     NVF_ERROR(it != dim_roles.end());
     return it->second;
@@ -1263,34 +1256,92 @@ inline void resolveTvToMatmulDimRolesMapping(
 
 } // anonymous namespace
 
-void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
+void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
+  // [BDX, BDY, TDY, MI, NI]
+  // skip all but last 2 iterDomains
+  int64_t num_ids_to_skip =
+      static_cast<int64_t>(tv->getLoopDomain().size() - 2);
+
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+    num_ids_to_skip += 1;
+  }
+
+  // The shared memory producer must have the swizzled allocation domain.
+  // The global memory consumer must have the ParallelType::Bulk iterDomains.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Set the allocation to the loop domain.
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  } else {
+    mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+        tv, num_ids_to_skip);
+  }
+}
+
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    int64_t tile_m,
+    int64_t tile_n) {
   NVF_ERROR(
-      tv->getMemoryType() == MemoryType::Global,
-      "TMA Store should write to global memory");
+      ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
+      "We only support 16x16 and 16x16 stmatrix now");
 
   NVF_ERROR(
-      tv->definition()->isA<LoadStoreOp>(),
-      "This tensor should be the result of a LoadStoreOp");
+      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
 
-  NVF_ERROR(
-      tv->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile,
-      "This is not a TMA operation");
+  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
 
-  NVF_ERROR(
-      tv->definition()
-              ->as<LoadStoreOp>()
-              ->in()
-              ->as<TensorView>()
-              ->getMemoryType() == MemoryType::Shared,
-      "Producer should be in shared memory");
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    // Create tma store allocation domain with swizzle
+    mma_utils::scheduleTMAStoreForMmaOutput(tv, swizzle);
+  }
 
-  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
-  tv->split(-2, m);
-  tv->split(-1, n);
-  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
-  tv->reorder({{-2, -3}});
-  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
+  tv->setLoopDomain(s.as<IterDomain*>());
+
+  if (tile_m == 16 && tile_n == 16) {
+    // Let [M, N] be [64, 32]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+    // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+    tv->split(-3, 2);
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+    tv->reorder({{-4, 0}});
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+    tv->merge(-3);
+    tv->merge(-2);
+  } else if (tile_m == 16 && tile_n == 8) {
+    // Let [M, N] be [64, 16]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
+    // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
+    tv->reorder({{-3, 0}});
+    // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
+    tv->merge(-2);
+  }
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
@@ -1315,10 +1366,9 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles) {
-  // Assumes the permissive graph has already been built, since we've been
+  // Assumes the Broadcast graph has already been built, since we've been
   // provided dim_roles
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   // Note: using DataWrapperOpt<MatmulDimRole> would be preferable here.
   // However, using DataWrapperOpt<MatmulDimRole>(std::move(dom)) leads to a
@@ -1327,11 +1377,11 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   // To avoid this complication I'm using an unwrapped variant for the lambda's
   // result type.
   using MatmulDimRoleOpt = std::variant<std::string, MatmulDimRole>;
-  const auto findInnerDim =
-      [&dim_roles, &permissive_graph](TensorView* tv) -> MatmulDimRoleOpt {
+  const auto findInnerDim = [&dim_roles,
+                             &graph](TensorView* tv) -> MatmulDimRoleOpt {
     IterDomain* inner_id =
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
-    const ValGroup& g = permissive_graph.toGroup(inner_id);
+    const ValGroup& g = graph.toGroup(inner_id);
     auto g_it = dim_roles.find(g);
     if (g_it == dim_roles.end()) {
       return "Inner domain of tensor was not mapped to a MatmulDimRole";
@@ -1375,10 +1425,9 @@ TensorRolesMapOpt getTensorRoles(
 
   TensorRolesMap tensor_roles;
 
-  // Assumes the permissive graph has already been built, since we've been
+  // Assumes the Broadcast graph has already been built, since we've been
   // provided dim_roles
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   struct DimPresence {
     bool m = false;
@@ -1387,13 +1436,13 @@ TensorRolesMapOpt getTensorRoles(
     bool unmapped = false;
   };
 
-  const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
+  const auto findDims = [&dim_roles, &graph](TensorView* tv) {
     DimPresence has;
     for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      const ValGroup& g = permissive_graph.toGroup(id);
+      const ValGroup& g = graph.toGroup(id);
       auto it = dim_roles.find(g);
       if (it == dim_roles.end()) {
         // tv has an unmapped non-broadcast and non-reduction dimension
@@ -1735,7 +1784,12 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   } else if (output->definition()->isA<ReductionOp>()) {
     Val* init = IrBuilder::create<Val>(0.0, output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
-    return IrBuilder::create<MmaOp>(output, A, B, init);
+    return IrBuilder::create<MmaOp>(
+        output,
+        A,
+        B,
+        init,
+        MmaOp::AxisMapping::trivialMapping(output->nDims()));
   }
 
   // This will hold the translated output from MatmulOp or LinearOp
@@ -1853,7 +1907,7 @@ namespace {
 // Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
 // mappings
 DimRolesMap matmulOrLinearOpDimRoles(
-    const ValGraph& permissive_graph,
+    const ValGraph& graph,
     const std::vector<IterDomain*>& out_logical,
     const std::vector<IterDomain*>& mapping_a,
     const std::vector<IterDomain*>& mapping_b) {
@@ -1862,7 +1916,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
   NVF_ERROR(mapping_a.size() == mapping_b.size());
   for (size_t i : c10::irange(out_logical.size())) {
     IterDomain* id_out = out_logical[i];
-    const ValGroup& g = permissive_graph.toGroup(id_out);
+    const ValGroup& g = graph.toGroup(id_out);
 
     if (id_out->isReduction()) {
       dim_roles[g] = MatmulDimRole::K;
@@ -1888,9 +1942,8 @@ DimRolesMap matmulOrLinearOpDimRoles(
 } // namespace
 
 DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
   // Batch. These are enumerated in the MatmulDimRole enum class. They are
@@ -1905,7 +1958,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   if (output->definition()->isA<MatmulOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     return matmulOrLinearOpDimRoles(
-        permissive_graph,
+        graph,
         out_logical,
         ops::mapMatmulOpIterDomains(
             A->getLogicalDomain(), 0, out_logical.size()),
@@ -1916,7 +1969,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     bool k_bcast = A->getLogicalDomain().back()->isBroadcast();
     return matmulOrLinearOpDimRoles(
-        permissive_graph,
+        graph,
         out_logical,
         ops::mapLinearOpIterDomains(
             A->getLogicalDomain(), 0, out_logical.size(), k_bcast),
@@ -1934,10 +1987,10 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   // group is present at all in the tv. The second records whether the value is
   // concrete (i.e. not reduction, broadcast, or device).
   std::unordered_map<ValGroup, std::pair<DimPresence, DimPresence>> flags;
-  const auto recordPresence = [&permissive_graph, &flags](
+  const auto recordPresence = [&graph, &flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getLogicalDomain()) {
-      const ValGroup& g = permissive_graph.toGroup(id);
+      const ValGroup& g = graph.toGroup(id);
       auto& [present_flags, concrete_flags] = flags[g];
       present_flags.set(tensor_num);
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
@@ -1978,7 +2031,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph) {
+    const ValGraph& graph) {
   VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
       other_dims, device_dims;
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
@@ -2002,7 +2055,7 @@ std::vector<ValGroup> canonicalDimOrdering(
         IterDomain* id = *id_it;
         if (id->isDeviceDim()) {
           // save device dim groups since they must be outermost
-          const ValGroup& g = permissive_graph.toGroup(id);
+          const ValGroup& g = graph.toGroup(id);
           device_dims.pushBack(g);
           continue;
         } else if (id->isBroadcast() || id->isReduction()) {
@@ -2010,7 +2063,7 @@ std::vector<ValGroup> canonicalDimOrdering(
           // their roles
           continue;
         }
-        const ValGroup& g = permissive_graph.toGroup(id);
+        const ValGroup& g = graph.toGroup(id);
         const auto it = dim_roles.find(g);
         if (it == dim_roles.end()) {
           other_dims.pushBack(g);
@@ -2140,6 +2193,288 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
   }
   return std::pair<DimRolesMap, TensorRolesMap>{
       id_roles, tensor_roles_opt.getData()};
+}
+
+namespace {
+// This function returns a pair of integers. The first integer is the gcd
+// between megabanks and row stride. The second integer is the repeat pattern
+// size. If the gcd is 1, then no swizzle is necessary to resolve bank
+// conflicts. In that case, the second integer is irrelevant and -1 is returned.
+std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
+    TensorView* shared_mem_tv) {
+  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+
+  // Check that the innermost 2 dimensions are concrete and static
+  //  sized so that the swizzle function can be defined.
+  NVF_ERROR(
+      (int64_t)swizzle_domain.size() >= 2,
+      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      shared_mem_tv->toString());
+  mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
+  mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
+
+  // Extract the constant sizes of the swizzled tile
+  const int64_t tile_size_x =
+      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
+  const int64_t tile_size_y =
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+
+  // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
+  // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
+  // (i.e. float)
+  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  NVF_ERROR(data_type_size == 2 || data_type_size == 4);
+
+  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+  // Each thread vectorized write 2 items, so 8 items per row.
+  //--0--1--2--3
+  //--4--5--6--7
+  //--8--9--10-11
+  //--12-13-14-15
+  //--16-17-18-19
+  //--20-21-22-23
+  //--24-25-26-27
+  //--28-29-30-31
+  constexpr int64_t n_rows = 8;
+  constexpr int64_t n_cols = 8;
+
+  // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
+  NVF_ERROR(
+      tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
+          tile_size_y >= n_cols && tile_size_y % n_cols == 0,
+      "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
+      tile_size_x,
+      "x",
+      tile_size_y);
+
+  /* Note [How to remove bank conflict for ldmatrix?]
+   *
+   * **This note is interleaved with code, I suggest reading this note like
+   *   reading a jupyter notebook**
+   *
+   * Our task is to make sure different rows does not fall into the same
+   * bank of shared memory.
+   *
+   * Introduction to bank conflict can be found at page 54-72 of:
+   * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
+   *
+   * When we talk about bank conflict removal, we are talking about the
+   * following task:
+   *   "there are 32 banks, and each bank contains one 4-byte word, we want to
+   *    make sure different lanes in a warp does not access different word
+   *    addresses in the same bank"
+   * For example, if thread 0 is accessing word address 1, and thread 1 is
+   * accessing word address 33, then these two threads will have a bank
+   * conflict because they are accessing different word addresses in the same
+   * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
+   * accessing byte address 6 then there will be no bank conflict because 4
+   * and 6 both belong to word 1.
+   */
+
+  constexpr int64_t smem_bytes_per_word = 4;
+  constexpr int64_t smem_banks = 32;
+
+  /* but here, for our convenience, because ldmatrix always use vectorized
+   * access of 8 items = 16 bytes = 4 words, we further group words into
+   * units: we consider each 4 words as a "unit", and each 4 banks as a
+   * "megabank". So we can rephrase our task as:
+   *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
+   *    want to make sure different lanes in a warp does not access different
+   *    unit addresses in the same megabank"
+   * In this terminology, matrices are in the row major format, each matrix
+   * has 8 rows, and each row has exactly one unit.
+   */
+
+  constexpr int64_t items_per_unit = n_cols;
+  const int64_t bytes_per_unit = items_per_unit * data_type_size;
+  const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
+  const int64_t num_megabanks = smem_banks / words_per_unit;
+
+  /* In the following example, each CTA tile contains 2 rows and 3 colums of
+   * matrices, each 8x8 size:
+   *   +----------+----------+----------+
+   *   | matrix 0 | matrix 1 | matrix 2 |
+   *   +----------+----------+----------+
+   *   | matrix 3 | matrix 4 | matrix 5 |
+   *   +----------+----------+----------+
+   * The addresses of different rows in the same matrix are offset by 3 units.
+   * In this perspective, loading a matrix is a strided memory access with the
+   * following stride (in units):
+   */
+
+  // number of units per row
+  int64_t row_stride = tile_size_y / items_per_unit;
+
+  /* So the bank conflicting problem is now converted to the following game:
+   *   I have a clock that has one pointer and `num_megabanks` ticks. I start
+   *   my game by making my pointer pointing to somewhere, and turn forward
+   *   the pointer `n_rows` times, each time by `row_stride` ticks.
+   * This problem can be well modeled by modular arithmetic in number theory
+   * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
+   * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
+   * Additions and multiplications are defined in a cyclic manner:
+   *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
+   *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
+   * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
+   *
+   * It worth mention that Z/nZ is a "commutative ring", that is, we can use
+   * addition and multiplication rules just like using normal integers:
+   *   a + b = b + a, a * (b + c) = a * b + a * c, ...
+   * In short, we can reason about Z/nZ just like we are reasoning about
+   * integers, except that every number is automatically "% n".
+   *
+   * Reference:
+   * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
+   * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
+   *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
+   *     we are only interested in non-negative numbers here, so there is no
+   *     need to worry about this problem
+   */
+
+  // row_stride in Z/nZ, where n is num_megabanks:
+  // assert(row_stride >= 0);
+  // assert(num_megabanks >= 0);
+  int64_t row_stride_znz = row_stride % num_megabanks;
+  /* Consider the following function in Z/nZ:
+   *   f(i; init) = init + i * stride
+   * where init is the initial position of the pointer in the clock when we
+   * start the game, and stride is the number of ticks we move forward each
+   * time, and i is the number of times we move forward. For a fixed init, we
+   * abbrivate f(i; init) as f(i).
+   *
+   * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
+   * `init` is the megabank of the 0th row of the matrix.
+   *
+   * One very important property of f(i) is:
+   * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
+   * This property is true because:
+   *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
+   *
+   * The above property tells us, as we turn the clock forward:
+   * - initially, we will go to a never-visited tick in each turn, but,
+   * - at some point, we will return back to our original position, and,
+   * - after we return, we start repeat the pervious pattern again and again.
+   *
+   * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
+   *     i  0 1 2 3 4 5 6 7
+   *   f(i) 0 6 4 2 0 6 4 2
+   * We can see that f(i) is repeating a pattern of four unique numbers
+   * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
+   * different megabanks, and we have a 2-way conflict.
+   *
+   * The question of interest is, does the above observation generalize? That
+   * is, does f(i) always repeat a pattern of p unique numbers q times? Note
+   * that p and q must satisfy p * q = n.
+   *
+   * The answer to the above question is: yes! Consider the following
+   * equation:
+   *    f(i1 + j) == f(i1)
+   * We want to know what is the smallest positive number j that makes the
+   * above equation true. Because this tells us in how many steps we will see
+   * repeat. This equation can be simplified as:
+   *   f(i1 + j) == f(i1) + j * stride == f(i1)
+   *   ==> j * stride == 0
+   *
+   * An important tool to study this equation is multiplicative inverse:
+   * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
+   * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
+   * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
+   * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
+   * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
+   *   (2 * 8) % 15 = 1
+   *
+   * stride has an multiplicative inverse if and only if stride coprime with
+   * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
+   * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
+   * not repeat, that is: there is no bank conflict.
+   */
+
+  int64_t g = std::gcd(num_megabanks, row_stride_znz);
+  if (g == 1) {
+    return {g, -1}; // No need to swizzle in this case.
+  }
+
+  /* For the case where stride does not coprime with n, we note that
+   * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
+   * can write stride and n as:
+   *   stride = s * g, n = m * g
+   * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
+   * have:
+   *   (j * stride) % n = 0
+   *   ==> (j * s) % m * g = 0
+   *   ==> (j * s) % m = 0
+   * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
+   * further get:
+   *   j == 0 (in Z/mZ)
+   * That is, j is a multiple of m in Z. So the smallest positive j that make
+   * the equation hold is n / g.
+   *
+   * That is: f(i) always repeat a pattern of n/g unique numbers g times.
+   * In other word: we are using n/g megabanks, and we have a g-way bank
+   * conflict.
+   *
+   * Let's use the word "pattern" to refer to the set of values of `f` at
+   * different `i`, that is:
+   *   pattern k = { f(i; init=k) | i in Z/nZ }
+   * For the example of stride = 6 under Z/8Z, we have the following patterns
+   *        f(i): 01234567
+   *   pattern 0: x_x_x_x_
+   *   pattern 1: _x_x_x_x
+   *   (x => occupied, _ => unoccupied)
+   */
+
+  int64_t repeated_pattern_size = num_megabanks / g;
+
+  if (repeated_pattern_size >= n_rows) {
+    return {g, -1}; // No need to swizzle in this case.
+  }
+
+  return {g, repeated_pattern_size};
+}
+} // namespace
+
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
+
+  if (g == 1) {
+    return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
+  }
+
+  // 128B swizzle results in 8 x 8 matrix given half precision inputs.
+  constexpr int64_t n_rows = 8;
+
+  NVF_ERROR(
+      n_rows % repeated_pattern_size == 0,
+      "Can not partition matrix into megarows");
+  int64_t num_gigarows = n_rows / repeated_pattern_size;
+  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
+
+  /* To further simplify the problem, if we assume: */
+  NVF_ERROR(
+      num_gigarows % num_gigabanks == 0,
+      "Requires non-square swizzle, which is not supported yet");
+
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+  // Extract the constant sizes of the swizzled tile
+  const int64_t inner_dim_size =
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+
+  auto dtype = shared_mem_tv->getDataType().value();
+  const int64_t B128_elements = 128 / dataTypeSize(dtype);
+  const int64_t B64_elements = 64 / dataTypeSize(dtype);
+  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+
+  if (inner_dim_size % B128_elements == 0) {
+    return MmaInputSmemSwizzle::B128;
+  } else if (inner_dim_size % B64_elements == 0) {
+    return MmaInputSmemSwizzle::B64;
+  } else if (inner_dim_size % B32_elements == 0) {
+    return MmaInputSmemSwizzle::B32;
+  } else {
+    NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
+  }
 }
 
 } // namespace mma_utils

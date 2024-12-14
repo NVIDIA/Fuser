@@ -10,13 +10,13 @@
 #include <gtest/gtest.h>
 
 #include <grouped_reduction.h>
-#include <inlining.h>
 #include <ir/utils.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -116,15 +116,15 @@ TEST_F(SerialGridReductionTest, Scheduling) {
 
         inlineMost();
 
-        FusionExecutor fe;
+        KernelExecutor ke;
         if (serial) {
           tv3->definition()->as<ReductionOp>()->requestSerialGridReduction();
         }
-        fe.compileFusion(fusion);
+        ke.compile(fusion);
 
         auto input = at::randn(
             {H, W}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-        auto outputs = fe.runFusion({input});
+        auto outputs = ke.run({input});
 
         if (serial) {
           // Verify that zeroed semaphore memory was reused instead of

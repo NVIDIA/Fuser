@@ -316,6 +316,8 @@ const char* predicate_type2string(PredicateType t) {
       return "ReductionWrite";
     case PredicateType::LoopRotation:
       return "LoopRotation";
+    case PredicateType::ElectSync:
+      return "ElectSync";
     default:
       NVF_THROW("No string found for predicate type.");
   }
@@ -1461,6 +1463,12 @@ std::ostream& operator<<(
       break;
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
+      break;
+    case CircularBufferLoopStage::LoadWarp:
+      os << "{LoadWarp}";
+      break;
+    case CircularBufferLoopStage::ComputeWarp:
+      os << "{ComputeWarp}";
       break;
     default:
       NVF_THROW("unknown circular buffer stage");

@@ -10,11 +10,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -40,7 +40,7 @@ std::string toString(LaunchParams lparams);
 //! if not segmented.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     std::vector<c10::IValue>& aten_inputs);
 
 //! Run benchmark iterations with a fusion executor and
@@ -48,7 +48,7 @@ int64_t runBenchmarkIterations(
 //! kernel time is added to benchmark_state.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
+    KernelExecutor* ke,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());

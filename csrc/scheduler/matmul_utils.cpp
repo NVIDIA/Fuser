@@ -15,13 +15,13 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <debug.h>
-#include <fusion_executor/executor_utils.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <runtime/executor_utils.h>
 #include <val_graph.h>
 #include <algorithm>
 #include <deque>
@@ -39,6 +39,7 @@
 #include "utils.h"
 
 namespace nvfuser {
+namespace matmul_utils {
 namespace {
 
 //! Access to the structure should be done with labels defined in MatmulDimRole.
@@ -144,7 +145,7 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  mparams->tile_sizes = {cta_tile, warp_tile, instruction_tile};
+  mparams->tile_sizes = {cta_tile, warp_tile};
 
   // stages and async mem copy
   {
@@ -219,7 +220,7 @@ std::string isMatmulFusionDefinitionSupported(
     const mma_utils::MatmulPattern& pattern,
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& id_roles,
-    const ValGraph& permissive_graph) {
+    const ValGraph& broadcast_graph) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -299,7 +300,7 @@ std::string isMatmulFusionDefinitionSupported(
   // properly handled
   {
     std::vector<ValGroup> dim_ordering = mma_utils::canonicalDimOrdering(
-        tensor_roles, id_roles, permissive_graph);
+        tensor_roles, id_roles, broadcast_graph);
     VectorOfUniqueEntries<MatmulDimRole> role_order;
     for (const ValGroup& g : dim_ordering) {
       const auto it = id_roles.find(g);
@@ -339,22 +340,14 @@ std::string isMatmulFusionDefinitionSupported(
     }
   }
 
-  // Check that no non-trivial allocation domains are set on inputs or
-  // outputs.
-  // TODO: Lift this requirement once we have proper allocation domain support
-  for (Val* inp : fusion->inputs()) {
-    if (auto tv = dynamic_cast<TensorView*>(inp);
-        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
-      return "detected input TV with non-trivial allocation domain";
-    }
-  }
+  // TODO: Lift this requirement once we properly handle output allocation
+  // domain
   for (Val* outp : fusion->outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(outp);
         tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
       return "detected output TV with non-trivial allocation domain";
     }
   }
-
   return "";
 }
 
@@ -363,16 +356,16 @@ class VectorizationCalculator {
   VectorizationCalculator(
       const mma_utils::TensorRolesMap& tensor_roles,
       const mma_utils::DimRolesMap& dim_roles,
-      const ValGraph& permissive_graph,
+      const ValGraph& broadcast_graph,
       SchedulerRuntimeInfo& runtime_info)
       : runtime_info_(runtime_info),
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
-        permissive_graph_(permissive_graph),
+        broadcast_graph_(broadcast_graph),
         dim_ordering_(mma_utils::canonicalDimOrdering(
             tensor_roles,
             dim_roles_,
-            permissive_graph_)) {}
+            broadcast_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
@@ -418,7 +411,7 @@ class VectorizationCalculator {
 
   //! To analyze vectorization, we need to know pointer alignment, sizes, and
   //! strides. SchedulerRuntimeInfo contains all this info about fusion
-  //! inputs, but fusion outputs are allocated by FusionExecutor so they are
+  //! inputs, but fusion outputs are allocated by KernelExecutor so they are
   //! absent from SchedulerRuntimeInfo.
   //!
   //! This function just extracts sizes and strides from runtime_info_ when
@@ -450,6 +443,7 @@ class VectorizationCalculator {
       IterDomain* id = tv->getMaybeAllocationDomain().at(i);
       if (id->isBroadcast()) {
         sizes.push_back(1);
+        concrete_contig.push_back(false);
         continue;
       }
       if (id->isReduction()) {
@@ -471,7 +465,7 @@ class VectorizationCalculator {
     for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
       strides[(size_t)i] = sizes[(size_t)i] == 1 ? 0 : stride;
       stride *= sizes[(size_t)i];
-      if (!concrete_contig[(size_t)i]) {
+      if (!concrete_contig.at((size_t)i)) {
         // pad non-concrete dims to next odd value
         stride |= 1l;
       }
@@ -505,7 +499,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = permissive_graph_.toGroup(id);
+      ValGroup g = broadcast_graph_.toGroup(id);
       // Exit when this does not match the given ordered inner dimension
       if (remaining_inner_dims.empty() || g != remaining_inner_dims.back()) {
         break;
@@ -584,7 +578,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = permissive_graph_.toGroup(id);
+      ValGroup g = broadcast_graph_.toGroup(id);
       MatmulDimRole dim_role = dimRole(g);
       if (dim_role == MatmulDimRole::Batch) {
         // We cannot vectorize in batch dimensions
@@ -677,28 +671,115 @@ class VectorizationCalculator {
   SchedulerRuntimeInfo& runtime_info_;
   const mma_utils::TensorRolesMap& tensor_roles_;
   const mma_utils::DimRolesMap& dim_roles_;
-  const ValGraph& permissive_graph_;
+  const ValGraph& broadcast_graph_;
   std::vector<ValGroup> dim_ordering_;
 };
 
 MatmulParams::SupportedVectorization getSupportedVectorization(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph,
+    const ValGraph& broadcast_graph,
     SchedulerRuntimeInfo& runtime_info) {
   VectorizationCalculator calc(
-      tensor_roles, dim_roles, permissive_graph, runtime_info);
+      tensor_roles, dim_roles, broadcast_graph, runtime_info);
   return calc.compute();
 }
 
 } // anonymous namespace
 
-std::string getMatmulRunTimeRejectReason(
+std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
-    HeuristicDataCache* data_cache,
-    SchedulerRuntimeInfo& runtime_info) {
-  // TODO: add proper set of checks
-  return "";
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FusionGuard fg(fusion);
+  (void)data_cache;
+  auto mparams = std::make_unique<MatmulParams>();
+
+  // Set kernel index mode
+  mparams->cparams.index_type = runtime_info.getIndexType();
+
+  // Check initial conditions
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
+  NVF_ERROR(
+      patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused");
+  mma_utils::MatmulPattern& pattern = patterns.front();
+
+  // IdModel is used to analyze problem shape & layout
+  IdModel id_model(fusion);
+  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
+
+  const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
+
+  const auto problem_shape = getProblemShape(id_roles, runtime_info);
+
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const auto mma_op =
+      getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
+  NVF_ERROR(
+      mma_op.has_value(), "Failed to determine a MMA op for given problem.");
+  mparams->mma_macro = mma_op.value();
+
+  const auto& tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+  NVF_ERROR(
+      tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
+  const auto tensor_roles = tensor_roles_opt.getData();
+
+  mparams->supported_vec_size = getSupportedVectorization(
+      tensor_roles,
+      id_roles,
+      id_model.idGraph(IdMappingMode::BROADCAST),
+      runtime_info);
+
+  if (matmul_heuristic_plugin::hasPlugin()) {
+    const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+        mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
+    NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
+    const mma_utils::MatmulOperandInnerDims inner_dims =
+        inner_dims_opt.getData();
+
+    // Fill in proper values using plugin
+    matmul_heuristic_plugin::updateMatmulParams(
+        mparams.get(),
+        problem_shape[(size_t)MatmulDimRole::M],
+        problem_shape[(size_t)MatmulDimRole::N],
+        problem_shape[(size_t)MatmulDimRole::K],
+        problem_shape[(size_t)MatmulDimRole::Batch],
+        inner_dims,
+        tensor_roles);
+  } else {
+    TORCH_WARN_ONCE(
+        "Scheduling a matmul without heuristic plugin. "
+        "Specify plugin location like this: "
+        "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
+    // Populate heuristic details
+    auto status =
+        initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
+    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  }
+
+  // Ensure that entire pipeline is filled for shared memory operands given
+  // problem and heuristics.
+  limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+
+  // Disable magic zero for matmul kernels
+  mparams->cparams.enable_magic_zero = false;
+
+  // Set whether to use shared memory for epilogue
+  std::tie(mparams->use_smem_epilogue, mparams->promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          mparams->tile_sizes,
+          mparams->circular_buffer_options.smem_circular_buffer_stage,
+          tensor_roles);
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << mparams->toString() << std::endl;
+  }
+
+  return mparams;
 }
 
 // The analysis is based on mul-sum pair pattern, detected in the provided
@@ -787,7 +868,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         patterns.front(),
         tensor_roles,
         id_roles,
-        id_model.idGraph(IdMappingMode::PERMISSIVE));
+        id_model.idGraph(IdMappingMode::BROADCAST));
     if (!support_status.empty()) {
       return support_status;
     }
@@ -805,6 +886,14 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     return "Fusion is resharding.";
   }
 
+  return "";
+}
+
+std::string getMatmulRunTimeRejectReason(
+    Fusion* fusion,
+    HeuristicDataCache* data_cache,
+    SchedulerRuntimeInfo& runtime_info) {
+  // TODO: add proper set of checks
   return "";
 }
 
@@ -829,99 +918,32 @@ bool isCpAsyncOperandLoadSupported(
                  mparams->supported_vec_size.a, mparams->supported_vec_size.b));
 }
 
-std::unique_ptr<MatmulParams> getMatmulHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FusionGuard fg(fusion);
-  (void)data_cache;
-  auto mparams = std::make_unique<MatmulParams>();
+void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
+  NVF_ERROR(tv->nDims() >= number_of_inner_pos);
+  std::vector<int64_t> broadcast_pos;
+  std::vector<int64_t> nonbroadcast_pos;
 
-  // Set kernel index mode
-  mparams->cparams.index_type = runtime_info.getIndexType();
-
-  // Check initial conditions
-  std::vector<mma_utils::MatmulPattern> patterns =
-      mma_utils::findMatmulPatterns(fusion);
-  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
-  NVF_ERROR(
-      patterns.size() == 1,
-      "Only a single matmul pattern can currently be fused");
-  mma_utils::MatmulPattern& pattern = patterns.front();
-
-  // IdModel is used to analyze problem shape & layout
-  IdModel id_model(fusion);
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
-
-  const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
-
-  const auto problem_shape = getProblemShape(id_roles, runtime_info);
-
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  const auto mma_op =
-      getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
-  NVF_ERROR(
-      mma_op.has_value(), "Failed to determine a MMA op for given problem.");
-  mparams->mma_macro = mma_op.value();
-
-  const auto& tensor_roles_opt =
-      mma_utils::getTensorRoles(fusion, id_model, id_roles);
-  NVF_ERROR(
-      tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
-  const auto tensor_roles = tensor_roles_opt.getData();
-
-  mparams->supported_vec_size = getSupportedVectorization(
-      tensor_roles,
-      id_roles,
-      id_model.idGraph(IdMappingMode::PERMISSIVE),
-      runtime_info);
-
-  if (matmul_heuristic_plugin::hasPlugin()) {
-    const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
-        mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
-    NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
-    const mma_utils::MatmulOperandInnerDims inner_dims =
-        inner_dims_opt.getData();
-
-    // Fill in proper values using plugin
-    matmul_heuristic_plugin::updateMatmulParams(
-        mparams.get(),
-        problem_shape[(size_t)MatmulDimRole::M],
-        problem_shape[(size_t)MatmulDimRole::N],
-        problem_shape[(size_t)MatmulDimRole::K],
-        problem_shape[(size_t)MatmulDimRole::Batch],
-        inner_dims,
-        tensor_roles);
-  } else {
-    TORCH_WARN_ONCE(
-        "Scheduling a matmul without heuristic plugin. "
-        "Specify plugin location like this: "
-        "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
-    // Populate heuristic details
-    auto status =
-        initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
-    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  for (auto i : c10::irange(number_of_inner_pos)) {
+    auto axis_idx = i - number_of_inner_pos;
+    auto id = tv->axis(axis_idx);
+    if (id->isBroadcast()) {
+      broadcast_pos.push_back(axis_idx);
+    } else {
+      nonbroadcast_pos.push_back(axis_idx);
+    }
   }
 
-  // Ensure that entire pipeline is filled for shared memory operands given
-  // problem and heuristics.
-  limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+  auto combined_pos_vec = broadcast_pos;
+  combined_pos_vec.insert(
+      combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
-  // Disable magic zero for matmul kernels
-  mparams->cparams.enable_magic_zero = false;
-
-  // Set whether to use shared memory for epilogue
-  std::tie(mparams->use_smem_epilogue, mparams->promote_prologue_smem_reuse) =
-      mma_utils::generateSharedMemoryEpilogueHeuristics(
-          mparams->tile_sizes,
-          mparams->circular_buffer_options.smem_circular_buffer_stage,
-          tensor_roles);
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << mparams->toString() << std::endl;
+  std::unordered_map<int64_t, int64_t> order_map;
+  for (auto i : c10::irange(number_of_inner_pos)) {
+    order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
 
-  return mparams;
+  // Apply ordering.
+  tv->reorder(order_map);
 }
-
+} // namespace matmul_utils
 } // namespace nvfuser

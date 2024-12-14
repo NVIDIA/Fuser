@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -76,9 +76,9 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
@@ -169,9 +169,9 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
@@ -278,9 +278,9 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
@@ -335,7 +335,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T1[i6];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll 1
+  #pragma unroll 5
   for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
     nvfuser_index_t i8;
     i8 = 4LL + i7;
@@ -389,9 +389,9 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   for (auto n : {5, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
@@ -474,7 +474,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T1[i8];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll 1
+  #pragma unroll 5
   for(nvfuser_index_t i9 = 0LL; i9 < T0.logical_size[0LL]; ++i9) {
     nvfuser_index_t i10;
     i10 = 3LL * i9;
@@ -526,9 +526,9 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   for (auto n : {5, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
@@ -580,10 +580,8 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     i4 = i0 + (12LL * i2);
     bool b5;
     b5 = (i2 + nvfuser_zero) < T0.logical_size[0LL];
-    bool b6;
-    b6 = !b5;
     #pragma unroll
-    for(nvfuser_index_t i7 = 0LL; i7 < 3LL; ++i7) {
+    for(nvfuser_index_t i6 = 0LL; i6 < 3LL; ++i6) {
       asm volatile(
         "{\n"
         "  .reg .pred p0; \n"
@@ -591,10 +589,10 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
         "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
         "}\n"
         :
-        :"r"((uint32_t)((i4 + (4LL * i7)))),
-         "l"((ptr3 + (T0.alloc_stride[1LL] * (i7 + nvfuser_zero)))),
+        :"r"((uint32_t)((i4 + (4LL * i6)))),
+         "l"((ptr3 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
          "n"(4LL),
-         "r"((uint32_t)(b6))
+         "r"((uint32_t)((!b5)))
       );
     }
     asm volatile("cp.async.commit_group;\n");
@@ -604,24 +602,22 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   float T1[2LL];
   T1[0LL]
      = T4[0LL];
-  #pragma unroll 1
-  for(nvfuser_index_t i8 = 0LL; i8 < T0.logical_size[0LL]; ++i8) {
-    float* ptr9;
-    ptr9 = ptr1 + (T0.alloc_stride[0LL] * i8);
-    nvfuser_index_t i10;
-    i10 = 4LL + i8;
-    unsigned i11;
-    i11 = i0 + (12LL * (i10 % 5LL));
+  #pragma unroll 5
+  for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
+    float* ptr8;
+    ptr8 = ptr1 + (T0.alloc_stride[0LL] * i7);
+    nvfuser_index_t i9;
+    i9 = 4LL + i7;
+    unsigned i10;
+    i10 = i0 + (12LL * (i9 % 5LL));
+    nvfuser_index_t i11;
+    i11 = 1LL + (3LL * (i7 % 5LL));
     nvfuser_index_t i12;
-    i12 = 1LL + (3LL * (i8 % 5LL));
-    nvfuser_index_t i13;
-    i13 = 3LL * i8;
-    bool b14;
-    b14 = i10 < T0.logical_size[0LL];
-    bool b15;
-    b15 = !b14;
+    i12 = 3LL * i7;
+    bool b13;
+    b13 = i9 < T0.logical_size[0LL];
     #pragma unroll
-    for(nvfuser_index_t i7 = 0LL; i7 < 3LL; ++i7) {
+    for(nvfuser_index_t i6 = 0LL; i6 < 3LL; ++i6) {
       asm volatile(
         "{\n"
         "  .reg .pred p0; \n"
@@ -629,34 +625,34 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
         "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
         "}\n"
         :
-        :"r"((uint32_t)((i11 + (4LL * i7)))),
-         "l"((ptr9 + (T0.alloc_stride[1LL] * (i7 + nvfuser_zero)))),
+        :"r"((uint32_t)((i10 + (4LL * i6)))),
+         "l"((ptr8 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
          "n"(4LL),
-         "r"((uint32_t)(b15))
+         "r"((uint32_t)((!b13)))
       );
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.commit_group;\n");
     #pragma unroll
-    for(nvfuser_index_t i16 = 0LL; i16 < 2LL; ++i16) {
-      T1[((1LL + i16) % 2LL)]
-         = T4[(i12 + i16)];
+    for(nvfuser_index_t i14 = 0LL; i14 < 2LL; ++i14) {
+      T1[((1LL + i14) % 2LL)]
+         = T4[(i11 + i14)];
       float T2[1LL];
       T2[0LL]
-         = T1[i16];
-      T3[(i13 + (i16 + nvfuser_zero))]
+         = T1[i14];
+      T3[(i12 + (i14 + nvfuser_zero))]
          = T2[0LL];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     float T2[1LL];
     T2[0LL]
        = T1[0LL];
-    T3[(2LL + i13)]
+    T3[(2LL + i12)]
        = T2[0LL];
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.wait_group %0;\n"::"n"(3LL));
     T1[0LL]
-       = T4[(3LL * ((1LL + i8) % 5LL))];
+       = T4[(3LL * ((1LL + i7) % 5LL))];
   }
   asm volatile("cp.async.wait_all;\n");
 }
@@ -666,9 +662,9 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   for (auto n : {5, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
     testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }

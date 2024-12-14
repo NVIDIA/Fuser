@@ -11,8 +11,8 @@
 
 #include <tests/cpp/utils.h>
 
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 
 #include <iostream>
 #include <list>

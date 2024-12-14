@@ -9,7 +9,6 @@
 
 #include <dispatch.h>
 #include <id_model/id_model.h>
-#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
@@ -63,7 +62,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
+    // May overwrite index. When the graph is cyclic due to, e.g.,
+    // resize, the index obtained by traversing most through the
+    // indexing path should be used (see also PR #3454)
+    index_map_[toGroup(id)] = idx;
   }
 
   const ValGroup& toGroup(IterDomain* id) const {

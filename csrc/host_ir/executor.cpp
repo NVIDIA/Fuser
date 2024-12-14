@@ -7,10 +7,151 @@
 // clang-format on
 
 #include <dynamic_transform.h>
+#include <fusion_profiler.h>
 #include <host_ir/executor.h>
+#include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/communication.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
+#include <options.h>
+#include <runtime/allocations.h>
+#include <runtime/executor_dispatch.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
+
+HostIrExecutor::HostIrExecutor(
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id)
+    : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id),
+      communicator_(&Communicator::getInstance()) {}
+
+bool HostIrExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("HostIrExecutor::supported");
+  std::vector<Expr*> exprs = fusion->exprs();
+  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+        return isResharding(e) && isLowerableToCommunication(e);
+      })) {
+    NVF_ERROR(
+        std::all_of(
+            exprs.begin(),
+            exprs.end(),
+            [](Expr* e) {
+              return isResharding(e) && isLowerableToCommunication(e);
+            }),
+        "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
+    return true;
+  }
+  return false;
+}
+
+void HostIrExecutor::compile(Fusion* fusion) {
+  FUSER_PERF_SCOPE("HostIrExecutor::compile");
+  NVF_ERROR(
+      supported(fusion),
+      "HostIrExecutor does not support the Fusion provided.");
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).startCompile();
+  }
+
+  host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+  IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+  if (fusion->isA<hir::HostIrContainer>()) {
+    for (auto expr : fusion->as<hir::HostIrContainer>()->topLevelExprs()) {
+      host_ir_container_->pushBackTopLevelExprs(cloner.clone(expr));
+    }
+  } else {
+    std::vector<Expr*> exprs = fusion->exprs();
+    for (Expr* e : exprs) {
+      std::vector<Communication*> communications =
+          lowerCommunication(cloner.clone(e));
+      for (auto* communication : communications) {
+        host_ir_container_->pushBackTopLevelExprs(communication);
+      }
+    }
+  }
+
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopCompile();
+  }
+}
+
+bool HostIrExecutor::isCompiled() const {
+  return (bool)host_ir_container_;
+}
+
+namespace {
+// Host IR specific function, returns the at:Tensor (ordered list) associated
+// with the provdied Fusion output tv
+at::Tensor findBufferForFusionOutput(
+    const std::vector<at::Tensor>& out_tensors,
+    const Val* fusion_out,
+    const Fusion* fusion) {
+  auto i =
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
+  NVF_ERROR(i != fusion->outputs().end());
+  auto index = std::distance(fusion->outputs().begin(), i);
+  return out_tensors[index];
+}
+} // namespace
+
+std::vector<at::Tensor> HostIrExecutor::run(
+    KernelArgumentHolder& args,
+    std::vector<at::Tensor> outputs) {
+  FUSER_PERF_SCOPE("HostIrExecutor::run");
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(computeBytes(args));
+    sprof.scheduler(toString(SchedulerType::ExprEval));
+    sprof.startKernel();
+  }
+  NVF_ERROR(host_ir_container_, "Need to compile before you can run.");
+  // Bind fusion inputs
+  auto expr_eval = executor_utils::bindInputs(args, host_ir_container_.get());
+
+  if (outputs.empty()) {
+    std::vector<GlobalBufferInfo> output_info = getBufferInfos(
+        expr_eval, PrimDataType::Int, host_ir_container_->outputs());
+    outputs = allocateOutputs(
+        host_ir_container_.get(),
+        output_info,
+        c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
+        expr_eval);
+  }
+
+  // TODO: If outputs are provided validate they're the correct size
+  for (Expr* e : host_ir_container_->topLevelExprs()) {
+    NVF_ERROR(e->isA<Communication>());
+    auto* communication = e->as<Communication>();
+    c10d::Backend* backend =
+        communicator_->getBackendForTeam(communication->team(), std::nullopt);
+    auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
+    at::Tensor out_tensor = findBufferForFusionOutput(
+        outputs, communication->out(), host_ir_container_.get());
+    c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        backend,
+        in_tensor,
+        out_tensor);
+    if (work != nullptr) {
+      work->wait();
+    }
+  }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+    FusionProfiler::segment(group_id_).stopKernel();
+  }
+  return outputs;
+}
 
 namespace hir {
 
@@ -40,10 +181,10 @@ std::vector<at::Tensor> getKnownTensorOrUndefined(
 
 } // namespace
 
-HostIrExecutor::HostIrExecutor(
+HostIrEvaluator::HostIrEvaluator(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
-    HostIrExecutorParams params)
+    HostIrEvaluatorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params) {
@@ -60,11 +201,11 @@ HostIrExecutor::HostIrExecutor(
            static_cast<c10::DeviceIndex>(device_index))});
 }
 
-std::vector<at::Tensor> HostIrExecutor::runWithInput(
+std::vector<at::Tensor> HostIrEvaluator::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
   for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, ivalue.toTensor());
+    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -77,8 +218,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
-void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
-  Stream* stream = set_current_stream->stream();
+c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
   StreamKey stream_key = stream;
   // if stream points to an index, it represents the dynamic value of that index
   if (Val* index = stream->index(); index != nullptr) {
@@ -95,10 +235,18 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
          c10::cuda::getStreamFromPool(
              /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
   }
-  setCurrentCUDAStream(streams_.at(stream_key));
+  return streams_.at(stream_key);
 }
 
-void HostIrExecutor::handle(PostOnStream* post_ir) {
+void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
+  setCurrentCUDAStream(getCUDAStream(set_current_stream->stream()));
+}
+
+void HostIrEvaluator::handle(Synchronize* synchronize) {
+  getCUDAStream(synchronize->stream()).synchronize();
+}
+
+void HostIrEvaluator::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
@@ -132,7 +280,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-  // Compile the fusion and execute it with FusionExecutor(Cache)
+  // Compile the fusion and execute it with HostIrExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
     if (!fec_.count(hu)) {
@@ -144,15 +292,34 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
-    FusionExecutor& fe = fe_[hu];
-    if (!fe.isCompiled()) {
-      Fusion* fusion = hu->fusion_to_execute();
-      DynamicTransform::concretizeFusion(fusion, input_IValues);
-      fe.compileFusion(fusion, input_IValues);
-    }
-    outputs = fe.runFusion(input_IValues);
-    if (!params_.cache_fusion_executor) {
-      fe_.erase(hu);
+    // This path should generally be avoided as it will likely send the fusion
+    // held in HostUnit directly to KernelExecutor which means it will try to
+    // compile and run a device kernel with a single thread.
+    if (auto it = executors_.find(hu); it != executors_.end()) {
+      ExecutorAbstract* ea = it->second.get();
+      KernelArgumentHolder args =
+          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+
+    } else {
+      DynamicTransform::concretizeFusion(
+          hu->fusion_to_execute(), input_IValues);
+      auto it2 = executors_.insert(
+          {hu,
+           ExecutorDispatch::makeExecutor(
+               hu->fusion_to_execute(), 1, 1, 1, 1)});
+      ExecutorAbstract* ea = it2.first->second.get();
+      if (ea->isA<KernelExecutor>()) {
+        KernelArgumentHolder args =
+            KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+        ExecutorDispatch::compile(
+            ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
+      } else {
+        ExecutorDispatch::compile(ea, hu->fusion_to_execute());
+      }
+      KernelArgumentHolder args =
+          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
     }
   }
 
@@ -163,7 +330,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
   }
 }
 
-void HostIrExecutor::handle(Communication* communication) {
+void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
@@ -183,8 +350,24 @@ void HostIrExecutor::handle(Communication* communication) {
       output_tensor);
 }
 
-void HostIrExecutor::handle(Wait* wait) {
-  Communication* communication = wait->communication();
+void HostIrEvaluator::handle(P2PCommunication* communication) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  at::Tensor buffer =
+      getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
+
+  works_[communication] = postSingleCommunication(
+      communication,
+      communicator_->deviceId(),
+      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+      communicator_->getWorld(),
+      buffer);
+}
+
+void HostIrEvaluator::handle(Wait* wait) {
+  Expr* communication = wait->communication();
   NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
   auto& work = works_.at(communication);
   if (work != nullptr) {
@@ -195,15 +378,13 @@ void HostIrExecutor::handle(Wait* wait) {
 
 namespace {
 
-void allConsumerValsOfHelper(
-    Val* val,
-    std::unordered_set<Val*>& visisted_vals) {
-  if (visisted_vals.find(val) != visisted_vals.end()) {
+void allConsumerValsOfHelper(Val* val, std::unordered_set<Val*>& visited_vals) {
+  if (visited_vals.find(val) != visited_vals.end()) {
     return;
   }
-  visisted_vals.insert(val);
+  visited_vals.insert(val);
   for (Val* consumer : ir_utils::consumerValsOf(val)) {
-    allConsumerValsOfHelper(consumer, visisted_vals);
+    allConsumerValsOfHelper(consumer, visited_vals);
   }
 }
 
@@ -223,7 +404,7 @@ std::unordered_set<Val*> allConsumerValsOf(Val* val) {
 
 } // namespace
 
-void HostIrExecutor::handle(ForLoop* for_loop) {
+void HostIrEvaluator::handle(ForLoop* for_loop) {
   auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
   auto step = expr_evaluator_.evaluate(for_loop->step()).as<int64_t>();
   auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
@@ -241,14 +422,73 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
-namespace {
+void HostIrEvaluator::handle(StartCoalescing* start_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  backend->startCoalescing();
+}
 
-void handleWithExpressionEvaluator(
-    Expr* expr,
-    ExpressionEvaluator& expr_evaluator) {
+void HostIrEvaluator::handle(EndCoalescing* end_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  works_[end_coalescing] = backend->endCoalescing();
+}
+
+void HostIrEvaluator::handle(kir::IfThenElse* if_then_else) {
+  auto predicate =
+      expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
+  const auto& scope =
+      predicate ? if_then_else->thenBody() : if_then_else->elseBody();
+  for (Expr* expr : scope.exprs()) {
+    dispatch(expr);
+  }
+}
+
+void HostIrEvaluator::handle(MatmulOp* matmul) {
+  TensorView* a = matmul->inA();
+  TensorView* b = matmul->inB();
+  TensorView* out = matmul->out();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(a) && expr_evaluator_.isKnown(b),
+      "Inputs of the matmul ",
+      matmul->toString(),
+      "must be precomputed before being retrieved");
+  if (expr_evaluator_.isKnown(out)) {
+    auto t_a = expr_evaluator_.evaluate(a).as<at::Tensor>();
+    auto t_b = expr_evaluator_.evaluate(b).as<at::Tensor>();
+    auto t_out = expr_evaluator_.evaluate(out).as<at::Tensor>();
+    at::matmul_out(t_out, t_a, t_b);
+  } else {
+    unhandled(matmul);
+  }
+}
+
+void HostIrEvaluator::handle(kir::Allocate* allocate) {
+  NVF_ERROR(
+      allocate->buffer()->isA<TensorView>(),
+      "Allocation must be on a TensorView but got ",
+      allocate->buffer());
+  TensorView* tv = allocate->buffer()->as<TensorView>();
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  AliasInfo alias_info = {
+      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
+  c10::Device device =
+      communicator_ ? communicator_->device() : at::Device("cuda:0");
+  at::Tensor tensor = allocateTensor(info, alias_info, device, expr_evaluator_);
+  expr_evaluator_.bind(tv, tensor);
+}
+
+void HostIrEvaluator::unhandled(Statement* stmt) {
+  NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
+  auto* expr = stmt->as<Expr>();
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     NVF_ERROR(
-        expr_evaluator.isKnown(input),
+        expr_evaluator_.isKnown(input),
         "input ",
         input->toString(),
         " of the expression ",
@@ -256,23 +496,9 @@ void handleWithExpressionEvaluator(
         "must be precomputed before being retrieved");
   }
   for (auto output : expr->outputs()) {
-    expr_evaluator.bind(
-        output, expr_evaluator.evaluate(output), /*evaluate_validate=*/true);
+    expr_evaluator_.bind(
+        output, expr_evaluator_.evaluate(output), /*evaluate_validate=*/true);
   }
-}
-
-} // namespace
-
-void HostIrExecutor::handle(SliceOp* slice_op) {
-  return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
-}
-
-void HostIrExecutor::handle(MatmulOp* matmul_op) {
-  return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
-}
-
-void HostIrExecutor::handle(SelectOp* select_op) {
-  return handleWithExpressionEvaluator(select_op, expr_evaluator_);
 }
 
 } // namespace hir

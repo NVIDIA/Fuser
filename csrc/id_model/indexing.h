@@ -9,12 +9,10 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
-#include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <options.h>
 #include <type.h>
-#include <val_graph_visitor.h>
 
 // Just for PredicateInfo. Should be moved to its own header file
 #include <index_compute.h>
@@ -71,14 +69,15 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<ForLoop*>& loops) const;
 
-  // Get the index of a loop domain. Intended to be used only for testing.
-  Val* getLoopIndex(IterDomain* loop_id) const;
+  // Get the index of a loop domain.
+  Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
+      const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_ids,
       const std::vector<ForLoop*>& loops) const;
 
   // Get the contig indices of the given ID groups with their strides
@@ -139,7 +138,7 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_ids,
       const std::vector<ForLoop*>& for_loops) const;
 
   // Propagate the loop indices of a given list of loop domains to the
@@ -154,11 +153,6 @@ class TensorIndexer {
   // function may return the loop domains of a producer for
   // producer-based indexing.
   std::vector<IterDomain*> getLoopDomains(const Expr* expr) const;
-
-  // Check if the loop index of a loop group should be always
-  // just zero. For example, a loop group with an extent of one, i.e.,
-  // a broadcast-only loop group, should just use zero.
-  bool shouldUseZeroIndex(const ValGroup& loop_group) const;
 
   // For a given indexng traversal path toward allocation_domains,
   // return the contiguous domains and their strides that can provide

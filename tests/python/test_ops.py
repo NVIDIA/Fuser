@@ -16,9 +16,14 @@ from utils import ArgumentType, is_tensor, requiresJAX
 from typing import Callable
 
 from nvfuser import FusionCache, FusionDefinition
-from nvfuser.pytorch_utils import clear_cuda_cache
+from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
-from utils import check_captured_python_definition, debug_serde, basic_serde_check
+from utils import (
+    check_captured_python_definition,
+    check_cpp_translation,
+    debug_serde,
+    basic_serde_check,
+)
 
 
 def serde_check_ops(test_fn: Callable):
@@ -80,6 +85,11 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     inputs_cap = deepcopy(inputs)
     nvfuser_result = fd.execute(inputs)
     assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
+
+    if nvf_op.is_clonable:
+        assert check_cpp_translation(
+            nvfuser_result, fd, inputs_cap, supports_segmentation=True
+        )
 
     torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 
@@ -192,8 +202,8 @@ def correctness_test_fn(
 
 # Run serde check for each operation and dtype but not for each sample input.
 # NOTE: Disabled serde_check_ops decorator to avoid CI timeout.
+@retry_on_oom_or_skip_test
 def serde_test_fn(op: OpInfo, dtype: torch.dtype):
-    clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
@@ -233,11 +243,11 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
+@retry_on_oom_or_skip_test
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
         # clear cache for each sample
         FusionCache.reset()
-        clear_cuda_cache()
         with pytest.raises(
             RuntimeError, match=r"Attempting to add to a completed definition"
         ):
@@ -269,8 +279,8 @@ def _regex_escape_parenthesis(a: str) -> str:
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
+@retry_on_oom_or_skip_test
 def test_errors(op: OpInfo, dtype: torch.dtype):
-    clear_cuda_cache()
     for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
         with pytest.raises(
             exception_type, match=_regex_escape_parenthesis(exception_regex)

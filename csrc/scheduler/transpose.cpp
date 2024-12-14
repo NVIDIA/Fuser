@@ -8,12 +8,12 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -227,34 +227,36 @@ class DomainMap : public pointwise_utils::DomainMap {
         root_dim,
         " in tensor ",
         tv);
-    auto replay_exprs = StmtSort::getExprsBetween(
+    std::vector<Expr*> replay_exprs = StmtSort::getExprsBetween(
         {mapped_id}, {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
     // Project the root id to loop id. Similar to projectIdToRFactor.
-    for (auto expr : replay_exprs) {
-      if (expr->isA<Split>()) {
-        // Split with factor one is not supposed to be here, reshape would map
-        // this to a broadcast. This is a conservative assert, we can relaxed it
-        // and support with mapping it to outer.
-        NVF_ERROR(
-            !expr->as<Split>()->factor()->isOneInt(),
-            "split with factor one is supposed to be translated to broadcast by reshape");
-        if (expr->as<Split>()->in() == mapped_id) {
-          mapped_id = expr->as<Split>()->inner();
+    for (auto* expr : replay_exprs) {
+      if (auto* split = dynamic_cast<Split*>(expr)) {
+        if (split->in() == mapped_id) {
+          if (split->inner()->extent()->isOneInt() &&
+              !split->outer()->extent()->isOneInt()) {
+            mapped_id = split->outer();
+          } else {
+            mapped_id = split->inner();
+          }
         }
-      } else if (expr->isA<Merge>()) {
+      } else if (auto* merge = dynamic_cast<Merge*>(expr)) {
         // Merge with size-1 dimension is not supposed to be here, reshape would
         // map this to a squeeze. This is a conservative assert, we can relaxed
         // it and support with mapping it to out.
         NVF_ERROR(
-            !expr->as<Merge>()->inner()->extent()->isOneInt(),
+            !merge->inner()->extent()->isOneInt(),
             "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
-        if (expr->as<Merge>()->inner() == mapped_id) {
-          mapped_id = expr->as<Merge>()->out();
+        if (merge->inner() == mapped_id) {
+          mapped_id = merge->out();
         }
-      } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
-        mapped_id = expr->as<Resize>()->out();
+      } else if (auto* resize = dynamic_cast<Resize*>(expr)) {
+        if (resize->in() == mapped_id) {
+          mapped_id = resize->out();
+        }
       }
     }
+
     // Find the position of the loop id
     const auto& dom = tv->getLoopDomain();
     for (auto i : c10::irange(dom.size())) {
@@ -1394,7 +1396,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
       for (auto id : tv->getLoopDomain()) {
-        id->parallelize(ParallelType::Serial);
+        // DIDs are given as inputs instead of artifacts of this scheduler. So
+        // do not reset them.
+        if (!id->isDeviceDim()) {
+          id->parallelize(ParallelType::Serial);
+        }
       }
     }
   }

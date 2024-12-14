@@ -6,8 +6,8 @@
  */
 // clang-format on
 // #include <ATen/cuda/CUDAContext.h>
-#include <fusion_executor/executor_utils.h>
 #include <instrumentation.h>
+#include <runtime/executor_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <tensor_metadata.h>
@@ -62,18 +62,10 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       if (alloc_perm_opt.has_value()) {
         // Save the strides in order of allocation domain in case the
         // allocation domain is a permutation of RFactor domain
-        std::vector<int64_t> orig_sizes = alloc_sizes.vec();
-        std::vector<int64_t> orig_strides = alloc_strides.vec();
-        std::vector<int64_t> ordered_sizes, ordered_strides;
-        ordered_sizes.reserve(orig_sizes.size());
-        ordered_strides.reserve(orig_strides.size());
-        NVF_ERROR(orig_strides.size() == alloc_perm_opt->size());
-        for (int64_t i : alloc_perm_opt.value()) {
-          ordered_sizes.push_back(orig_sizes[i]);
-          ordered_strides.push_back(orig_strides[i]);
-        }
-        input_sizes_[fusion_inp] = std::move(ordered_sizes);
-        input_strides_elements_[fusion_inp] = std::move(ordered_strides);
+        // NOTE: alloc_sizes and alloc_strides are already in order of
+        // allocation domain
+        input_sizes_.emplace(fusion_inp, alloc_sizes.vec());
+        input_strides_elements_.emplace(fusion_inp, alloc_strides.vec());
       }
 
       // find and push discontiguous stride

@@ -7,19 +7,19 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
-#include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
 
 namespace nvfuser {
 
+class ComputeAtMap;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
@@ -172,6 +172,34 @@ inline void parallelizeAllLike(
       selected_parallel_types,
       propagate_padding);
 }
+
+// Common hyperparameters used in heuristic scheduler. These hyperparameters
+// are passed to SchedulerEntry::computeHeuristics through the
+// HeuristicDataCache. These hyperparameters alter the generation of the
+// HeuristicParams for the scheduler.
+struct SchedulerHyperParameters {
+  SchedulerHyperParameters(
+      int64_t vectorize_factor_,
+      int64_t unroll_factor_,
+      int64_t threads_per_block_min_,
+      int64_t threads_per_block_max_)
+      : vectorize_factor(vectorize_factor_),
+        unroll_factor(unroll_factor_),
+        threads_per_block_min(threads_per_block_min_),
+        threads_per_block_max(threads_per_block_max_) {}
+
+  //! Number of elements to load per vectorize load.
+  int64_t vectorize_factor = 1;
+
+  //! Number of iterations to unroll for-loop.
+  int64_t unroll_factor = 1;
+
+  //! Minimum number of threads per block.
+  int64_t threads_per_block_min = 1;
+
+  //! Maximum number of threads per block.
+  int64_t threads_per_block_max = 1;
+};
 
 struct PersistentBufferInfo {
   std::vector<TensorView*> persistent_buffers;

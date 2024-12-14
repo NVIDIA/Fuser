@@ -111,17 +111,21 @@ class Val;
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
   f(Communication);               \
-  f(ForLoop);
+  f(ForLoop);                     \
+  f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \
+  f(FenceAsyncProxy);                 \
+  f(WgMmaFence);                      \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
   f(MBarrierArriveExpectTx);          \
   f(MBarrierWait);                    \
+  f(MBarrierWaitParity);              \
   f(BlockSerializeWait);              \
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
@@ -142,7 +146,10 @@ class Val;
   f(HostUnit);                        \
   f(PostOnStream);                    \
   f(SetCurrentStream);                \
-  f(Wait);
+  f(Wait);                            \
+  f(Synchronize);                     \
+  f(StartCoalescing);                 \
+  f(EndCoalescing);
 
 // Forward declarations for all Val and Expr types
 

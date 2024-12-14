@@ -113,8 +113,8 @@ void checkLinearOpIdMapping(
   vg.validateConsistency();
 
   // input: [* , in_features]
-  // weight: [out_features, in_features] / [out_features]
-  // bias (optional): [out_features]/[]
+  // weight: [out_features, in_features]
+  // bias (optional): [out_features]
   // output = [*, (out_features), rK]
 
   bool k_bcast = input->axis(-1)->isBroadcast();
@@ -164,8 +164,8 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -190,8 +190,8 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -227,20 +227,19 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = fec.runFusionWithInputs({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
-      fec.getMostRecentKernelRuntime()->executors();
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -277,20 +276,19 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = fec.runFusionWithInputs({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
-      fec.getMostRecentKernelRuntime()->executors();
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -341,7 +339,7 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({b, m, k}),
             Sizes({1, k}),
             Sizes({b, 1, k})),
-        testing::Values(Sizes({k}), Sizes({n, k}), Sizes({1, k})),
+        testing::Values(Sizes({n, k}), Sizes({1, k})),
         testing::Values(std::nullopt)));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -355,7 +353,7 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({1, k}),
             Sizes({b, 1, k})),
         testing::Values(Sizes({n, k})),
-        testing::Values(Sizes({}), Sizes({n}))));
+        testing::Values(Sizes({n}))));
 
 INSTANTIATE_TEST_SUITE_P(
     LinearReductionAxisIsOne,
@@ -368,6 +366,6 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({1, 1}),
             Sizes({b, 1, 1})),
         testing::Values(Sizes({n, 1})),
-        testing::Values(Sizes({}), Sizes({n}))));
+        testing::Values(Sizes({n}))));
 
 } // namespace nvfuser

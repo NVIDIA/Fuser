@@ -8,6 +8,7 @@
 #include <device_lower/utils.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
+#include <id_model/utils.h>
 
 namespace nvfuser {
 
@@ -247,12 +248,15 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
       return nullptr;
     } else {
-      auto stage_depth =
-          (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
-              fl->iter_domain());
+      auto prefetch_distance =
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(fl->iter_domain())
+              .prefetch;
       return SimplifyingIrBuilder::addExpr(
           original_index,
-          SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+          SimplifyingIrBuilder::create<Val>(
+              prefetch_distance, DataType::Index));
     }
   };
 
@@ -273,8 +277,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
           id_model.idGraph(IdMappingMode::LOOP).toGroup(fl->iter_domain()));
     }
 
-    auto loop_id =
-        indexing_utils::getLoopPromotion(fl->iter_domain(), id_model);
+    auto loop_id = getLoopPromotion(fl->iter_domain(), id_model);
 
     NVF_ERROR(
         !loop_id->maybePartial(),

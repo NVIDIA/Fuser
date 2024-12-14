@@ -10,6 +10,9 @@ import numpy as np
 from nvfuser import FusionDefinition, FusionCache
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
+import thunder
+from thunder.executors.nvfuserex import nvfuserex
+
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -42,6 +45,16 @@ def clear_dynamo_cache() -> None:
 # Backward function for torch baseline benchmarks.
 def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
+
+
+def with_executor(executor: str, fwd_fn: Callable) -> Callable:
+    assert executor in ["eager", "torchcompile", "thunder"]
+    if executor == "eager":
+        return fwd_fn
+    if executor == "torchcompile":
+        return torch.compile(fwd_fn)
+    if executor == "thunder":
+        return thunder.jit(fwd_fn, nv_enable_bookend=False, executors=[nvfuserex])
 
 
 def compute_total_iobytes(
@@ -129,15 +142,18 @@ class NVFBenchmark:
         """
         try:
             self.prof.stop()
-            prof_averages = self.prof.key_averages()
-            elapsed_cuda_time = self._get_kernel_time(prof_averages)
-            self._increment_global_time(elapsed_cuda_time)
-            # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
-            # See PR: https://github.com/pytorch/pytorch/pull/125510
-            self.prof.profiler = None
-            self.prof.start()
         except AssertionError:
             self.prof.start()
+            return self.current_time
+
+        prof_averages = self.prof.key_averages()
+        elapsed_cuda_time = self._get_kernel_time(prof_averages)
+        self._increment_global_time(elapsed_cuda_time)
+        # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
+        # See PR: https://github.com/pytorch/pytorch/pull/125510
+        self.prof.profiler = None
+        self.prof.start()
+
         return self.current_time
 
     def fusionprofile_timer(self) -> float:
@@ -157,22 +173,20 @@ class NVFBenchmark:
         Returns:
             time_value: Elapsed CUDA time in seconds.
         """
-        elapsed_cuda_time = (
-            sum(
-                [
-                    # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
-                    (
-                        event.self_device_time_total
-                        if hasattr(event, "self_device_time_total")
-                        else event.self_cuda_time_total
-                    )
-                    for event in prof_averages
-                    if event.device_type == DeviceType.CUDA
-                ]
+        elapsed_cuda_time = 0
+        has_cuda_event = False
+        for event in prof_averages:
+            if event.device_type != DeviceType.CUDA:
+                continue
+            has_cuda_event = True
+            # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
+            elapsed_cuda_time = (
+                elapsed_cuda_time + event.self_device_time_total
+                if hasattr(event, "self_device_time_total")
+                else event.self_cuda_time_total
             )
-            / 1e6
-        )
-        return elapsed_cuda_time
+        assert has_cuda_event, "No CUDA events found"
+        return elapsed_cuda_time / 1e6
 
     def _increment_global_time(self, elapsed_time: float) -> None:
         self.current_time += elapsed_time
@@ -204,7 +218,7 @@ class NVFBenchmark:
         Current metrics:
             IOBytes: Total bytes in inputs + outputs
             BytesPerSecond: IOBytes * total_rounds / total_time
-            Bandwdith (GBps): BytesPerSecond / (1024**3)
+            Bandwdith (GBps): BytesPerSecond / 1e9
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
@@ -226,9 +240,9 @@ class NVFBenchmark:
             iobytes * self.benchmark.stats["rounds"]
         ) / self.benchmark.stats["total"]
         self.benchmark.extra_info["Bandwidth (Bps)"] = bandwidth_bps
-        self.benchmark.extra_info["Bandwidth (GBps)"] = bandwidth_bps / 1024**3
+        self.benchmark.extra_info["Bandwidth (GBps)"] = bandwidth_bps / 1e9
         self.benchmark.extra_info["% Peak Bandwidth (SOL)"] = (
-            100 * (bandwidth_bps / 1024**3) / PEAK_BANDWIDTH_GBPS
+            100 * (bandwidth_bps / 1e9) / PEAK_BANDWIDTH_GBPS
         )
 
 

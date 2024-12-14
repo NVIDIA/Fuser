@@ -67,7 +67,8 @@ class ValGraphVisitor {
   virtual ~ValGraphVisitor() = default;
 
  protected:
-  ValGraphVisitor(const ValGraph& val_graph) : val_graph_(val_graph) {}
+  ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
+      : val_graph_(val_graph), allow_cycle_(allow_cycle) {}
 
   ValGraphVisitor(const ValGraphVisitor& other) = default;
 
@@ -76,21 +77,30 @@ class ValGraphVisitor {
   virtual void handle(const ValGroup& val_group) = 0;
   virtual void handle(const ExprGroup& expr_group) = 0;
 
-  void traverse();
+  // Returns if the traversal was successful. If false, error_message_
+  // should be populated.
+  bool traverse();
 
   const ValGraph& graph() {
     return val_graph_;
   };
 
+  const std::string& errorMessage() const {
+    return error_message_;
+  }
+
  private:
   const ValGraph& val_graph_;
+  bool allow_cycle_ = true;
+  std::string error_message_;
 };
 
 // Statement sorting based on ValGraphVisitor, see warnings to ValGraph Visitor.
 class ValGraphStmtSort : public ValGraphVisitor {
  public:
-  ValGraphStmtSort(const ValGraph& val_graph) : ValGraphVisitor(val_graph) {
-    ValGraphVisitor::traverse();
+  ValGraphStmtSort(const ValGraph& val_graph, bool allow_cycle = true)
+      : ValGraphVisitor(val_graph, allow_cycle) {
+    NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
 
   // Return non-reference so that code like below can work
@@ -119,6 +129,8 @@ class ValGraphStmtSort : public ValGraphVisitor {
   ExprGroups sorted_exprs_;
   ValGroups sorted_vals_;
 };
+
+bool isCyclic(const ValGraph& graph);
 
 class ValGraphDefinitions {
   const ValGraph& graph_;
@@ -160,6 +172,11 @@ class ValGraphOutputs {
   }
 };
 
+template <>
+struct GetValType<ExprGroup> {
+  using type = ValGroup;
+};
+
 class ValGraphBFS : public BFS<
                         ExprGroup,
                         ValGroup,
@@ -167,47 +184,36 @@ class ValGraphBFS : public BFS<
                         ValGraphUses,
                         ValGraphInputs,
                         ValGraphOutputs> {
- protected:
+ public:
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
       std::vector<NodeType> to_groups,
-      bool require_all_to_visited = true)
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
       : BFS(ValGraphDefinitions(graph),
             ValGraphUses(graph),
             ValGraphInputs(graph),
             ValGraphOutputs(graph),
             std::move(from_groups),
             std::move(to_groups),
-            require_all_to_visited) {}
+            require_all_to_visited,
+            allowed_direction) {}
 
- public:
-  // Find the shortest path from the from_groups_ to to_groups_ on a
-  // given graph. Dependency between vals and exprs must be satisfied.
-  // It is an error if no valid path is found.
-  static ExprPath getExprsBetween(
-      const ValGraph& graph,
-      std::vector<NodeType> from,
-      std::vector<NodeType> to) {
-    ValGraphBFS bfs(graph, std::move(from), std::move(to));
-    bfs.traverse();
-    return bfs.getShortestExprPath();
-  }
-  static ExprPath getExprsBetween(
+  // Just a shortcut to the generic getExprsBetween
+  static std::pair<ValGraphBFS::ExprPath, bool> getExprGroupsBetween(
       const ValGraph& graph,
       const ValGroups& from,
-      const ValGroups& to) {
-    return getExprsBetween(
-        graph,
-        std::vector<NodeType>{from.vector().begin(), from.vector().end()},
-        std::vector<NodeType>{to.vector().begin(), to.vector().end()});
+      const ValGroups& to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
+    return getExprsBetween<ValGraphBFS>(
+        from.vector(),
+        to.vector(),
+        require_all_to_visited,
+        allowed_direction,
+        graph);
   }
-
-  // Get all the val groups in vals that are reachable from the from groups
-  static ValGroups getReachableValsFrom(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& vals);
 };
 
 } // namespace nvfuser

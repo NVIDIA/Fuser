@@ -73,6 +73,231 @@ namespace ir_utils {
 class TVDomainGuard;
 }
 
+// [Circular buffering]
+//
+// A non-circle-buffered loop looks like below (assuming both the load and the
+// compute are async ops):
+//   for i in range(data.size):
+//     load data[i] to buffer
+//     wait buffer to be ready (RAW sync)
+//     compute buffer
+//     wait compute to be done (WAR sync)
+//
+// Circular buffering allows removing RAW and WAR hazards to maximize
+// overlapping of memory load and compute. Both the load and compute operations
+// are pipelined. In order to pipeline the load operations, the RAW hazards need
+// to be removed, so that at every iteration, the data needed for computation is
+// already prefetched a few iterations ago. In order to pipeline the compute,
+// WAR hazards need to be removed, so that each iterations's compute is not
+// required to be completed immediately in this iteration to avoid next
+// iteration's load overwriting the current iteration's operand for the compute
+// operation.
+//
+// With circular buffering, we want to prefetch a few iterations ahead of the
+// compute, and defer the load to the just-used buffer a few iterations, so that
+// both the load and the compute can be pipelined, minimizing the idle time.
+//
+// Circular buffering is controlled by two parameters: stage and prefetch. The
+// stage parameter determines the size of the circular buffer, and the prefetch
+// parameter determines how many iterations ahead of the compute the data is
+// prefetched. Note that prefetch must be < stage. Both the removal of RAW and
+// WAR hazards require additional storage space. The prefetch parameter
+// determines how buffers are partitioned between RAW and WAR hazards. If we are
+// not interested in pipelining the compute, then use prefetch = stage - 1, so
+// that all buffers are used for RAW removal.
+//
+// The figure below illustrates the timeline of a circular buffered loop, where
+// each row represents an iteration:
+
+// clang-format off
+
+//
+//                 /load 0;\                 \.
+//                / load 1; [prefetch = 3]    | [prefetching]
+//          [stage] load 2;/                 /'
+//          [ = 6 ] load 3;  wait load 0;  compute 0;                  \.
+//                \ load 4;  wait load 1;  compute 1;                   |
+//                 \load 5;  wait load 2;  compute 2;  wait compute 0;  |
+//                  load 0;  wait load 3;  compute 3;  wait compute 1;  |
+//                  load 1;  wait load 4;  compute 4;  wait compute 2;  |
+//                  load 2;  wait load 5;  compute 5;  wait compute 3;  |
+//                  load 3;  wait load 0;  compute 0;  wait compute 4;  |
+//                  load 4;  wait load 1;  compute 1;  wait compute 5;  | [main]
+//                  load 5;  wait load 2;  compute 2;  wait compute 0;  |
+//                  ..................................................  |
+//                  ..................................................  |
+//                  ..................................................  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;                  /'
+//                          /wait load  ;  compute  ;                      \.
+// [same number as prefetch] wait load  ;  compute  ;                       | [draining]
+//                          \wait load  ;  compute  ;  wait all computes;  /'
+
+// clang-format on
+
+// In the above figure, we have:
+// storage required = stage * tile_size
+// load pipeline depth = prefetch + 1
+// compute pipeline depth = stage - prefetch
+//
+// There are two ways to implement the above timeline: pipelined, and
+// warp-specialization.
+//
+// In the pipelined way, the prefetching stage is implemented as a prologue
+// loop, and main stage is implemented as a main loop, and the draining stage is
+// implemented as an epilogue loop. That is, we will have the following loop
+// structure:
+//
+// Prologue loop:
+//   for i in range(prefetch):
+//     load data[i] to buffer[i]
+//
+// Main loop (using syncthreads to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be loaded
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     __syncthreads();
+//
+// Main loop (using mbarrier to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     wait buffer[(i + prefetch) % stage] to be empty
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be loaded
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//       loaded again
+//
+// Epilogue loop:
+//   for i in range(data.size - prefetch, data.size):
+//     wait buffer[i % stage] to be ready
+//     compute buffer[i % stage]
+//   wait until all computes are done
+//
+// Note that in the above loop structure, the "wait compute" in the first
+// stage - prefetch - 1 iterations and last iteration of the main loop is
+// redundant. We can remove them to further optimize the performance, but
+// we decide to keep them for simplicity.
+//
+// In the warp-specialized approach, we will use different warp/warp-group
+// for loading and computing. We will generate code like below (assuming warp
+// specialized on TIDy):
+//
+//   if (threadIdx.y == blockDim.y - 1) {
+//     // If we use warp specialization on TIDy, then the blockDim.y of the
+//     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
+//     // last threadIdx.y will be used as load warp
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be empty
+//       load data[i] to buffer[i % stage]
+//   } else {
+//     // Every threadIdx.y other than the last will be used for compute
+//     for i in range(prefetch + 1):
+//       signal that buffer i % stage is empty and ready to load
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be loaded
+//       compute buffer[i % stage]
+//       wait until the first compute in the queue is done
+//         (i.e. stage - prefetch - 1 in flight computes remaining)
+//       signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//         loaded again
+//   }
+
+struct Pipelined {
+  bool uses_mbarrier_for_war = false;
+  explicit Pipelined(bool uses_mbarrier_for_war)
+      : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  Pipelined() = default;
+  bool operator==(const Pipelined& other) const {
+    return uses_mbarrier_for_war == other.uses_mbarrier_for_war;
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+  if (pipelined.uses_mbarrier_for_war) {
+    return os << "PipelinedMBarrierForWAR";
+  }
+  return os << "Pipelined";
+}
+
+struct WarpSpecialized {
+  ParallelType on;
+  explicit WarpSpecialized(ParallelType on) : on(on) {}
+  WarpSpecialized() = default;
+  bool operator==(const WarpSpecialized& other) const {
+    return on == other.on;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const WarpSpecialized& warp_specialized) {
+  std::string parallel_type_str = "";
+  switch (warp_specialized.on) {
+    case ParallelType::TIDx:
+      parallel_type_str = "TIDx";
+      break;
+    case ParallelType::TIDy:
+      parallel_type_str = "TIDy";
+      break;
+    case ParallelType::TIDz:
+      parallel_type_str = "TIDz";
+      break;
+    default:
+      NVF_THROW("Invalid parallel type");
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str;
+}
+
+using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferType& type) {
+  return std::visit(
+      [&os](const auto& t) -> std::ostream& { return os << t; }, type);
+}
+
+struct CircularBufferOptions {
+  CircularBufferType type =
+      Pipelined(false); // Type of circular buffer. Currently supports:
+                        // - pipelined using syncthreads for WAR hazards
+                        // - pipelined using mbarrier for WAR hazards.
+  int64_t stage = 0; // Size of the circular buffer (number of buffers)
+  int64_t prefetch = 0; // Number of iterations ahead of the compute to
+                        // prefetch, can only be < stage.
+
+  bool isEnable() const {
+    return stage > 1;
+  }
+
+  bool usesMBarrierForWAR() const {
+    return (std::holds_alternative<Pipelined>(type) &&
+            std::get<Pipelined>(type).uses_mbarrier_for_war) ||
+        std::holds_alternative<WarpSpecialized>(type);
+    return false;
+  }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return type == other.type && stage == other.stage &&
+        prefetch == other.prefetch;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferOptions& options) {
+  return os << "CircularBufferOptions{ stage=" << options.stage
+            << ", prefetch=" << options.prefetch << ", type=" << options.type
+            << " }";
+}
+
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
 //! modifed as split/merge/computeAt functions are called. The history of
@@ -378,10 +603,16 @@ class NVF_API TensorView : public Val {
   //!
   //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
+  //! @param cache_op: cache operator, see enum class CacheOp
+  //! @param propagate_allocation_domain: replay allocation domain on cached
+  //! load
+  //! @param cached_uses: if empty, cache all uses; otherwise, only try to cache
+  //! uses in cached_uses.
   TensorView* cacheAfter(
       LoadStoreOpType op_type = LoadStoreOpType::Set,
       CacheOp cache_op = CacheOp::Unspecified,
-      bool propagate_allocation_domain = true);
+      bool propagate_allocation_domain = true,
+      std::vector<Expr*> cached_uses = {});
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -395,18 +626,20 @@ class NVF_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stages);
+  // Apply circular buffering transformation. Negative prefetch_distance
+  // means "all but", for example, -1 means number_of_stages - 1.
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
-    return is_circular_buffered_;
+    return circular_buffer_options_.isEnable();
   }
 
-  // Returns the depth of circular buffering if applicable.
-  int64_t circularBufferDepth() const {
-    NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
-    return circular_buffer_stage_;
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
@@ -427,9 +660,7 @@ class NVF_API TensorView : public Val {
   //! Transforms the innermost iterdomains according to the given mma swizzle,
   //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
   //!  using TMA.
-  void applyMmaSwizzleForTMALoad(
-      MmaInputSmemSwizzle swizzle,
-      bool permute_outer_dim = true);
+  void applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -583,11 +814,8 @@ class NVF_API TensorView : public Val {
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
 
-  //! Indicates if the tensor is circular buffered.
-  bool is_circular_buffered_ = false;
-
-  //! Indicates the circular buffering stage depth if applicable.
-  int64_t circular_buffer_stage_ = 0;
+  //! Indicates the circular buffering options if applicable.
+  CircularBufferOptions circular_buffer_options_;
 
   // special handling for CPU based zero-dim tensors (i.e. CPU Tensors that
   // only have one value). This is only used if on an input value, otherwise

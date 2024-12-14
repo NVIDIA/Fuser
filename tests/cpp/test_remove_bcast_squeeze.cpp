@@ -14,6 +14,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/remove_bcast_squeeze.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -112,12 +113,19 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {
   auto tv4 = set(tv3);
   fusion->addOutput(tv4);
 
-  // preseg_passes shouldn't remove either broadcast or squeeze
-  // becuase broadcast dim doesn't match with squeeze dim
+  // preseg_passes should remove squeeze and alter broadcast flags to simply not
+  // insert the squeezed axis.
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
-  EXPECT_TRUE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+  EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+  for (auto expr : fusion->exprs()) {
+    if (auto* bcast = dynamic_cast<BroadcastOp*>(expr)) {
+      EXPECT_EQ(
+          bcast->getBroadcastDimFlags(),
+          (std::vector<bool>{false, false, true}));
+    }
+  }
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputBcast) {
@@ -350,4 +358,41 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeSqueezeBcast) {
   EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
+
+TEST_F(RemoveBcastSqueezeTest, SqueezeBcastSetBcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeBroadcastTensor({true, false, true}, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = squeeze(tv0, std::vector<bool>{true, false, true});
+  auto tv3 = broadcast(tv1, std::vector<bool>{true, false});
+  auto tv4 = set(tv3);
+  auto tv5 = broadcast(tv4, std::vector<bool>{false, false, true});
+  fusion->addOutput(tv5);
+
+  // preseg_passes should remove all ops between input and output
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
+  EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+}
+
+// Test that reduction axes are ignored in input to LoadStoreOp
+// See https://github.com/NVIDIA/Fuser/pull/3189
+TEST_F(RemoveBcastSqueezeTest, SumSetBcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {2});
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, std::vector<bool>{false, false, true});
+  fusion->addOutput(tv3);
+
+  preseg_passes::OptimizationPass<preseg_passes::RemoveBcastSqueeze>::runPass(
+      fusion.get());
+  EXPECT_FALSE(ir_utils::hasOpsOfType<LoadStoreOp>(fusion.get()));
+}
+
 } // namespace nvfuser

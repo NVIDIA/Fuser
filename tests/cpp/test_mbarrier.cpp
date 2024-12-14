@@ -10,8 +10,8 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -46,9 +46,9 @@ TEST_F(MBarrierTest, Simple) {
   tv2->axis(0)->parallelize(ParallelType::TIDy);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
 
-  fe.registerPostLoweringHook([](kir::Kernel* kernel) {
+  ke.registerPostLoweringHook([](kir::Kernel* kernel) {
     // Replace block sync with mbarrier
     FusionGuard fg(kernel);
 
@@ -122,7 +122,7 @@ TEST_F(MBarrierTest, Simple) {
     top_level_exprs.push_back(invalidate);
   });
 
-  fe.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   // Make sure that the post-lowering hook successfully inserted all mbarrier
   // operations
@@ -131,14 +131,14 @@ TEST_F(MBarrierTest, Simple) {
       &typeid(kir::MBarrierArrive),
       &typeid(kir::MBarrierWait),
       &typeid(kir::MBarrierInvalidate)};
-  for (auto expr : fe.kernel()->topLevelExprs()) {
+  for (auto expr : ke.kernel()->topLevelExprs()) {
     remaining_mbarrier_exprs.erase(&typeid(*expr));
   }
   EXPECT_TRUE(remaining_mbarrier_exprs.empty());
 
   auto input = at::randn(
       {32, 32}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-  auto outputs = fe.runFusion({input});
+  auto outputs = ke.run({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }

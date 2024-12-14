@@ -9,14 +9,14 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion_executor/executor.h>
-#include <inlining.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
@@ -547,9 +547,9 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
   at::Tensor input1 = at::randn({1024, 512, 256}, options);
   at::Tensor input2 = at::randn({512, 256, 1024}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1, input2});
-  auto outputs = fe.runFusion({input0, input1, input2});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input0, input1, input2});
+  auto outputs = ke.run({input0, input1, input2});
 
   testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
@@ -987,9 +987,9 @@ TEST_F(TransposeTest, FusionTransposeBankConflict9) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({32, 32, 2}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto outputs = ke.run({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }

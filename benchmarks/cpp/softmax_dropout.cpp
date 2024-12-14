@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -75,7 +75,7 @@ static void setupSoftmaxDropout(
 
 static void NvFuserScheduler_SoftmaxDropout(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     const int kReductionAxis) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
@@ -96,7 +96,7 @@ static void NvFuserScheduler_SoftmaxDropout(
   std::vector<c10::IValue> aten_inputs(
       {at_scores, at_mask, sqrt(kAttentionHeadSize)});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   // 5 dtype: attention_scores + attention_mask + attention_scores_out +
   // attention_probs_out + output

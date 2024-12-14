@@ -7,10 +7,10 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -108,7 +108,7 @@ static void setupTranspose(
 
 static void NvFuserScheduler_Transpose(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int num_dims,
     std::pair<int, int> axes,
@@ -125,7 +125,7 @@ static void NvFuserScheduler_Transpose(
   auto at_input2 = aten_inputs[1];
 
   std::vector<c10::IValue> fuser_inputs = {at_input1, at_input2};
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, fuser_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, fuser_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

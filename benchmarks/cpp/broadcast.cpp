@@ -7,10 +7,10 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -56,7 +56,7 @@ static void setupBroadcast(Fusion* fusion, DataType dtype, int bcast_axis) {
 
 static void NvFuserScheduler_Broadcast(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int bcast_dim) {
   auto bcast_size = benchmark_state.range(0);
@@ -74,7 +74,7 @@ static void NvFuserScheduler_Broadcast(
 
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

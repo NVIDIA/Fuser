@@ -8,9 +8,9 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -213,9 +213,9 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({15, 17}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -257,9 +257,9 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   auto t0 = at::randn({16}, options);
   auto t1 = at::randn({16}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-  auto cg_outputs = fe.runFusion({t0, t1});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -290,9 +290,9 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
@@ -369,9 +369,9 @@ TEST_F(ScalarHoistTest, ARange) {
 
   int64_t start = 0, end = 100, step = 1;
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {start, end, step});
-  auto cg_outputs = fe.runFusion({start, end, step});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {start, end, step});
+  auto cg_outputs = ke.run({start, end, step});
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
