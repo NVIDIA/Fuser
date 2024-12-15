@@ -30,6 +30,7 @@
 #include <scheduler/utils.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
+#include <utils.h>
 #include <iostream>
 #include <optional>
 #include <tuple>
@@ -760,6 +761,33 @@ void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
   nvfuser.def("clone", clone);
+
+  py::arg("max_fusions") = int(16384),
+  nvfuser.def(
+      "get_registers_per_thread",
+      getRegPerThreadGivenThreadsPerSM,
+      py::arg("threads_per_sm"),
+      R"(
+  Estimate the number of registers per thread using cuda occupancy API.
+  
+  Parameters
+  ----------
+  threads_per_sm : int 
+      The number of threads per SM.
+  )");
+
+  nvfuser.def(
+      "get_threads_per_sm",
+      getThreadsPerSMGivenRegPerThread,
+      py::arg("reg_per_thread"),
+      R"(
+  Get number of threads per sm using cuda occupancy API.
+  
+  Parameters
+  ----------
+  reg_per_thread : int 
+      The number of registers per thread.
+  )");
 
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
