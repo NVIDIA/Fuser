@@ -73,10 +73,15 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  auto resize_out_tv =
+      resize_based_tensor_ops.at(0)->output(0)->as<TensorView>();
+
   auto all_dep_vals = DependencyCheck::getAllValsBetween(
-      {fusion->inputs().begin(), fusion->inputs().end()},
-      {resize_based_tensor_ops.at(0)->output(0)});
+      {fusion->inputs().begin(), fusion->inputs().end()}, {resize_out_tv});
   for (auto tv : ir_utils::filterByType<TensorView>(all_dep_vals)) {
+    if (tv == resize_out_tv) {
+      continue;
+    }
     if (tv->isFusionOutput()) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
