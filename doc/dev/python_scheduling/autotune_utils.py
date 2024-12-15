@@ -16,7 +16,7 @@ from dataclasses import dataclass, astuple
 
 # Returns the result of a/b with minimum value of 1.
 def at_least_one_div(a, b):
-    return max(x // y, 1)
+    return int(max(a // b, 1))
 
 
 # Returns the result of a/b rounded to the nearest integer in the direction of

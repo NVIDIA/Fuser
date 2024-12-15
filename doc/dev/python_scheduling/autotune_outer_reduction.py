@@ -128,11 +128,11 @@ class AutotuneOuterReduction:
             reduction_params.grid_dim_inner_reduction = ParallelType.grid_y
             gdimy = min(scheduler_config.grdim, grid_y_limit)
 
-        reduction_params.multiple_red_per_blk = (
+        reduction_params.multiple_reds_per_blk = (
             scheduler_config.bdimx > 1 or scheduler_config.iteration_unroll_factor > 1
         )
 
-        if reduction_params.multiple_red_per_blk:
+        if reduction_params.multiple_reds_per_blk:
             reduction_params.block_dim_iter_dom = ParallelType.block_x
 
         reduction_params.grid_dim_iter_dom = ParallelType.grid_x
@@ -177,7 +177,6 @@ class AutotuneOuterReduction:
         threads_per_cta_options = [128, 256, 512, 1024]
         vectorization_factor_options = [1, 2, 4, 8]
         reduction_unroll_factor_options = list(range(1, 6))
-        iteration_unroll_factor_options = list(range(1, 6))
         warp_size = 32
 
         num_iterations, num_reductions = input_shape
@@ -186,61 +185,41 @@ class AutotuneOuterReduction:
             threads_per_cta,
             vectorize_factor,
             reduction_unroll_factor,
-            iteration_unroll_factor,
         ) in itertools.product(
             threads_per_cta_options,
             vectorization_factor_options,
             reduction_unroll_factor_options,
-            iteration_unroll_factor_options,
         ):
             scheduler_config = self.OuterReductionConfiguration(
-                vectorize_factor=vectorize_factor,
                 reduction_unroll_factor=reduction_unroll_factor,
-                iteration_unroll_factor=iteration_unroll_factor,
+                iteration_unroll_factor=vectorize_factor,
             )
-            scheduler_config.bdimx = min(
+
+            bdimx = 8
+            gidim = min(
+                ceil_div(num_iterations, bdimx * vectorize_factor),
+                self.gpu_properties.multi_processor_count,
+            )
+            bdimx = min(
+                ceil_div(num_iterations, gidim * vectorize_factor),
                 threads_per_cta,
-                max(
-                    warp_size,
-                    ceil_div(num_reductions, scheduler_config.vectorize_factor),
-                ),
             )
-            scheduler_config.bdimy = min(
-                threads_per_cta,
-                max(1, floor_div(threads_per_cta, scheduler_config.bdimx)),
-            )
-            scheduler_config.godim = ceil_div(
-                num_iterations, scheduler_config.bdimy * iteration_unroll_factor
+            gidim = min(
+                ceil_div(num_iterations, bdimx * vectorize_factor),
+                self.gpu_properties.multi_processor_count,
             )
 
-            # number of reduction elements not handled by a CTA
-            remaining_reduction = ceil_div(
-                ceil_div(
-                    ceil_div(num_reductions, vectorize_factor), scheduler_config.bdimx
-                ),
-                reduction_unroll_factor,
-            )
+            bdimy = min(num_reductions, threads_per_cta // bdimx)
 
-            if iteration_unroll_factor == 1 and remaining_reduction > 1:
-                # all remaining reduction goes to grdim
-                scheduler_config.grdim = remaining_reduction
-                yield scheduler_config
+            while (
+                bdimy * bdimx * 2 <= threads_per_cta
+            ) and gidim / 2 >= self.gpu_properties.multi_processor_count:
+                bdimx *= 2
+                gidim /= 2
 
-                # When iteration dim is small, there may be unused SMs. We need
-                # to shift work from block reduction to grid reduction to
-                # increase SM usage.
-                godim = scheduler_config.godim
-                grdim = 1
-                while (
-                    godim * grdim * 2 <= self.gpu_properties.multi_processor_count
-                    and (remaining_reduction / grdim) >= 2
-                ):
-                    grdim *= 2
-                scheduler_config.grdim = grdim
-                yield scheduler_config
-
-            # grid stride across reduction iterDomain is 1
-            scheduler_config.grdim = 1
+            scheduler_config.bdimx = bdimx
+            scheduler_config.bdimy = bdimy
+            scheduler_config.gidim = gidim
             yield scheduler_config
 
     def create_inputs(self, shape, tensor_datatype):
@@ -370,7 +349,7 @@ class AutotuneOuterReduction:
 
             # Modify original parameters
             if scheduler_config is not None:
-                self.convert_to_inner_reduction_params(
+                self.convert_to_outer_reduction_params(
                     scheduler_config, reduction_params
                 )
 
