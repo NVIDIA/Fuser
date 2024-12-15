@@ -5,7 +5,13 @@
 
 import torch
 import itertools
-from nvfuser import FusionDefinition, SchedulerType, DataType, ParallelType
+from nvfuser import (
+    FusionDefinition,
+    SchedulerType,
+    DataType,
+    ParallelType,
+    get_registers_per_thread,
+)
 from enum import Enum
 from dataclasses import dataclass
 
@@ -15,6 +21,7 @@ from autotune_utils import (
     separate_data,
     test_model_rmse,
     test_model,
+    at_least_one_div,
     ceil_div,
     floor_div,
 )
@@ -63,24 +70,25 @@ class AutotuneOuterReduction:
 
     @dataclass(unsafe_hash=True)
     class OuterReductionConfiguration:
-        # The vectorization factor for outer reduction domain.
-        vectorize_factor: int = 1
+        # iteration parameters
+        # iteration elements = iteration_unroll * bdimx * gidim
+        # The unroll factor for the inner iteration domain.
+        iteration_unroll_factor: int = 1
+        # The x axis of CTA. It corresponds with inner iteration domain.
+        bdimx: int = -1
+        # The grid size for the inner iteration domain.
+        gidim: int = -1
+
+        # reduction parameters
+        # reduction elements = reduction_unroll * bdimy * grdim * reduction_serial
         # The unroll factor for the outer reduction domain.
         reduction_unroll_factor: int = 1
-        # The unroll factor for the outer iteration domain.
-        iteration_unroll_factor: int = 1
-        # The grid size for the outer iteration domain.
-        # If grdim > 1, then godim corresponds with y axis of the grid.
-        # Otherwise, it is the x axis of the grid.
-        godim: int = -1
-        # The grid size for the outer reduction domain. It corresponds
-        # with x axis of the grid when it is >1.
-        grdim: int = -1
-        # The x axis of CTA. It corresponds with outer reduction domain.
-        bdimx: int = -1
         # The y axis of CTA. It corresponds with outer reduction domain.
-        # If it is non-zero, then there are multiple reduction per CTA.
         bdimy: int = -1
+        # The grid size for the outer reduction domain.
+        grdim: int = -1
+        # TODO
+        reduction_serial: int = -1
 
     def __init__(self, selected_fusion):
         self.selected_fusion = selected_fusion
@@ -98,52 +106,56 @@ class AutotuneOuterReduction:
         grid_x_limit = 2147483647
         grid_y_limit = 65535
 
-        reduction_params.schedule_3D = False
-        reduction_params.fastest_dim = True
-        reduction_params.cross_block_inner_reduction = True
-        reduction_params.block_dim_inner_reduction = ParallelType.block_x
+        # Configure register count to get 50% occupancy with 1024 threads per SM.
+        target_threads_per_sm = self.gpu_properties.max_threads_per_multi_processor // 2
+        threads_per_cta = scheduler_config.bdimx * scheduler_config.bdimy
+        threads_per_sm = (
+            at_least_one_div(target_threads_per_sm, threads_per_cta) * threads_per_cta
+        )
+        registers_per_thread = get_registers_per_thread(threads_per_sm)
+        reduction_params.cparams.maxrregcount = registers_per_thread
+
+        reduction_params.cross_block_inner_reduction = (
+            scheduler_config.bdimy > 1 or scheduler_config.grdim > 1
+        )
         reduction_params.cross_grid_inner_reduction = scheduler_config.grdim > 1
-        reduction_params.multiple_reds_per_blk = scheduler_config.bdimy > 1
-        reduction_params.pad_inner_reduction_to_warp = (
-            scheduler_config.bdimx > warp_size
-        ) and (
-            (scheduler_config.bdimx * scheduler_config.bdimy)
-            < max_number_of_threads_cta
-        )
-        reduction_params.unroll_factor_inner_reduction = (
-            scheduler_config.vectorize_factor
-        )
-        reduction_params.vectorize_inner_reduction = (
-            scheduler_config.vectorize_factor > 1
-        )
-        reduction_params.unroll_factor_top_of_vectorization = (
-            scheduler_config.reduction_unroll_factor
-        )
-
-        if scheduler_config.bdimy > 1:
-            reduction_params.block_dim_iter_dom = ParallelType.block_y
-
-        reduction_params.unroll_factor_iter_dom = (
-            scheduler_config.iteration_unroll_factor
-        )
 
         gdimx = -1
         gdimy = -1
 
         if scheduler_config.grdim > 1:
-            reduction_params.grid_dim_inner_reduction = ParallelType.grid_x
-            reduction_params.grid_dim_iter_dom = ParallelType.grid_y
+            reduction_params.split_grid_dim_inner_reduction = True
+            reduction_params.grid_dim_inner_reduction = ParallelType.grid_y
+            gdimy = min(scheduler_config.grdim, grid_y_limit)
 
-            reduction_params.split_grid_dim_iter_dom_inner = True
-            gdimx = min(scheduler_config.grdim, grid_x_limit)
-            gdimy = min(scheduler_config.godim, grid_y_limit)
-            if scheduler_config.godim > grid_y_limit:
-                reduction_params.split_grid_dim_iter_dom_outer = True
-        else:
-            reduction_params.grid_dim_iter_dom = ParallelType.grid_x
-            gdimx = min(scheduler_config.godim, grid_x_limit)
-            if scheduler_config.godim > grid_x_limit:
-                reduction_params.split_grid_dim_inner_reduction = True
+        reduction_params.multiple_red_per_blk = (
+            scheduler_config.bdimx > 1 or scheduler_config.iteration_unroll_factor > 1
+        )
+
+        if reduction_params.multiple_red_per_blk:
+            reduction_params.block_dim_iter_dom = ParallelType.block_x
+
+        reduction_params.grid_dim_iter_dom = ParallelType.grid_x
+        if scheduler_config.gidim > grid_x_limit:
+            reduction_params.split_grid_dim_iter_dom_outer = True
+            gdimx = grid_x_limit
+
+        reduction_params.flip_grid = False
+        if reduction_params.cross_block_inner_reduction:
+            if reduction_params.block_dim_iter_dom == ParallelType.block_x:
+                reduction_params.block_dim_inner_reduction = ParallelType.block_y
+            else:
+                reduction_params.block_dim_inner_reduction = ParallelType.block_x
+
+        reduction_params.unroll_factor_inner_reduction = (
+            scheduler_config.reduction_unroll_factor
+        )
+        reduction_params.unroll_factor_iter_dom = (
+            scheduler_config.iteration_unroll_factor
+        )
+        reduction_params.vectorize_iter_dom = (
+            scheduler_config.iteration_unroll_factor > 1
+        )
 
         reduction_params.lparams.gdimx = gdimx
         reduction_params.lparams.gdimy = gdimy
@@ -153,8 +165,11 @@ class AutotuneOuterReduction:
         reduction_params.lparams.bdimy = -1
         reduction_params.lparams.bdimz = -1
 
-        reduction_params.lparams.bdimx = scheduler_config.bdimx
-        reduction_params.lparams.bdimy = scheduler_config.bdimy
+        if reduction_params.multiple_reds_per_blk:
+            reduction_params.lparams.bdimx = scheduler_config.bdimx
+            reduction_params.lparams.bdimy = scheduler_config.bdimy
+        else:
+            reduction_params.lparams.bdimx = scheduler_config.bdimy
 
     # For reduction scheduler, we test the cartesian product of vectorization and
     # unroll factors.
@@ -319,13 +334,12 @@ class AutotuneOuterReduction:
             fd.add_output(T48)
             fd.add_output(T43)
 
-        if self.selected_fusion == FUSION.SUM:
+        if self.selected_fusion == self.FUSION.OUTER_SUM:
             return sum_fusion
-        elif self.selected_fusion == FUSION.GELU_BIAS_BWD:
+        elif self.selected_fusion == self.FUSION.GELU_BIAS_BWD:
             return gelu_bias_bwd
         else:
             assert False
-
 
     # The pytorch eager mode reference used to validating nvfuser kernel.
     def eager_reference(self, inputs):
@@ -338,13 +352,12 @@ class AutotuneOuterReduction:
             out.sum().backward()
             return inputs[0].grad, inputs[1].grad
 
-        if self.selected_fusion == FUSION.OUTER_SUM:
+        if self.selected_fusion == self.FUSION.OUTER_SUM:
             return sum_fusion(inputs)
-        elif self.selected_fusion == FUSION.GELU_BIAS_BWD:
+        elif self.selected_fusion == self.FUSION.GELU_BIAS_BWD:
             return gelu_bias_bwd(inputs)
         else:
             assert False
-
 
     # Apply scheduler with custom parameters using decorator
     def custom_scheduler(self, fd, scheduler_config):
