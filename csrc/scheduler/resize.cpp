@@ -73,6 +73,29 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  auto all_dep_vals = DependencyCheck::getAllValsBetween(
+      {fusion->inputs().begin(), fusion->inputs().end()},
+      {resize_based_tensor_ops.at(0)->output(0)});
+  for (auto tv : ir_utils::filterByType<TensorView>(all_dep_vals)) {
+    if (tv->isFusionOutput()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Dependency to fusion output not allowed: ",
+          tv->toString());
+      return false;
+    }
+    for (auto consumer_of_tv : ir_utils::consumerTvsOf(tv)) {
+      if (std::find(all_dep_vals.begin(), all_dep_vals.end(), consumer_of_tv) ==
+          all_dep_vals.end()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedulerType(),
+            "Resize inputs must be exclusively consumed by resize: ",
+            consumer_of_tv->toString());
+        return false;
+      }
+    }
+  }
+
   // Slicing of or to a broadcast ID is not allowed yet.
   for (auto tensor_op : resize_based_tensor_ops) {
     TensorView* out_tv = tensor_op->output(0)->as<TensorView>();
