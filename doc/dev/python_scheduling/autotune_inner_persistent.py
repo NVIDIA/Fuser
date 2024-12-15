@@ -5,7 +5,13 @@
 
 import torch
 import itertools
-from nvfuser import FusionDefinition, SchedulerType, DataType, ParallelType
+from nvfuser import (
+    FusionDefinition,
+    SchedulerType,
+    DataType,
+    ParallelType,
+    get_registers_per_thread,
+)
 from enum import Enum
 from dataclasses import dataclass
 
@@ -15,6 +21,7 @@ from autotune_utils import (
     separate_data,
     test_model_rmse,
     test_model,
+    at_least_one_div,
     ceil_div,
     floor_div,
 )
@@ -74,24 +81,22 @@ class AutotuneInnerPersistent:
 
     @dataclass(unsafe_hash=True)
     class InnerPersistentConfiguration:
+        # The x axis of CTA.
+        bdimx: int = -1
+        # The y axis of CTA.
+        bdimy: int = -1
+
+        project_persistent_buffers: bool = False
+        padded_bdimx: int = -1
+        is_pad_bdimx: bool = False
+        persistent_batch_size: int = -1
+        registers_per_thread: int = -1
         # The vectorization factor for inner reduction domain.
         vectorize_factor: int = 1
-        # The unroll factor for the inner reduction domain.
-        reduction_unroll_factor: int = 1
-        # The unroll factor for the outer iteration domain.
-        iteration_unroll_factor: int = 1
         # The grid size for the outer iteration domain.
         # If grdim > 1, then godim corresponds with y axis of the grid.
         # Otherwise, it is the x axis of the grid.
         godim: int = -1
-        # The grid size for the inner reduction domain. It corresponds
-        # with x axis of the grid when it is >1.
-        grdim: int = -1
-        # The x axis of CTA. It corresponds with inner reduction domain.
-        bdimx: int = -1
-        # The y axis of CTA. It corresponds with outer reduction domain.
-        # If it is non-zero, then there are multiple reduction per CTA.
-        bdimy: int = -1
 
     def __init__(self, selected_fusion):
         self.selected_fusion = selected_fusion
@@ -107,19 +112,21 @@ class AutotuneInnerPersistent:
         warp_size = 32
         max_number_of_threads_cta = 1024
         grid_x_limit = 2147483647
-        grid_y_limit = 65535
 
-        reduction_params.schedule_3D = False
+        reduction_params.persistent_kernel = True
         reduction_params.fastest_dim = True
+        # TODO fix project_persistent_buffers
+        reduction_params.project_persistent_buffers = (
+            scheduler_config.project_persistent_buffers
+        )
+        reduction_params.cparams.index_type = DataType.Int32
+        reduction_params.cparams.maxrregcount = scheduler_config.registers_per_thread
+
         reduction_params.cross_block_inner_reduction = True
         reduction_params.block_dim_inner_reduction = ParallelType.block_x
-        reduction_params.cross_grid_inner_reduction = scheduler_config.grdim > 1
-        reduction_params.multiple_reds_per_blk = scheduler_config.bdimy > 1
-        reduction_params.pad_inner_reduction_to_warp = (
-            scheduler_config.bdimx > warp_size
-        ) and (
-            (scheduler_config.bdimx * scheduler_config.bdimy)
-            < max_number_of_threads_cta
+        reduction_params.pad_inner_reduction_to_warp = scheduler_config.is_pad_bdimx
+        reduction_params.batches_per_block_inner_reduction = (
+            scheduler_config.persistent_batch_size
         )
         reduction_params.unroll_factor_inner_reduction = (
             scheduler_config.vectorize_factor
@@ -127,37 +134,16 @@ class AutotuneInnerPersistent:
         reduction_params.vectorize_inner_reduction = (
             scheduler_config.vectorize_factor > 1
         )
-        reduction_params.unroll_factor_top_of_vectorization = (
-            scheduler_config.reduction_unroll_factor
-        )
-
-        if scheduler_config.bdimy > 1:
-            reduction_params.block_dim_iter_dom = ParallelType.block_y
-
-        reduction_params.unroll_factor_iter_dom = (
-            scheduler_config.iteration_unroll_factor
-        )
+        reduction_params.multiple_reds_per_blk = scheduler_config.bdimy > 1
 
         gdimx = -1
-        gdimy = -1
-
-        if scheduler_config.grdim > 1:
-            reduction_params.grid_dim_inner_reduction = ParallelType.grid_x
-            reduction_params.grid_dim_iter_dom = ParallelType.grid_y
-
-            reduction_params.split_grid_dim_iter_dom_inner = True
-            gdimx = min(scheduler_config.grdim, grid_x_limit)
-            gdimy = min(scheduler_config.godim, grid_y_limit)
-            if scheduler_config.godim > grid_y_limit:
-                reduction_params.split_grid_dim_iter_dom_outer = True
-        else:
+        if scheduler_config.godim > 1:
             reduction_params.grid_dim_iter_dom = ParallelType.grid_x
-            gdimx = min(scheduler_config.godim, grid_x_limit)
             if scheduler_config.godim > grid_x_limit:
-                reduction_params.split_grid_dim_inner_reduction = True
+                reduction_params.split_grid_dim_iter_dom_outer = True
+                gdimx = grid_x_limit
 
         reduction_params.lparams.gdimx = gdimx
-        reduction_params.lparams.gdimy = gdimy
 
         # Reset CTA dimensions to avoid failing LaunchParams::assertValid
         reduction_params.lparams.bdimx = -1
@@ -167,77 +153,98 @@ class AutotuneInnerPersistent:
         reduction_params.lparams.bdimx = scheduler_config.bdimx
         reduction_params.lparams.bdimy = scheduler_config.bdimy
 
+    def get_max_persistent_batch(
+        self, buffer_bytes_per_batch, target_threads_per_cta, register_overhead
+    ):
+        register_per_thread = get_registers_per_thread(target_threads_per_cta)
+        register_for_buffer = register_per_thread - register_overhead
+
+        bytes_per_register = 4
+        batch_from_register = at_least_one_div(
+            register_for_buffer * bytes_per_register, buffer_bytes_per_batch
+        )
+
+        max_batches_per_block = 16
+        return min(max_batches_per_block, batch_from_register)
+
     # For persistent scheduler, we test the cartesian product of vectorization and
     # unroll factors.
     def generate_scheduler_configurations(self, input_shape):
         threads_per_cta_options = [128, 256, 512, 1024]
         vectorization_factor_options = [1, 2, 4, 8]
-        reduction_unroll_factor_options = list(range(1, 6))
-        iteration_unroll_factor_options = list(range(1, 6))
-        warp_size = 32
 
+        dtype_size = 2
+        warp_size = 32
+        register_file_size = (256 * 1024) // 2
+        register_overhead = 32
         num_iterations, num_reductions = input_shape
 
+        # TODO fix softmax calculation
+        # iteration domain of a tensor, weight, and bias
+        # layer_norm and rms_norm = num_iterations + 2 * num_reductions
+        # softmax = num_iterations
+        max_persistent_buffer_size = num_iterations + 2 * num_reductions * dtype_size
+
         for (
-            threads_per_cta,
+            target_threads_per_cta,
             vectorize_factor,
-            reduction_unroll_factor,
-            iteration_unroll_factor,
         ) in itertools.product(
             threads_per_cta_options,
             vectorization_factor_options,
-            reduction_unroll_factor_options,
-            iteration_unroll_factor_options,
         ):
-            scheduler_config = self.InnerPersistentConfiguration(
-                vectorize_factor=vectorize_factor,
-                reduction_unroll_factor=reduction_unroll_factor,
-                iteration_unroll_factor=iteration_unroll_factor,
+            num_reduction_after_vectorize = num_reductions // vectorize_factor
+            batches_per_cta_min = ceil_div(
+                num_reduction_after_vectorize, target_threads_per_cta
             )
-            scheduler_config.bdimx = min(
-                threads_per_cta,
-                max(
-                    warp_size,
-                    ceil_div(num_reductions, scheduler_config.vectorize_factor),
+
+            buffer_bytes_per_batch = (
+                max_persistent_buffer_size / num_reductions / vectorize_factor
+            )
+            batches_per_cta_max = min(
+                batches_per_cta_min,
+                self.get_max_persistent_batch(
+                    buffer_bytes_per_batch, target_threads_per_cta, register_overhead
                 ),
             )
-            scheduler_config.bdimy = min(
-                threads_per_cta,
-                max(1, floor_div(threads_per_cta, scheduler_config.bdimx)),
-            )
-            scheduler_config.godim = ceil_div(
-                num_iterations, scheduler_config.bdimy * iteration_unroll_factor
-            )
 
-            # number of reduction elements not handled by a CTA
-            remaining_reduction = ceil_div(
-                ceil_div(
-                    ceil_div(num_reductions, vectorize_factor), scheduler_config.bdimx
-                ),
-                reduction_unroll_factor,
-            )
+            for persistent_batch_size in range(
+                batches_per_cta_min, batches_per_cta_max + 1
+            ):
+                max_multi_reduction_factor = min(
+                    at_least_one_div(register_file_size, max_persistent_buffer_size),
+                    ceil_div(num_iterations, self.gpu_properties.multi_processor_count),
+                )
 
-            if iteration_unroll_factor == 1 and remaining_reduction > 1:
-                # all remaining reduction goes to grdim
-                scheduler_config.grdim = remaining_reduction
+                # Build scheduler configuration
+                scheduler_config = self.InnerPersistentConfiguration(
+                    vectorize_factor=vectorize_factor,
+                    persistent_batch_size=persistent_batch_size,
+                )
+                scheduler_config.bdimx = at_least_one_div(
+                    num_reduction_after_vectorize, persistent_batch_size
+                )
+                scheduler_config.bdimy = min(
+                    at_least_one_div(target_threads_per_cta, scheduler_config.bdimx),
+                    max_multi_reduction_factor,
+                )
+
+                if scheduler_config.bdimx % warp_size == 0:
+                    scheduler_config.padded_bdimx = scheduler_config.bdimx
+                else:
+                    scheduler_config.padded_bimx = scheduler_config.bdimx + (
+                        warp_size - scheduler_config.bdimx % warp_size
+                    )
+
+                scheduler_config.is_pad_bdimx = (
+                    scheduler_config.bdimx > 16
+                    and scheduler_config.padded_bdimx * scheduler_config.bdimy
+                    <= target_threads_per_cta
+                )
+
+                scheduler_config.godim = ceil_div(
+                    num_iterations, scheduler_config.bdimy
+                )
                 yield scheduler_config
-
-                # When iteration dim is small, there may be unused SMs. We need
-                # to shift work from block reduction to grid reduction to
-                # increase SM usage.
-                godim = scheduler_config.godim
-                grdim = 1
-                while (
-                    godim * grdim * 2 <= self.gpu_properties.multi_processor_count
-                    and (remaining_reduction / grdim) >= 2
-                ):
-                    grdim *= 2
-                scheduler_config.grdim = grdim
-                yield scheduler_config
-
-            # grid stride across reduction iterDomain is 1
-            scheduler_config.grdim = 1
-            yield scheduler_config
 
     def create_inputs(self, shape, tensor_datatype):
         a = torch.randn(*shape, dtype=tensor_datatype, device="cuda")
@@ -270,22 +277,22 @@ class AutotuneInnerPersistent:
             )
             T1 = fd.define_tensor(
                 shape=[-1],
-                contiguity=[None, True],
+                contiguity=[True],
                 dtype=DataType.BFloat16,
                 is_cpu=False,
                 stride_order=[0],
             )
             T2 = fd.define_tensor(
                 shape=[-1],
-                contiguity=[None, True],
+                contiguity=[True],
                 dtype=DataType.BFloat16,
                 is_cpu=False,
                 stride_order=[0],
             )
             T3 = fd.ops.cast(T0, dtype=DataType.Float)
             T4, T5 = fd.ops.var_mean(T3, dims=[-1], correction=0, keepdim=False)
-            T9 = fd.ops.broadcast(T4, is_broadcast_dim=[True, False])
-            T13 = fd.ops.broadcast(T5, is_broadcast_dim=[True, False])
+            T9 = fd.ops.broadcast(T4, is_broadcast_dim=[False, True])
+            T13 = fd.ops.broadcast(T5, is_broadcast_dim=[False, True])
             S14 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
             T15 = fd.ops.add(T9, S14)
             T16 = fd.ops.rsqrt(T15)
@@ -329,7 +336,9 @@ class AutotuneInnerPersistent:
             )
             S4 = fd.define_scalar(0.00000, dtype=DataType.Double)
             S5 = fd.define_scalar(1.00000, dtype=DataType.Double)
-            T9 = fd.ops.uniform(S4, S5, shape=T1.shape(), dtype=DataType.BFloat16)
+            S6 = fd.define_scalar(10, dtype=DataType.Int)
+            S7 = fd.define_scalar(12, dtype=DataType.Int)
+            T9 = fd.ops.uniform(S4, S5, shape=[S6, S7], dtype=DataType.BFloat16)
             S10 = fd.define_scalar(0.500000, dtype=DataType.Double)
             T11 = fd.ops.lt(T9, S10)
             T12 = fd.ops.cast(T0, dtype=DataType.Float)
@@ -339,17 +348,19 @@ class AutotuneInnerPersistent:
             T16 = fd.ops.mul(T14, S15)
             T17 = fd.ops.cast(T1, dtype=DataType.Float)
             T18 = fd.ops.add(T17, T16)
-            T19, T20 = fd.ops.var_mean(T18, dims=[-1], correction=0, keepdim=False)
-            T24 = fd.ops.broadcast(T19, is_broadcast_dim=[True, False])
-            T28 = fd.ops.broadcast(T20, is_broadcast_dim=[True, False])
+            T19, T20 = fd.ops.var_mean(T18, dims=[1], correction=0, keepdim=False)
+            T24 = fd.ops.broadcast(T19, is_broadcast_dim=[False, True])
+            T28 = fd.ops.broadcast(T20, is_broadcast_dim=[False, True])
             S29 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
             T30 = fd.ops.add(T24, S29)
             T31 = fd.ops.rsqrt(T30)
             T36 = fd.ops.sub(T18, T28)
             T41 = fd.ops.mul(T36, T31)
-            T46 = fd.ops.cast(T2, dtype=DataType.Float)
+            T45 = fd.ops.broadcast(T2, is_broadcast_dim=[True, False])
+            T46 = fd.ops.cast(T45, dtype=DataType.Float)
             T47 = fd.ops.mul(T41, T46)
-            T52 = fd.ops.cast(T3, dtype=DataType.Float)
+            T51 = fd.ops.broadcast(T3, is_broadcast_dim=[True, False])
+            T52 = fd.ops.cast(T51, dtype=DataType.Float)
             T53 = fd.ops.add(T47, T52)
             T54 = fd.ops.cast(T53, dtype=DataType.BFloat16)
             fd.add_output(T54)
@@ -372,7 +383,7 @@ class AutotuneInnerPersistent:
             T2 = fd.ops.cast(T0, dtype=DataType.Float)
             T3 = fd.ops.mul(T2, T2)
             T4 = fd.ops.sum(T3, dims=[-1], keepdim=False, dtype=DataType.Null)
-            T8 = fd.ops.broadcast(T4, is_broadcast_dim=[True, False])
+            T8 = fd.ops.broadcast(T4, is_broadcast_dim=[False, True])
             S9 = fd.define_scalar(12.0000, dtype=DataType.Double)
             S10 = fd.ops.reciprocal(S9)
             T11 = fd.ops.mul(T8, S10)
@@ -383,6 +394,40 @@ class AutotuneInnerPersistent:
             T20 = fd.ops.cast(T15, dtype=DataType.Float)
             T21 = fd.ops.mul(T2, T20)
             T26 = fd.ops.cast(T21, dtype=DataType.Float)
+            T27 = fd.ops.mul(T21, T26)
+            T28 = fd.ops.cast(T27, dtype=DataType.BFloat16)
+            fd.add_output(T28)
+
+        def rmsnorm_fusion(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T2 = fd.ops.cast(T0, dtype=DataType.Float)
+            T3 = fd.ops.mul(T2, T2)
+            T4 = fd.ops.sum(T3, dims=[1], keepdim=False, dtype=DataType.Null)
+            T8 = fd.ops.broadcast(T4, is_broadcast_dim=[False, True])
+            S9 = fd.define_scalar(T0.shape()[-0], dtype=DataType.Double)
+            S10 = fd.ops.reciprocal(S9)
+            T11 = fd.ops.mul(T8, S10)
+            S12 = fd.define_scalar(0.00781250, dtype=DataType.Double)
+            T13 = fd.ops.add(T11, S12)
+            T14 = fd.ops.rsqrt(T13)
+            T15 = fd.ops.cast(T14, dtype=DataType.BFloat16)
+            T20 = fd.ops.cast(T15, dtype=DataType.Float)
+            T21 = fd.ops.mul(T2, T20)
+            T25 = fd.ops.broadcast(T1, is_broadcast_dim=[True, False])
+            T26 = fd.ops.cast(T25, dtype=DataType.Float)
             T27 = fd.ops.mul(T21, T26)
             T28 = fd.ops.cast(T27, dtype=DataType.BFloat16)
             fd.add_output(T28)
@@ -411,7 +456,7 @@ class AutotuneInnerPersistent:
             )
             S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
             S4 = fd.define_scalar(1.00000, dtype=DataType.Double)
-            T8 = fd.ops.uniform(S3, S4, shape=T1.shape(), dtype=DataType.BFloat16)
+            T8 = fd.ops.uniform(S3, S4, shape=T0.shape(), dtype=DataType.BFloat16)
             S9 = fd.define_scalar(0.500000, dtype=DataType.Double)
             T10 = fd.ops.lt(T8, S9)
             T11 = fd.ops.cast(T0, dtype=DataType.Float)
@@ -422,9 +467,9 @@ class AutotuneInnerPersistent:
             T16 = fd.ops.cast(T1, dtype=DataType.Float)
             T17 = fd.ops.add(T16, T15)
             T18 = fd.ops.mul(T17, T17)
-            T19 = fd.ops.sum(T18, dims=[-1], keepdim=False, dtype=DataType.Null)
-            T23 = fd.ops.broadcast(T19, is_broadcast_dim=[True, False])
-            S24 = fd.define_scalar(12.0000, dtype=DataType.Double)
+            T19 = fd.ops.sum(T18, dims=[1], keepdim=False, dtype=DataType.Null)
+            T23 = fd.ops.broadcast(T19, is_broadcast_dim=[False, True])
+            S24 = fd.define_scalar(T0.shape()[0], dtype=DataType.Double)
             S25 = fd.ops.reciprocal(S24)
             T26 = fd.ops.mul(T23, S25)
             S27 = fd.define_scalar(0.00781250, dtype=DataType.Double)
@@ -433,7 +478,8 @@ class AutotuneInnerPersistent:
             T30 = fd.ops.cast(T29, dtype=DataType.BFloat16)
             T35 = fd.ops.cast(T30, dtype=DataType.Float)
             T36 = fd.ops.mul(T17, T35)
-            T41 = fd.ops.cast(T2, dtype=DataType.Float)
+            T40 = fd.ops.broadcast(T2, is_broadcast_dim=[True, False])
+            T41 = fd.ops.cast(T40, dtype=DataType.Float)
             T42 = fd.ops.mul(T36, T41)
             T43 = fd.ops.cast(T42, dtype=DataType.BFloat16)
             fd.add_output(T43)
@@ -448,11 +494,11 @@ class AutotuneInnerPersistent:
             )
             T1 = fd.ops.cast(T0, dtype=DataType.Float)
             T2 = fd.ops.max(T1, dims=[-1], keepdim=False, dtype=DataType.Null)
-            T6 = fd.ops.broadcast(T2, is_broadcast_dim=[True, False])
+            T6 = fd.ops.broadcast(T2, is_broadcast_dim=[False, True])
             T11 = fd.ops.sub(T1, T6)
             T12 = fd.ops.exp(T11)
             T13 = fd.ops.sum(T12, dims=[1], keepdim=False, dtype=DataType.Null)
-            T17 = fd.ops.broadcast(T13, is_broadcast_dim=[True, False])
+            T17 = fd.ops.broadcast(T13, is_broadcast_dim=[False, True])
             T22 = fd.ops.reciprocal(T17)
             T23 = fd.ops.mul(T12, T22)
             T24 = fd.ops.cast(T23, dtype=DataType.BFloat16)
@@ -506,15 +552,15 @@ class AutotuneInnerPersistent:
             return torch.nn.functional.softmax(inputs[0], dim=-1)
 
         if self.selected_fusion == self.FUSION.LAYERNORM:
-            return layernorm
+            return layernorm(inputs)
         elif self.selected_fusion == self.FUSION.DROPOUT_ADD_LAYERNORM:
-            return dropout_add_layernorm
+            return dropout_add_layernorm(inputs)
         elif self.selected_fusion == self.FUSION.RMSNORM:
-            return rmsnorm
+            return rmsnorm(inputs)
         elif self.selected_fusion == self.FUSION.DROPOUT_ADD_RMSNORM:
-            return dropout_add_rmsnorm
+            return dropout_add_rmsnorm(inputs)
         elif self.selected_fusion == self.FUSION.SOFTMAX:
-            return softmax
+            return softmax(inputs)
         else:
             assert False
 
@@ -522,11 +568,11 @@ class AutotuneInnerPersistent:
     def custom_scheduler(self, fd, scheduler_config):
         def inner_fn():
             # Check if compatible with persistent scheduler
-            status, _ = fd.sched.can_schedule(SchedulerType.persistent)
+            status, _ = fd.sched.can_schedule(SchedulerType.inner_persistent)
             assert status
 
             # persistent scheduler uses reduction parameters
-            reduction_params = fd.sched.compute_reduction_heuristics()
+            reduction_params = fd.sched.compute_inner_persistent_heuristics()
 
             # Modify original parameters
             if scheduler_config is not None:
@@ -555,7 +601,7 @@ def main():
     )
 
     autotune_config = AutotuneInnerPersistent(
-        selected_fusion=AutotuneInnerPersistent.FUSION.INNER_SUM
+        selected_fusion=AutotuneInnerPersistent.FUSION.LAYERNORM
     )
 
     # ============================ Run Experiments  ============================
