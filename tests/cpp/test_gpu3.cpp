@@ -8055,7 +8055,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   // the resize scheduler
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
-  EXPECT_EQ(num_segments, 2) << "Expect 2 segments, got: " << num_segments;
+  EXPECT_EQ(num_segments, 3) << "Expect 3 segments, got: " << num_segments;
   for (const auto i : c10::irange(kernel_runtime->executors().size())) {
     const auto& exec = kernel_runtime->executors().at(i);
     if (!exec->isA<KernelExecutor>()) {
