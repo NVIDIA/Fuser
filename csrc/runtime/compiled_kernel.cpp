@@ -1095,7 +1095,11 @@ void CompiledKernel::compileFusion(
     }
     auto dependencies = InputsOf::outputs(output_extents);
     if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
-          return val->isFusionInput();
+          // Once lowered extents can be a function of the input tensor meta
+          // data. Need to make sure it's an input and it's not a tensorview.
+          // The other option would be too see if there's a metadata grabbing op
+          // between them.
+          return val->isFusionInput() && !val->isA<TensorView>();
         })) {
       // TODO: parameter cache is too big a hammer here. We should consider
       // separate the caching logic of output sizes & launch params. Since
