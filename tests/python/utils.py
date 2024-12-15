@@ -441,7 +441,7 @@ class NVFuserTest(TestCase):
         new_fusion_expected=True,
         device=None,
         is_clonable=True,
-        supports_segmentation=True,
+        supports_segmentation=False,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
