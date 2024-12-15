@@ -4059,6 +4059,18 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::return_value_policy::reference);
   nvf_sched.def(
+      "compute_inner_persistent_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> ReductionParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::InnerPersistent);
+        return *parameters->as<ReductionParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
       "compute_matmul_heuristics",
       [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
         NVF_CHECK(
