@@ -831,9 +831,16 @@ bool isScalarExpr(Expr* expr) {
   return true;
 }
 
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  Val* pdm_max_extent = nullptr;
+  if (in_compute_warp) {
+    pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
+  } else {
+    pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  }
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -914,7 +921,11 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. In the split-k case, use the root domain for the
+  // mma layout because the k dimension is divided into two iterDomains in the
+  // logical domain.
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;

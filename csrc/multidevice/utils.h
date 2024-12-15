@@ -30,7 +30,8 @@ NVF_API bool distributedEnabled();
 // TODO: Analyze loop domain for unsharded/sharded IDs and return their
 // parent root IDs.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    Expr* expr);
+    TensorView* producer,
+    TensorView* consumer);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
@@ -123,9 +124,24 @@ int64_t requestedNumberOfDevices(Fusion*);
 void unshard(Fusion*);
 void unshard(TensorView*);
 
-// Returns the index of the a sharded axis if none return -1.
-// TODO: Assumes no merges/splits on sharded axis.
-int64_t getShardedAxis(TensorView*);
+// Returns the index of the sharded logical axis that produces the allocation
+// IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
+// type, returns -1.
+//
+// This is used to correlate `tv` and its corresponding at::Tensor, e.g., by
+// `unshardedSizes` and `shardTensor`. `at::Tensor::sizes` and
+// `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
+// `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
+// extent if that IterDomain is sharded.
+int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+
+// Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
+// is determined by `mesh` and `device_id`. Returns the sharded tensor.
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh,
+    DeviceIdxType device_id);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
 void reorderDIDToFront(TensorView*);

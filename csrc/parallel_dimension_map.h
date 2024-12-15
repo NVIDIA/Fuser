@@ -41,6 +41,12 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
+  //! Get the "compute" parallel dimension on the given ParallelType. In case
+  //! of no warp specialization, this is the same as getRaw(pt). If we are doing
+  //! warp specialization on pt, the result is getRaw(pt) - 1, because the last
+  //! of pt is used for loading circular buffer tensors.
+  Val* getRawCompute(ParallelType pt) const;
+
   //! Get the number of threads per each CTA used for computation. When there is
   //! no warp specialization, the result is trivial: it is just the product of
   //! parallel dimensions of TIDx, TIDy and TIDz. If we do have warp
@@ -54,6 +60,11 @@ class ParallelDimensionMap {
   //! introduced by warp specialization and only used for loading circular
   //! buffer tensors.
   Val* getNumComputeThreadsEachBlock() const;
+
+  //! Get if the kernel uses warp specialization
+  bool hasWarpSpecialization() const {
+    return !warp_specialized_types_.empty();
+  }
 
   bool has(ParallelType pt) const {
     return dim_map_.count(pt) > 0;

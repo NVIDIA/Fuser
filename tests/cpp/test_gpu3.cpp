@@ -9261,6 +9261,51 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
   ASSERT_TRUE(tidx_dim != nullptr);
 }
 
+// Check the topological ordering of TensorDomain::allIDs(). Repro of
+// issue #3583
+TEST_F(NVFuserTest, AllIdsMultipleDependencies) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({10, 20});
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{fusion.zeroVal(), IrBuilder::create<Val>(2)},
+       {fusion.zeroVal(), tv0->getLogicalDomain().at(1)->extent()}});
+
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->split(0, 4);
+  tv1->split(0, 8);
+
+  fusion.print();
+
+  auto all_ids = tv1->domain()->allIDs();
+
+  auto split2 = tv1->axis(0)->definition()->as<Split>();
+  auto split1 = split2->input(0)->definition()->as<Split>();
+  auto merge = split1->input(0)->definition()->as<Merge>();
+  auto resize = merge->input(0)->definition()->as<Resize>();
+
+  std::vector<Expr*> exprs{resize, merge, split1, split2};
+
+  for (auto expr : exprs) {
+    for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+      auto inp_it = std::find(all_ids.begin(), all_ids.end(), inp);
+      for (auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        auto out_it = std::find(all_ids.begin(), all_ids.end(), out);
+        EXPECT_LT(inp_it, out_it)
+            << "Invalid ordering: " << out->toString() << " detected before "
+            << inp->toString() << ". All IDs: " << toDelimitedString(all_ids)
+            << "\n";
+      }
+    }
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

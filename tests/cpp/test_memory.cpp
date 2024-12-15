@@ -2868,7 +2868,8 @@ TEST_P(StMatrixTest, Regular) {
   tv1->setLoopDomain(s.as<IterDomain*>());
   tv1->setAllocationDomain(s.as<IterDomain*>(), true);
 
-  mma_utils::scheduleStMatrixForMmaOutput(tv2, tile_m, tile_n);
+  mma_utils::scheduleStMatrixForMmaOutput(
+      tv2, /*swizzle=*/MmaInputSmemSwizzle::None, tile_m, tile_n);
 
   tv3->merge(0);
   tv3->split(0, 32);

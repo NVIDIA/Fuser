@@ -348,6 +348,13 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     } else if (expr->isA<MmaOp>()) {
       options.setBuildTensorIndexer(true);
       continue;
+    } else if (expr->isOneOf<SliceOp, PadOp>()) {
+      options.setProducerIndex(true);
+      options.setConsumerIndex(true);
+      options.setInlinePredicate(true);
+      options.setUnswitchPredicate(true);
+      options.setLoop(true);
+      continue;
     } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
       // involved in reshape transformations. Enable both tensor and

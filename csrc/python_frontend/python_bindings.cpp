@@ -1013,11 +1013,23 @@ void initNvFuserPythonBindings(PyObject* module) {
   scalar_class.def(pybind11::self != pybind11::self);
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
+  device_mesh_class.def(py::init<std::vector<int64_t>>());
   device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
     std::stringstream ss;
     ss << self;
     return ss.str();
   });
+  device_mesh_class.def(
+      "shard_tensor",
+      [](const DeviceMesh& self,
+         at::Tensor tensor,
+         const int64_t axis,
+         int64_t device_id) -> at::Tensor {
+        return shardTensor(tensor, axis, self, device_id);
+      },
+      py::arg("tensor"),
+      py::arg("axis"),
+      py::arg("device_id"));
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
@@ -1091,6 +1103,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
+      .def(
+          "_setup_multidevice_schedule",
+          [](FusionDefinition& self) { self.setupMultideviceSchedule(); })
+      .def(
+          "_finalize_multidevice_schedule",
+          [](FusionDefinition& self) { self.finalizeMultideviceSchedule(); })
       .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
       .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
       .def("extents", [](FusionDefinition& self) { return self.extents(); })
@@ -2038,14 +2056,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__rshift__", "bitwise_right_shift", bitwise_right_shift)
-  // In PyTorch, __div__ (//) and __truediv__ (/) are different.
-  // When applied to integer-dtype arguments, they do as expected, returning
-  // integer and float outputs, respectively. When applied to two floating-type
-  // arguments, they return the floor of division for // and plain division for
-  // /. When applied to mixed types, the types are promoted, so the
-  // floating-point behavior is returned.
-  // Our div operator matches the __truediv__ behavior, so we do not implement
-  // __div__.
+  // In python, __truediv__ (/) always returns a float regardless of whether
+  // the input arguments are float or integer. __truediv__ (/) corresponds with
+  // pytorch torch.true_divide(a, b). The __div__ operator is deprecated in
+  // python 3.
+  //
+  // In nvfuser, truediv function in csrc/ops/arith.h has the same semantics as
+  // python's operator __truediv__ (/). The div function in csrc/ops/arith.h
+  // truncates the result instead of promoting it to float. It has the same
+  // semantics as the C++'s (/) operator. In pytorch,
+  // torch.div(a, b, rounding_mode='trunc') corresponds C-style integer
+  // division.
+  //
+  // Hence, in the python frontend, the __truediv__ (/) python operator maps to
+  // trunc division.
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__truediv__", "div", div)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL
 
@@ -3576,13 +3600,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   //! experimental API for multidevice support
   nvf_sched.def(
-      "_create_device_mesh",
-      [](FusionDefinition::SchedOperators& self,
-         const std::vector<int64_t>& devices) { return DeviceMesh(devices); },
-      py::arg("devices"),
-      py::return_value_policy::reference);
-  //! experimental API for multidevice support
-  nvf_sched.def(
       "_set_device_mesh",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
@@ -3596,7 +3613,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"),
       py::arg("mesh"));
-  //! experimental API for multidevice support
   nvf_sched.def(
       "parallelize",
       [](FusionDefinition::SchedOperators& self,
@@ -3683,6 +3699,18 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::arg("factor"),
       py::arg("inner_split") = true);
+  nvf_sched.def(
+      "set_allocation_as_loop",
+      [](FusionDefinition::SchedOperators& self, Tensor arg) {
+        FUSER_PERF_SCOPE("SchedOperators.set_allocation_as_loop");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto* tv = fd->getFusionState(arg.index)->template as<TensorView>();
+        tv->setAllocationDomain(tv->getLoopDomain(), true);
+      },
+      py::arg("arg"));
   nvf_sched.def(
       "cache_after",
       [](FusionDefinition::SchedOperators& self,

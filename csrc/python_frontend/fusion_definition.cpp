@@ -314,6 +314,17 @@ void FusionDefinition::finalizeSchedule(
   // Users can access schedule objects after scheduling the fusion.
 }
 
+void FusionDefinition::setupMultideviceSchedule() {
+  // FusionDefinition.multidevice_schedule may create new Exprs (e.g. DID
+  // splits), which will be added to the presched fusion.
+  prev_fusion_ = FusionGuard::getCurFusion();
+  FusionGuard::setCurFusion(preschedFusion());
+}
+
+void FusionDefinition::finalizeMultideviceSchedule() {
+  FusionGuard::setCurFusion(prev_fusion_);
+}
+
 void FusionDefinition::print(std::ostream& os) const {
   if (id().has_value()) {
     os << "\ndef nvfuser_fusion_id" << id().value();
