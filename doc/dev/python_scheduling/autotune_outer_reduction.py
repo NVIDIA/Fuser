@@ -181,14 +181,8 @@ class AutotuneOuterReduction:
 
         num_iterations, num_reductions = input_shape
 
-        for (
-            threads_per_cta,
-            vectorize_factor,
-            reduction_unroll_factor,
-        ) in itertools.product(
-            threads_per_cta_options,
-            vectorization_factor_options,
-            reduction_unroll_factor_options,
+        def get_block_outer_reduction_configurations(
+            threads_per_cta, vectorize_factor, reduction_unroll_factor
         ):
             scheduler_config = self.OuterReductionConfiguration(
                 reduction_unroll_factor=reduction_unroll_factor,
@@ -221,6 +215,19 @@ class AutotuneOuterReduction:
             scheduler_config.bdimy = bdimy
             scheduler_config.gidim = gidim
             yield scheduler_config
+
+        for (
+            threads_per_cta,
+            vectorize_factor,
+            reduction_unroll_factor,
+        ) in itertools.product(
+            threads_per_cta_options,
+            vectorization_factor_options,
+            reduction_unroll_factor_options,
+        ):
+            yield from get_block_outer_reduction_configurations(
+                threads_per_cta, vectorize_factor, reduction_unroll_factor
+            )
 
     def create_inputs(self, shape, tensor_datatype):
         if self.selected_fusion == self.FUSION.OUTER_SUM:
