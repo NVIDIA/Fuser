@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,7 +14,7 @@
 
 namespace nvfuser {
 namespace {
-// TODO: These linear_backwards helper functions can be merged once
+// TODO: These linearBackwards helper functions can be merged once
 // we do not have logically split rfactor domain.
 struct LinearBackwardsResult {
   TensorView* grad_x;
@@ -28,7 +28,7 @@ struct LinearBackwardsResult {
 // outputs: grad_x [i0, i1] dtype
 // grad_w [DID i2/D, i1] dtype
 // grad_b [DID i2/2] dtype
-LinearBackwardsResult linear_backwards(
+LinearBackwardsResult linearBackwards(
     TensorView* x,
     TensorView* w,
     TensorView* grad) {
@@ -51,7 +51,7 @@ LinearBackwardsResult linear_backwards(
 // outputs: grad_x [DID i0, i1/D] dtype
 // grad_w [DID, i2,  i1/D] dtype
 // grad_b [i2] dtype
-LinearBackwardsResult sharded_linear_backwards(
+LinearBackwardsResult shardedLinearBackwards(
     TensorView* x,
     TensorView* w,
     TensorView* grad) {
@@ -68,7 +68,7 @@ LinearBackwardsResult sharded_linear_backwards(
 
 // Forward layer_norm with cached mean_bcast and invstd tensors to avoid
 // recomputing Welford. For use in backwards pass.
-TensorView* layer_norm_with_cached_statistics(
+TensorView* layerNormWithCachedStats(
     TensorView* x,
     TensorView* mean_bcast,
     TensorView* invstd,
@@ -244,10 +244,10 @@ std::vector<TensorView*> DistributedTransformer::mlp_backwards(
   const double kScale = 1.0 / (1.0 - kDropoutProb);
   Val* dropout_scale = IrBuilder::create<Val>(kScale);
   TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
-  auto linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad);
+  auto linear1_grads = shardedLinearBackwards(gelu, w1, dropout_grad);
   TensorView* matmul1_grad_x_ = castOp(DataType::Float, linear1_grads.grad_x);
   TensorView* gelu_grad = tanh_gelu_backward(matmul1_grad_x_, linear0);
-  auto linear0_grads = linear_backwards(x, w0, gelu_grad);
+  auto linear0_grads = linearBackwards(x, w0, gelu_grad);
 
   // Manaul sharding annotations
   for (auto tv :
@@ -322,7 +322,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
   sdpa_output_reshape =
       reshape(sdpa_output_reshape, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   auto linear1_grads =
-      sharded_linear_backwards(sdpa_output_reshape, w1, dropout_grad);
+      shardedLinearBackwards(sdpa_output_reshape, w1, dropout_grad);
 
   // SDPA backwards
   TensorView* linear1_x_grad =
@@ -353,7 +353,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
   TensorView* k_grad = transpose(sdpa_grad.grad_key, 2, 3);
   k_grad = reshape(k_grad, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   TensorView* kqv_grad = cat({k_grad, q_grad, v_grad}, -1);
-  auto linear0_grads = linear_backwards(x, w0, kqv_grad);
+  auto linear0_grads = linearBackwards(x, w0, kqv_grad);
 
   for (auto tv :
        {x,
@@ -541,7 +541,7 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::backward(
   // Activation recomputation: mlp gelu, dropouts, and
   // partially recompute layer norms using cached statistics.
   auto ln0_in = castOp(DataType::Float, x);
-  auto ln0 = layer_norm_with_cached_statistics(
+  auto ln0 = layerNormWithCachedStats(
       ln0_in, ln0_mean, ln0_rstd, norm_shape, ln0_w, ln0_b);
   auto mha_in = castOp(dtype, ln0);
 
@@ -550,7 +550,7 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::backward(
   auto mha_out = mul(mha_linear1, mha_mask);
   mha_out = mul(mha_out, dropout_scale);
   auto resid0 = add(ln0_in, mha_out);
-  auto ln1 = layer_norm_with_cached_statistics(
+  auto ln1 = layerNormWithCachedStats(
       resid0, ln1_mean, ln1_rstd, norm_shape, ln1_w, ln1_b);
   auto mlp_in = castOp(dtype, ln1);
 
