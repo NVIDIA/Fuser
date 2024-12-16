@@ -40,7 +40,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
         expr->toString());
     auto* output = expr->outputs().at(0)->as<TensorView>();
     auto* input = expr->inputs().at(0)->as<TensorView>();
-    auto [shard_additions, shard_deletions] = getShardingChanges(expr);
+    auto [shard_additions, shard_deletions] = getShardingChanges(input, output);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
         "Resharding expr can only support one axis: ",

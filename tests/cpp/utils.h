@@ -703,6 +703,8 @@ static auto kAllHopperMacros = testing::Values(
     MmaMacro::Hopper_64_248_16,
     MmaMacro::Hopper_64_256_16);
 
+std::string macroToString(const MmaMacro macro);
+
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 

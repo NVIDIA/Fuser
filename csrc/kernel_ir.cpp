@@ -142,8 +142,8 @@ Allocate::Allocate(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "IR type only valid for Kernel or HostIr container.");
   if (!shape.empty()) {
     NVF_ERROR(
         (shape.size() == 1 && shape[0]->isOneInt()) ||
