@@ -2966,6 +2966,56 @@ void validateContiguity(
   }
 }
 
+// Check if loop_domain is a valid domain with no
+// redundancy. The logical domain is used as a reference to find if
+// there's any ID that's not covered by the new loop domain.
+void validateLoopDomain(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<IterDomain*>& loop_domain,
+    const std::vector<IterDomain*>& additional_ids) {
+  if (std::any_of(
+          logical_domain.begin(),
+          logical_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          loop_domain.begin(),
+          loop_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          additional_ids.begin(), additional_ids.end(), [](IterDomain* id) {
+            return id->isSymbolic();
+          })) {
+    return;
+  }
+
+  std::vector<IterDomain*> reference;
+  reference.reserve(logical_domain.size() + additional_ids.size());
+  reference.insert(
+      reference.end(), logical_domain.begin(), logical_domain.end());
+  // additional_ids are also considered part of the refernece domain
+  reference.insert(
+      reference.end(), additional_ids.begin(), additional_ids.end());
+  auto [redundant_ids, _, unreachable_reference_ids] =
+      ir_utils::compareDomainWithReference(loop_domain, reference);
+
+  auto empty_or_broadcast = [](const auto& ids) {
+    return std::all_of(ids.begin(), ids.end(), [](IterDomain* id) {
+      return id->isBroadcast();
+    });
+  };
+
+  NVF_ERROR(
+      empty_or_broadcast(redundant_ids),
+      "Trying to set a loop domain with non-broadcast redundant IDs: ",
+      toDelimitedString(redundant_ids));
+  NVF_ERROR(
+      empty_or_broadcast(unreachable_reference_ids),
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(loop_domain),
+      ". Unreachable logical IDs: ",
+      toDelimitedString(unreachable_reference_ids));
+}
+
 } // namespace
 
 TensorDomain::TensorDomain(
@@ -3036,8 +3086,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3061,8 +3110,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3095,8 +3143,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3670,33 +3717,7 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  // Check if new_loop_domain is a valid domain with no
-  // redundancy. The logical domain is used as a reference to find if
-  // there's any ID that's not covered by the new loop domain.
-  std::vector<IterDomain*> reference;
-  reference.reserve(logical_domain_.size() + additional_ids_.size());
-  reference.insert(
-      reference.end(), logical_domain_.begin(), logical_domain_.end());
-  // additional_ids_ are also considered part of the refernece domain
-  reference.insert(
-      reference.end(), additional_ids_.begin(), additional_ids_.end());
-  auto [redundant_ids, additional_ids, unreachable_reference_ids] =
-      ir_utils::compareDomainWithReference(new_loop_domain, reference);
-  NVF_ERROR(
-      redundant_ids.empty(),
-      "Trying to set a loop domain with redundant IDs: ",
-      toDelimitedString(redundant_ids));
-  if (!unreachable_reference_ids.empty()) {
-    NVF_ERROR(
-        std::all_of(
-            unreachable_reference_ids.begin(),
-            unreachable_reference_ids.end(),
-            [](const auto id) { return id->isBroadcast(); }),
-        "Not all logical IDs are covered by loop domain. Loop: ",
-        toDelimitedString(new_loop_domain),
-        ". Unreachable logical IDs: ",
-        toDelimitedString(unreachable_reference_ids));
-  }
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
@@ -3716,10 +3737,10 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 6> all_domains = {
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &initial_loop_domain_,
-      &loop_domain_,
       &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
