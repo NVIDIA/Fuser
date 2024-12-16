@@ -1823,7 +1823,11 @@ MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
         B->nDims() == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates) {
       MmaOp::AxisMapping axis_mapping;
-      size_t out_dim = (size_t)A->nDims() + 1;
+      int64_t out_dim = A->nDims() + 1L;
+      axis_mapping.a_axes.reserve(out_dim);
+      for (int64_t d : c10::irange(out_dim - 2L)) {
+        axis_mapping.a_axes.push_back(d);
+      }
       axis_mapping.a_axes.reserve(out_dim);
       for (size_t d : c10::irange(out_dim - 2)) {
         axis_mapping.a_axes.push_back((int64_t)d);
@@ -1849,7 +1853,7 @@ MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
 
       fms = fusedMultiplySum(A, B, {-1}, /*init=*/nullptr, axis_mapping);
     } else {
-      std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
+      std::vector<bool> bcast_dim(A->nDims() + 1, false);
       bcast_dim[bcast_dim.size() - 2] = true; // N
       A = broadcast(A, bcast_dim);
 
