@@ -161,6 +161,17 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
       dependencies.emplace(concrete_id);
     }
   }
+  
+  // for (auto tv : FusionGuard::getCurFusion()->allTvs()) {
+  //   std::cout << tv->toString() << std::endl;
+  // }
+
+  // for(auto v: concrete_id_dependencies){
+  //   std::cout << " ID key is " << v.first->toString() << std::endl;
+  //   for (auto vv: v.second){
+  //     std::cout << "value is: " << vv->toString() << std::endl;
+  //   }
+  // }
 
   // Fill out dependencies as IDs will have local dependency information, but
   // it's still not guaranteed to be global.

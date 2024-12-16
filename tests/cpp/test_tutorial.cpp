@@ -172,6 +172,115 @@ TEST_F(Tutorial, Memcpy) {
   ASSERT_TRUE(outputs[0].equal(t0));
 }
 
+TEST_F(Tutorial, simpleSched) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  // tv2->split(-1, 8);
+  // tv2->split(-1, 2);
+
+  // tv2->split(-4, 8);
+  // tv2->split(-5, 2);
+
+  // tv2->reorder({{-5, -2}, {-2, -4}});
+  // tv2->merge(-6);
+  // tv2->merge(-5);
+
+  tv2->split(-2, 16);
+  tv2->split(-1, 32);
+  tv2->reorder({{-2, -3}});
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0 + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleSched1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(-2, 16);
+  tv2->split(-1, 32);
+  tv2->reorder({{-2, -3}});
+  tv2->axis(-3)->parallelize(ParallelType::BIDx);
+  tv2->axis(-4)->parallelize(ParallelType::TIDx);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0 + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleSched2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  tv0->reorder({{-1, -2}});
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+  tv0->reorder({{-1, -2}});
+
+  tv2->split(-2, 16);
+  tv2->split(-1, 32);
+  tv2->reorder({{-2, -3}});
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_F(Tutorial, Reduction) {
   Fusion fusion;
   FusionGuard fg(&fusion);

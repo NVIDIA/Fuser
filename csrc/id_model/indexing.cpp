@@ -894,6 +894,15 @@ Val* TensorIndexer::getLinearIndex(
       expr->outputs().end();
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
+  std::cout << "printing out alloc_info " << std::endl;
+  std::cout << "tv is: " << tv->toString() << std::endl;
+  for(auto x:alloc_info.domains){
+    std::cout << "domains " << x->toString() << std::endl;
+  }
+  for(auto x:alloc_info.strides){
+    std::cout << "strides " << x->toInlineString() << std::endl;
+  }
+
 
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
@@ -1301,6 +1310,62 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_domains, for_loops, index_map);
+
+  if (!as_consumer) {
+    
+    std::cout << "pringin out the id model\n" << std::endl;
+    std::cout << id_model_.toString() << std::endl;
+
+
+    std::cout << "printing out the index info \n\n" << std::endl;
+
+    std::cout << "printing out loop domains\n" << std::endl;
+    for (auto x : index_info.loop_domains) {
+      std::cout << "loop domain " << x->toString() << std::endl;
+    }
+
+    std::cout << "printing out traversal path\n" << std::endl;
+    for (auto x : index_info.traversal_path) {
+      std::cout << "priting out expr group" << std::endl;
+      for (auto g : x.first->vector()) {
+        std::cout << "expr: " << g->toString() << std::endl;
+      }
+    }
+
+    std::cout << "printing out index map \n" << std::endl;
+    for (auto x : index_info.index_map) {
+      std::cout << "index map key valgroup " << std::endl;
+      for (auto gg : x.first->vector()) {
+        std::cout << gg->toInlineString() << std::endl;
+      }
+      std::cout << "index map val " << std::endl;
+      std::cout << x.second->toInlineString() << std::endl;
+    }
+
+    std::cout << "printing out loop group deps \n" << std::endl;
+    for (auto x : index_info.loop_group_dependencies) {
+      std::cout << "printing out key valgroup" << std::endl;
+      for (auto vg : x.first->vector()) {
+        std::cout << vg->toString() << std::endl;
+      }
+
+      std::cout << "printing out val valgroups \n" << std::endl;
+      for (auto vgs : x.second.vector()) {
+        std::cout << "printing out valgroup" << std::endl;
+        for (auto vg : vgs->vector()) {
+          std::cout << vg->toString() << std::endl;
+        }
+      }
+    }
+
+    std::cout << "\n printing out replacement map \n" << std::endl;
+    for (auto m : replacement_map) {
+      std::cout << "key: " << std::endl;
+      std::cout << m.first->toInlineString() << std::endl;
+      std::cout << "val: " << std::endl;
+      std::cout << m.second->toInlineString() << std::endl;
+    }
+  }
 
   std::vector<ValGroup> contig_alloc_groups;
   std::vector<Val*> contig_strides;
