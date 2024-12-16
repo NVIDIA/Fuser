@@ -760,14 +760,8 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
 TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
-  std::vector<c10::cuda::CUDAStream> streams;
-  std::generate_n(
-      std::back_inserter(streams),
-      params.number_of_streams,
-      [my_device_index = my_device_index_]() {
-        return c10::cuda::getStreamFromPool(
-            /*isHighPriority=*/false, my_device_index);
-      });
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1066,6 +1060,167 @@ TEST_F(
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
+
+        auto slice_index = (my_device_index_ - j + number_of_steps_per_ring_) %
+            number_of_steps_per_ring_;
+        auto next_slice_index =
+            (my_device_index_ - j - 1 + number_of_steps_per_ring_) %
+            number_of_steps_per_ring_;
+        auto ta_j_curr_slice = ta_.select(0, slice_index).select(0, i);
+        auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
+        auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
+
+        if (comms_req != nullptr) {
+          comms_req->wait();
+          comms_req = nullptr;
+        }
+
+        // send & matmul current index
+        std::vector<at::Tensor> src = {ta_j_curr_slice};
+        std::vector<at::Tensor> dst = {ta_j_next_slice};
+        if (j < number_of_steps_per_ring_ - 1) {
+          world_communicator_->startCoalescing();
+          world_communicator_->send(src, send_rank, 0);
+          world_communicator_->recv(dst, recv_rank, 0);
+          comms_req = world_communicator_->endCoalescing();
+        }
+        torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
+      }
+    }
+    synchronizeStreams(streams);
+    validate();
+  }
+}
+
+TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementation) {
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tvb_unsharded = makeSymbolicTensor(tb_unsharded_.dim());
+  TensorView* tvc_unsharded = makeSymbolicTensor(tc_unsharded_.dim());
+  hic->addInput(tva);
+  hic->addInput(tvb_unsharded);
+  hic->addInput(tvc_unsharded);
+
+  auto* i =
+      IrBuilder::create<Val>(DataType::Index);
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index);
+  auto* stream_index =
+      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
+  auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
+  auto* number_of_steps_per_ring_val =
+      IrBuilder::create<Val>(number_of_steps_per_ring_);
+
+  auto* send_rank =
+      mod(add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
+  auto* recv_rank = mod(
+      add(number_of_steps_per_ring_val, sub(my_device_index_val, hic->oneVal())),
+      number_of_steps_per_ring_val);
+
+  auto* start_i = hic->zeroVal();
+  auto* stop_i = tva->axis(1)->extent();
+  auto* step_i = hic->oneVal();
+  auto* for_loop_i = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(1),
+      /*index=*/i,
+      start_i,
+      stop_i,
+      step_i,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* start_j = hic->zeroVal();
+  auto* stop_j = tva->axis(0)->extent();
+  auto* step_j = hic->oneVal();
+  auto* for_loop_j = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(0),
+      /*index=*/j,
+      start_j,
+      stop_j,
+      step_j,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto slice_index = mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  auto next_slice_index = mod(add(sub(sub(my_device_index_val, j), hic->oneVal()), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+
+  TensorView* tva_j_curr_slice = select(select(tva_, 0, slice_index), 0, i); // ta_.select(0, slice_index).select(0, i);
+  TensorView* tva_j_next_slice = select(select(tva_, 0, next_slice_index), 0, i); // ta_.select(0, next_slice_index).select(0, i);
+  TensorView* tvc_j = select(select(tvc_unsharded, 0, slice_index), 0, i); // tc_unsharded_.select(0, slice_index).select(0, i);
+
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+
+  auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+  auto* send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND, tva_j_curr_slice, send_rank);
+  auto* recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV, tva_j_next_slice, recv_rank);
+  auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+  auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+  std::vector<Expr*> loop_j_body = {
+      set_stream,
+      tva_j->definition(),
+      tva_ij->definition(),
+      dst_buffer_j->definition(),
+      dst_buffer_ij->definition(),
+      src_buffer_ij->definition(),
+      start_coalescing,
+      send,
+      recv,
+      end_coalescing,
+      wait};
+  for (Expr* expr : loop_j_body) {
+    for_loop_j->body().push_back(expr);
+  }
+  for_loop_i->body().push_back(for_loop_j);
+
+  hic->pushBackTopLevelExprs(for_loop_i);
+
+  // Synchronize all streams
+  auto* i_stream =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_stream = hic->zeroVal();
+  auto* stop_stream =
+      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
+  auto* step_stream = hic->oneVal();
+  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
+          ->axis(0),
+      /*index=*/i_stream,
+      start_stream,
+      stop_stream,
+      step_stream,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
+      IrBuilder::create<hir::Stream>(i_stream));
+  for_loop_stream->body().push_back(sync_stream);
+  hic->pushBackTopLevelExprs(for_loop_stream);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    for (auto i : c10::irange(number_of_rings_)) {
+      c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
+      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+        //int64_t stream_index = (i + j) % streams.size();
+        //setCurrentCUDAStream(streams.at(stream_index));
 
         auto slice_index = (my_device_index_ - j + number_of_steps_per_ring_) %
             number_of_steps_per_ring_;
