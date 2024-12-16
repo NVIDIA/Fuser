@@ -264,7 +264,6 @@ def llama_hf_rope(config_str):
 
 def hf_qwen2_rope():
     import json
-
     from transformers.models.qwen2 import Qwen2Config
 
     qwen_cfg_str = r'''{
@@ -406,7 +405,6 @@ def hf_qwen2_rope():
 
 def hf_phi3_rope():
     import json
-
     from transformers.models.phi3 import Phi3Config
     
     phi35_cfg_str = r'''{
@@ -699,6 +697,7 @@ def hf_phi3_rope():
 
 
 def hf_mistral_nemo_rope():
+    import json
     from transformers.models.mistral import MistralConfig
     
     mistral_cfg_str = r'''{
