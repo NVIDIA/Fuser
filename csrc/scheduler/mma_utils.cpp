@@ -1842,7 +1842,7 @@ MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
 
       int64_t num_M_dims = 1 + A->nDims() - B->nDims();
 
-      // Add loop broadcasts to A and B to mimick logical broadcasts for simpler
+      // Add loop broadcasts to A and B to mimic logical broadcasts for simpler
       // scheduling
       A->broadcast(-2); // There's always a single N dimension
 
