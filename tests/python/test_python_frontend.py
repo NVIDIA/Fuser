@@ -3331,8 +3331,9 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T27)
             fd.add_output(T28)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs,
-                                       is_clonable=True, supports_segmentation=False)
+        # TODO: Support segmentation. See #3594.
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func, inputs, is_clonable=True, supports_segmentation=False)
 
         t12 = inputs[1] * inputs[-2]
         t13 = torch.permute(t12, [0, 1, 3, 2])
@@ -4384,9 +4385,9 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T18)
             fd.add_output(T16)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs,
-                                       is_clonable=True,
-                                       supports_segmentation=False)
+        # TODO: Support segmentation. See #3594.
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func, inputs, is_clonable=True, supports_segmentation=False)
 
     def test_returning_aliased_outputs(self):
         inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
