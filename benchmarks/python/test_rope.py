@@ -360,4 +360,5 @@ def test_rope_variations_bwd_benchmark(
         output += outputs[i]
 
     benchmark_fn = with_executor(executor, fwd_call)
-    run_benchmark(benchmark, unary_bwd_torch, [output, grad()])
+    # FIXME fix the bytes computation!
+    run_benchmark(benchmark, unary_bwd_torch, [output, grad()], iobytes=10)
