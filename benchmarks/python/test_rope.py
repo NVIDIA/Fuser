@@ -6,6 +6,8 @@ from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark, with_executor, unary_bwd_torch
 import torch
 
+from torch import nn
+
 from typing import Tuple
 from functools import partial
 
@@ -338,7 +340,7 @@ def hf_qwen2_rope():
         hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
     
-    class Qwen2Rope(torch.nn.Module):
+    class Qwen2Rope(nn.Module):
         def __init__(self, config: Qwen2Config):
             super().__init__()
             self.config = config
@@ -546,7 +548,7 @@ def hf_phi3_rope():
       "vocab_size": 32064
     }'''
     
-    class Phi3RotaryEmbedding(torch.nn.Module):
+    class Phi3RotaryEmbedding(nn.Module):
         def __init__(self, dim, max_position_embeddings=2048, base=10000.0, device=None):
             super().__init__()
     
@@ -682,6 +684,7 @@ def hf_phi3_rope():
     cfg = Phi3Config.from_dict(json.loads(phi35_cfg_str))
     cfg.batch_size = 1
     cfg.seq_len = 8192
+    head_dim = cfg.hidden_size // cfg.num_attention_heads
 
     def inputs():
         qkv = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_attention_heads * head_dim + 2 * (cfg.num_key_value_heads * head_dim), device='cuda', dtype=torch.bfloat16, requires_grad=True)
