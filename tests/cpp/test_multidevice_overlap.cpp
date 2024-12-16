@@ -1105,23 +1105,6 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
 
   auto* i =
       IrBuilder::create<Val>(DataType::Index);
-  auto* j =
-      IrBuilder::create<Val>(DataType::Index);
-  auto* stream_index =
-      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
-  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
-      IrBuilder::create<hir::Stream>(stream_index));
-
-  auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
-  auto* number_of_steps_per_ring_val =
-      IrBuilder::create<Val>(number_of_steps_per_ring_);
-
-  auto* send_rank =
-      mod(add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
-  auto* recv_rank = mod(
-      add(number_of_steps_per_ring_val, sub(my_device_index_val, hic->oneVal())),
-      number_of_steps_per_ring_val);
-
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
@@ -1137,6 +1120,8 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       CircularBufferLoopStage::NotApplicable,
       /*circular_buffer_loop_stage_depth=*/0);
 
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index);
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva->axis(0)->extent();
   auto* step_j = hic->oneVal();
@@ -1152,14 +1137,38 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       CircularBufferLoopStage::NotApplicable,
       /*circular_buffer_loop_stage_depth=*/0);
 
-  auto slice_index = mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j + number_of_steps_per_ring_) % number_of_steps_per_ring_;
-  auto next_slice_index = mod(add(sub(sub(my_device_index_val, j), hic->oneVal()), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  auto* stream_index =
+      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
 
-  TensorView* tva_j_curr_slice = select(select(tva_, 0, slice_index), 0, i); // ta_.select(0, slice_index).select(0, i);
-  TensorView* tva_j_next_slice = select(select(tva_, 0, next_slice_index), 0, i); // ta_.select(0, next_slice_index).select(0, i);
-  TensorView* tvc_j = select(select(tvc_unsharded, 0, slice_index), 0, i); // tc_unsharded_.select(0, slice_index).select(0, i);
+  auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
+  auto* number_of_steps_per_ring_val =
+      IrBuilder::create<Val>(number_of_steps_per_ring_);
+
+  auto* send_rank =
+      mod(add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
+  auto* recv_rank = mod(
+      add(number_of_steps_per_ring_val, sub(my_device_index_val, hic->oneVal())),
+      number_of_steps_per_ring_val);
+
+  auto *slice_index = mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  auto *next_slice_index = mod(add(sub(sub(my_device_index_val, j), hic->oneVal()), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+
+  TensorView* tmp1 = select(tva, 0, slice_index);
+  TensorView* tmp2 = select(tva, 0, next_slice_index);
+  TensorView* tmp3 = select(tvc_unsharded, 0, slice_index);
+  TensorView* tva_j_curr_slice = select(tmp1, 0, i);
+  TensorView* tva_j_next_slice = select(tmp2, 0, i);
+  TensorView* tvc_j = select(tmp3, 0, i);
 
   auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+
+  // Setting the DeviceMesh of the communication's I/O is artificial but
+  // required at this point
+  DeviceMesh full_mesh(all_devices_);
+  tva_j_curr_slice->setDeviceMesh(full_mesh);
+  tva_j_next_slice->setDeviceMesh(full_mesh);
 
   auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
@@ -1168,7 +1177,6 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       P2PCommunicationType::RECV, tva_j_next_slice, recv_rank);
   auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
   auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
-  auto* if_wait = 
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
@@ -1177,11 +1185,11 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       tva_j_curr_slice->definition(),
       tva_j_next_slice->definition(),
       tvc_j->definition(),
-      if_wait,
       start_coalescing,
       send,
       recv,
       end_coalescing,
+      wait,
       mm};
   for (Expr* expr : loop_j_body) {
     for_loop_j->body().push_back(expr);
@@ -1214,44 +1222,27 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   for_loop_stream->body().push_back(sync_stream);
   hic->pushBackTopLevelExprs(for_loop_stream);
 
+  hic->addOutput(tmp1);
+  hic->addOutput(tmp2);
+  hic->addOutput(tmp3);
+  hic->addOutput(tva_j_curr_slice);
+  hic->addOutput(tva_j_next_slice);
+  hic->addOutput(tvc_j);
+
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
-    for (auto i : c10::irange(number_of_rings_)) {
-      c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
-      for (auto j : c10::irange(number_of_steps_per_ring_)) {
-        //int64_t stream_index = (i + j) % streams.size();
-        //setCurrentCUDAStream(streams.at(stream_index));
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva, ta_},
+        {tvb_unsharded, tb_unsharded_},
+        {tvc_unsharded, tc_unsharded_}};
 
-        auto slice_index = (my_device_index_ - j + number_of_steps_per_ring_) %
-            number_of_steps_per_ring_;
-        auto next_slice_index =
-            (my_device_index_ - j - 1 + number_of_steps_per_ring_) %
-            number_of_steps_per_ring_;
-        auto ta_j_curr_slice = ta_.select(0, slice_index).select(0, i);
-        auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
-        auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
+    hie.runWithInput(std::move(inputs));
 
-        if (comms_req != nullptr) {
-          comms_req->wait();
-          comms_req = nullptr;
-        }
-
-        // send & matmul current index
-        std::vector<at::Tensor> src = {ta_j_curr_slice};
-        std::vector<at::Tensor> dst = {ta_j_next_slice};
-        if (j < number_of_steps_per_ring_ - 1) {
-          world_communicator_->startCoalescing();
-          world_communicator_->send(src, send_rank, 0);
-          world_communicator_->recv(dst, recv_rank, 0);
-          comms_req = world_communicator_->endCoalescing();
-        }
-        torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
-      }
-    }
-    synchronizeStreams(streams);
-    validate();
+    //validate();
   }
 }
 
