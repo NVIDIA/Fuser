@@ -521,6 +521,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
+      // We apply the transformations that common to all tv from
+      // mma output (post cast op) to the fusion output.
+      // Once these common tranforms have been applied to d and propagated
+      // to dc (thus all othe tv till mma outs), we apply dc specific scheduling
+      // and propagate it to mma outs (post cast) and then apply smem and gmem
+      // specific schedules to d_smem and d respectively.
       blockTileTensors({d});
       parallelizeBlocks({d});
       transformLikeMmaOutput(d, /*is_mma_result=*/false);
