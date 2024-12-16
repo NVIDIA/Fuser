@@ -6,6 +6,7 @@ from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark, with_executor, unary_bwd_torch
 import torch
 
+from typing import Tuple
 from functools import partial
 
 # Mimic the Hugging Face implementation:
@@ -260,6 +261,8 @@ def llama_hf_rope(config_str):
     return LitGPTRope(cfg).cuda().bfloat16(), inputs, grads
 
 def hf_qwen2_rope():
+    import json
+
     from transformers.models.qwen2 import Qwen2Config
 
     qwen_cfg_str = r'''{
@@ -335,7 +338,7 @@ def hf_qwen2_rope():
         hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
     
-    class Qwen2Rope(nn.Module):
+    class Qwen2Rope(torch.nn.Module):
         def __init__(self, config: Qwen2Config):
             super().__init__()
             self.config = config
