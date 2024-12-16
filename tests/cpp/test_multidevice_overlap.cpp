@@ -1168,19 +1168,21 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       P2PCommunicationType::RECV, tva_j_next_slice, recv_rank);
   auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
   auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
+  auto* if_wait = 
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
-      tva_j->definition(),
-      tva_ij->definition(),
-      dst_buffer_j->definition(),
-      dst_buffer_ij->definition(),
-      src_buffer_ij->definition(),
+      slice_index->definition(),
+      next_slice_index->definition(),
+      tva_j_curr_slice->definition(),
+      tva_j_next_slice->definition(),
+      tvc_j->definition(),
+      if_wait,
       start_coalescing,
       send,
       recv,
       end_coalescing,
-      wait};
+      mm};
   for (Expr* expr : loop_j_body) {
     for_loop_j->body().push_back(expr);
   }
