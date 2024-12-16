@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from .core import run_benchmark
+from .core import run_benchmark, with_executor
 import torch
 
+from functools import partial
 
 # Mimic the Hugging Face implementation:
 # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L216
@@ -307,7 +308,7 @@ rope_configurations = {
     ],
 )
 @pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
-def test_rope_variations_nvf_benchmark(
+def test_rope_variations_fwd_benchmark(
     benchmark,
     rope_variation: str,
     executor: str,
@@ -325,5 +326,48 @@ def test_rope_variations_nvf_benchmark(
         )
     model = config[0]()
 
-    benchmark_fn = with_executor(executor, model)
+    def fwd_call(inp):
+        return model(*inp)
+
+    benchmark_fn = with_executor(executor, fwd_call)
     run_benchmark(benchmark, benchmark_fn, inputs)
+
+
+@pytest.mark.parametrize(
+    "rope_variation",
+    [
+        "llama_2_7b_hf_rope",
+        "llama_3_8B_rope",
+        #"hf_qwen2_rope",
+        #"hf_phi3_rope",
+        #"hf_mistral_nemo_rope",
+    ],
+)
+@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+def test_rope_variations_bwd_benchmark(
+    benchmark,
+    rope_variation: str,
+    executor: str,
+):
+    if executor == "torchcompile":
+        clear_dynamo_cache()
+
+    config = rope_configurations[rope_variation]
+
+    fwd_inputs = []
+    for entry in config[1]:
+        tensor = torch.testing.make_tensor(entry[0], dtype=entry[-1], device="cuda:0")
+        fwd_inputs.append(
+            tensor if len(entry) == 2 else tensor.as_strided(entry[0], entry[1])
+        )
+    model = config[0]()
+
+    def fwd_call(inp):
+        return model(*inp)
+
+    # execute the compiled fwd fn
+    fwd_fn = with_executor(executor, fwd_call)
+    ouptuts = fwd_fn(fwd_inputs)
+
+    benchmark_fn = with_executor(executor, fwd_call)
+    run_benchmark(benchmark, unary_bwd_torch, [outputs, grads])
