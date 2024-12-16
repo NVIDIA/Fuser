@@ -316,7 +316,7 @@ def test_rope_variations_fwd_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, inputs, _ = rope_setup[rope_variation]
+    model, inputs, _ = rope_setup[rope_variation]()
 
     def fwd_call(inp):
         return model(*inp)
@@ -345,7 +345,7 @@ def test_rope_variations_bwd_benchmark(
         clear_dynamo_cache()
 
     # TODO why not just a random like for grad on output instead of returning a grad function
-    model, fwd_inputs, grad = rope_setup[rope_variation]
+    model, fwd_inputs, grad = rope_setup[rope_variation]()
 
     def fwd_call(inp):
         return model(*inp)
