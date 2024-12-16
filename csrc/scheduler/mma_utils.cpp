@@ -1779,6 +1779,29 @@ std::string MatmulPattern::toString() const {
 
 namespace {
 
+// The `MatmulTranslator` helper class is used to map different matrix
+// multiplication patterns to `MmaOp`. The `MmaOp` expression maps to the 
+// TensorCore ptx function.
+// 
+// 1. `MmaOp` -- This expression is what we need, so no changes required.
+// 2. `ReductionOp` -- This expression corresponds with the sum operation in
+// the `broadcast->multiply->sum` pattern.
+// 3. `LinearOp` -- This expression is `y = w @ x + beta`, so it is replaced
+// with `MmaOp` and pointwise `add`.
+// 4. `MatmulOp` -- This expression is `y = A[M, K] @ B[K, N]`. The `MmaOp`
+// expression requires `[M, N, K]` ordering, so it requires transposing the `B`
+// operand. It also support batch matrix multiplication, which is tracked by
+// `MmaOp::AxisMapping`.
+// 
+// `finalizeMatmulOrLinearOp`
+//  * Fused-Multiply-Sum (FMS) is the output from MmaOp.
+//  * The output dtype can be different than the original output dtype.
+//  * This function casts the FMS TensorView to the original output dtype if
+//   necessary.
+//
+// `OptInDispatch` is used to catch any unsupported `MatmulPattern`. It is
+// preferred to throw an error than to fallback to a sub-optimal default
+// `MmaOp` translation.
 class MatmulTranslator : public OptInDispatch {
  public:
   static MmaOp* translate(MatmulPattern& pattern, bool avoid_intermediates) {
