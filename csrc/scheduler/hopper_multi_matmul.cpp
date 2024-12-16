@@ -521,23 +521,14 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
-      // We apply the transformations that common to all tv from
-      // mma output (post cast op) to the fusion output.
-      // Once these common tranforms have been applied to d and propagated
-      // to dc (thus all othe tv till mma outs), we apply dc specific scheduling
-      // and propagate it to mma outs (post cast) and then apply smem and gmem
-      // specific schedules to d_smem and d respectively.
-      blockTileTensors({d});
-      parallelizeBlocks({d});
-      transformLikeMmaOutput(d, /*is_mma_result=*/false);
-
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          d,
-          -1,
-          {dc},
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType()
-              .propagateToBoundary());
+      // Apply the common transforms to dc, d_smem, d
+      // After these transforms we schedule the inner two non-reduction loops
+      // (instruction tile) of dc and propagate is back till the outputs of mma.
+      blockTileTensors({dc, d_smem, d});
+      parallelizeBlocks({dc, d_smem, d});
+      for (auto tv : {dc, d_smem, d}) {
+        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
+      }
 
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           dc->getLoopDomain());
