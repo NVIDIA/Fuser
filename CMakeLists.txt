@@ -231,8 +231,10 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/resize.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/maxinfo_propagator.cpp
