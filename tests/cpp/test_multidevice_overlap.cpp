@@ -1186,11 +1186,11 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       tva_j_curr_slice->definition(),
       tva_j_next_slice->definition(),
       tvc_j->definition(),
-      wait,
       start_coalescing,
       send,
       recv,
       end_coalescing,
+      wait,
       mm};
   for (Expr* expr : loop_j_body) {
     for_loop_j->body().push_back(expr);
@@ -1243,7 +1243,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
 
     hie.runWithInput(std::move(inputs));
 
-    //validate();
+    validate();
   }
 }
 
