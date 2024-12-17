@@ -3740,10 +3740,10 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 6> all_domains = {
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &initial_loop_domain_,
-      &loop_domain_,
       &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
@@ -4399,6 +4399,39 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   return {at::cat(unpadded_inputs, concat_dim)};
 }
 
+namespace {
+
+// Given a tensorview, compute the strides according to the allocation domain
+// for re-striding the corresponding ATen tensor.
+std::vector<int64_t> computeStrides(
+    TensorView* tv,
+    const c10::IntArrayRef sizes) {
+  const auto& logical_domain = tv->getLogicalDomain();
+  const auto& allocation_domain = tv->getMaybeAllocationDomain();
+
+  std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
+      TensorDomain::noReductions(logical_domain),
+      TensorDomain::noReductions(allocation_domain));
+  NVF_CHECK(
+      out_order.has_value(),
+      "Valid permute from logical to allocation domain was not found.");
+
+  auto rank = sizes.size();
+  std::vector<int64_t> sorted_strides(rank);
+  auto permuted_sizes = ir_utils::applyPermutation(sizes.vec(), *out_order);
+  sorted_strides[rank - 1] = 1;
+  for (int64_t idx = (int64_t)rank - 2; idx >= 0; idx--) {
+    sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];
+  }
+  // Rearrange the strides in correct order of allocation
+  std::vector<int64_t> strides(rank);
+  for (auto idx : c10::irange(rank)) {
+    strides[out_order.value()[idx]] = sorted_strides[idx];
+  }
+  return strides;
+}
+} // namespace
+
 MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
     : Expr(passkey) {
   addOutput(out);
@@ -4425,7 +4458,17 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
-  return {at::matmul(a, b)};
+
+  auto matmul_out = at::matmul(a, b);
+  if (ir_utils::hasTrivialAllocationDomain(out())) {
+    return {matmul_out};
+  }
+  auto matmul_sizes = matmul_out.sizes();
+  auto strides = computeStrides(out(), matmul_sizes);
+  auto strided_matmul_out =
+      at::empty_strided(matmul_sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
 }
 
 LinearOp::LinearOp(

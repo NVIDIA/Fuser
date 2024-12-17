@@ -154,15 +154,16 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
           {"id_model", EnableOption::IdModel},
+          {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
           {"kernel_db", EnableOption::KernelDb},
+          {"kernel_debug", EnableOption::KernelDebug},
+          {"kernel_lineinfo", EnableOption::KernelLineInfo},
           {"kernel_profile", EnableOption::KernelProfile},
           {"memory_promotion", EnableOption::MemoryPromotion},
           {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
+          {"resize_scheduler", EnableOption::ResizeScheduler},
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
-          {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
-          {"kernel_debug", EnableOption::KernelDebug},
-          {"kernel_lineinfo", EnableOption::KernelLineInfo},
       };
   return available_options;
 }
