@@ -1777,7 +1777,7 @@ std::string MatmulPattern::toString() const {
   return ss.str();
 }
 
-MmaOp* MatmulPattern::translateToMmaOp() {
+MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
   if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
     return mma_op;
@@ -1804,6 +1804,13 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     //   - bias, if present, can be zero or one dimensional. Bias can only be
     //   present if weight is 2D
     //
+    // When A has dimension greater than two, all the preceding dimensions
+    // are essentially also M dimensions. The output is shaped like
+    //
+    // A [ ... iS0{M} iS1{K} ]
+    // B [ iS2{N} iS3{K} ]
+    // out [ ... iS3{M} iS3{N} rS3{K} ]
+    //
     // We translate by broadcasting input, weight, and bias such that the
     // contracted dimension K is in the last position (this is true of the
     // logical domains in input and weight already). Then we form an MmaOp and
@@ -1812,15 +1819,51 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     NVF_ERROR(
         A->nDims() > 1 && B->nDims() > 1,
         "Cannot translate LinearOp with 1D input");
-    std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
-    bcast_dim[bcast_dim.size() - 2] = true; // N
-    A = broadcast(A, bcast_dim);
+    NVF_ERROR(
+        B->nDims() == 2, "Cannot translate LinearOp without 2D weight tensor");
+    if (avoid_intermediates) {
+      MmaOp::AxisMapping axis_mapping;
+      int64_t out_dim = A->nDims() + 1L;
+      axis_mapping.a_axes.reserve(out_dim);
+      for (int64_t d : c10::irange(out_dim - 2L)) {
+        axis_mapping.a_axes.push_back(d);
+      }
+      axis_mapping.a_axes.reserve(out_dim);
+      for (size_t d : c10::irange(out_dim - 2)) {
+        axis_mapping.a_axes.push_back((int64_t)d);
+      }
+      axis_mapping.a_axes.push_back(-1); // missing N dimension
+      axis_mapping.a_axes.push_back(A->nDims() - 1); // K dimension
 
-    bcast_dim[bcast_dim.size() - 2] = false; // reset N
-    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
-    B = broadcast(B, bcast_dim);
+      axis_mapping.b_axes.reserve(out_dim);
+      axis_mapping.b_axes.resize(out_dim, -1);
+      axis_mapping.b_axes[out_dim - 2] = 0; // N
+      axis_mapping.b_axes[out_dim - 1] = 1; // K
 
-    fms = fusedMultiplySum(A, B, {-1});
+      int64_t num_M_dims = 1 + A->nDims() - B->nDims();
+
+      // Add loop broadcasts to A and B to mimic logical broadcasts for simpler
+      // scheduling
+      A->broadcast(-2); // There's always a single N dimension
+
+      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+        // Broadcast B for every M dimension in A
+        B->broadcast(0);
+      }
+
+      fms = fusedMultiplySum(A, B, {-1}, /*init=*/nullptr, axis_mapping);
+    } else {
+      std::vector<bool> bcast_dim(A->nDims() + 1, false);
+      bcast_dim[bcast_dim.size() - 2] = true; // N
+      A = broadcast(A, bcast_dim);
+
+      bcast_dim[bcast_dim.size() - 2] = false; // reset N
+      std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+      B = broadcast(B, bcast_dim);
+
+      fms = fusedMultiplySum(A, B, {-1});
+    }
+
     mma_op = fms->definition()->as<MmaOp>();
 
     auto* bias = dynamic_cast<TensorView*>(lop->bias());
@@ -1835,19 +1878,82 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
     // whose dtype matches that of the inputs. We will most commonly then also
     // need to cast the output of the MmaOp to produce the output TensorView.
+    //
+    // There are two possibilities:
+    //
+    // Case 1: A->nDims() > B->nDims():
+    //
+    //   A [ ..., B1, ..., Bn, M, K ]
+    //   B [ B1, ..., Bn, K, N ]
+    //
+    //   All the preceding dimensions in A are additional M dimensions. There
+    //   are batch dimensions in between those and "M".
+    //
+    // Case 2: A->nDims() <= B->nDims():
+    //
+    //   A [ B1, ..., Bn, M, K ]
+    //   B [ ..., B1, ..., Bn, K, N ]
+    //
+    //   All the preceding dimensions in B are additional N dimensions. There
+    //   are batch dimensions in between those and "N".
+    //
+    // In either case, to form the output we transpose B in the last two dims,
+    // and prepend broadcasts to the lower dimensional input as needed.
     NVF_ERROR(
         A->nDims() > 1 && B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
-    TensorView* Btrans = transpose(B, -2, -1);
-    A = unsqueeze(A, -2);
-    B = unsqueeze(Btrans, -3);
-    // A and B might have different dimensions. If so, broadcast the smaller one
-    // up to the size of the larger.
-    int64_t out_dims = std::max(A->nDims(), B->nDims());
-    // Add new outer broadcast dimensions if necessary
-    A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
-    B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
-    fms = fusedMultiplySum(A, B, {-1});
+    if (avoid_intermediates) {
+      MmaOp::AxisMapping axis_mapping;
+      int64_t out_dims = std::max(A->nDims(), B->nDims()) + 1;
+
+      axis_mapping.a_axes.resize((size_t)out_dims, -1);
+      axis_mapping.b_axes.resize((size_t)out_dims, -1);
+
+      for (size_t a_axis : c10::irange((size_t)A->nDims() - 1)) {
+        // Output is [ ... M, N, K ]
+        // This loop maps everything but N and K to A
+        int64_t out_axis = (int64_t)a_axis + (out_dims - 1 - A->nDims());
+        axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
+      }
+      // Map the K dim, skipping one position
+      axis_mapping.a_axes.at((size_t)out_dims - 1) = A->nDims() - 1;
+
+      for (size_t b_axis : c10::irange((size_t)B->nDims() - 2)) {
+        // Output is [ ... M, N, K ]
+        // This loop maps everything before M to B, skipping the output M dim
+        int64_t out_axis = (int64_t)b_axis + (out_dims - B->nDims()) - 1;
+        axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
+      }
+      // Skip the K dim and map N and K
+      axis_mapping.b_axes.at((size_t)out_dims - 2) = B->nDims() - 1;
+      axis_mapping.b_axes.at((size_t)out_dims - 1) = B->nDims() - 2;
+
+      fms = fusedMultiplySum(A, B, {-1}, /*init=*/nullptr, axis_mapping);
+
+      int64_t num_M_dims = std::max(1 + A->nDims() - B->nDims(), (int64_t)1);
+
+      // Reorder to BMNK.
+      // Add loop broadcasts to A and B to mimick logical broadcasts for simpler
+      // scheduling
+      A->broadcast(-2);
+
+      B->reorder({{-2, -1}});
+      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+        // Broadcast B for every M dimension in A
+        B->broadcast(-3);
+      }
+    } else {
+      TensorView* Btrans = transpose(B, -2, -1);
+      A = unsqueeze(A, -2);
+      B = unsqueeze(Btrans, -3);
+      // A and B might have different dimensions. If so, broadcast the smaller
+      // one up to the size of the larger.
+      int64_t out_dims = std::max(A->nDims(), B->nDims());
+      // Add new outer broadcast dimensions if necessary
+      A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
+      B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
+      fms = fusedMultiplySum(A, B, {-1});
+    }
     mma_op = fms->definition()->as<MmaOp>();
   } else {
     NVF_THROW(
@@ -1986,17 +2092,18 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   // for each valgroup, store a pair of flags. The first records whether the
   // group is present at all in the tv. The second records whether the value is
   // concrete (i.e. not reduction, broadcast, or device).
-  std::unordered_map<ValGroup, std::pair<DimPresence, DimPresence>> flags;
+  std::unordered_map<ValGroup, DimPresence> flags;
   const auto recordPresence = [&graph, &flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getLogicalDomain()) {
       const ValGroup& g = graph.toGroup(id);
-      auto& [present_flags, concrete_flags] = flags[g];
-      present_flags.set(tensor_num);
+      DimPresence& group_flags = flags[g];
+      // Note: broadcast or device dims will be initialized to have all false
+      // flags above
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      concrete_flags.set(tensor_num);
+      group_flags.set(tensor_num);
     }
   };
   recordPresence(A, 0);
@@ -2005,8 +2112,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   DimRolesMap dim_roles;
 
-  for (const auto& [g, f] : flags) {
-    const auto& [present_flags, concrete_flags] = f;
+  for (const auto& [g, concrete_flags] : flags) {
     if (concrete_flags.all() || concrete_flags.none()) {
       // Batch dimensions are any of those that are not concretized or reduced.
       // These could be all Iteration or all Broadcast
@@ -2019,9 +2125,25 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
       dim_roles[g] = MatmulDimRole::N;
     } else {
       NVF_THROW(
-          "IterDomain ValGroup should be present in at least two of A, B, output.",
-          " present_flags: ",
-          present_flags);
+          "IterDomain ValGroup should be concrete in at least two of A, B, output.",
+          " concrete_flags: ",
+          concrete_flags);
+    }
+  }
+
+  // NOTE: For Hopper, we create loop broadcasts to mimic logical broadcasts
+  // when translating MatmulOp and LinearOp. Here we detect these and map them
+  // appropriately.
+  for (IterDomain* id : A->getLoopDomain()) {
+    const ValGroup& g = graph.toGroup(id);
+    if (dim_roles.count(g) == 0) {
+      dim_roles[g] = MatmulDimRole::N;
+    }
+  }
+  for (IterDomain* id : B->getLoopDomain()) {
+    const ValGroup& g = graph.toGroup(id);
+    if (dim_roles.count(g) == 0) {
+      dim_roles[g] = MatmulDimRole::M;
     }
   }
 

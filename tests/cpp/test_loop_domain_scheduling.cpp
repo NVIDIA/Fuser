@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <iter_visitor.h>
 #include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
@@ -19,6 +20,25 @@
 #include <iostream>
 
 namespace nvfuser {
+
+namespace {
+
+void checkGetAllStmts(Fusion* fusion) {
+  // Check if StmtSort can grab all IDS, including those that are
+  // producers of root IDs
+  auto all_stmts = StmtSort::getAllStmts(fusion, /*traverse_members=*/true);
+  std::unordered_set<Statement*> all_stmt_set{
+      all_stmts.begin(), all_stmts.end()};
+  for (auto tv : fusion->allTvs()) {
+    for (auto id_or_expr : tv->domain()->allStatements()) {
+      EXPECT_TRUE(all_stmt_set.count(id_or_expr))
+          << "Not found: " << id_or_expr->toString() << " of "
+          << tv->toString();
+    }
+  }
+}
+
+} // namespace
 
 class LoopDomainSchedulingTest : public NVFuserTest {
  protected:
@@ -82,6 +102,8 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
     }
   }
 
+  checkGetAllStmts(&fusion);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10}, options);
   std::vector<c10::IValue> inputs({t0});
@@ -142,6 +164,8 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
+
+  checkGetAllStmts(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -245,6 +269,8 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
           tv5_loop_to_logical.at(3).first,
           tv4->getLogicalDomain().at(0)->definition()) &&
       tv5_loop_to_logical.at(3).second == Direction::Forward);
+
+  checkGetAllStmts(&fusion);
 }
 
 // Using the same fusion as ReshapeTraversalDirection, try each one of
@@ -308,6 +334,8 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
       }
       EXPECT_EQ(tv->getComputeAtPosition(), tv->getLoopDomain().size());
     }
+
+    checkGetAllStmts(&fusion_copy);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({12}, options);
@@ -383,6 +411,8 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy1) {
 
   EXPECT_EQ(tv1->getLoopDomain(), tv1_loop_domain);
   EXPECT_EQ(tv2->getLoopDomain(), tv2_loop_domain);
+
+  checkGetAllStmts(&fusion);
 }
 
 // Testing scheduleLoopDomainBy on its insertion position of new IDs
@@ -414,6 +444,8 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy2) {
   EXPECT_EQ(
       exact_graph.toGroups(tv1->getLoopDomain()),
       exact_graph.toGroups(tv2->getLoopDomain()));
+
+  checkGetAllStmts(&fusion);
 }
 
 } // namespace nvfuser

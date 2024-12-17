@@ -266,7 +266,6 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  // Run mutation on the fusion with the tensor_dim_map
   ir_utils::replaceValue(fusion, extent_simplification_map);
 }
 
