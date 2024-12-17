@@ -319,9 +319,10 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
   Expr* pad_inp_def = pad_inp->definition();
   // stop propagation if any of expr's inputs are not TensorView, which we
   // cannot pad.
-  if (std::any_of(pad_inp_def->inputs().begin(), pad_inp_def->inputs().end(), [](Val* val) {
-        return !val->isA<TensorView>();
-      })) {
+  if (std::any_of(
+          pad_inp_def->inputs().begin(),
+          pad_inp_def->inputs().end(),
+          [](Val* val) { return !val->isA<TensorView>(); })) {
     return padded_inputs;
   }
 
