@@ -16,14 +16,14 @@ from typing import Callable
 
 
 # Returns the last power of 2 less than equal to a.
-def last_pow2(a):
-    pow_of_2 = math.floor(math.log2(2))
+def round_down_pow2(a):
+    pow_of_2 = 2 ** math.floor(math.log2(a))
     return int(max(pow_of_2, 1))
 
 
 # Returns the nearest power of 2 greater than a.
 def round_up_pow2(a):
-    round_up_pow2 = last_pow2(a)
+    round_up_pow2 = round_down_pow2(a)
     if round_up_pow2 < a:
         round_up_pow2 *= 2
     return round_up_pow2
@@ -46,17 +46,15 @@ def round_down_multiple_of(a, multiple):
 # Return whichever is larger, either the nearest power of 2 or nearest multiple
 # less than a.
 def round_down_pow2_or_multiple_of(a, multiple):
-    round_down_pow2 = last_pow2(a)
     round_down_multiple = round_down_multiple_of(a, multiple)
-    return int(max(max(round_down_multiple, round_down_pow2), 1))
+    return int(max(max(round_down_multiple, round_down_pow2(a)), 1))
 
 
 # Return whichever is larger, either the nearest power of 2 or nearest multiple
 # greater than a.
 def round_up_pow2_or_multiple_of(a, multiple):
-    round_up_pow2 = round_up_pow2(a)
     round_up_multiple = round_up_multiple_of(a, multiple)
-    return int(max(max(round_up_multiple, round_up_pow2), 1))
+    return int(max(max(round_up_multiple, round_up_pow2(a)), 1))
 
 
 # Returns the result of a/b with minimum value of 1.

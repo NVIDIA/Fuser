@@ -24,6 +24,7 @@ from autotune_utils import (
     at_least_one_div,
     ceil_div,
     floor_div,
+    round_down_pow2,
     round_up_pow2,
     round_up_multiple_of,
     round_down_pow2_or_multiple_of,
@@ -192,6 +193,7 @@ class AutotuneOuterReduction:
             )
 
             bdimx = 8
+
             gidim = min(
                 ceil_div(num_iterations, bdimx * vectorize_factor),
                 self.gpu_properties.multi_processor_count,
@@ -279,9 +281,9 @@ class AutotuneOuterReduction:
             yield from get_block_outer_reduction_configurations(
                 threads_per_cta, vectorize_factor, reduction_unroll_factor
             )
-            # yield from get_grid_outer_reduction_configurations(
-            #    threads_per_cta, vectorize_factor, reduction_unroll_factor
-            # )
+            yield from get_grid_outer_reduction_configurations(
+                threads_per_cta, vectorize_factor, reduction_unroll_factor
+            )
 
     def create_inputs(self, shape, tensor_datatype):
         if self.selected_fusion == self.FUSION.OUTER_SUM:
