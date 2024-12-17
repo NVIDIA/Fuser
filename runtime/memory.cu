@@ -111,7 +111,7 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((uint32_t)src.crds[0])
+        "r"((int32_t)src.crds[0])
       : "memory");
 }
 
@@ -126,8 +126,8 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((uint32_t)src.crds[0]),
-        "r"((uint32_t)src.crds[1])
+        "r"((int32_t)src.crds[0]),
+        "r"((int32_t)src.crds[1])
       : "memory");
 }
 
@@ -142,9 +142,9 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((uint32_t)src.crds[0]),
-        "r"((uint32_t)src.crds[1]),
-        "r"((uint32_t)src.crds[2])
+        "r"((int32_t)src.crds[0]),
+        "r"((int32_t)src.crds[1]),
+        "r"((int32_t)src.crds[2])
       : "memory");
 }
 
@@ -159,10 +159,10 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((uint32_t)src.crds[0]),
-        "r"((uint32_t)src.crds[1]),
-        "r"((uint32_t)src.crds[2]),
-        "r"((uint32_t)src.crds[3])
+        "r"((int32_t)src.crds[0]),
+        "r"((int32_t)src.crds[1]),
+        "r"((int32_t)src.crds[2]),
+        "r"((int32_t)src.crds[3])
       : "memory");
 }
 
@@ -177,11 +177,11 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((uint32_t)src.crds[0]),
-        "r"((uint32_t)src.crds[1]),
-        "r"((uint32_t)src.crds[2]),
-        "r"((uint32_t)src.crds[3]),
-        "r"((uint32_t)src.crds[4])
+        "r"((int32_t)src.crds[0]),
+        "r"((int32_t)src.crds[1]),
+        "r"((int32_t)src.crds[2]),
+        "r"((int32_t)src.crds[3]),
+        "r"((int32_t)src.crds[4])
       : "memory");
 }
 
