@@ -11,55 +11,11 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {
 namespace pointwise_utils {
-
-// DomainMap uses the ComputeAtMap to find a reference TensorView
-// that maps to all IterDomains in the fusion.
-class DomainMap {
- public:
-  DomainMap(Fusion* fusion);
-  virtual ~DomainMap() = default;
-
-  const ComputeAtMap& getComputeAtMap() const {
-    return ca_map_;
-  }
-
-  // Determine if a TensorView is a valid reference tensor for this fusion.
-  // The reference tensor must map to all the iterDomains in each input.
-  bool isValidReference(TensorView* tv) const;
-
- protected:
-  // Determine if all IterDomains are mapped between input and the given tvs
-  bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
-      const;
-
-  virtual IterDomain* getMappedInputConcreteID(
-      const std::unordered_set<IterDomain*>& in_concrete_ids,
-      IterDomain* out_id) const;
-
-  // Erase input concrete ID if it is mapped to output ID
-  bool eraseIfMapped(
-      std::unordered_set<IterDomain*>& in_concrete_ids,
-      IterDomain* out_id) const;
-
-  // Check if in_ids are mapped to ids through any root domain as
-  // well as indirectly accessed domains with ops like torchGather
-  void eraseifInputMappedThroughRootDomainAndIndexing(
-      std::unordered_set<IterDomain*>& in_ids,
-      const std::vector<IterDomain*>& ids) const;
-
-  // Find any id in domain that maps with target id
-  IterDomain* anyMapped(
-      const std::vector<IterDomain*>& domain,
-      IterDomain* target) const;
-
-  Fusion* fusion_ = nullptr;
-  ComputeAtMap ca_map_;
-  std::vector<TensorView*> tvs_with_rfactor_;
-};
 
 // Returns number of non-reduction/non-broadcas/non-device dims in logical
 // domain
@@ -73,6 +29,24 @@ inline int64_t nRootDims(const TensorView* tv) {
   }
   return tv_n_dims;
 }
+
+class PointwiseDomainMap : public scheduler_tools::DomainMap {
+ public:
+  using scheduler_tools::DomainMap::DomainMap;
+
+  // The pointwise scheduler heuristics requires a minimum number of axes.
+  // The output reference tensor should respect this requirement.
+  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0) const;
+
+ private:
+  bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
+    NVF_ERROR(tv != nullptr);
+    return (num_axes == 0 || (int64_t)tv->getLogicalDomain().size() > num_axes);
+  }
+};
+
+// Return reference tensor view.
+TensorView* getReferenceTensor(Fusion* fusion);
 
 } // namespace pointwise_utils
 } // namespace nvfuser
