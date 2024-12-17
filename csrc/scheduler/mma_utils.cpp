@@ -1780,10 +1780,11 @@ std::string MatmulPattern::toString() const {
 namespace {
 
 // The `MatmulTranslator` helper class is used to map different matrix
-// multiplication patterns to `MmaOp`. The `MmaOp` expression maps to the 
-// TensorCore ptx function.
-// 
-// 1. `MmaOp` -- This expression is what we need, so no changes required.
+// multiplication patterns to `MmaOp`. The `MmaOp` expression maps to the
+/ TensorCore ptx function.
+//
+
+ 1. `MmaOp` -- This expression is what we need, so no changes required.
 // 2. `ReductionOp` -- This expression corresponds with the sum operation in
 // the `broadcast->multiply->sum` pattern.
 // 3. `LinearOp` -- This expression is `y = w @ x + beta`, so it is replaced
@@ -1792,8 +1793,9 @@ namespace {
 // expression requires `[M, N, K]` ordering, so it requires transposing the `B`
 // operand. It also support batch matrix multiplication, which is tracked by
 // `MmaOp::AxisMapping`.
-// 
-// `finalizeMatmulOrLinearOp`
+//
+/
+`finalizeMatmulOrLinearOp`
 //  * Fused-Multiply-Sum (FMS) is the output from MmaOp.
 //  * The output dtype can be different than the original output dtype.
 //  * This function casts the FMS TensorView to the original output dtype if
@@ -2678,3 +2680,4 @@ std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
 }
 
 } // namespace nvfuser
+   
