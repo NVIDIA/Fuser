@@ -33,6 +33,12 @@ TensorView* getReferenceTensor(Fusion* fusion) {
 } // namespace
 
 bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
+  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Not enabled");
+    return false;
+  }
+
   if (!ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No resize op to schedule");

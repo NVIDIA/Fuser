@@ -55,8 +55,27 @@ void checkLoopDomainEquivalence(
 
 } // namespace
 
-using ResizeTest = NVFuserTest;
-using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
+class ResizeTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+    NVFuserTest::SetUp();
+  }
+
+ private:
+  EnableOptionsGuard enable_options_guard_;
+};
+
+class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
+ protected:
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+    NVFuserFixtureParamTest<bool>::SetUp();
+  }
+
+ private:
+  EnableOptionsGuard enable_options_guard_;
+};
 
 using testing::Each;
 using testing::HasSubstr;
