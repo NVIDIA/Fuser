@@ -171,14 +171,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void scheduleMmaResults();
 
-  void scheduleOutputTensor(TensorView* c);
-
   void scheduleEpilogue();
-
-  //! Propagates transformations from fusion output to fusion tv inputs that are
-  //!  producers in the epilogue. Transformations' propagation aims at input tvs
-  //!  which are not assigned to core roles, that is, are not MMA inputs.
-  void scheduleFusionInputsForEpilogue();
 
   void scheduleSplitKSum();
 
@@ -190,6 +183,11 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // Then, find the MatmulDimRole for the ValGroup.
   // Return MatmulDimRole for IterDomain
   MatmulDimRole findMatmulDimRole(IterDomain* id);
+
+  // Schedule a block-tiled TensorView like mma output.
+  // Why? WGMMA has a unique output format. TensorViews after the mma-result in
+  // registers must respect this format for correctness.
+  void transformLikeMmaOutput(TensorView* tv, bool is_mma_result);
 
  private:
   std::vector<ValGroup> canonical_dim_ordering_;
