@@ -2973,6 +2973,7 @@ void validateLoopDomain(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<IterDomain*>& loop_domain,
     const std::vector<IterDomain*>& additional_ids) {
+  // Skip if there's any symbolic ID
   if (std::any_of(
           logical_domain.begin(),
           logical_domain.end(),
@@ -2995,6 +2996,7 @@ void validateLoopDomain(
   // additional_ids are also considered part of the refernece domain
   reference.insert(
       reference.end(), additional_ids.begin(), additional_ids.end());
+
   auto [redundant_ids, _, unreachable_reference_ids] =
       ir_utils::compareDomainWithReference(loop_domain, reference);
 
@@ -3008,6 +3010,7 @@ void validateLoopDomain(
       empty_or_broadcast(redundant_ids),
       "Trying to set a loop domain with non-broadcast redundant IDs: ",
       toDelimitedString(redundant_ids));
+
   NVF_ERROR(
       empty_or_broadcast(unreachable_reference_ids),
       "Not all logical IDs are covered by loop domain. Loop: ",
