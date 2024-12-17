@@ -96,7 +96,7 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 template <int dim>
 struct CpAsyncBulkTensorTileG2SIndex {
   const TensorMap* descriptor;
-  Array<nvfuser_index_t, dim> crds;
+  Array<int32_t, dim> crds;
   uint32_t mbarrier;
 };
 
@@ -108,10 +108,7 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes"
       " [%0], [%1, {%3}], [%2];"
       :
-      : "r"(smem_addr),
-        "l"(gmem_int_desc),
-        "r"(src.mbarrier),
-        "r"((int32_t)src.crds[0])
+      : "r"(smem_addr), "l"(gmem_int_desc), "r"(src.mbarrier), "r"(src.crds[0])
       : "memory");
 }
 
@@ -126,8 +123,8 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((int32_t)src.crds[0]),
-        "r"((int32_t)src.crds[1])
+        "r"(src.crds[0]),
+        "r"(src.crds[1])
       : "memory");
 }
 
@@ -142,9 +139,9 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((int32_t)src.crds[0]),
-        "r"((int32_t)src.crds[1]),
-        "r"((int32_t)src.crds[2])
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2])
       : "memory");
 }
 
@@ -159,10 +156,10 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((int32_t)src.crds[0]),
-        "r"((int32_t)src.crds[1]),
-        "r"((int32_t)src.crds[2]),
-        "r"((int32_t)src.crds[3])
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3])
       : "memory");
 }
 
@@ -177,11 +174,11 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "r"(smem_addr),
         "l"(gmem_int_desc),
         "r"(src.mbarrier),
-        "r"((int32_t)src.crds[0]),
-        "r"((int32_t)src.crds[1]),
-        "r"((int32_t)src.crds[2]),
-        "r"((int32_t)src.crds[3]),
-        "r"((int32_t)src.crds[4])
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3]),
+        "r"(src.crds[4])
       : "memory");
 }
 
