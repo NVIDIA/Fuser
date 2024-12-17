@@ -648,6 +648,40 @@ TEST_F(TMAIndexingTest, Load2DTensorWith1DTMA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// This test is the same as above but checks that we can use 64-bit indexing
+TEST_F(TMAIndexingTest, Int64Indexing) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->merge(0);
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({30000, 50000}, options);
+  CompileParams int64_cparams = matmul_cparams;
+  int64_cparams.index_type = DataType::Int;
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0}, {}, int64_cparams);
+
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
