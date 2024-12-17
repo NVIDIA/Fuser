@@ -14,7 +14,7 @@
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
-#include <scheduler/pointwise_utils.h>
+#include <scheduler/tools/domain_map.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -50,7 +50,7 @@ bool hasVectorizationCache(TensorView* tv) {
   return false;
 }
 
-class DomainMapUnitTest : public pointwise_utils::DomainMap {
+class DomainMapUnitTest : public scheduler_tools::DomainMap {
  public:
   DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion) {};
   bool testTargetCoverage(TensorView* target_tv, TensorView* reference_tv)
