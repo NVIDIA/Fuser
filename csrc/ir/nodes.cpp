@@ -3740,8 +3740,6 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 6> all_domains = {
-      // initial_loop_domain_ is not enough if setLoopDomain is used
-      // multiple times
       &loop_domain_,
       &logical_domain_,
       &root_domain_,

@@ -23,8 +23,21 @@
 
 namespace nvfuser {
 
+namespace {
+
+// Just use the pointwise version for now
+TensorView* getReferenceTensor(Fusion* fusion) {
+  return pointwise_utils::getReferenceTensor(fusion);
+}
+
+} // namespace
+
 bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
-  std::cerr << "ResizeScheduler::canScheduleCompileTime\n";
+  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Not enabled");
+    return false;
+  }
 
   if (!ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
