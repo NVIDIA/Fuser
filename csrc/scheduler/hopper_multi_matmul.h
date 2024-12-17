@@ -171,14 +171,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void scheduleMmaResults();
 
-  void scheduleOutputTensor(TensorView* c);
-
   void scheduleEpilogue();
-
-  //! Propagates transformations from fusion output to fusion tv inputs that are
-  //!  producers in the epilogue. Transformations' propagation aims at input tvs
-  //!  which are not assigned to core roles, that is, are not MMA inputs.
-  void scheduleFusionInputsForEpilogue();
 
   void scheduleSplitKSum();
 
