@@ -25,6 +25,7 @@ from autotune_utils import (
     ceil_div,
     floor_div,
     round_up_pow2,
+    round_up_multiple_of,
     round_down_pow2_or_multiple_of,
 )
 
@@ -89,8 +90,6 @@ class AutotuneOuterReduction:
         bdimy: int = -1
         # The grid size for the outer reduction domain.
         grdim: int = -1
-        # TODO
-        reduction_serial: int = -1
 
     def __init__(self, selected_fusion):
         self.selected_fusion = selected_fusion
@@ -201,6 +200,7 @@ class AutotuneOuterReduction:
                 ceil_div(num_iterations, gidim * vectorize_factor),
                 threads_per_cta,
             )
+            bdimx = min(round_up_pow2(bdimx), round_up_multiple_of(bdimx, 32))
             gidim = min(
                 ceil_div(num_iterations, bdimx * vectorize_factor),
                 self.gpu_properties.multi_processor_count,
@@ -279,9 +279,9 @@ class AutotuneOuterReduction:
             yield from get_block_outer_reduction_configurations(
                 threads_per_cta, vectorize_factor, reduction_unroll_factor
             )
-            yield from get_grid_outer_reduction_configurations(
-                threads_per_cta, vectorize_factor, reduction_unroll_factor
-            )
+            # yield from get_grid_outer_reduction_configurations(
+            #    threads_per_cta, vectorize_factor, reduction_unroll_factor
+            # )
 
     def create_inputs(self, shape, tensor_datatype):
         if self.selected_fusion == self.FUSION.OUTER_SUM:

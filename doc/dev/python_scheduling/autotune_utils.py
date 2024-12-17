@@ -29,31 +29,33 @@ def round_up_pow2(a):
     return round_up_pow2
 
 
+def round_up_multiple_of(a, multiple):
+    if a % multiple == 0:
+        return a
+    else:
+        return a + (multiple - (a % multiple))
+
+
+def round_down_multiple_of(a, multiple):
+    if a % multiple == 0:
+        return a
+    else:
+        return a - (a % multiple)
+
+
 # Return whichever is larger, either the nearest power of 2 or nearest multiple
 # less than a.
-def round_up_pow2_or_multiple_of(a, multiple):
+def round_down_pow2_or_multiple_of(a, multiple):
     round_down_pow2 = last_pow2(a)
-
-    if a % multiple == 0:
-        round_down_multiple = a
-    else:
-        round_down_multiple = a - (a % multiple)
-
+    round_down_multiple = round_down_multiple_of(a, multiple)
     return int(max(max(round_down_multiple, round_down_pow2), 1))
 
 
 # Return whichever is larger, either the nearest power of 2 or nearest multiple
 # greater than a.
-def round_down_pow2_or_multiple_of(a, multiple):
-    round_up_pow2 = last_pow2(a)
-    if round_up_pow2 < a:
-        round_up_pow2 *= 2
-
-    if a % multiple == 0:
-        round_up_multiple = a
-    else:
-        round_up_multiple = a + (multiple - (a % multiple))
-
+def round_up_pow2_or_multiple_of(a, multiple):
+    round_up_pow2 = round_up_pow2(a)
+    round_up_multiple = round_up_multiple_of(a, multiple)
     return int(max(max(round_up_multiple, round_up_pow2), 1))
 
 
