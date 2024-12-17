@@ -6,13 +6,15 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -34,14 +36,14 @@ bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && isLowerableToCommunication(e);
+        return isResharding(e) && HostIrLower::canLower(e);
       })) {
     NVF_ERROR(
         std::all_of(
             exprs.begin(),
             exprs.end(),
             [](Expr* e) {
-              return isResharding(e) && isLowerableToCommunication(e);
+              return isResharding(e) && HostIrLower::canLower(e);
             }),
         "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
     return true;
@@ -67,8 +69,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
-      std::vector<Communication*> communications =
-          lowerCommunication(cloner.clone(e));
+      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -216,6 +217,36 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
+std::string HostIrEvaluator::canRun() const {
+  const int64_t requested_n_gpus = requestedNumberOfDevices(container_.get());
+
+  if (requested_n_gpus == 1) {
+    return "";
+  }
+
+  if (communicator_ == nullptr) {
+    return "A communicator must be provided";
+  }
+
+  if (!communicator_->is_available()) {
+    return "distributed configuration required";
+  }
+
+  if (requested_n_gpus > communicator_->size()) {
+    return "the fusion requests " + std::to_string(requested_n_gpus) +
+        " GPUs to run, but there are only " +
+        std::to_string(communicator_->size()) + " ranks in the communicator";
+  }
+
+  if (communicator_->local_size() > at::cuda::getNumGPUs()) {
+    return std::to_string(communicator_->local_size()) +
+        " processes are spawn on the node but only " +
+        std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";
+  }
+
+  return "";
 }
 
 c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
