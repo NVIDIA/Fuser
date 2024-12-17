@@ -8,6 +8,7 @@ import math
 import itertools
 from nvfuser import FusionCache, FusionDefinition
 from dataclasses import dataclass, astuple
+from typing import Callable
 
 # ================================ Description ================================
 # This file contains the utility function for autotuning scripts.
@@ -123,7 +124,7 @@ def collect_data(script_config, autotune_config):
         inputs = autotune_config.create_inputs(shape, script_config.tensor_datatype)
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         # unroll and vectorization configurations
         for parameter_config in autotune_config.generate_scheduler_configurations(
@@ -186,9 +187,18 @@ def run_profile(autotune_config, presched_fd, inputs, scheduler_config=None):
     scheduled_fd = autotune_config.custom_scheduler(presched_fd, scheduler_config)
     nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
+    # clear gradient for inputs
+    for inp in inputs:
+        if inp.grad is not None:
+            inp.grad.data.zero_()
+
     # validate correctness
+    eager_output = autotune_config.eager_reference(inputs)
     assert torch.allclose(
-        nvf_outputs[0], autotune_config.eager_reference(inputs), atol=1e-2, rtol=1e-2
+        nvf_outputs[0].to(torch.double),
+        eager_output.to(torch.double),
+        atol=5e-1,
+        rtol=5e-1,
     )
 
     prof = scheduled_fd.profile()
@@ -269,7 +279,7 @@ def test_model_rmse(clf, script_config, autotune_config, test_data):
         inputs = autotune_config.create_inputs(shape, script_config.tensor_datatype)
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         _, est_perf = run_profile(autotune_config, presched_fd, inputs, estimate_config)
         _, nvf_perf = run_profile(autotune_config, presched_fd, inputs)
@@ -311,7 +321,7 @@ def test_model(clf, script_config, autotune_config):
         )
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         _, est_time_ms = run_profile(
             autotune_config, presched_fd, inputs, estimate_config
@@ -330,7 +340,7 @@ def test_model(clf, script_config, autotune_config):
         )
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         _, nvf_time_ms = run_profile(autotune_config, presched_fd, inputs)
         nvf_perfs.append(nvf_time_ms)

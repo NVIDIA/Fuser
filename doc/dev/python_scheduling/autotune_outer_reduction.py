@@ -286,16 +286,25 @@ class AutotuneOuterReduction:
     def create_inputs(self, shape, tensor_datatype):
         if self.selected_fusion == self.FUSION.OUTER_SUM:
             return [torch.randn(*shape, dtype=tensor_datatype, device="cuda")]
-        elif self.selected_fusion == self.FUSION.GELU_BWD:
-            bias = torch.randn([1, shape[-1]], dtype=tensor_datatype, device="cuda")
-            output = torch.randn(*shape, dtype=tensor_datatype, device="cuda")
-            grad = torch.randn(1, dtype=tensor_datatype, device="cuda").unsqueeze(0)
-            return [bias, output, grad]
+        elif self.selected_fusion == self.FUSION.GELU_BIAS_BWD:
+            b = torch.randn(
+                [1, shape[-1]],
+                dtype=tensor_datatype,
+                device="cuda",
+                requires_grad=False,
+            )
+            a = torch.randn(
+                *shape, dtype=tensor_datatype, device="cuda", requires_grad=True
+            )
+            g = torch.randn(
+                *shape, dtype=tensor_datatype, device="cuda", requires_grad=True
+            )
+            return [b, a, g]
         else:
             assert False
 
     # A decorator to create a reduction fusion given some input arguments.
-    def create_fusion_func(self, inputs):
+    def create_fusion_func(self):
         def sum_fusion(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 shape=[-1, -1],
@@ -325,14 +334,12 @@ class AutotuneOuterReduction:
                 stride_order=[1, 0],
             )
             T2 = fd.define_tensor(
-                shape=[1, 1],
-                contiguity=[None, None],
+                shape=[-1, -1],
+                contiguity=[True, True],
                 dtype=DataType.BFloat16,
                 is_cpu=False,
                 stride_order=[1, 0],
             )
-            S3 = fd.define_scalar(10, dtype=DataType.Int)
-            S4 = fd.define_scalar(10, dtype=DataType.Int)
             T7 = fd.ops.cast(T0, dtype=DataType.Float)
             T8 = fd.ops.cast(T1, dtype=DataType.Float)
             T9 = fd.ops.add(T8, T7)
@@ -368,10 +375,8 @@ class AutotuneOuterReduction:
             T39 = fd.ops.add(T37, T36)
             T40 = fd.ops.add(T39, T38)
             T41 = fd.ops.add(T40, T38)
-            T42 = fd.ops.sum(T41, dims=[0], keepdim=False, dtype=DataType.Null)
+            T42 = fd.ops.sum(T41, dims=[0], keepdim=False)
             T43 = fd.ops.cast(T42, dtype=DataType.BFloat16)
-            T48 = fd.ops.cast(T41, dtype=DataType.BFloat16)
-            fd.add_output(T48)
             fd.add_output(T43)
 
         if self.selected_fusion == self.FUSION.OUTER_SUM:
@@ -387,10 +392,12 @@ class AutotuneOuterReduction:
             return torch.sum(inputs[0], dim=0)
 
         def gelu_bias_bwd(inputs):
-            out = torch.nn.functional.gelu(inputs[0] + inputs[1], approximate="tanh")
+            b, a, g = inputs
+            a.retain_grad()
+            out = torch.nn.functional.gelu(a + b, approximate="tanh")
             out.retain_grad()
-            out.sum().backward()
-            return inputs[0].grad, inputs[1].grad
+            out.backward(g.to(torch.double))
+            return a.grad.to(torch.double).sum(dim=0)
 
         if self.selected_fusion == self.FUSION.OUTER_SUM:
             return sum_fusion(inputs)
