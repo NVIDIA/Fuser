@@ -2007,7 +2007,7 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   // The following is common to both MatmulOp and LinearOp translation
-  void finalizeMatmulOpOrLinearOp(TensorView* fms) final {
+  void finalizeMatmulOpOrLinearOp(TensorView* fms) {
     NVF_ERROR(fms != nullptr);
     NVF_ERROR(mma_ != nullptr);
 
