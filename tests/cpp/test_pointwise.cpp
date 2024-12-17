@@ -52,7 +52,7 @@ bool hasVectorizationCache(TensorView* tv) {
 
 class DomainMapUnitTest : public scheduler_tools::DomainMap {
  public:
-  DomainMapUnitTest(Fusion* fusion) : pointwise_utils::DomainMap(fusion) {};
+  DomainMapUnitTest(Fusion* fusion) : scheduler_tools::DomainMap(fusion) {};
   bool testTargetCoverage(TensorView* target_tv, TensorView* reference_tv)
       const {
     return areAllTargetIdsCoveredBy(target_tv, reference_tv);
