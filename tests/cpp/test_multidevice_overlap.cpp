@@ -1178,6 +1178,22 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
   auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
 
+  auto* wait_bool = IrBuilder::create<Val>(false);
+  Val* wait_cond = IrBuilder::eqExpr(true, wait_bool);
+  auto* wait_predicate = IrBuilder::create<kir::Predicate>(wait_cond);
+  auto* if_wait_not_null_then_wait = IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  if_wait_not_null_then_wait->thenBody().push_back(wait);
+  auto* set_wait_bool_true;
+  auto* set_wait_bool_false;
+
+  // auto* comm_predicate = IrBuilder::create<kir::Predicate>(input_bool);
+  // auto* if_not_last_ring_step_post_comms = IrBuilder::create<kir::IfThenElse>(comm_predicate);
+  // if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
+  // if_not_last_ring_step_post_comms->thenBody().push_back(send);
+  // if_not_last_ring_step_post_comms->thenBody().push_back(recv);
+  // if_not_last_ring_step_post_comms->thenBody().push_back(end_coalescing);
+  // if_not_last_ring_step_post_comms->thenBody().push_back(set_wait_bool_true);
+
   std::vector<Expr*> loop_j_body = {
       set_stream,
       tmp1->definition(),
@@ -1186,15 +1202,18 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       tva_j_curr_slice->definition(),
       tva_j_next_slice->definition(),
       tvc_j->definition(),
+      if_wait_not_null_then_wait,
+      //if_not_last_ring_step_post_comms,
       start_coalescing,
       send,
       recv,
       end_coalescing,
-      wait,
+      set_wait_bool_true,
       mm};
   for (Expr* expr : loop_j_body) {
     for_loop_j->body().push_back(expr);
   }
+  for_loop_i->body().push_back(set_wait_bool_false);
   for_loop_i->body().push_back(for_loop_j);
 
   hic->pushBackTopLevelExprs(for_loop_i);
