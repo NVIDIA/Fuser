@@ -1816,11 +1816,11 @@ class MatmulTranslator : public OptInDispatch {
 
   using OptInDispatch::handle;
 
-  void handle(MmaOp* mma) {
+  void handle(MmaOp* mma) final {
     mma_ = mma;
   }
 
-  void handle(ReductionOp* rop) {
+  void handle(ReductionOp* rop) final {
     Val* init = IrBuilder::create<Val>(0.0, pattern_.output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
     mma_ = IrBuilder::create<MmaOp>(
@@ -1831,7 +1831,7 @@ class MatmulTranslator : public OptInDispatch {
         MmaOp::AxisMapping::trivialMapping(pattern_.output->nDims()));
   }
 
-  void handle(LinearOp* lop) {
+  void handle(LinearOp* lop) final {
     // This will hold the translated output from MatmulOp or LinearOp
     TensorView* fms = nullptr;
     // Linear takes inputs input, weight(, bias)
@@ -1913,7 +1913,7 @@ class MatmulTranslator : public OptInDispatch {
     finalizeMatmulOpOrLinearOp(fms);
   }
 
-  void handle(MatmulOp* mop) {
+  void handle(MatmulOp* mop) final {
     // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so
     // we must transpose B then broadcast both operands before creating the
     // final op.
@@ -2007,7 +2007,7 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   // The following is common to both MatmulOp and LinearOp translation
-  void finalizeMatmulOpOrLinearOp(TensorView* fms) {
+  void finalizeMatmulOpOrLinearOp(TensorView* fms) final {
     NVF_ERROR(fms != nullptr);
     NVF_ERROR(mma_ != nullptr);
 
