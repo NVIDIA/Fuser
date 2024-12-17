@@ -1180,16 +1180,17 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
-      slice_index->definition(),
-      next_slice_index->definition(),
+      tmp1->definition(),
+      tmp2->definition(),
+      tmp3->definition(),
       tva_j_curr_slice->definition(),
       tva_j_next_slice->definition(),
       tvc_j->definition(),
+      wait,
       start_coalescing,
       send,
       recv,
       end_coalescing,
-      wait,
       mm};
   for (Expr* expr : loop_j_body) {
     for_loop_j->body().push_back(expr);
