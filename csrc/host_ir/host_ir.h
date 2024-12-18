@@ -211,6 +211,8 @@ class Wait : public Expr {
   }
 };
 
+// Makes the current stream wait on the given stream. Non-blocking from the host
+// point of view.
 class Synchronize : public Expr {
  public:
   using Expr::Expr;

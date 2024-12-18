@@ -5,6 +5,7 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
@@ -352,9 +353,9 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 using OverlapDistributedMatmulTest = MultiDeviceTest;
 
 TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
-  constexpr int64_t M = 1024;
-  constexpr int64_t K = 256;
-  constexpr int64_t N = 512;
+  constexpr int64_t M = 32768;
+  constexpr int64_t K = 32768;
+  constexpr int64_t N = 1024;
   constexpr int64_t S = 8;
   const int64_t D = communicator_->size();
   ASSERT_EQ(M % (D * S), 0);
@@ -388,7 +389,17 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   at::Tensor tc_ref = at::matmul(ta_unsharded, tb);
 
   std::vector<c10::IValue> inputs = {ta, tb};
-  auto tc = executor.runWithInput(inputs).at(0);
+  at::Tensor tc;
+
+  constexpr int64_t number_of_iterations = 20;
+  constexpr int64_t number_of_warmup_iterations = 5;
+  for (const auto& i : c10::irange(number_of_iterations)) {
+    if (i == number_of_warmup_iterations) {
+      cudaProfilerStart();
+    }
+    tc = executor.runWithInput(inputs).at(0);
+  }
+  cudaProfilerStop();
 
   EXPECT_TRUE(torch::allclose(tc_ref, tc));
 }
