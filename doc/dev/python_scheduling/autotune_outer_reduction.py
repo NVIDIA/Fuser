@@ -72,7 +72,7 @@ class AutotuneOuterReduction:
         OUTER_SUM = 1
         GELU_BIAS_BWD = 2
 
-    @dataclass(unsafe_hash=True)
+    @dataclass(frozen=True)
     class OuterReductionConfiguration:
         # iteration parameters
         # iteration elements = iteration_unroll * bdimx * gidim
@@ -178,7 +178,7 @@ class AutotuneOuterReduction:
     def generate_scheduler_configurations(self, input_shape):
         threads_per_cta_options = [128, 256, 512, 1024]
         vectorization_factor_options = [1, 2, 4, 8]
-        reduction_unroll_factor_options = list(range(1, 6))
+        reduction_unroll_factor_options = list(range(1, 11, 2))
         warp_size = 32
 
         num_iterations, num_reductions = input_shape
@@ -187,11 +187,6 @@ class AutotuneOuterReduction:
         def get_block_outer_reduction_configurations(
             threads_per_cta, vectorize_factor, reduction_unroll_factor
         ):
-            scheduler_config = self.OuterReductionConfiguration(
-                reduction_unroll_factor=reduction_unroll_factor,
-                iteration_unroll_factor=vectorize_factor,
-            )
-
             bdimx = 8
 
             gidim = min(
@@ -202,33 +197,29 @@ class AutotuneOuterReduction:
                 ceil_div(num_iterations, gidim * vectorize_factor),
                 threads_per_cta,
             )
-            bdimx = min(round_up_pow2(bdimx), round_up_multiple_of(bdimx, 32))
-            gidim = min(
-                ceil_div(num_iterations, bdimx * vectorize_factor),
-                self.gpu_properties.multi_processor_count,
-            )
 
-            bdimy = min(num_reductions, threads_per_cta // bdimx)
+            for bdimx in [
+                8,
+                min(round_up_pow2(bdimx), round_up_multiple_of(bdimx, 32)),
+            ]:
+                gidim = min(
+                    ceil_div(num_iterations, bdimx * vectorize_factor),
+                    self.gpu_properties.multi_processor_count,
+                )
 
-            while (
-                bdimy * bdimx * 2 <= threads_per_cta
-            ) and gidim / 2 >= self.gpu_properties.multi_processor_count:
-                bdimx *= 2
-                gidim /= 2
+                bdimy = min(num_reductions, threads_per_cta // bdimx)
 
-            scheduler_config.bdimx = bdimx
-            scheduler_config.bdimy = bdimy
-            scheduler_config.gidim = gidim
-            yield scheduler_config
+                yield self.OuterReductionConfiguration(
+                    bdimx=bdimx,
+                    bdimy=bdimy,
+                    gidim=gidim,
+                    reduction_unroll_factor=reduction_unroll_factor,
+                    iteration_unroll_factor=vectorize_factor,
+                )
 
         def get_grid_outer_reduction_configurations(
             threads_per_cta, vectorize_factor, reduction_unroll_factor
         ):
-            scheduler_config = self.OuterReductionConfiguration(
-                reduction_unroll_factor=reduction_unroll_factor,
-                iteration_unroll_factor=vectorize_factor,
-            )
-
             gidim = 1
             grdim = 1
             bdimx = 1
@@ -263,11 +254,14 @@ class AutotuneOuterReduction:
             # TODO if (num_reductions_available > 16) and number of potential
             # ctas < 2 * sm_count, then increase grdim carefully
 
-            scheduler_config.bdimx = bdimx
-            scheduler_config.bdimy = bdimy
-            scheduler_config.gidim = gidim
-            scheduler_config.grdim = grdim
-            yield scheduler_config
+            yield self.OuterReductionConfiguration(
+                bdimx=bdimx,
+                bdimy=bdimy,
+                gidim=gidim,
+                grdim=grdim,
+                reduction_unroll_factor=reduction_unroll_factor,
+                iteration_unroll_factor=vectorize_factor,
+            )
 
         for (
             threads_per_cta,
