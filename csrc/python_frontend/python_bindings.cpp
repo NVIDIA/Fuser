@@ -762,7 +762,6 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   nvfuser.def("clone", clone);
 
-  py::arg("max_fusions") = int(16384),
   nvfuser.def(
       "get_registers_per_thread",
       getRegPerThreadGivenThreadsPerSM,
