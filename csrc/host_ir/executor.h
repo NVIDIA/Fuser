@@ -139,7 +139,6 @@ class HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_device_index_;
-  std::vector<cudaEvent_t> events_;
 };
 
 } // namespace hir

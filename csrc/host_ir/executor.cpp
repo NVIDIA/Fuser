@@ -216,12 +216,6 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
     dispatch(expr);
   }
 
-  c10::cuda::getCurrentCUDAStream(
-      static_cast<c10::DeviceIndex>(my_device_index_))
-      .synchronize();
-  for (auto event : events_) {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
-  }
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
@@ -293,7 +287,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream_to_sync));
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
-  events_.push_back(event);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
