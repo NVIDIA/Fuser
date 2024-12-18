@@ -538,4 +538,40 @@ TEST_F(MultiDeviceTest, ShardTensor_InnerSplit) {
           ::testing::HasSubstr("DID on inner splits")));
 }
 
+TEST_F(MultiDeviceTest, BiasAddRelu) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int b = 2;
+  const int s = 128;
+  const int h = d * 64;
+
+  TensorView* in = makeContigConcreteTensor({b, s, h});
+  TensorView* bias = makeContigConcreteTensor({h});
+  TensorView* broadcasted_bias = broadcast(bias, {true, true, false});
+  TensorView* add_out = add(in, broadcasted_bias);
+  TensorView* out = relu(add_out);
+
+  fusion->addInput(in);
+  fusion->addInput(bias);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, bias, broadcasted_bias, add_out, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(-1, d, /*inner_split=*/false);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options);
+  at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
+  std::vector<c10::IValue> in_tensors({in_tensor, bias_tensor});
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs(in_tensors)[0];
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, in_tensors, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
