@@ -154,7 +154,6 @@ class NVFBenchmark:
         # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
         # See PR: https://github.com/pytorch/pytorch/pull/125510
         self.prof.profiler = None
-        self.prof.start()
 
         return self.current_time
 
