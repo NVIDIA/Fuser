@@ -467,6 +467,7 @@ void HostIrEvaluator::handle(ForLoop* for_loop) {
       expr_evaluator_.invalidate(consumer);
     }
     expr_evaluator_.bind(for_loop->index(), i);
+    std::cout << "dispatching all for loop body exprs with index " << i << std::endl;
     for (Expr* expr : for_loop->body().exprs()) {
       dispatch(expr);
     }
@@ -489,9 +490,24 @@ void HostIrEvaluator::handle(EndCoalescing* end_coalescing) {
   works_[end_coalescing] = backend->endCoalescing();
 }
 
+static void invalidate_recursive(ExpressionEvaluator &expr_evaluator_, Val *val)
+{
+  expr_evaluator_.invalidate(val);
+  if (val->definition()) {
+    for (auto *v : val->definition()->outputs()) {
+      expr_evaluator_.invalidate(v);
+    }
+    for (auto *v : val->definition()->inputs()) {
+      expr_evaluator_.invalidate(v);
+    }
+  }
+}
+
 void HostIrEvaluator::handle(kir::IfThenElse* if_then_else) {
+  invalidate_recursive(expr_evaluator_, if_then_else->predicate()->value());
   auto predicate =
       expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
+  std::cout << "predicate for if then was " << predicate << std::endl;
   const auto& scope =
       predicate ? if_then_else->thenBody() : if_then_else->elseBody();
   for (Expr* expr : scope.exprs()) {
