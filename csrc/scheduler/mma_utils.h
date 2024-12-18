@@ -245,14 +245,14 @@ class MmaSwizzler {
 };
 
 //! Schedules the copy operation of output of a Mma op which resided in the
-//! shared memory to global memory. This assumes the outout of Mma in the
-//! shared memory is of the form [M, N].
-//! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
-//! marked parallel type bulk.
-void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
+//! shared memory to global memory.
+void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);
 
+//! Schedules the copy operation of output of a Mma op which resided in the
+//! registers to shared memory.
 void scheduleStMatrixForMmaOutput(
     TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
     int64_t tile_m,
     int64_t tile_n);
 
@@ -327,7 +327,11 @@ struct MatmulPattern {
   //! there is a MatmulOp instead, this function modifies the fusion to insert
   //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
   //! updated to reflect the replacement tensor.
-  MmaOp* translateToMmaOp();
+  //!
+  //! If avoid_intermediates is true, this function will use an
+  //! MmaOp::AxisMapping instead of broadcasting and permuting axes, in order to
+  //! avoid introducing unnecessary copies on Hopper and above.
+  MmaOp* translateToMmaOp(bool avoid_intermediates = false);
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
   //! (MatmulDimRole). Note that ValGroup is a shared_ptr to a
@@ -481,6 +485,13 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
       "swizzled dimension's extend must be known during scheduling, got ",
       id->toString());
 }
+
+//! Automatically generates the shared memory swizzled data layout for tma loads
+//! in matmul mainloop. The shared memory data layout is always 2D currently.
+//! This utility function assumes that the shared_mem_tv has the following
+//! structure: [tile_row, tile_col]
+//! Returns which swizzle format to use for mma inputs with tma loads.
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv);
 
 } // namespace mma_utils
 

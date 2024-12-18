@@ -316,6 +316,28 @@ class StmtSort : public IterVisitor {
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
+  // Returns all ordered Statements of a given fusion. Unlike
+  // getStmts, for TensorDomain, all of its iter domains and exprs are
+  // grabbed and returned in a topological order.
+  NVF_API static std::vector<Statement*> getAllStmts(
+      Fusion* fusion,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
+  // Returns ordered Statements required to produce 'to', including
+  // 'to'. Unlike getStmtsTo, for TensorDomain, all of its iter domains and
+  // exprs are grabbed and returned in a topological order, regardless of
+  // `traverse_members`.
+  //
+  // The to vals are assumed to be either TensorView or scalar
+  // Val. This assumption could be removed if desired.
+  NVF_API static std::vector<Statement*> getAllStmtsTo(
+      const std::vector<Val*>& to,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
   // Returns ordered Statements required to produce from, including from.
   // Stops traversal once hiting any Statements in to. Includes Statements in
   // to.
