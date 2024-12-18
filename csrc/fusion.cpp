@@ -231,8 +231,6 @@ void Fusion::removeVal(Val* val) {
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
-  std::cout << "Registering input: " << input->toString() << std::endl;
-
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     tv->setMemoryType(MemoryType::Global);

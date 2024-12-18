@@ -180,7 +180,7 @@ class KernelExecutor : public ExecutorAbstract {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  const std::unique_ptr<Fusion>& fusion() {
+  const std::unique_ptr<Fusion>& fusion() const {
     return fusion_;
   }
   //! Internal knob used for debugging/profiling only

@@ -4098,7 +4098,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputs) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4188,7 +4188,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape1) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4274,7 +4274,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4379,7 +4379,7 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4496,7 +4496,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4616,7 +4616,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4700,7 +4700,7 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(
@@ -4798,7 +4798,7 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
     const auto& heuristic_param =
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-    Fusion* scheduled_fusion =
+    auto& scheduled_fusion =
         dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
             ->fusion();
     checkLoopDomainEquivalence(

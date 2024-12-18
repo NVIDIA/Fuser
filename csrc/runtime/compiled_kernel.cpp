@@ -23,7 +23,6 @@
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
@@ -1113,6 +1112,15 @@ void CompiledKernel::compileFusion(
     fusion()->print();
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion()->printMath();
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
+    std::stringstream file_name;
+    file_name << "__tmp_fusion_ir_graph_" << kernel_id_ << ".dot";
+    IrGraphGenerator::print(
+        fusion(),
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
   }
 
   c10::DeviceGuard dg(options_.device);

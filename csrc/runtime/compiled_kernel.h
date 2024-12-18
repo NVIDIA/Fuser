@@ -13,6 +13,7 @@
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
+#include <ir/graphviz.h>
 #include <ir/printer.h>
 #include <multidevice/communicator.h>
 #include <runtime/allocations.h>
