@@ -274,9 +274,8 @@ void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
 }
 
 void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
-  auto my_device_index = communicator_
-      ? static_cast<c10::DeviceIndex>(communicator_->deviceId())
-      : 0;
+  auto my_device_index = static_cast<c10::DeviceIndex>(
+      communicator_ ? communicator_->deviceId() : 0);
   streams_.insert(
       {get_current_stream->stream(),
        c10::cuda::getCurrentCUDAStream(my_device_index)});
