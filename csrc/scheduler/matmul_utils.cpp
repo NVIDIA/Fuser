@@ -891,9 +891,10 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // scheduler.
   // 6. Check if the fusion is resharding.
 
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+
   // #0
   {
-    const auto device_prop = at::cuda::getCurrentDeviceProperties();
     // Use a dummy problem shape to determine whether this is a supported
     // device.
     const auto mma_op = getMmaOp(
@@ -915,6 +916,16 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     for (const mma_utils::MatmulPattern& pattern : patterns) {
       Expr* op = pattern.output->definition();
+      if (device_prop->major >= 9 && op->isA<ReductionOp>()) {
+        bool found_reduction = false;
+        for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+          if (found_reduction &&
+              !pattern.output->axis((int64_t)dim)->isReduction()) {
+            return "Mul+Sum patterns can only be translated to MmaOp "
+                   "on Hopper if the reduction dim is innermost";
+          }
+        }
+      }
       if (op->isA<MatmulOp>() || op->isA<LinearOp>()) {
         if (!isOptionEnabled(EnableOption::FuseMatmul)) {
           // Check for MatmulOp or LinearOp. If found, then only fuse if option

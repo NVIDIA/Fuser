@@ -729,5 +729,9 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
+// Reorder DID parallelized axes to outermost positions. Returns
+// the position of the outermost non-DID axis.
+int64_t reorderDevicesToOuter(TensorView* tv);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
