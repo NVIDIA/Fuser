@@ -32,12 +32,19 @@ class DomainMap {
   }
 
   // Determine if a TensorView is a valid reference tensor for this fusion.
-  // The reference tensor must map to all the iterDomains in each input.
+  // The reference tensor must map to all the iterDomains in each input and
+  // output.
   bool isValidReference(TensorView* tv) const;
 
  protected:
   // Determine if all IterDomains are mapped between input and the given tvs
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
+      const;
+
+  // Determine if all source IterDomains in target_tv are contained by the
+  // reference_tv, this ensures transformations from reference_tv can be
+  // propagated to target_tv
+  bool areAllTargetIdsCoveredBy(TensorView* target_tv, TensorView* reference_tv)
       const;
 
   virtual IterDomain* getMappedInputConcreteID(
