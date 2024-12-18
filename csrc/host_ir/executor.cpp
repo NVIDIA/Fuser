@@ -293,6 +293,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream_to_sync));
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
+  events_.push_back(event);
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
