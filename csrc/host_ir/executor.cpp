@@ -188,7 +188,8 @@ HostIrEvaluator::HostIrEvaluator(
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params) {
+      params_(params),
+      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -200,6 +201,7 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithInput(
@@ -215,6 +217,12 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
     dispatch(expr);
   }
 
+  c10::cuda::getCurrentCUDAStream(
+      static_cast<c10::DeviceIndex>(my_device_index_))
+      .synchronize();
+  for (auto event : events_) {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+  }
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
@@ -273,8 +281,27 @@ void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
   setCurrentCUDAStream(getCUDAStream(set_current_stream->stream()));
 }
 
+void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
+  streams_.insert(
+      {get_current_stream->stream(),
+       c10::cuda::getCurrentCUDAStream(
+           static_cast<c10::DeviceIndex>(my_device_index_))});
+}
+
 void HostIrEvaluator::handle(Synchronize* synchronize) {
-  getCUDAStream(synchronize->stream()).synchronize();
+  cudaStream_t current_stream =
+      c10::cuda::getCurrentCUDAStream(
+          static_cast<c10::DeviceIndex>(my_device_index_))
+          .stream();
+  cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
+
+  cudaEvent_t event = {};
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream_to_sync));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {

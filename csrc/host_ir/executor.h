@@ -74,6 +74,7 @@ struct HostIrEvaluatorParams {
   // Experimental: whether to cache fusion executor. WAR: avoid recompilation
   // but implicitely assumes that the input shape don't change over iterations
   bool cache_fusion_executor = false;
+  int64_t number_of_streams = 4;
 };
 
 class HostIrEvaluator final : public OptOutDispatch {
@@ -112,6 +113,7 @@ class HostIrEvaluator final : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
+  void handle(GetCurrentStream* get_current_stream) override;
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
@@ -138,6 +140,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
+  const int64_t my_device_index_;
 };
 
 } // namespace hir
