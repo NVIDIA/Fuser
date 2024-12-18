@@ -8,7 +8,6 @@ import math
 import itertools
 from nvfuser import FusionCache, FusionDefinition
 from dataclasses import dataclass, astuple
-from typing import Callable
 
 # ================================ Description ================================
 # This file contains the utility function for autotuning scripts.
@@ -183,7 +182,14 @@ def separate_data(script_config, parameters, performance):
 
 
 # Apply schedule decorator, run fusion, and profile performance
-def run_profile(autotune_config, presched_fd, inputs, scheduler_config=None):
+def run_profile(
+    autotune_config,
+    presched_fd,
+    inputs,
+    scheduler_config=None,
+    *,
+    disable_validation=False,
+):
     scheduled_fd = autotune_config.custom_scheduler(presched_fd, scheduler_config)
     nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
@@ -193,15 +199,14 @@ def run_profile(autotune_config, presched_fd, inputs, scheduler_config=None):
             inp.grad.data.zero_()
 
     # validate correctness
-    """
-    eager_output = autotune_config.eager_reference(inputs)
-    assert torch.allclose(
-        nvf_outputs[0].to(torch.double),
-        eager_output.to(torch.double),
-        atol=5e-1,
-        rtol=5e-1,
-    )
-    """
+    if not disable_validation:
+        eager_output = autotune_config.eager_reference(inputs)
+        assert torch.allclose(
+            nvf_outputs[0].to(torch.double),
+            eager_output.to(torch.double),
+            atol=5e-1,
+            rtol=5e-1,
+        )
 
     prof = scheduled_fd.profile()
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
@@ -326,7 +331,11 @@ def test_model(clf, script_config, autotune_config):
             autotune_config.create_fusion_func()(presched_fd)
 
         _, est_time_ms = run_profile(
-            autotune_config, presched_fd, inputs, estimate_config
+            autotune_config,
+            presched_fd,
+            inputs,
+            estimate_config,
+            disable_validation=True,
         )
         est_perfs.append(est_time_ms)
         print(
@@ -344,7 +353,9 @@ def test_model(clf, script_config, autotune_config):
         with FusionDefinition() as presched_fd:
             autotune_config.create_fusion_func()(presched_fd)
 
-        _, nvf_time_ms = run_profile(autotune_config, presched_fd, inputs)
+        _, nvf_time_ms = run_profile(
+            autotune_config, presched_fd, inputs, disable_validation=True
+        )
         nvf_perfs.append(nvf_time_ms)
         print(
             f"{script_config.empirical_batch_size}, {hidden_shape}, {nvf_time_ms: .3f}"

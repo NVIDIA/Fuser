@@ -23,8 +23,6 @@ from autotune_utils import (
     test_model,
     at_least_one_div,
     ceil_div,
-    floor_div,
-    round_down_pow2,
     round_up_pow2,
     round_up_multiple_of,
     round_down_pow2_or_multiple_of,
@@ -238,7 +236,6 @@ class AutotuneOuterReduction:
             bdimy = min(ceil_div(threads_per_cta, bdimx), num_reductions)
             bdimy = round_down_pow2_or_multiple_of(bdimy, 8)
 
-
             gidim = ceil_div(num_iterations, gidim * bdimx * vectorize_factor)
             num_reductions_available = ceil_div(
                 num_reductions, grdim * bdimy * reduction_unroll_factor
@@ -284,9 +281,9 @@ class AutotuneOuterReduction:
             vectorization_factor_options,
             reduction_unroll_factor_options,
         ):
-            # yield from get_block_outer_reduction_configurations(
-            #    threads_per_cta, vectorize_factor, reduction_unroll_factor
-            # )
+            yield from get_block_outer_reduction_configurations(
+                threads_per_cta, vectorize_factor, reduction_unroll_factor
+            )
             yield from get_grid_outer_reduction_configurations(
                 threads_per_cta, vectorize_factor, reduction_unroll_factor
             )
