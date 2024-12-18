@@ -98,7 +98,8 @@ void limitCircularBufferingSmemOperands(
 inline bool initCoreHeuristics(
     MatmulParams* mparams,
     const ProblemShape& problem_shape,
-    const mma_utils::TensorRolesMap& tensor_roles) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
   const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -113,7 +114,7 @@ inline bool initCoreHeuristics(
     // - start with [4, 4, 2] shape, later it should depend on problem
     //   shape and have bigger impact on CTA tile shape
 
-    const DimType m_ratio = 4;
+    const DimType m_ratio = 4 / num_problems;
     const DimType n_ratio = 4;
     const DimType k_ratio = 2;
 
@@ -264,10 +265,11 @@ std::string isMatmulFusionDefinitionSupported(
            {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
         auto entry = tensor_roles.find(role);
         if (entry != tensor_roles.end()) {
-          if (1 == entry->second.size()) {
+          if (isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+              1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           } else {
-            return "There is other than one fusion input that can be MMA operand";
+            return "There is other than one fusion input that can be MMA operand (enable fuse_multiple_matmuls)";
           }
         } else {
           return "No candidate in fusion inputs for MMA operand";
@@ -370,10 +372,16 @@ class VectorizationCalculator {
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_A);
-    NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
+    NVF_ERROR(
+        isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+            a_vecs.size() == 1,
+        "Expected exactly one A operand");
     const std::vector<int64_t> b_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_B);
-    NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
+    NVF_ERROR(
+        isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+            b_vecs.size() == 1,
+        "Expected exactly one B operand");
     return {a_vecs[0], b_vecs[0], epilogueVectorization()};
   }
 
@@ -703,8 +711,10 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
       mma_utils::findMatmulPatterns(fusion);
   NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
   NVF_ERROR(
-      patterns.size() == 1,
-      "Only a single matmul pattern can currently be fused");
+      isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+          patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused ",
+      "unless the fuse_multiple_matmuls option is enabled");
   mma_utils::MatmulPattern& pattern = patterns.front();
 
   // IdModel is used to analyze problem shape & layout
@@ -750,14 +760,21 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         problem_shape[(size_t)MatmulDimRole::Batch],
         inner_dims,
         tensor_roles);
+    // TODO: more sophisticated handling of multiple matmuls when using plugin
+    mparams->tile_sizes.cta_tile.m /= patterns.size();
   } else {
     TORCH_WARN_ONCE(
         "Scheduling a matmul without heuristic plugin. "
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
     // Populate heuristic details
-    auto status =
-        initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
+    auto status = initCoreHeuristics(
+        mparams.get(),
+        problem_shape,
+        tensor_roles,
+        // TODO: this assumes all patterns will lie in the same main loop, which
+        // might be false
+        /*num_problems=*/patterns.size());
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
@@ -857,7 +874,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     }
   }
 
-  if (patterns.size() > 1) {
+  if (!isOptionEnabled(EnableOption::FuseMultipleMatmuls) &&
+      patterns.size() > 1) {
     return "Only a single matmul pattern can currently be fused";
   }
 
