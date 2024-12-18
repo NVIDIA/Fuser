@@ -24,7 +24,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
     hir::HostIrEvaluatorParams params)
-    : comm_(comm), number_of_outputs_(fusion->outputs().size()) {
+    : comm_(comm),
+      number_of_outputs_(static_cast<int64_t>(fusion->outputs().size())) {
   std::unique_ptr<hir::HostIrContainer> hic =
       HostIrLower::lower(std::move(fusion), comm.deviceId());
   // Create the HostIrEvaluator representing the host program
