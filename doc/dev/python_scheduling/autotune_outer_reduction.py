@@ -172,16 +172,17 @@ class AutotuneOuterReduction:
             reduction_params.lparams.bdimy = scheduler_config.bdimy
         else:
             reduction_params.lparams.bdimx = scheduler_config.bdimy
+            reduction_params.lparams.bdimy = 1
 
     # For reduction scheduler, we test the cartesian product of vectorization and
     # unroll factors.
     def generate_scheduler_configurations(self, input_shape):
         threads_per_cta_options = [128, 256, 512, 1024]
         vectorization_factor_options = [1, 2, 4, 8]
-        reduction_unroll_factor_options = list(range(1, 11, 2))
+        reduction_unroll_factor_options = [1, 2, 4, 8, 10]
         warp_size = 32
 
-        num_iterations, num_reductions = input_shape
+        num_reductions, num_iterations = input_shape
         num_elements = num_iterations * num_reductions
 
         def get_block_outer_reduction_configurations(
@@ -237,6 +238,7 @@ class AutotuneOuterReduction:
             bdimy = min(ceil_div(threads_per_cta, bdimx), num_reductions)
             bdimy = round_down_pow2_or_multiple_of(bdimy, 8)
 
+
             gidim = ceil_div(num_iterations, gidim * bdimx * vectorize_factor)
             num_reductions_available = ceil_div(
                 num_reductions, grdim * bdimy * reduction_unroll_factor
@@ -246,11 +248,21 @@ class AutotuneOuterReduction:
                 ceil_div(self.gpu_properties.multi_processor_count, gidim),
             )
 
-            # target_num_ctas = min(
-            #    ceil_div(self.gpu_properties.multi_processor_count, 4),
-            #    ceil_div(num_elements, threads_per_cta),
-            # )
-            # TODO if gidm * grdim < target_num_ctas, then increase grdim
+            if num_elements > 64 * 1024 * 1024:
+                num_waves = 8
+            else:
+                num_waves = 4
+
+            target_num_ctas = self.gpu_properties.multi_processor_count * num_waves
+            if gidim * grdim < target_num_ctas:
+                num_reductions_available = ceil_div(
+                    num_reductions, grdim * bdimy * reduction_unroll_factor
+                )
+                grdim = min(
+                    ceil_div(num_reductions_available * grdim, 2),
+                    ceil_div(target_num_ctas, gidim),
+                )
+
             # TODO if (num_reductions_available > 16) and number of potential
             # ctas < 2 * sm_count, then increase grdim carefully
 
@@ -272,9 +284,9 @@ class AutotuneOuterReduction:
             vectorization_factor_options,
             reduction_unroll_factor_options,
         ):
-            yield from get_block_outer_reduction_configurations(
-                threads_per_cta, vectorize_factor, reduction_unroll_factor
-            )
+            # yield from get_block_outer_reduction_configurations(
+            #    threads_per_cta, vectorize_factor, reduction_unroll_factor
+            # )
             yield from get_grid_outer_reduction_configurations(
                 threads_per_cta, vectorize_factor, reduction_unroll_factor
             )
@@ -438,7 +450,7 @@ def main():
     )
 
     autotune_config = AutotuneOuterReduction(
-        selected_fusion=AutotuneOuterReduction.FUSION.OUTER_SUM
+        selected_fusion=AutotuneOuterReduction.FUSION.GELU_BIAS_BWD
     )
 
     # ============================ Run Experiments  ============================
