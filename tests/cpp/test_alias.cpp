@@ -961,34 +961,6 @@ TEST_F(AliasTest, SourceIsBothInputAndOutput) {
   EXPECT_EQ(in_tensor.data_ptr(), out_tensors[1].data_ptr());
 }
 
-TEST_F(AliasTest, SegmentBoundary) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* out = permute(in, {1, 0});
-  // With the current segmentation algorithm, `slice` has to be the start of a
-  // fusion. So we expect `permute` to form a meta-op-only segment and the rest
-  // a pointwise segment.
-  out = slice(out, {0, 0}, {2, 2});
-  out = add(out, out);
-  fusion->addInput(in);
-  fusion->addOutput(out);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
-  testValidate(
-      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
-
-  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_THAT(
-      runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
-          HeuristicIs(SchedulerType::PointWise)));
-}
-
 TEST_F(AliasTest, ReuseBuffer) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

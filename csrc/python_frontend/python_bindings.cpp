@@ -823,7 +823,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("inner_outer_persistent", SchedulerType::InnerOuterPersistent)
       .value("outer_persistent", SchedulerType::OuterPersistent)
       .value("transpose", SchedulerType::Transpose)
-      .value("expr_eval", SchedulerType::ExprEval);
+      .value("expr_eval", SchedulerType::ExprEval)
+      .value("resize", SchedulerType::Resize);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);

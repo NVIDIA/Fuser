@@ -16,6 +16,7 @@
 #include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>

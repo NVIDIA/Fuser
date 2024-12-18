@@ -8086,26 +8086,29 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  // check segment and sliced tvs are not cached
+  // check segmentation and sliced tvs are not cached if not scheduled by
+  // the resize scheduler
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(kernel_runtime->isSegmented(), "segmentation didn't happen");
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
-  NVF_CHECK(num_segments == 3, "Expect 3 segments, got: ", num_segments);
-  for (const auto& exec : kernel_runtime->executors()) {
+  EXPECT_EQ(num_segments, 3) << "Expect 3 segments, got: " << num_segments;
+  for (const auto i : c10::irange(kernel_runtime->executors().size())) {
+    const auto& exec = kernel_runtime->executors().at(i);
     if (!exec->isA<KernelExecutor>()) {
       continue;
     }
-    // TODO: Fix
-    // const auto* ke = exec->as<KernelExecutor>();
-    // for (auto expr : ke->fusion()->exprs()) {
-    //   if (expr->isA<SliceOp>()) {
-    //     auto slice = expr->as<SliceOp>();
-    //     NVF_CHECK(
-    //         slice->in()->getMemoryType() == MemoryType::Global,
-    //         "slice input must be in global memory, get: ",
-    //         slice->in()->getMemoryType());
-    //   }
-    // }
+    if (kernel_runtime->schedulerHeuristics()
+            ->heuristicsList()
+            .at(i)
+            ->scheduler_type == SchedulerType::Resize) {
+      continue;
+    }
+    const auto* ke = exec->as<KernelExecutor>();
+    for (auto expr : ke->fusion()->exprs()) {
+      if (expr->isA<SliceOp>()) {
+        auto slice = expr->as<SliceOp>();
+        EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global);
+      }
+    }
   }
 }
 
