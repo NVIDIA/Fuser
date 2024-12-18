@@ -8,6 +8,7 @@
 #include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
@@ -947,8 +948,12 @@ TensorView* broadcast(
                                .iter_type(IterType::Broadcast)
                                .build());
     } else {
-      out_domain.push_back(
-          IterDomainBuilder(inp_domain[iinp]).resetSchedulingParams().build());
+      auto inp_id = inp_domain[iinp];
+      auto out_id = IterDomainBuilder(inp_id).resetSchedulingParams().build();
+      if (inp_id->isDeviceDim()) {
+        out_id->parallelize(inp_id->getParallelType());
+      }
+      out_domain.push_back(out_id);
       iinp++;
     }
     ibdim++;

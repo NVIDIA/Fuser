@@ -200,6 +200,7 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithInput(

@@ -102,6 +102,12 @@ class MultiDeviceExecutor {
   Communicator& comm_;
   // holds the HostIrEvaluator used for execution
   std::unique_ptr<hir::HostIrEvaluator> host_ir_executor_;
+  // Store the number of outputs before it possibly gets artificially modified
+  // by HostIr::lower. This is undesirable but required for now. For more
+  // details, search for the comment in host_ir/lower.cpp tagged with "[TAG:
+  // adding articifial outputs]"
+  // TODO: fix
+  int64_t number_of_outputs_;
 };
 
 } // namespace nvfuser

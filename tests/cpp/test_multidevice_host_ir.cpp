@@ -349,6 +349,50 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
   EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
 }
 
+using OverlapDistributedMatmulTest = MultiDeviceTest;
+
+TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
+  constexpr int64_t M = 1024;
+  constexpr int64_t K = 256;
+  constexpr int64_t N = 512;
+  constexpr int64_t S = 8;
+  const int64_t D = communicator_->size();
+  ASSERT_EQ(M % (D * S), 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*d), K]
+  TensorView* b = makeContigTensor(2); //[K, N]
+  TensorView* c = matmul(a, b); //[S, D, M/(S*D), N]
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+
+  a->axis(1)->parallelize(ParallelType::DIDx);
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  at::Tensor ta_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
+  at::Tensor ta = ta_unsharded.slice(
+      1, communicator_->deviceId(), communicator_->deviceId() + 1);
+  at::Tensor tb = at::randn({K, N}, tensor_options);
+  at::Tensor tc_ref = at::matmul(ta_unsharded, tb);
+
+  std::vector<c10::IValue> inputs = {ta, tb};
+  auto tc = executor.runWithInput(inputs).at(0);
+
+  EXPECT_TRUE(torch::allclose(tc_ref, tc));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
