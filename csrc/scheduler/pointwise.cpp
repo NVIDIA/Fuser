@@ -493,11 +493,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.
