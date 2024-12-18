@@ -71,40 +71,14 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& broadcast_graph = id_model.buildBroadcastGraph();
 
-  // For now, only a single resize op is allowed to exist.
   auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
-  if (resize_based_tensor_ops.size() != 1) {
+
+  if (auto non_exclusive_resizes = scheduler_tools::getNonExclusiveResizeInfo(
+          resize_based_tensor_ops, id_model.idGraph(IdMappingMode::EXACT));
+      !non_exclusive_resizes.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Only a single resize op is allowed.");
+        schedulerType(), "Not exclusively consumed.");
     return false;
-  }
-
-  auto resize_out_tv =
-      resize_based_tensor_ops.at(0)->output(0)->as<TensorView>();
-
-  auto all_dep_vals = DependencyCheck::getAllValsBetween(
-      {fusion->inputs().begin(), fusion->inputs().end()}, {resize_out_tv});
-  for (auto tv : ir_utils::filterByType<TensorView>(all_dep_vals)) {
-    if (tv == resize_out_tv) {
-      continue;
-    }
-    if (tv->isFusionOutput()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(),
-          "Dependency to fusion output not allowed: ",
-          tv->toString());
-      return false;
-    }
-    for (auto consumer_of_tv : ir_utils::consumerTvsOf(tv)) {
-      if (std::find(all_dep_vals.begin(), all_dep_vals.end(), consumer_of_tv) ==
-          all_dep_vals.end()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedulerType(),
-            "Resize inputs must be exclusively consumed by resize: ",
-            consumer_of_tv->toString());
-        return false;
-      }
-    }
   }
 
   // Slicing of or to a broadcast ID is not allowed yet.
