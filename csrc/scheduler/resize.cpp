@@ -76,8 +76,13 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (auto non_exclusive_resizes = scheduler_tools::getNonExclusiveResizeInfo(
           resize_based_tensor_ops, id_model.idGraph(IdMappingMode::EXACT));
       !non_exclusive_resizes.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Not exclusively consumed.");
+    std::stringstream msg;
+    msg << "Propagation of resizes would affect fusion outputs.";
+    for (const auto& [tv, resize_ids] : non_exclusive_resizes) {
+      msg << " Resize input tv: " << tv->toString()
+          << ", resize input ID groups: " << nvfuser::toString(resize_ids);
+    }
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg.str());
     return false;
   }
 
