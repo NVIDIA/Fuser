@@ -541,7 +541,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
-      if (store_with_stmatrix) {
+      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
+          mma_results_.end()) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
