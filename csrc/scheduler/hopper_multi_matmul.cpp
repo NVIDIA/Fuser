@@ -520,7 +520,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Use stmatrix to store 16b data types.
-      bool store_with_stmatrix = dc->dtype() == DataType::Half ? true : false;
+      bool store_with_stmatrix = dc->dtype() == dataTypeSize(dc->dtype()) == 2 ;
 
       if (store_with_stmatrix) {
         d_smem->definition()->as<LoadStoreOp>()->setOpType(
@@ -538,6 +538,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
+      // Should not propagate if the dc is a mma output.
       if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
           mma_results_.end()) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -569,8 +570,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
       }
-      // We don't respect vectorization_factor as yet
-      // TODO: support vectorization_factor (for non-stmatrix)
+      
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
