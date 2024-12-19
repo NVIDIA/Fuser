@@ -4083,6 +4083,9 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
+  // TODO When B operand is transposed, cta.k == 64 and
+  // getM(mma_macro) != getN(mma_macro), there is incorrect results with
+  // stmatrix.
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
@@ -4090,8 +4093,6 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  // NOTE When cta.k is 64, prefetch_gap = 1, and B operand is transposed,
-  // incorrect results occurs for certain tiles of mma_result.
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
@@ -4148,6 +4149,9 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
+  // TODO When B operand is transposed, cta.k == 64 and
+  // getM(mma_macro) != getN(mma_macro), there is incorrect results with
+  // stmatrix.
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
@@ -4155,8 +4159,6 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  // NOTE When cta.k is 64, prefetch_gap = 1, and B operand is transposed,
-  // incorrect results occurs for certain tiles of mma_result.
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
