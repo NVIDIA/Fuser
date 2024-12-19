@@ -1250,6 +1250,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
+    // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
     initializeIO();
 
