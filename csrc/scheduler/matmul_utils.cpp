@@ -960,13 +960,24 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     for (const mma_utils::MatmulPattern& pattern : patterns) {
       Expr* op = pattern.output->definition();
-      if (device_prop->major >= 9 && op->isA<ReductionOp>()) {
-        bool found_reduction = false;
-        for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
-          if (found_reduction &&
-              !pattern.output->axis((int64_t)dim)->isReduction()) {
-            return "Mul+Sum patterns can only be translated to MmaOp "
-                   "on Hopper if the reduction dim is innermost";
+      if (device_prop->major >= 9) {
+        for (TensorView* operand : {pattern.A, pattern.B}) {
+          if (!operand->isFusionInput() || operand->definition() == nullptr ||
+              !operand->definition()->isA<LoadStoreOp>() ||
+              !operand->definition()->input(0)->isFusionInput() ||
+              operand->hasRoot()) {
+            return "Operand " + operand->toString() +
+                " must be a fusion input or non-permuting LoadStoreOp of an input on Hopper";
+          }
+        }
+        if (op->isA<ReductionOp>()) {
+          bool found_reduction = false;
+          for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+            if (found_reduction &&
+                !pattern.output->axis((int64_t)dim)->isReduction()) {
+              return "Mul+Sum patterns can only be translated to MmaOp "
+                     "on Hopper if the reduction dim is innermost";
+            }
           }
         }
       }
