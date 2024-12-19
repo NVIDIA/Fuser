@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from .core import run_benchmark, with_executor, unary_bwd_torch
+from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 import torch
 
 from torch import nn
