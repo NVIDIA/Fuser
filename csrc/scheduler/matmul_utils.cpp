@@ -208,7 +208,8 @@ bool fillDefaultAmpereHeuristic(
 bool fillDefaultHopperHeuristic(
     MatmulParams* mparams,
     const ProblemShape& problem_shape,
-    const mma_utils::TensorRolesMap& tensor_roles) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
   const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -231,7 +232,7 @@ bool fillDefaultHopperHeuristic(
     DimType cta_m = warp_tile.m * m_ratio;
     DimType cta_n = warp_tile.n * n_ratio;
     DimType num_warp_groups = m_ratio * n_ratio;
-    return cta_n * cta_m < max_registers_per_sm
+    return cta_n * cta_m * num_problems < max_registers_per_sm
         // Each warp group is 128 threads. We can only have a maximum of 1024
         // threads per SM, or 8 warp groups.
         && num_warp_groups <= 8 &&
@@ -313,11 +314,14 @@ bool fillDefaultHopperHeuristic(
 inline bool initCoreHeuristics(
     MatmulParams* mparams,
     const ProblemShape& problem_shape,
-    const mma_utils::TensorRolesMap& tensor_roles) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
   if (isHopper(mparams->mma_macro)) {
-    return fillDefaultHopperHeuristic(mparams, problem_shape, tensor_roles);
+    return fillDefaultHopperHeuristic(
+        mparams, problem_shape, tensor_roles, num_problems);
   } else if (isAmpere(mparams->mma_macro) || isTuring(mparams->mma_macro)) {
-    return fillDefaultHopperHeuristic(mparams, problem_shape, tensor_roles);
+    return fillDefaultHopperHeuristic(
+        mparams, problem_shape, tensor_roles, num_problems);
   }
   // Unsupported arch
   return false;
