@@ -4427,25 +4427,83 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs2) {
   fusion.addOutput(tv3);
   fusion.addOutput(tv6);
 
-  IdModel id_model(&fusion, /*build_graphs=*/false);
-  const auto& exact_graph = id_model.buildExactGraph();
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
 
-  auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
-      ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_EQ(non_exclusive_resize_info.size(), 2);
 
-  // tv1 is the input of the first slice, which is not exclusive as
-  // tv1 is also a producer of tv4.
-  EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
-  EXPECT_EQ(
-      non_exclusive_resize_info.at(tv1),
-      exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
+    // tv2 is the output of the first slice, which is not exclusive as
+    // tv1 is also a producer of tv4.
+    EXPECT_EQ(non_exclusive_resize_info.count(tv2), 1);
+    scheduler_tools::ResizeExclusivityInfo tv2_info{
+        {tv1}, exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv2), tv2_info);
 
-  // Similary, tv4 is the input of the second slice, which is not exclusive as
-  // tv1 is also a producer of tv2.
-  EXPECT_EQ(non_exclusive_resize_info.count(tv4), 1);
-  EXPECT_EQ(
-      non_exclusive_resize_info.at(tv4),
-      exact_graph.toGroups(std::vector<Val*>{tv4->axis(1)}));
+    // Similary, tv5 is the output of the second slice, which is not exclusive
+    // as tv1 is also a producer of tv2.
+    EXPECT_EQ(non_exclusive_resize_info.count(tv5), 1);
+    scheduler_tools::ResizeExclusivityInfo tv5_info{
+        {tv1}, exact_graph.toGroups(std::vector<Val*>{tv4->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv5), tv5_info);
+  }
+
+  // Test replication-based mitigation of conflicts
+  {
+    Fusion fusion_copy = fusion;
+    FusionGuard fg(&fusion_copy);
+
+    auto tv0 = fusion_copy.inputs().at(0)->as<TensorView>();
+    auto tv2 =
+        fusion_copy.outputs().at(0)->definition()->input(0)->as<TensorView>();
+    auto slice = dynamic_cast<SliceOp*>(tv2->definition());
+    ASSERT_NE(slice, nullptr);
+    auto tv1 = slice->input(0)->as<TensorView>();
+    auto tv5 =
+        fusion_copy.outputs().at(1)->definition()->input(0)->as<TensorView>();
+    auto tv4 = tv5->definition()->input(0)->as<TensorView>();
+
+    // Replicate tv1 for tv2
+    auto private_copy = RecomputeTv::recompute(tv1);
+    ir_utils::replaceValInExprInputs(slice, tv1, private_copy);
+
+    // The two slices should still be reported as non-exclusive but they
+    // both are shared at the fusion input.
+    IdModel id_model(&fusion_copy, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion_copy), exact_graph);
+    EXPECT_EQ(non_exclusive_resize_info.size(), 2);
+    EXPECT_EQ(non_exclusive_resize_info.count(tv2), 1);
+    scheduler_tools::ResizeExclusivityInfo tv2_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv0->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv2), tv2_info);
+
+    EXPECT_EQ(non_exclusive_resize_info.count(tv5), 1);
+    scheduler_tools::ResizeExclusivityInfo tv5_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv4->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv5), tv5_info);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+  Fusion* scheduled_fusion =
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())->fusion();
+  checkLoopDomainEquivalence(
+      scheduled_fusion->outputs().at(0)->as<TensorView>());
 }
 
 // Non-exclusive slice due to a dependency to a fusion output
@@ -4486,12 +4544,57 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
   auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
       ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
 
-  // tv3 is the input of the slice, which is not exclusive as
+  // tv4 is the input of the slice, which is not exclusive as
   // tv3 depends on tv2, which is a fusion output
-  EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
-  EXPECT_EQ(
-      non_exclusive_resize_info.at(tv3),
-      exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)}));
+  EXPECT_EQ(non_exclusive_resize_info.count(tv4), 1);
+  scheduler_tools::ResizeExclusivityInfo tv4_info{
+      {tv2}, exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)})};
+  EXPECT_EQ(non_exclusive_resize_info.at(tv4), tv4_info);
+
+  // Test replication-based mitigation of conflicts
+  {
+    Fusion fusion_copy = fusion;
+    FusionGuard fg(&fusion_copy);
+
+    auto tv0 = fusion_copy.inputs().at(0)->as<TensorView>();
+    auto tv5 = fusion_copy.outputs().at(1)->as<TensorView>();
+    auto tv4 = tv5->definition()->input(0)->as<TensorView>();
+    auto tv3 = tv4->definition()->input(0)->as<TensorView>();
+
+    auto private_copy = RecomputeTv::recompute(tv3);
+    ir_utils::replaceValInExprInputs(tv4->definition(), tv3, private_copy);
+
+    IdModel id_model(&fusion_copy, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion_copy), exact_graph);
+    EXPECT_EQ(non_exclusive_resize_info.size(), 1);
+    EXPECT_EQ(non_exclusive_resize_info.count(tv4), 1);
+    scheduler_tools::ResizeExclusivityInfo tv4_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv0->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv4), tv4_info);
+  }
+
+  GTEST_SKIP() << "Scheduling not yet supported due to broadcast";
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  auto t1 = at::randn({16}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+  Fusion* scheduled_fusion =
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())->fusion();
+  checkLoopDomainEquivalence(
+      scheduled_fusion->outputs().at(0)->as<TensorView>());
 }
 
 // Slice input tensor depends on a fusion output, but the slice is
@@ -4676,10 +4779,29 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs6) {
   auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
       ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
   EXPECT_EQ(non_exclusive_resize_info.size(), 1);
-  EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
-  EXPECT_EQ(
-      non_exclusive_resize_info.at(tv1),
-      exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
+  EXPECT_EQ(non_exclusive_resize_info.count(tv2), 1);
+  scheduler_tools::ResizeExclusivityInfo tv2_info{
+      {tv1}, exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)})};
+  EXPECT_EQ(non_exclusive_resize_info.at(tv2), tv2_info);
+
+  // When scheduled, since the shape of the tv4 is different from the
+  // shape of tv5, this fusion is segmented. One segment is a resize
+  // segment consisting of tv2 and tv3 slices. Another is a pointwise
+  // segment for tv5.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& heuristic_list = runtime->schedulerHeuristics()->heuristicsList();
+  EXPECT_EQ(heuristic_list.size(), 2);
+  // They should be a combination of a resize scheduler and a pointwise
+  // scheduler
+  EXPECT_TRUE(
+      (heuristic_list[0]->scheduler_type == SchedulerType::PointWise &&
+       heuristic_list[1]->scheduler_type == SchedulerType::Resize) ||
+      (heuristic_list[0]->scheduler_type == SchedulerType::Resize &&
+       heuristic_list[1]->scheduler_type == SchedulerType::PointWise));
 }
 
 // RoPE-like rotation patten
@@ -4779,18 +4901,16 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
     const auto& exact_graph = id_model.buildExactGraph();
     auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
         ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
-    EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
-    EXPECT_EQ(
-        non_exclusive_resize_info.at(tv1),
-        exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
-    EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
-    EXPECT_EQ(
-        non_exclusive_resize_info.at(tv3),
-        exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)}));
+    EXPECT_EQ(non_exclusive_resize_info.count(tv2), 1);
+    scheduler_tools::ResizeExclusivityInfo tv2_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv2), tv2_info);
+    EXPECT_EQ(non_exclusive_resize_info.count(tv4), 1);
+    scheduler_tools::ResizeExclusivityInfo tv4_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv4), tv4_info);
     // These two entries should be all the info map has.
     EXPECT_EQ(non_exclusive_resize_info.size(), 2);
-
-    GTEST_SKIP() << "Scheduling not yet supported";
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs(inputs);
@@ -4919,18 +5039,16 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     const auto& exact_graph = id_model.buildExactGraph();
     auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
         ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
-    EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
-    EXPECT_EQ(
-        non_exclusive_resize_info.at(tv1),
-        exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
-    EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
-    EXPECT_EQ(
-        non_exclusive_resize_info.at(tv3),
-        exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)}));
+    EXPECT_EQ(non_exclusive_resize_info.count(tv2), 1);
+    scheduler_tools::ResizeExclusivityInfo tv2_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv2), tv2_info);
+    EXPECT_EQ(non_exclusive_resize_info.count(tv4), 1);
+    scheduler_tools::ResizeExclusivityInfo tv4_info{
+        {tv0}, exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)})};
+    EXPECT_EQ(non_exclusive_resize_info.at(tv4), tv4_info);
     // These two entries should be all the info map has.
     EXPECT_EQ(non_exclusive_resize_info.size(), 2);
-
-    GTEST_SKIP() << "Scheduling not yet supported";
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs(inputs);
