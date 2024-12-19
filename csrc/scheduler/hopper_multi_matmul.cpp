@@ -573,7 +573,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
       }
-      
+
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
