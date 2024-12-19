@@ -185,8 +185,7 @@ class NVFBenchmark:
                 if hasattr(event, "self_device_time_total")
                 else event.self_cuda_time_total
             )
-        # This assert happens when running thunder backward for rope benchmark.
-        # assert has_cuda_event, "No CUDA events found"
+        assert has_cuda_event, "No CUDA events found"
         return elapsed_cuda_time / 1e6
 
     def _increment_global_time(self, elapsed_time: float) -> None:
