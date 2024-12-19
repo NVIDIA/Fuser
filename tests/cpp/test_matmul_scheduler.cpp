@@ -1060,7 +1060,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 //   for Ampere with strict ref check, hence single layout check
 TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   // TODO: Make these tests work with Hopper as well as Ampere
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
@@ -2481,7 +2481,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
 
 // Test that our fake plugin works to override the default heuristic
 TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3156,7 +3156,7 @@ INSTANTIATE_TEST_SUITE_P(
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   int M = 32, N = 64, K = 128;
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
