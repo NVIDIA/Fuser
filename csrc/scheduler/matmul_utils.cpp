@@ -269,7 +269,7 @@ std::string isMatmulFusionDefinitionSupported(
               1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           } else {
-            return "There is other than one fusion input that can be MMA operand (enable fuse_multiple_matmuls)";
+            return "There is more than one fusion input that can be MMA operand (enable fuse_multiple_matmuls)";
           }
         } else {
           return "No candidate in fusion inputs for MMA operand";
