@@ -768,10 +768,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("threads_per_sm"),
       R"(
   Estimate the number of registers per thread using cuda occupancy API.
-  
+
   Parameters
   ----------
-  threads_per_sm : int 
+  threads_per_sm : int
       The number of threads per SM.
   )");
 
@@ -781,10 +781,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("reg_per_thread"),
       R"(
   Get number of threads per sm using cuda occupancy API.
-  
+
   Parameters
   ----------
-  reg_per_thread : int 
+  reg_per_thread : int
       The number of registers per thread.
   )");
 
