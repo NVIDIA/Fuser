@@ -964,10 +964,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       Expr* op = pattern.output->definition();
       if (device_prop->major >= 9) {
         for (TensorView* operand : {pattern.A, pattern.B}) {
-          if (!operand->isFusionInput() || operand->definition() == nullptr ||
-              !operand->definition()->isA<LoadStoreOp>() ||
-              !operand->definition()->input(0)->isFusionInput() ||
-              operand->hasRoot()) {
+          if (!operand->isFusionInput() &&
+              (operand->definition() == nullptr ||
+               !operand->definition()->isA<LoadStoreOp>() ||
+               !operand->definition()->input(0)->isFusionInput() ||
+               operand->hasRoot())) {
             return "Operand " + operand->toString() +
                 " must be a fusion input or non-permuting LoadStoreOp of an input on Hopper";
           }
