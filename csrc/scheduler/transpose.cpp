@@ -68,12 +68,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  if (!hasAtLeastTwoValidGroups(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "cannot find two mismatching inner most dimensions");
-    return false;
-  }
-
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "no support for reduction ops");
@@ -84,6 +78,12 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  if (!hasAtLeastTwoValidGroups(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "cannot find two mismatching inner most dimensions");
     return false;
   }
 
