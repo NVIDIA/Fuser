@@ -20,8 +20,8 @@ void MinimumDeviceVersion::dispatch(Val* val) {
   if (val->dtype() == DataType::Float8_e4m3fn ||
       val->dtype() == DataType::Float8_e5m2) {
     ensureVersion(
-        {9, 0},
-        "Fusion contains Float8_xxx values which was introduced in Hopper (9.0)");
+        {8, 9},
+        "Fusion contains Float8_xxx values which was introduced in Ada (8.9)");
   }
   IterVisitor::dispatch(val);
 }
