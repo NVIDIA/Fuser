@@ -1859,36 +1859,45 @@ class MatmulTranslator : public OptInDispatch {
     // logical domains in input and weight already). Then we form an MmaOp and
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
+    size_t a_dims = pattern_.A->getLogicalDomain().size();
+    size_t b_dims = pattern_.B->getLogicalDomain().size();
     NVF_ERROR(
-        pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
+        a_dims > 1 && b_dims > 1,
         "Cannot translate LinearOp with 1D input");
     NVF_ERROR(
-        pattern_.B->nDims() == 2,
+        b_dims == 2,
         "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
       MmaOp::AxisMapping axis_mapping;
-      int64_t out_dim = pattern_.A->nDims() + 1L;
+      int64_t out_dim = a_dims + 1L;
       axis_mapping.a_axes.reserve(out_dim);
       for (int64_t d : c10::irange(out_dim - 2L)) {
         axis_mapping.a_axes.push_back((int64_t)d);
       }
       axis_mapping.a_axes.push_back(-1); // missing N dimension
-      axis_mapping.a_axes.push_back(pattern_.A->nDims() - 1); // K dimension
+      axis_mapping.a_axes.push_back(a_dims - 1); // K dimension
 
       axis_mapping.b_axes.reserve(out_dim);
       axis_mapping.b_axes.resize(out_dim, -1);
       axis_mapping.b_axes[out_dim - 2] = 0; // N
       axis_mapping.b_axes[out_dim - 1] = 1; // K
 
-      int64_t num_M_dims = 1 + pattern_.A->nDims() - pattern_.B->nDims();
+      int64_t num_M_dims = 1 + a_dims - b_dims;
 
       // Add loop broadcasts to A and B to mimic logical broadcasts for
       // simpler scheduling
-      pattern_.A->broadcast(-2); // There's always a single N dimension
+      // Note that since operands can be shared among multiple patterns, we
+      // should avoid modifying the operand twice. This is why we first check
+      // for loop broadcasts.
+      if (pattern_.A->domain()->additionalIDs().empty()) {
+        pattern_.A->broadcast(-2); // There's always a single N dimension
+      }
 
-      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-        // Broadcast B for every M dimension in A
-        pattern_.B->broadcast(0);
+      if (pattern_.B->domain()->additionalIDs().empty()) {
+        for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+          // Broadcast B for every M dimension in A
+          pattern_.B->broadcast(0);
+        }
       }
 
       fms = fusedMultiplySum(
