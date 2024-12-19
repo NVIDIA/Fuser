@@ -99,7 +99,11 @@ void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
 std::string KernelArgumentHolder::toString() const {
   std::stringstream ss;
   for (const auto& arg : arguments_) {
-    ss << *arg << "\n";
+    if (arg->is<at::Tensor>()) {
+      ss << debug_str(arg->as<at::Tensor>()) << "\n";
+    } else {
+      ss << *arg << "\n";
+    }
   }
   return ss.str();
 }
