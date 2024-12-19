@@ -1130,7 +1130,6 @@ def test_rope_variations_bwd_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    # TODO why not just a random like for grad on output instead of returning a grad function
     model, fwd_inputs, grad = rope_setup[rope_variation]()
 
     def fwd_call(inp):
@@ -1140,11 +1139,11 @@ def test_rope_variations_bwd_benchmark(
     fwd_fn = with_executor(executor, fwd_call)
     outputs = fwd_fn(fwd_inputs())
 
-    # NOTE does this look about right?
+    # accumulate all output, so we can feed a single grad and use the unary bwd function
     output = outputs[0]
     for i in range(1, len(outputs)):
         output += outputs[i]
 
     benchmark_fn = with_executor(executor, fwd_call)
-    # FIXME fix the bytes computation!
+    # FIXME I don't think the automatic IObytes computation is correct
     run_benchmark(benchmark, unary_bwd_torch, [output, grad()])
