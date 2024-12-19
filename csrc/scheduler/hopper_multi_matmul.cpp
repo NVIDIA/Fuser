@@ -541,7 +541,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
-      // Should not propagate if the dc is a mma output.
+      // Should not propagate if the dc is a mma output as the mma output has
+      // already been scheduled.
       if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
           mma_results_.end()) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
