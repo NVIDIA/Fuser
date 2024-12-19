@@ -1054,9 +1054,9 @@ TEST_F(
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
+    c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
 
-    for (auto i : c10::irange(number_of_rings_)) {
-      c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
+    for (auto i : c10::irange(number_of_rings_)) {      
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
@@ -1071,18 +1071,20 @@ TEST_F(
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
         if (j != 0) {
+          printf("waiting on %p\n", comms_req.get());
           comms_req->wait();
         }
 
         // send & matmul current index
         std::vector<at::Tensor> src = {ta_j_curr_slice};
         std::vector<at::Tensor> dst = {ta_j_next_slice};
-        if (j < number_of_steps_per_ring_ - 1) {
+        //if (j < number_of_steps_per_ring_ - 1) {
           world_communicator_->startCoalescing();
           world_communicator_->send(src, send_rank, 0);
           world_communicator_->recv(dst, recv_rank, 0);
           comms_req = world_communicator_->endCoalescing();
-        }
+          printf("posted %p\n", comms_req.get());
+        //}
         torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
       }
     }
@@ -1243,6 +1245,9 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   hic->addOutput(tva_j_curr_slice);
   hic->addOutput(tva_j_next_slice);
   hic->addOutput(tvc_j);
+  hic->addOutput(tva);
+  hic->addOutput(tvb_unsharded);
+  hic->addOutput(tvc_unsharded);
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 

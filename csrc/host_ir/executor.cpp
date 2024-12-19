@@ -422,7 +422,6 @@ void HostIrEvaluator::handle(Wait* wait) {
   NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
   auto& work = works_.at(communication);
   if (work != nullptr) {
-    std::cout << "waiting on work " << work << std::endl;
     work->wait();
   }
   works_.erase(communication);
