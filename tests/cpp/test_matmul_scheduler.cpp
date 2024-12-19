@@ -2660,7 +2660,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
+TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
