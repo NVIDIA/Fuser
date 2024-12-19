@@ -4089,6 +4089,9 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
+  // TODO When B operand is transposed, cta.k == 64 and
+  // getM(mma_macro) != getN(mma_macro), there is incorrect results with
+  // stmatrix.
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
@@ -4152,6 +4155,9 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
+  // TODO When B operand is transposed, cta.k == 64 and
+  // getM(mma_macro) != getN(mma_macro), there is incorrect results with
+  // stmatrix.
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
