@@ -109,9 +109,9 @@ void limitCircularBufferingSmemOperands(
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
 }
 
-//! A wrapper for core heuristics initialization.
-//! We should have already set mparams->mma_macro before calling this function.
-inline bool initCoreHeuristics(
+namespace {
+
+bool fillDefaultAmpereHeuristic(
     MatmulParams* mparams,
     const ProblemShape& problem_shape,
     const mma_utils::TensorRolesMap& tensor_roles) {
@@ -121,116 +121,44 @@ inline bool initCoreHeuristics(
 
   using DimType = decltype(GemmTile::m);
 
-  if (isHopper(mparams->mma_macro)) {
-    // We typically use larger macros on Hopper. By default we will set the
-    // warp tile equal to the macro and increase the CTA tile until we hit
-    // a limit. The limits are given by the maximum number of threads per CTA.
+  // warp tile shape
+  {
+    // Initial target:
+    // - 1 MMA ops per thread in a warp (32 threads), warp tile should be
+    //   then 32x bigger than instruction tile,
+    // - start with [4, 4, 2] shape, later it should depend on problem
+    //   shape and have bigger impact on CTA tile shape
 
-    // TODO: it might be advantageous in some cases to issue multiple wgmma
-    // instructions per warp group
-    warp_tile = instruction_tile;
+    const DimType m_ratio = 4;
+    const DimType n_ratio = 4;
+    const DimType k_ratio = 2;
 
-    // The MmaOp output is a 32-bit float which requires one register per value
+    warp_tile = {
+        instruction_tile.m * m_ratio,
+        instruction_tile.n * n_ratio,
+        instruction_tile.k * k_ratio};
+  }
 
-    const DimType registers_per_wg = warp_tile.m * warp_tile.n;
-    const DimType max_registers_per_sm = 512 * 100;
+  // cta tile shape
+  {
+    // Initial target:
+    // - 4 warp tiles per CTA
+    // - CTA k-dim should be same as warp tile k-dim
 
-    const auto ratiosValid = [&](const DimType m_ratio, const DimType n_ratio) {
-      DimType cta_m = warp_tile.m * m_ratio;
-      DimType cta_n = warp_tile.n * n_ratio;
-      DimType num_warp_groups = m_ratio * n_ratio;
-      return cta_n * cta_m < max_registers_per_sm
-          // Each warp group is 128 threads. We can only have a maximum of 1024
-          // threads per SM, or 8 warp groups.
-          && num_warp_groups <= 8 &&
-          // Don't extend the CTA tile beyond the problem size
-          warp_tile.m * (m_ratio + 1) <=
-          problem_shape[(size_t)MatmulDimRole::M] &&
-          warp_tile.n * (n_ratio + 1) <=
-          problem_shape[(size_t)MatmulDimRole::N];
-    };
+    DimType m_ratio = 2;
+    DimType n_ratio = 2;
 
-    DimType m_ratio = 1;
-    DimType n_ratio = 1;
-
-    bool increased = true;
-    while (increased) {
-      DimType cta_m = warp_tile.m * m_ratio;
-      DimType cta_n = warp_tile.n * n_ratio;
-      increased = false;
-
-      const auto tryIncreaseM = [&]() {
-        if (ratiosValid(m_ratio + 1, n_ratio)) {
-          m_ratio++;
-          increased = true;
-        }
-        return increased;
-      };
-      const auto tryIncreaseN = [&]() {
-        if (ratiosValid(m_ratio, n_ratio + 1)) {
-          n_ratio++;
-          increased = true;
-        }
-        return increased;
-      };
-
-      if (cta_m < cta_n) {
-        // Try to increase smaller tile dimension first since square tiles are
-        // optimal for reducing operand load redundancy
-        if (tryIncreaseM()) {
-          continue;
-        }
-        tryIncreaseN();
-      } else {
-        if (tryIncreaseN()) {
-          continue;
-        }
-        tryIncreaseM();
-      }
+    const auto mn_ratio = (double)problem_shape[(size_t)MatmulDimRole::M] /
+        (double)problem_shape[(size_t)MatmulDimRole::N];
+    if (mn_ratio < 0.5) {
+      m_ratio = 1;
+      n_ratio = 4;
+    } else if (mn_ratio > 2) {
+      m_ratio = 4;
+      n_ratio = 1;
     }
 
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
-
-  } else {
-    // warp tile shape
-    {
-      // Initial target:
-      // - 1 MMA ops per thread in a warp (32 threads), warp tile should be
-      //   then 32x bigger than instruction tile,
-      // - start with [4, 4, 2] shape, later it should depend on problem
-      //   shape and have bigger impact on CTA tile shape
-
-      const DimType m_ratio = isHopper(mparams->mma_macro) ? 1 : 4;
-      const DimType n_ratio = isHopper(mparams->mma_macro) ? 1 : 4;
-      const DimType k_ratio = isHopper(mparams->mma_macro) ? 1 : 2;
-
-      warp_tile = {
-          instruction_tile.m * m_ratio,
-          instruction_tile.n * n_ratio,
-          instruction_tile.k * k_ratio};
-    }
-
-    // cta tile shape
-    {
-      // Initial target:
-      // - 4 warp tiles per CTA
-      // - CTA k-dim should be same as warp tile k-dim
-
-      DimType m_ratio = 2;
-      DimType n_ratio = 2;
-
-      const auto mn_ratio = (double)problem_shape[(size_t)MatmulDimRole::M] /
-          (double)problem_shape[(size_t)MatmulDimRole::N];
-      if (mn_ratio < 0.5) {
-        m_ratio = 1;
-        n_ratio = 4;
-      } else if (mn_ratio > 2) {
-        m_ratio = 4;
-        n_ratio = 1;
-      }
-
-      cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
-    }
   }
 
   mparams->tile_sizes = {cta_tile, warp_tile};
@@ -257,14 +185,12 @@ inline bool initCoreHeuristics(
     }
     return min_size_bytes;
   };
-  // Use TMA on Hopper+ or cp.async on Ampere if possible
-  mparams->async_gmem_load_operands =
-      isHopper(mparams->mma_macro) ||
-      isCpAsyncOperandLoadSupported(
-          mparams,
-          std::min(
-              roleMinDtypeSize(MatmulTensorRole::OPERAND_A),
-              roleMinDtypeSize(MatmulTensorRole::OPERAND_B)));
+  // Use cp.async on Ampere if possible
+  mparams->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
+      mparams,
+      std::min(
+          roleMinDtypeSize(MatmulTensorRole::OPERAND_A),
+          roleMinDtypeSize(MatmulTensorRole::OPERAND_B)));
 
   if (!mparams->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
@@ -274,6 +200,124 @@ inline bool initCoreHeuristics(
         2, mparams->circular_buffer_options.smem_circular_buffer_stage);
   }
   return true;
+}
+
+bool fillDefaultHopperHeuristic(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape,
+    const mma_utils::TensorRolesMap& tensor_roles) {
+  const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
+  GemmTile warp_tile = {-1, -1, -1};
+  GemmTile cta_tile = {-1, -1, -1};
+
+  using DimType = decltype(GemmTile::m);
+
+  // We typically use larger macros on Hopper. By default we will set the
+  // warp tile equal to the macro and increase the CTA tile until we hit
+  // a limit. The limits are given by the maximum number of threads per CTA.
+
+  // TODO: it might be advantageous in some cases to issue multiple wgmma
+  // instructions per warp group
+  warp_tile = instruction_tile;
+
+  // The MmaOp output is a 32-bit float which requires one register per value
+
+  const DimType max_registers_per_sm = 512 * 100;
+
+  const auto ratiosValid = [&](const DimType m_ratio, const DimType n_ratio) {
+    DimType cta_m = warp_tile.m * m_ratio;
+    DimType cta_n = warp_tile.n * n_ratio;
+    DimType num_warp_groups = m_ratio * n_ratio;
+    return cta_n * cta_m < max_registers_per_sm
+        // Each warp group is 128 threads. We can only have a maximum of 1024
+        // threads per SM, or 8 warp groups.
+        && num_warp_groups <= 8 &&
+        // Don't extend the CTA tile beyond the problem size
+        warp_tile.m * (m_ratio + 1) <=
+        problem_shape[(size_t)MatmulDimRole::M] &&
+        warp_tile.n * (n_ratio + 1) <= problem_shape[(size_t)MatmulDimRole::N];
+  };
+
+  DimType m_ratio = 1;
+  DimType n_ratio = 1;
+
+  bool increased = true;
+  while (increased) {
+    DimType cta_m = warp_tile.m * m_ratio;
+    DimType cta_n = warp_tile.n * n_ratio;
+    increased = false;
+
+    const auto tryIncreaseM = [&]() {
+      if (ratiosValid(m_ratio + 1, n_ratio)) {
+        m_ratio++;
+        increased = true;
+      }
+      return increased;
+    };
+    const auto tryIncreaseN = [&]() {
+      if (ratiosValid(m_ratio, n_ratio + 1)) {
+        n_ratio++;
+        increased = true;
+      }
+      return increased;
+    };
+
+    if (cta_m < cta_n) {
+      // Try to increase smaller tile dimension first since square tiles are
+      // optimal for reducing operand load redundancy
+      if (tryIncreaseM()) {
+        continue;
+      }
+      tryIncreaseN();
+    } else {
+      if (tryIncreaseN()) {
+        continue;
+      }
+      tryIncreaseM();
+    }
+  }
+
+  cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
+
+  mparams->tile_sizes = {cta_tile, warp_tile};
+
+  // stages and async mem copy
+  {
+    constexpr int stages = 3;
+
+    mparams->circular_buffer_options.circular_buffer_smem_write = true;
+    mparams->circular_buffer_options.circular_buffer_smem_read = true;
+    mparams->circular_buffer_options.smem_circular_buffer_stage = stages;
+  }
+
+  // Always use TMA on Hopper
+  mparams->async_gmem_load_operands = true;
+
+  if (!mparams->async_gmem_load_operands) {
+    // Circular buffering requires async load. If we cannot use async load due
+    // to unsupported vectorization width, then we can only circular buffer at
+    // most.
+    mparams->circular_buffer_options.smem_circular_buffer_stage = std::min(
+        2, mparams->circular_buffer_options.smem_circular_buffer_stage);
+  }
+  return true;
+}
+
+} // namespace
+
+//! A wrapper for core heuristics initialization.
+//! We should have already set mparams->mma_macro before calling this function.
+inline bool initCoreHeuristics(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape,
+    const mma_utils::TensorRolesMap& tensor_roles) {
+  if (isHopper(mparams->mma_macro)) {
+    return fillDefaultHopperHeuristic(mparams, problem_shape, tensor_roles);
+  } else if (isAmpere(mparams->mma_macro) || isTuring(mparams->mma_macro)) {
+    return fillDefaultHopperHeuristic(mparams, problem_shape, tensor_roles);
+  }
+  // Unsupported arch
+  return false;
 }
 
 //! A helper for getting problem shape from fusion and runtime info.
