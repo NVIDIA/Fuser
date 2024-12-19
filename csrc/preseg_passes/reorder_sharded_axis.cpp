@@ -9,10 +9,10 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/lower.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -20,6 +20,8 @@
 namespace nvfuser::preseg_passes {
 
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
   const std::vector<Expr*>& exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
