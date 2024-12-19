@@ -199,74 +199,124 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
 
 
 def llama_hf_rope(config_str):
-
     class Config:
-        def __init__(self, n_head, head_size, n_query_groups, rope_n_elem, batches, seq_length):
+        def __init__(
+            self, n_head, head_size, n_query_groups, rope_n_elem, batches, seq_length
+        ):
             self.n_head = n_head
             self.head_size = head_size
             self.n_query_groups = n_query_groups
             self.rope_n_elem = rope_n_elem
             self.batches = batches
             self.seq_length = seq_length
-    
-    
+
     class LitGPTRope(torch.nn.Module):
-        def __init__(self, config) :
+        def __init__(self, config):
             super(LitGPTRope, self).__init__()
             self.config = config
-    
+
         def forward(self, qkv, cos, sin):
             B, T, _ = qkv.size()
             # assemble into a number of query groups to support MHA, MQA and GQA together (see `config.n_query_groups`)
             q_per_kv = self.config.n_head // self.config.n_query_groups
             total_qkv = q_per_kv + 2  # each group has 1+ queries, 1 key, and 1 value
-            qkv = qkv.view(B, T, self.config.n_query_groups, total_qkv, self.config.head_size)
+            qkv = qkv.view(
+                B, T, self.config.n_query_groups, total_qkv, self.config.head_size
+            )
             qkv = qkv.permute(0, 2, 3, 1, 4)  # (B, n_query_groups, total_qkv, T, hs)
-    
+
             # split batched computation into three
             q, k, v = qkv.split((q_per_kv, 1, 1), dim=2)
-    
+
             # maybe repeat k and v if for the non multi-head attention cases
             # training: flash attention requires it
             # inference: multi-query would require a full kv cache so avoid it to limit its memory usage
             # if self.config.n_query_groups != self.config.n_head and (input_pos is None or self.config.n_query_groups != 1):
-            if self.config.n_query_groups != self.config.n_head and (self.config.n_query_groups != 1):
-                k = k.expand(B, self.config.n_query_groups, q_per_kv, T, self.config.head_size)
-                v = v.expand(B, self.config.n_query_groups, q_per_kv, T, self.config.head_size)
-    
+            if self.config.n_query_groups != self.config.n_head and (
+                self.config.n_query_groups != 1
+            ):
+                k = k.expand(
+                    B, self.config.n_query_groups, q_per_kv, T, self.config.head_size
+                )
+                v = v.expand(
+                    B, self.config.n_query_groups, q_per_kv, T, self.config.head_size
+                )
+
             q = q.reshape(B, -1, T, self.config.head_size)  # (B, nh_q, T, hs)
             k = k.reshape(B, -1, T, self.config.head_size)  # (B, nh_k, T, hs)
             v = v.reshape(B, -1, T, self.config.head_size)  # (B, nh_v, T, hs)
-    
+
             q_roped = apply_rope(q[..., : self.config.rope_n_elem], cos, sin)
             k_roped = apply_rope(k[..., : self.config.rope_n_elem], cos, sin)
             q = torch.cat((q_roped, q[..., self.config.rope_n_elem :]), dim=-1)
             k = torch.cat((k_roped, k[..., self.config.rope_n_elem :]), dim=-1)
             return q, k
-    
+
     configs = {}
-    configs["llama_2_7b_hf_rope"] = Config(n_head=32, head_size=128, n_query_groups=32, rope_n_elem=128, batches=2, seq_length=4096)
-    configs["llama_3_8B_rope"] = Config(n_head=32, head_size=128, n_query_groups=8, rope_n_elem=128, batches=2, seq_length=8192)
+    configs["llama_2_7b_hf_rope"] = Config(
+        n_head=32,
+        head_size=128,
+        n_query_groups=32,
+        rope_n_elem=128,
+        batches=2,
+        seq_length=4096,
+    )
+    configs["llama_3_8B_rope"] = Config(
+        n_head=32,
+        head_size=128,
+        n_query_groups=8,
+        rope_n_elem=128,
+        batches=2,
+        seq_length=8192,
+    )
 
     cfg = configs[config_str]
 
     def inputs():
-        qkv = torch.randn(cfg.batches, cfg.seq_length, cfg.head_size * (cfg.n_head + 2 * cfg.n_query_groups), device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        cos = torch.randn(cfg.seq_length, cfg.rope_n_elem, device='cuda', dtype=torch.bfloat16, requires_grad=False)
-        sin = torch.randn(cfg.seq_length, cfg.rope_n_elem, device='cuda', dtype=torch.bfloat16, requires_grad=False)
+        qkv = torch.randn(
+            cfg.batches,
+            cfg.seq_length,
+            cfg.head_size * (cfg.n_head + 2 * cfg.n_query_groups),
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        cos = torch.randn(
+            cfg.seq_length,
+            cfg.rope_n_elem,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        )
+        sin = torch.randn(
+            cfg.seq_length,
+            cfg.rope_n_elem,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        )
         return qkv, cos, sin
 
     def grads():
-        grad = torch.randn(cfg.batches, cfg.n_head, cfg.seq_length, cfg.head_size, device='cuda', dtype=torch.bfloat16, requires_grad=False)
+        grad = torch.randn(
+            cfg.batches,
+            cfg.n_head,
+            cfg.seq_length,
+            cfg.head_size,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        )
         return grad
 
     return LitGPTRope(cfg).cuda().bfloat16(), inputs, grads
+
 
 def hf_qwen2_rope():
     import json
     from transformers.models.qwen2 import Qwen2Config
 
-    qwen_cfg_str = r'''{
+    qwen_cfg_str = r"""{
       "_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
       "architectures": [
         "Qwen2ForCausalLM"
@@ -294,17 +344,17 @@ def hf_qwen2_rope():
       "use_sliding_window": false,
       "vocab_size": 152064
     }
-    '''
-    
+    """
+
     def rotate_half(x):
         """Rotates half the hidden dims of the input."""
         x1 = x[..., : x.shape[-1] // 2]
         x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
-    
+
     def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
         """Applies Rotary Position Embedding to the query and key tensors.
-    
+
         Args:
             q (`torch.Tensor`): The query tensor.
             k (`torch.Tensor`): The key tensor.
@@ -327,7 +377,7 @@ def hf_qwen2_rope():
         q_embed = (q * cos) + (rotate_half(q) * sin)
         k_embed = (k * cos) + (rotate_half(k) * sin)
         return q_embed, k_embed
-    
+
     def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
         """
         This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -336,14 +386,16 @@ def hf_qwen2_rope():
         batch, num_key_value_heads, slen, head_dim = hidden_states.shape
         if n_rep == 1:
             return hidden_states
-        hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+        hidden_states = hidden_states[:, :, None, :, :].expand(
+            batch, num_key_value_heads, n_rep, slen, head_dim
+        )
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
-    
+
     class Qwen2Rope(nn.Module):
         def __init__(self, config: Qwen2Config):
             super().__init__()
             self.config = config
-    
+
             self.hidden_size = config.hidden_size
             self.num_heads = config.num_attention_heads
             self.head_dim = self.hidden_size // self.num_heads
@@ -353,51 +405,104 @@ def hf_qwen2_rope():
             self.rope_theta = config.rope_theta
             self.is_causal = True
             self.attention_dropout = config.attention_dropout
-    
+
             if (self.head_dim * self.num_heads) != self.hidden_size:
                 raise ValueError(
                     f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                     f" and `num_heads`: {self.num_heads})."
                 )
-    
+
         def forward(
             self,
             query_in_states: torch.Tensor,
             key_in_states: torch.Tensor,
             value_in_states: torch.Tensor,
             cos: torch.Tensor,
-            sin: torch.Tensor
+            sin: torch.Tensor,
         ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             past_key_value = None
             bsz, q_len, _ = query_in_states.size()
-    
-            query_states = query_in_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_in_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_in_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-    
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-    
+
+            query_states = query_in_states.view(
+                bsz, q_len, self.num_heads, self.head_dim
+            ).transpose(1, 2)
+            key_states = key_in_states.view(
+                bsz, q_len, self.num_key_value_heads, self.head_dim
+            ).transpose(1, 2)
+            value_states = value_in_states.view(
+                bsz, q_len, self.num_key_value_heads, self.head_dim
+            ).transpose(1, 2)
+
+            query_states, key_states = apply_rotary_pos_emb(
+                query_states, key_states, cos, sin
+            )
+
             if past_key_value is not None:
                 assert False
-    
+
             key_states = repeat_kv(key_states, self.num_key_value_groups)
             value_states = repeat_kv(value_states, self.num_key_value_groups)
             return query_states, key_states, value_states
-    
+
     cfg = Qwen2Config.from_dict(json.loads(qwen_cfg_str))
     cfg.batch_size = 1
     cfg.seq_len = 4096
 
     head_dim = cfg.hidden_size // cfg.num_attention_heads
+
     def inputs():
-        q = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_attention_heads * head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        k = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_key_value_heads * head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        v = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_key_value_heads * head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        cos = torch.randn(cfg.batch_size, cfg.seq_len, head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        sin = torch.randn(cfg.batch_size, cfg.seq_len, head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
+        q = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_attention_heads * head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        k = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_key_value_heads * head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        v = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_key_value_heads * head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        cos = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        sin = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
         return q, k, v, cos, sin
+
     def grads():
-        grad = torch.randn(cfg.batch_size, cfg.num_attention_heads, cfg.seq_len, head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=False)
+        grad = torch.randn(
+            cfg.batch_size,
+            cfg.num_attention_heads,
+            cfg.seq_len,
+            head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        )
         return grad
 
     return Qwen2Rope(cfg).cuda().bfloat16(), inputs, grads
@@ -406,8 +511,8 @@ def hf_qwen2_rope():
 def hf_phi3_rope():
     import json
     from transformers.models.phi3 import Phi3Config
-    
-    phi35_cfg_str = r'''{
+
+    phi35_cfg_str = r"""{
       "_name_or_path": "microsoft/Phi-3.5-mini-instruct",
       "architectures": [
         "Phi3ForCausalLM"
@@ -544,36 +649,51 @@ def hf_phi3_rope():
       "transformers_version": "4.46.3",
       "use_cache": true,
       "vocab_size": 32064
-    }'''
-    
+    }"""
+
     class Phi3RotaryEmbedding(nn.Module):
-        def __init__(self, dim, max_position_embeddings=2048, base=10000.0, device=None):
+        def __init__(
+            self, dim, max_position_embeddings=2048, base=10000.0, device=None
+        ):
             super().__init__()
-    
+
             self.dim = dim
             self.max_position_embddings = max_position_embeddings
             self.base = base
-    
-            inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float() / self.dim))
+
+            inv_freq = 1.0 / (
+                self.base
+                ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float() / self.dim)
+            )
             self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
-    
+
         @torch.no_grad()
         def forward(self, x, position_ids, seq_len=None):
             # x: [bs, num_attention_heads, seq_len, head_size]
             self.inv_freq.to(x.device)
-            inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+            inv_freq_expanded = (
+                self.inv_freq[None, :, None]
+                .float()
+                .expand(position_ids.shape[0], -1, 1)
+            )
             position_ids_expanded = position_ids[:, None, :].float()
             # Force float32 since bfloat16 loses precision on long contexts
             # See https://github.com/huggingface/transformers/pull/29285
             device_type = x.device.type
-            device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+            device_type = (
+                device_type
+                if isinstance(device_type, str) and device_type != "mps"
+                else "cpu"
+            )
             with torch.autocast(device_type=device_type, enabled=False):
-                freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+                freqs = (
+                    inv_freq_expanded.float() @ position_ids_expanded.float()
+                ).transpose(1, 2)
                 emb = torch.cat((freqs, freqs), dim=-1)
                 cos = emb.cos()
                 sin = emb.sin()
             return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
-    
+
     def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
         """
         This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -582,18 +702,20 @@ def hf_phi3_rope():
         batch, num_key_value_heads, slen, head_dim = hidden_states.shape
         if n_rep == 1:
             return hidden_states
-        hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+        hidden_states = hidden_states[:, :, None, :, :].expand(
+            batch, num_key_value_heads, n_rep, slen, head_dim
+        )
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
-    
+
     def rotate_half(x):
         """Rotates half the hidden dims of the input."""
         x1 = x[..., : x.shape[-1] // 2]
         x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
-    
+
     def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
         """Applies Rotary Position Embedding to the query and key tensors.
-    
+
         Args:
             q (`torch.Tensor`): The query tensor.
             k (`torch.Tensor`): The key tensor.
@@ -616,91 +738,119 @@ def hf_phi3_rope():
         q_embed = (q * cos) + (rotate_half(q) * sin)
         k_embed = (k * cos) + (rotate_half(k) * sin)
         return q_embed, k_embed
-    
+
     class HfPhi3Rope(nn.Module):
         """Multi-headed attention from 'Attention Is All You Need' paper"""
-    
+
         def __init__(self, config: Phi3Config):
             super().__init__()
             self.config = config
-    
+
             self.hidden_size = config.hidden_size
             self.num_heads = config.num_attention_heads
             self.head_dim = self.hidden_size // self.num_heads
             self.num_key_value_heads = config.num_key_value_heads
             self.num_key_value_groups = self.num_heads // self.num_key_value_heads
             self.max_position_embeddings = config.max_position_embeddings
-            self.original_max_position_embeddings = config.original_max_position_embeddings
+            self.original_max_position_embeddings = (
+                config.original_max_position_embeddings
+            )
             self.rope_theta = config.rope_theta
             self.rope_scaling = config.rope_scaling
             self.is_causal = True
-    
+
             if (self.head_dim * self.num_heads) != self.hidden_size:
                 raise ValueError(
                     f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                     f" and `num_heads`: {self.num_heads})."
                 )
-    
+
             self.rotary_emb = Phi3RotaryEmbedding(
                 self.head_dim,
                 max_position_embeddings=self.max_position_embeddings,
                 base=self.rope_theta,
             )
-    
+
         def forward(
-            self,
-            qkv: torch.Tensor,
-            position_ids: torch.Tensor
+            self, qkv: torch.Tensor, position_ids: torch.Tensor
         ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             past_key_value = None
             bsz, q_len, _ = qkv.size()
-    
+
             query_pos = self.num_heads * self.head_dim
             query_states = qkv[..., :query_pos]
-            key_states = qkv[..., query_pos : query_pos + self.num_key_value_heads * self.head_dim]
-            value_states = qkv[..., query_pos + self.num_key_value_heads * self.head_dim :]
-    
-            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-    
+            key_states = qkv[
+                ..., query_pos : query_pos + self.num_key_value_heads * self.head_dim
+            ]
+            value_states = qkv[
+                ..., query_pos + self.num_key_value_heads * self.head_dim :
+            ]
+
+            query_states = query_states.view(
+                bsz, q_len, self.num_heads, self.head_dim
+            ).transpose(1, 2)
+            key_states = key_states.view(
+                bsz, q_len, self.num_key_value_heads, self.head_dim
+            ).transpose(1, 2)
+            value_states = value_states.view(
+                bsz, q_len, self.num_key_value_heads, self.head_dim
+            ).transpose(1, 2)
+
             kv_seq_len = key_states.shape[-2]
             if past_key_value is not None:
                 assert False
             cos, sin = self.rotary_emb(value_states, position_ids, seq_len=kv_seq_len)
-    
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-    
+
+            query_states, key_states = apply_rotary_pos_emb(
+                query_states, key_states, cos, sin, position_ids
+            )
+
             if past_key_value is not None:
                 assert False
-    
+
             key_states = repeat_kv(key_states, self.num_key_value_groups)
             value_states = repeat_kv(value_states, self.num_key_value_groups)
-    
+
             return query_states, key_states, value_states
-    
+
     cfg = Phi3Config.from_dict(json.loads(phi35_cfg_str))
     cfg.batch_size = 1
     cfg.seq_len = 8192
     head_dim = cfg.hidden_size // cfg.num_attention_heads
 
     def inputs():
-        qkv = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_attention_heads * head_dim + 2 * (cfg.num_key_value_heads * head_dim), device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        position_ids = torch.arange(0, cfg.seq_len, device='cuda').unsqueeze(0)
-        return qkv, position_ids 
+        qkv = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_attention_heads * head_dim
+            + 2 * (cfg.num_key_value_heads * head_dim),
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        position_ids = torch.arange(0, cfg.seq_len, device="cuda").unsqueeze(0)
+        return qkv, position_ids
 
     def grads():
-        grad = torch.randn(cfg.batch_size, cfg.num_attention_heads, cfg.seq_len, head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=False)
+        grad = torch.randn(
+            cfg.batch_size,
+            cfg.num_attention_heads,
+            cfg.seq_len,
+            head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        )
         return grad
- 
+
     return HfPhi3Rope(cfg).cuda().bfloat16(), inputs, grads
 
 
 def hf_mistral_nemo_rope():
     import json
     from transformers.models.mistral import MistralConfig
-    
-    mistral_cfg_str = r'''{
+
+    mistral_cfg_str = r"""{
       "_name_or_path": "mistralai/Mistral-Nemo-Base-2407",
       "architectures": [
         "MistralForCausalLM"
@@ -727,46 +877,63 @@ def hf_mistral_nemo_rope():
       "use_cache": true,
       "vocab_size": 131072
     }
-    '''
-    
+    """
+
     class MistralRotaryEmbedding(nn.Module):
-        def __init__(self, dim, max_position_embeddings=2048, base=10000.0, device=None):
+        def __init__(
+            self, dim, max_position_embeddings=2048, base=10000.0, device=None
+        ):
             super().__init__()
-    
+
             self.dim = dim
             self.max_position_embeddings = max_position_embeddings
             self.base = base
-            inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float().to(device) / self.dim))
+            inv_freq = 1.0 / (
+                self.base
+                ** (
+                    torch.arange(0, self.dim, 2, dtype=torch.int64).float().to(device)
+                    / self.dim
+                )
+            )
             self.register_buffer("inv_freq", inv_freq, persistent=False)
-    
+
         @torch.no_grad()
         # copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding.forward
         # TODO(joao): add me back asap :)
         def forward(self, x, position_ids):
             # x: [bs, num_attention_heads, seq_len, head_size]
-            inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+            inv_freq_expanded = (
+                self.inv_freq[None, :, None]
+                .float()
+                .expand(position_ids.shape[0], -1, 1)
+            )
             position_ids_expanded = position_ids[:, None, :].float()
             # Force float32 since bfloat16 loses precision on long contexts
             # See https://github.com/huggingface/transformers/pull/29285
             device_type = x.device.type
-            device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+            device_type = (
+                device_type
+                if isinstance(device_type, str) and device_type != "mps"
+                else "cpu"
+            )
             with torch.autocast(device_type=device_type, enabled=False):
-                freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+                freqs = (
+                    inv_freq_expanded.float() @ position_ids_expanded.float()
+                ).transpose(1, 2)
                 emb = torch.cat((freqs, freqs), dim=-1)
                 cos = emb.cos()
                 sin = emb.sin()
             return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
-    
-    
+
     def rotate_half(x):
         """Rotates half the hidden dims of the input."""
         x1 = x[..., : x.shape[-1] // 2]
         x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
-    
+
     def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
         """Applies Rotary Position Embedding to the query and key tensors.
-    
+
         Args:
             q (`torch.Tensor`): The query tensor.
             k (`torch.Tensor`): The key tensor.
@@ -789,7 +956,7 @@ def hf_mistral_nemo_rope():
         q_embed = (q * cos) + (rotate_half(q) * sin)
         k_embed = (k * cos) + (rotate_half(k) * sin)
         return q_embed, k_embed
-    
+
     def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
         """
         This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -798,14 +965,16 @@ def hf_mistral_nemo_rope():
         batch, num_key_value_heads, slen, head_dim = hidden_states.shape
         if n_rep == 1:
             return hidden_states
-        hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+        hidden_states = hidden_states[:, :, None, :, :].expand(
+            batch, num_key_value_heads, n_rep, slen, head_dim
+        )
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
-    
+
     class MistralNemoRope(nn.Module):
         def __init__(self, config: MistralConfig):
             super().__init__()
             self.config = config
-    
+
             self.attention_dropout = config.attention_dropout
             self.hidden_size = config.hidden_size
             self.num_heads = config.num_attention_heads
@@ -815,69 +984,101 @@ def hf_mistral_nemo_rope():
             self.max_position_embeddings = config.max_position_embeddings
             self.rope_theta = config.rope_theta
             self.is_causal = True
-    
+
             self.rotary_emb = MistralRotaryEmbedding(
                 self.head_dim,
                 max_position_embeddings=self.max_position_embeddings,
                 base=self.rope_theta,
             )
-    
+
         def forward(
             self,
             query_in_states: torch.Tensor,
             key_in_states: torch.Tensor,
             value_in_states: torch.Tensor,
-            position_ids: torch.Tensor
+            position_ids: torch.Tensor,
         ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            past_key_value = None 
+            past_key_value = None
             bsz, q_len, _ = query_in_states.size()
-    
-            query_states = query_in_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_in_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_in_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-    
+
+            query_states = query_in_states.view(
+                bsz, q_len, self.num_heads, self.head_dim
+            ).transpose(1, 2)
+            key_states = key_in_states.view(
+                bsz, q_len, self.num_key_value_heads, self.head_dim
+            ).transpose(1, 2)
+            value_states = value_in_states.view(
+                bsz, q_len, self.num_key_value_heads, self.head_dim
+            ).transpose(1, 2)
+
             cos, sin = self.rotary_emb(value_states, position_ids)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-    
+            query_states, key_states = apply_rotary_pos_emb(
+                query_states, key_states, cos, sin
+            )
+
             if past_key_value is not None:
                 assert False
-    
+
             key_states = repeat_kv(key_states, self.num_key_value_groups)
             value_states = repeat_kv(value_states, self.num_key_value_groups)
             return query_states, key_states, value_states
-    
+
     cfg = MistralConfig.from_dict(json.loads(mistral_cfg_str))
     cfg.batch_size = 1
     cfg.seq_len = 4096
-    
+
     head_dim = cfg.hidden_size // cfg.num_attention_heads
+
     def inputs():
-        q = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_attention_heads * cfg.head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        k = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_key_value_heads * cfg.head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        v = torch.randn(cfg.batch_size, cfg.seq_len, cfg.num_key_value_heads * cfg.head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=True)
-        position_ids = torch.arange(0, cfg.seq_len, device='cuda').unsqueeze(0)
+        q = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_attention_heads * cfg.head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        k = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_key_value_heads * cfg.head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        v = torch.randn(
+            cfg.batch_size,
+            cfg.seq_len,
+            cfg.num_key_value_heads * cfg.head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        position_ids = torch.arange(0, cfg.seq_len, device="cuda").unsqueeze(0)
         return q, k, v, position_ids
+
     def grads():
-        grad = torch.randn(cfg.batch_size, cfg.num_attention_heads, cfg.seq_len, cfg.head_dim, device='cuda', dtype=torch.bfloat16, requires_grad=False)
+        grad = torch.randn(
+            cfg.batch_size,
+            cfg.num_attention_heads,
+            cfg.seq_len,
+            cfg.head_dim,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        )
         return grad
-    
+
     return MistralNemoRope(cfg).cuda().bfloat16(), inputs, grads
-
-
 
 
 # { 'name_benchmark' : (fn, [[sizes0, optional_strides0, dtype0], [sizes1, dtype1], ...]) }
 rope_setup = {
-    "llama_2_7b_hf_rope":
-        partial(llama_hf_rope, config_str="llama_2_7b_hf_rope"),
-    "llama_3_8B_rope":
-        partial(llama_hf_rope, config_str="llama_3_8B_rope"),
-    "hf_qwen2_rope":
-        hf_qwen2_rope,
-    "hf_phi3_rope":
-        hf_phi3_rope,
-    "hf_mistral_nemo_rope":
-        hf_mistral_nemo_rope,
+    "llama_2_7b_hf_rope": partial(llama_hf_rope, config_str="llama_2_7b_hf_rope"),
+    "llama_3_8B_rope": partial(llama_hf_rope, config_str="llama_3_8B_rope"),
+    "hf_qwen2_rope": hf_qwen2_rope,
+    "hf_phi3_rope": hf_phi3_rope,
+    "hf_mistral_nemo_rope": hf_mistral_nemo_rope,
 }
 
 
