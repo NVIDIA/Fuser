@@ -138,7 +138,8 @@ std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
       // avoided. However, if the dep_tv iter domain that corresponds
       // to the resized ID is a broadcast or there's no such ID, it
       // should still be safe to consider the resize op exclusive as
-      // there's no iter domain to resize.
+      // there's no iter domain to resize. For a concrete example, see
+      // ResizeSchedulerTest.PropagateMultipleSlicesToInputs4.
       const auto inp_tv_logical_groups =
           exact_graph.toGroups(inp_tv->getLogicalDomain());
       const auto dep_tv_logical_groups =

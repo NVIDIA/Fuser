@@ -4496,9 +4496,14 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
 
 // Slice input tensor depends on a fusion output, but the slice is
 // still considered exclusive as the fusion output has no
-// corresponding ID for the sliced ID. Note that scheduling is not yet
-// supported due to the existence of the dependency from the slice input
-// ID to the broadcast ID.
+// corresponding ID for the sliced ID. More specifically, tv2 is a
+// fusion output and has a dependency to the input of the
+// slice. However, the resize is done for the second axis of tv3,
+// for which tv2 has no corresponding ID. In this case, it should be
+// safe to do the propagation of the resize.
+//
+// Note that scheduling is not yet supported due to the existence of
+// the dependency from the slice input ID to the broadcast ID.
 TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs4) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
