@@ -56,7 +56,7 @@ inline std::optional<MmaMacro> getMmaOp(
   switch (dev_version) {
     case 75:
       macro_encode.arch = MmaMacroEncode::Arch::Turing;
-      if ((n_extent % 16) != 0) {
+      if ((n_extent % 16) == 0) {
         macro_encode.n = 16;
       }
       break;
@@ -64,18 +64,20 @@ inline std::optional<MmaMacro> getMmaOp(
     case 86:
     case 89:
       macro_encode.arch = MmaMacroEncode::Arch::Ampere;
-      if ((n_extent % 16) != 0) {
+      if ((n_extent % 16) == 0) {
         macro_encode.n = 16;
       }
       break;
     case 90:
       macro_encode.arch = MmaMacroEncode::Arch::Hopper;
       macro_encode.m = 64;
-      // Find the largest instruction tile that divides the problem size
+      // Find the largest instruction tile that divides the problem size and is
+      // a power of two
       macro_encode.n = 256;
       while (macro_encode.n >= 8) {
-        macro_encode.n -= 8;
-        if (n_extent % macro_encode.n == 0) {
+        if (n_extent % macro_encode.n != 0) {
+          macro_encode.n /= 2;
+        } else {
           break;
         }
       }
