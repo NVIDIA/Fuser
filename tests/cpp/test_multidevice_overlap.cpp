@@ -1070,9 +1070,8 @@ TEST_F(
         auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
-        if (comms_req != nullptr) {
+        if (j != 0) {
           comms_req->wait();
-          comms_req = nullptr;
         }
 
         // send & matmul current index
