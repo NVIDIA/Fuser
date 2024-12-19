@@ -43,7 +43,7 @@ void propagateResizeToInputs(Expr* resize_op);
 //
 // In this case, propating the resize op of the slice would alter t1,
 // which would in turn affect t3, which is a fusion output. Since the
-// change would be visible due to the change of t3, this resie op is
+// change would be visible due to the change of t3, this resize op is
 // considered non-exclusive.
 //
 // Consider a slightly different case as shown below:
@@ -61,8 +61,8 @@ void propagateResizeToInputs(Expr* resize_op);
 // non-exclusive since the actual scheduling inserts a cache after t0,
 // which can cause a visible side effect if the resize is propagated.
 //
-// Another non-exclusivess comes from dependent fusion outputs. For
-// example, if a slice input depends on a fusion output, propation
+// Another non-exclusivness comes from dependent fusion outputs. For
+// example, if a slice input depends on a fusion output, propagation
 // would alter the fusion output. Consider a case like:
 //
 // t0 = makeSymbolicTensor(1)

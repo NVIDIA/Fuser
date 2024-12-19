@@ -79,6 +79,9 @@ std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
 
   auto get_root_to_logical_resizes =
       [&exact_graph](TensorView* tv) -> ValGroups {
+    // This should be only used for outputs of resize-based ops,
+    // so it should always have a root domain.
+    NVF_ERROR(tv->hasRoot());
     auto out_tv_root_to_logical_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
@@ -107,11 +110,7 @@ std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
     // visible changes through the tensor, the resize is considered
     // non-exclusive.
     for (auto dep_tv : ir_utils::filterByType<TensorView>(dep_vals)) {
-      bool maybe_non_exclusive = false;
-
-      if (dep_tv->isFusionOutput()) {
-        maybe_non_exclusive = true;
-      }
+      bool maybe_non_exclusive = dep_tv->isFusionOutput();
 
       if (!maybe_non_exclusive) {
         // If a dependent tv has a consumer that inp_tv does not
