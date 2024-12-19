@@ -525,8 +525,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           dataTypeSize(dc->dtype()) == 2,
           "We support use_smem_epilogue on Hopper only when the output is 16-bit");
 
-      d_smem->definition()->as<LoadStoreOp>()->setOpType(
-          LoadStoreOpType::StMatrix);
+      if (store_with_stmatrix) {
+        d_smem->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::StMatrix);
+      }
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
@@ -539,23 +541,39 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          dc->getLoopDomain());
-      dc->setLoopDomain(s.as<IterDomain*>());
-      dc->setAllocationDomain(s.as<IterDomain*>(), true);
+      if (store_with_stmatrix) {
+        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+            dc->getLoopDomain());
+        dc->setLoopDomain(s.as<IterDomain*>());
+        dc->setAllocationDomain(s.as<IterDomain*>(), true);
 
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          dc,
-          -1,
-          propagate_to,
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType());
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            dc,
+            -1,
+            propagate_to,
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType());
+      }
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
-      // Schedule shared memory cache; Output from StMatrix
-      mma_utils::scheduleStMatrixForMmaOutput(
-          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+      // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          d_smem->getLoopDomain());
+      if (swizzle != MmaInputSmemSwizzle::None) {
+        // Create tma store allocation domain with swizzle
+        mma_utils::scheduleTMAStoreForMmaOutput(d_smem, swizzle);
+      }
+      d_smem->setLoopDomain(s.as<IterDomain*>());
+
+      if (store_with_stmatrix) {
+        // Schedule shared memory cache; Output from StMatrix
+        mma_utils::scheduleStMatrixForMmaOutput(
+            d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+      }
+      // We don't respect vectorization_factor as yet
+      // TODO: support vectorization_factor (for non-stmatrix)
+      d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
       mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);

@@ -2707,7 +2707,7 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
   // TODO: Currently we use stmatrix whenever this is true. We cannot do that
   // when the dtype is not 16 bits.
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true; //false;
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
