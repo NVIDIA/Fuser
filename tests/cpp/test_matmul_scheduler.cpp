@@ -2677,6 +2677,9 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   fusion->addInput(tv2);
 
   auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+  // We add these computations to test
+  // scheduling (with epilogue) when the ouptut of mma is not
+  // cast to half.
   auto tv4 = maybeCastOp(DataType::Float, tv2);
   auto tv5 = biasEpilogue(tv3, tv4);
   auto tv6 = neg(tv5);

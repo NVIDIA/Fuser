@@ -541,6 +541,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
+      // Should not propagate if the dc is a mma output.
       if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
           mma_results_.end()) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -572,8 +573,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
       }
-      // We don't respect vectorization_factor as yet
-      // TODO: support vectorization_factor (for non-stmatrix)
+      
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
