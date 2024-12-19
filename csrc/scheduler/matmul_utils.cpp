@@ -168,7 +168,7 @@ bool fillDefaultAmpereHeuristic(
   // stages and async mem copy
   {
     // NOTE: compilation errors when async is enabled on Turing devices
-    if (!isTuring(mparams->mma_macro)) {
+    if (isAmpere(mparams->mma_macro)) {
       constexpr int stages = 3;
 
       mparams->circular_buffer_options.circular_buffer_smem_write = true;
