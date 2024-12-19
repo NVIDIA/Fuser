@@ -11,6 +11,7 @@ from torch import nn
 from typing import Tuple
 from functools import partial
 
+
 # Mimic the Hugging Face implementation:
 # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L216
 def rope_with_cat_fusion(
@@ -1146,4 +1147,4 @@ def test_rope_variations_bwd_benchmark(
 
     benchmark_fn = with_executor(executor, fwd_call)
     # FIXME fix the bytes computation!
-    run_benchmark(benchmark, unary_bwd_torch, [output, grad()], iobytes=10)
+    run_benchmark(benchmark, unary_bwd_torch, [output, grad()])

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+from collections.abc import Iterable
 import pytest_benchmark
 import torch
 from torch.autograd import DeviceType
@@ -222,9 +223,9 @@ class NVFBenchmark:
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
-            if isinstance(inputs, torch.Tensor):
+            if not isinstance(inputs, Iterable):
                 inputs = [inputs]
-            if isinstance(outputs, torch.Tensor):
+            if not isinstance(outputs, Iterable):
                 outputs = [outputs]
 
             iobytes = 0
