@@ -114,7 +114,7 @@ inline bool initCoreHeuristics(
     // - start with [4, 4, 2] shape, later it should depend on problem
     //   shape and have bigger impact on CTA tile shape
 
-    const DimType m_ratio = 4 / num_problems;
+    const DimType m_ratio = 4 / (DimType)num_problems;
     const DimType n_ratio = 4;
     const DimType k_ratio = 2;
 
@@ -761,7 +761,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         inner_dims,
         tensor_roles);
     // TODO: more sophisticated handling of multiple matmuls when using plugin
-    mparams->tile_sizes.cta_tile.m /= patterns.size();
+    mparams->tile_sizes.cta_tile.m /= (int64_t)patterns.size();
   } else {
     TORCH_WARN_ONCE(
         "Scheduling a matmul without heuristic plugin. "
