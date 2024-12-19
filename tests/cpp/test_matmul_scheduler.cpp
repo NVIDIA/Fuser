@@ -2724,7 +2724,7 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams);
   auto outputs = ke.run(inputs);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.1, 0.1));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 class MatmulFusionTest
