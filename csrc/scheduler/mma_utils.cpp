@@ -1865,10 +1865,6 @@ class MatmulTranslator : public OptInDispatch {
       int64_t out_dim = pattern_.A->nDims() + 1L;
       axis_mapping.a_axes.reserve(out_dim);
       for (int64_t d : c10::irange(out_dim - 2L)) {
-        axis_mapping.a_axes.push_back(d);
-      }
-      axis_mapping.a_axes.reserve(out_dim);
-      for (size_t d : c10::irange(out_dim - 2)) {
         axis_mapping.a_axes.push_back((int64_t)d);
       }
       axis_mapping.a_axes.push_back(-1); // missing N dimension
