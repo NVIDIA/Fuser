@@ -520,7 +520,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Use stmatrix to store 16b data types.
-      bool store_with_stmatrix = dc->dtype() == dataTypeSize(dc->dtype()) == 2 ;
+      bool store_with_stmatrix = dc->dtype() == dataTypeSize(dc->dtype()) == 2;
 
       if (store_with_stmatrix) {
         d_smem->definition()->as<LoadStoreOp>()->setOpType(
@@ -570,7 +570,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
       }
-      
+
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
