@@ -490,8 +490,6 @@ void HostIrEvaluator::handle(EndCoalescing* end_coalescing) {
 }
 
 void HostIrEvaluator::handle(kir::IfThenElse* if_then_else) {
-  expr_evaluator_.invalidate(if_then_else->predicate()->value());
-  expr_evaluator_.invalidate(if_then_else->predicate());
   auto predicate =
       expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
   const auto& scope =

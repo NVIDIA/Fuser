@@ -1245,14 +1245,12 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   hic->addOutput(tva_j_curr_slice);
   hic->addOutput(tva_j_next_slice);
   hic->addOutput(tvc_j);
-  hic->addOutput(tva);
-  hic->addOutput(tvb_unsharded);
-  hic->addOutput(tvc_unsharded);
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
+    at::manual_seed(getATenRandomSeed());
     initializeIO();
 
     std::unordered_map<Val*, c10::IValue> inputs = {
