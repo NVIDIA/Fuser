@@ -91,7 +91,7 @@ class ArgumentManager {
       const RuntimeWorkSpace& runtime_workspace,
       const std::vector<Val*>& fusion_inputs);
 
-  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap();
+  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() const;
 
   const PolymorphicValue* checkTensorMap(Val* v);
 
@@ -103,6 +103,17 @@ class ArgumentManager {
       const std::vector<Val*>& group_outputs,
       const T& group_runtime_outputs,
       const int64_t group_id);
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ArgumentManager {";
+    for (auto entry : tensor_map_) {
+      ss << "  " << entry.first->toString() << " : "
+         << PolymorphicValue_functions::toString(*entry.second) << std::endl;
+    }
+    ss << "}" << std::endl;
+    return ss.str();
+  }
 
  private:
   KernelArgumentHolder& fusion_args_;

@@ -7,6 +7,7 @@
 // clang-format on
 #include <polymorphic_value.h>
 #include <type.h>
+#include <utils.h>
 
 #include <string>
 
@@ -44,10 +45,7 @@ namespace PolymorphicValue_functions {
 std::string toString(const PolymorphicValue& v) {
   std::stringstream ss;
   if (v.is<at::Tensor>()) {
-    const auto& t = v.as<at::Tensor>();
-    ss << "Tensor(sizes=" << t.sizes() << ", "
-       << "stride=" << t.strides() << ", dtype=" << t.dtype()
-       << ", device=" << t.device() << ", data_ptr=" << t.data_ptr() << ")";
+    ss << debug_str(v.as<at::Tensor>());
   } else if (v.is<std::monostate>()) {
     ss << "std::monostate";
   } else if (v.is<StructHandle>()) {
