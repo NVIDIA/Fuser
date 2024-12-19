@@ -2720,17 +2720,23 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
-class MatmulFusionTest : public MatmulSchedulerTest,
-                         public ::testing::WithParamInterface<bool> {
+class MatmulFusionTest
+    : public MatmulSchedulerTest,
+      public ::testing::WithParamInterface<std::pair<bool, bool>> {
  protected:
   void SetUp() override {
     if (fusion_enabled) {
       EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
     }
+    if (horizontal_fusion_enabled) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::FuseMultipleMatmuls);
+    }
   }
 
   EnableOptionsGuard eog_;
-  bool fusion_enabled = GetParam();
+  bool fusion_enabled = GetParam().first;
+  bool horizontal_fusion_enabled = GetParam().second;
 };
 
 // Test that we can segment a Fusion containing two matmuls
@@ -2788,21 +2794,28 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
 
-  EXPECT_TRUE(runtime->isSegmented());
+  size_t expected_kernels =
+      fusion_enabled ? (horizontal_fusion_enabled ? 1 : 2) : 3;
 
-  if (fusion_enabled) {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
-  } else {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
-  }
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), expected_kernels);
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulFusionTest,
-    ::testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "fuse" : "dontfuse";
+    ::testing::ValuesIn(std::vector<std::pair<bool, bool>>{
+        {false, false},
+        {true, false},
+        {true, true}}),
+    [](const testing::TestParamInfo<std::pair<bool, bool>>& info) {
+      bool fuse = info.param.first;
+      bool horiz_fuse = info.param.second;
+      if (horiz_fuse) {
+        NVF_ERROR(
+            fuse, "Horizontal fusion enabled but overall fusion disabled");
+      }
+      return fuse ? (horiz_fuse ? "fuse_horizontal" : "fuse_single")
+                  : "dontfuse";
     });
 
 // This test can be used to check that an external plugin has been loaded. It
