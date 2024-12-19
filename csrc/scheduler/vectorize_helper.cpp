@@ -842,7 +842,7 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
-// The returns a map of input to their resize alignment info. This function
+// Returns a map of input to their resize alignment info. This function
 // currently checks the alignment requirement on contiguous iterdomain in
 // allocation domain that *could be* broken by resize. This function returns a
 // map for TensorView, containing the index in their allocation domain whose
@@ -871,6 +871,8 @@ mapResizeAlignmentToInputs(TensorView* ref) {
   for (auto inp : in_tvs) {
     auto inp_alloc_dom = inp->getMaybeAllocationDomain();
 
+    // We check each non-broadcast ID against its non-broadcast inner ID. For a
+    // size-1 allocation domain, there's nothing to check.
     if (inp_alloc_dom.size() <= 1) {
       continue;
     }
@@ -882,6 +884,9 @@ mapResizeAlignmentToInputs(TensorView* ref) {
         continue;
       }
 
+      // inner_i is the index of the dimension in allocation domain, that
+      // current dimension's contiguity collapsed to if applicable. We need to
+      // seach across to skip broadcast dimensions.
       int64_t inner_i = i + 1;
       while (inner_i < (int64_t)contiguity.size() &&
              !contiguity[inner_i].has_value()) {
