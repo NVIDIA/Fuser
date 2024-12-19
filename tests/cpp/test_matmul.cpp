@@ -4020,8 +4020,6 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   auto b_ref = at::randn({K, 1, N}, options);
   auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
 
-  // NOTE if cta_tile / mma_macro == circular buffering stages, then incorrect
-  // results occurs.
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 32);
   gemm_tile.warp_tile = GemmTile(64, 256, 32);
@@ -4035,6 +4033,9 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  // NOTE Certain combinations of cta k dimension and circular buffer
+  // prefetching can get incorrect results.
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
@@ -4078,8 +4079,6 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   auto b_ref = at::randn({1, N, K}, options);
   auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
 
-  // NOTE if cta_tile / mma_macro == circular buffering stages, then incorrect
-  // results occurs.
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 32);
   gemm_tile.warp_tile = GemmTile(64, 256, 32);
@@ -4093,6 +4092,9 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  // NOTE Certain combinations of cta k dimension and circular buffer
+  // prefetching can get incorrect results.
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
