@@ -3993,32 +3993,27 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
+TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   constexpr int64_t M = 2048, N = 2048, K = 8192;
   const auto dtype = DataType::Half;
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
-  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // N, K
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
-
-  // Reorder the accumulator as [M, N, K]
-  // [K, M, N] -> [M, N, K]
-  tv2->reorder({{-3, -1}});
-  tv2->commitLeafToLogical();
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
   auto tv3 = castOp(DataType::Half, tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({K, M, 1}, options);
-  auto b_ref = at::randn({K, 1, N}, options);
-  auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
+  auto a_ref = at::randn({M, 1, K}, options);
+  auto b_ref = at::randn({1, N, K}, options);
+  auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 16);
