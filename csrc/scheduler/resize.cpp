@@ -185,6 +185,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
            resize_based_tensor_ops, exact_graph)) {
     auto resize_based_op = out_tv->definition();
     auto inp_tv = resize_based_op->input(0)->as<TensorView>();
+    // Since cacheInput may skip caching if an input is used by
+    // slice/pad, inp_tv may be a fusion input, in which case it is
+    // not necessary to recompute the tensor.
+    if (inp_tv->isFusionInput()) {
+      continue;
+    }
     auto inp_tv_copy = RecomputeTv::recompute(inp_tv);
     ir_utils::replaceValInExprInputs(resize_based_op, inp_tv, inp_tv_copy);
   }
