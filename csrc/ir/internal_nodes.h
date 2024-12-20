@@ -320,6 +320,8 @@ class NVF_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
+  std::string getGraphvizLabel() const override;
+
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
@@ -357,6 +359,8 @@ class NVF_API BinaryOp : public Expr {
   const char* getOpString() const override {
     return "BinaryOp";
   }
+
+  std::string getGraphvizLabel() const override;
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -404,6 +408,8 @@ class TernaryOp : public Expr {
   const char* getOpString() const override {
     return "TernaryOp";
   }
+
+  std::string getGraphvizLabel() const override;
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
