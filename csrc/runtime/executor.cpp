@@ -390,12 +390,6 @@ void KernelExecutor::compile(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-    NVF_ERROR(
-        !has_cp_async_bulk ||
-            (compile_params.index_type.value() == PrimDataType::Int32),
-        "Compilation with int64 is requested but int32 is required because ",
-        "of TMA operations.");
-
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -403,13 +397,29 @@ void KernelExecutor::compile(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
-    NVF_ERROR(
-        !has_cp_async_bulk,
-        "Compilation with int64 is required based on input arguments, but ",
-        "int32 is required because of TMA operations.");
   } else if (has_cp_async_bulk) {
     // TMA operations require 32-bit indexing.
     compile_params.index_type = PrimDataType::Int32;
+  }
+
+  if (has_cp_async_bulk && compile_params.index_type == PrimDataType::Int) {
+    // Check that each dimension of the inputs can be indexed with a 32-bit int
+    // There might be some gmem tensors that are linearly indexed (i.e. not read
+    // or written using TMA). This analysis only checks the extents of fusion
+    // inputs since it is assumed that if TMA is used for an output tensor it
+    // will share dims with some inputs.
+    for (const std::shared_ptr<PolymorphicValue>& arg : args) {
+      if (arg->is<at::Tensor>()) {
+        const at::Tensor& tensor = arg->as<at::Tensor>();
+        for (const size_t dim_i : c10::irange(tensor.ndimension())) {
+          int64_t size = tensor.size(dim_i);
+          NVF_CHECK(
+              size < (1LL << 31),
+              "TMA enabled with 64-bit indexing. Expected all input dims to be < 2^31 but found ",
+              size);
+        }
+      }
+    }
   }
 
   c10::DeviceGuard dg(options_.device);
