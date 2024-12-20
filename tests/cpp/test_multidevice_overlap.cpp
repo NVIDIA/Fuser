@@ -1071,20 +1071,18 @@ TEST_F(
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
         if (j != 0) {
-          printf("waiting on %p\n", comms_req.get());
           comms_req->wait();
         }
 
         // send & matmul current index
         std::vector<at::Tensor> src = {ta_j_curr_slice};
         std::vector<at::Tensor> dst = {ta_j_next_slice};
-        //if (j < number_of_steps_per_ring_ - 1) {
+        if (j < number_of_steps_per_ring_ - 1) {
           world_communicator_->startCoalescing();
           world_communicator_->send(src, send_rank, 0);
           world_communicator_->recv(dst, recv_rank, 0);
           comms_req = world_communicator_->endCoalescing();
-          printf("posted %p\n", comms_req.get());
-        //}
+        }
         torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
       }
     }
@@ -1153,8 +1151,8 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       add(number_of_steps_per_ring_val, sub(my_device_index_val, hic->oneVal())),
       number_of_steps_per_ring_val);
 
-  auto *slice_index = mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j + number_of_steps_per_ring_) % number_of_steps_per_ring_;
-  auto *next_slice_index = mod(add(sub(sub(my_device_index_val, j), hic->oneVal()), number_of_steps_per_ring_val), number_of_steps_per_ring_val); //(my_device_index_ - j - 1 + number_of_steps_per_ring_) % number_of_steps_per_ring_;
+  auto *slice_index = mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val), number_of_steps_per_ring_val);
+  auto *next_slice_index = mod(add(sub(sub(my_device_index_val, j), hic->oneVal()), number_of_steps_per_ring_val), number_of_steps_per_ring_val);
 
   TensorView* tmp1 = select(tva, 0, slice_index);
   TensorView* tmp2 = select(tva, 0, next_slice_index);
@@ -1181,16 +1179,16 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
 
   auto* cond = ne(j, hic->zeroVal());
   auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
-  auto* if_wait_not_null_then_wait = IrBuilder::create<kir::IfThenElse>(wait_predicate);
-  if_wait_not_null_then_wait->thenBody().push_back(wait);
+  auto* if_not_first_ring_step_wait = IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  if_not_first_ring_step_wait->thenBody().push_back(wait);
 
-  // auto* comm_predicate = IrBuilder::create<kir::Predicate>(input_bool);
-  // auto* if_not_last_ring_step_post_comms = IrBuilder::create<kir::IfThenElse>(comm_predicate);
-  // if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
-  // if_not_last_ring_step_post_comms->thenBody().push_back(send);
-  // if_not_last_ring_step_post_comms->thenBody().push_back(recv);
-  // if_not_last_ring_step_post_comms->thenBody().push_back(end_coalescing);
-  // if_not_last_ring_step_post_comms->thenBody().push_back(set_wait_bool_true);
+  auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
+  auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
+  auto* if_not_last_ring_step_post_comms = IrBuilder::create<kir::IfThenElse>(comm_predicate);
+  if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
+  if_not_last_ring_step_post_comms->thenBody().push_back(send);
+  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
+  if_not_last_ring_step_post_comms->thenBody().push_back(end_coalescing);
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
@@ -1200,13 +1198,8 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       tva_j_curr_slice->definition(),
       tva_j_next_slice->definition(),
       tvc_j->definition(),
-      if_wait_not_null_then_wait,
-      //if_not_last_ring_step_post_comms,
-      start_coalescing,
-      send,
-      recv,
-      end_coalescing,
-      //wait,
+      if_not_first_ring_step_wait,
+      if_not_last_ring_step_post_comms,
       mm};
   for (Expr* expr : loop_j_body) {
     for_loop_j->body().push_back(expr);
@@ -1252,6 +1245,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
        c10::irange(params.number_of_iterations)) {
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
+
     initializeIO();
 
     std::unordered_map<Val*, c10::IValue> inputs = {
