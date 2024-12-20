@@ -251,6 +251,7 @@ NVF_API TensorView* arange(
     DataType dtype = DataType::Int);
 NVF_API TensorView* eye(Val* size, DataType dtype);
 NVF_API TensorView* eye(Val* rows, Val* cols, DataType dtype);
+NVF_API TensorView* triu(TensorView* tv, Val* offset);
 
 // UNARY OPERATIONS
 // abs

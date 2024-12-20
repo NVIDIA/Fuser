@@ -230,6 +230,28 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
   }
 }
 
+TEST_F(TensorFactoryTest, SimpleTriu) {
+  auto fusion = std::make_unique<Fusion>();
+
+  FusionGuard gf(fusion.get());
+
+  auto tv_to_triu_on = makeSymbolicTensor(3, DataType::Half);
+  fusion->addInput(tv_to_triu_on);
+
+  int64_t k_factor = -2;
+  auto out = triu(tv_to_triu_on, IrBuilder::create<Val>(k_factor, DataType::Int));
+  fusion->addOutput(out);
+
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto in_tensor = at::randn({4, 4, 8}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
+
+  EXPECT_TRUE(cg_outputs[0].allclose(at::triu(in_tensor, k_factor), .001, .001));
+}
+
 TEST_F(TensorFactoryTest, StandaloneARange) {
   auto starts_ends = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
