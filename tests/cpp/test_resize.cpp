@@ -4495,15 +4495,15 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs2) {
   auto out_tensors = executor_cache.runFusionWithInputs(inputs);
   testValidate(
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+
+  // While the slices can be transformed to be all exclusive, it is
+  // currently segmented as the output has differet shapes. Both
+  // segments should be scheduled as resize segments.
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_FALSE(runtime->isSegmented());
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-  Fusion* scheduled_fusion =
-      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())->fusion();
-  checkLoopDomainEquivalence(
-      scheduled_fusion->outputs().at(0)->as<TensorView>());
+  const auto& heuristic_list = runtime->schedulerHeuristics()->heuristicsList();
+  EXPECT_EQ(heuristic_list.size(), 2);
+  EXPECT_EQ(heuristic_list[0]->scheduler_type, SchedulerType::Resize);
+  EXPECT_EQ(heuristic_list[1]->scheduler_type, SchedulerType::Resize);
 }
 
 // Non-exclusive slice due to a dependency to a fusion output
