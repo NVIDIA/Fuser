@@ -65,6 +65,10 @@ bool hasNonUniqueBcast(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     for (auto id : tv->getMaybeRootDomain()) {
       if (concretize_info.maybeNonUniquelyConcretized(id)) {
+        std::cerr << "Non unique: " << id->toString() << " -> "
+                  << toDelimitedString(
+                         concretize_info.allConcretizedDomains(id))
+                  << "\n";
         return true;
       }
     }

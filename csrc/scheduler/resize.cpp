@@ -111,13 +111,25 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  // This doesn't work yet due to issue #3571
   auto ref_tv = getReferenceTensor(fusion);
-  if (std::any_of(
-          ref_tv->getLogicalDomain().begin(),
-          ref_tv->getLogicalDomain().end(),
-          [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+  if (ref_tv == nullptr) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "No referene found");
     return false;
+  }
+
+  // This doesn't work yet due to issue #3571
+  if (!getenv("SKIP_BROADCAST_CHECK")) {
+    if (std::any_of(
+            ref_tv->getLogicalDomain().begin(),
+            ref_tv->getLogicalDomain().end(),
+            [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Reference with broadcast ID not supported yet: ",
+          ref_tv->toString());
+      return false;
+    }
   }
 
   // Having different resizes between outputs is not allowed at this
@@ -162,6 +174,8 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   // may also need to be enabled in that case, but that option is not
   // turned on automatically yet.
   if (ir_utils::hasOpsOfType<SqueezeOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "SqueezeOp not supported.");
     return false;
   }
 
