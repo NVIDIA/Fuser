@@ -508,8 +508,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
-          mma_results_.end()) {
+
+      bool dc_in_mma_results =
+          std::find(mma_results_.begin(), mma_results_.end(), dc) !=
+          mma_results_.end();
+
+      if (!dc_in_mma_results) {
         // Skip scheduling dc if it is an mma_result. This can happen if we are
         // not casting back to half-precision in the output
         tvs_to_schedule.push_back(dc);
@@ -543,8 +547,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Should not propagate if the dc is a mma output as the mma output has
       // already been scheduled.
-      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
-          mma_results_.end()) {
+      if (!dc_in_mma_results) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
@@ -560,7 +563,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
-      // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
+      // [M, N] -> [128(TIDx), N/8 ,  m(2) , n(2)]
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           d_smem->getLoopDomain());
       if (swizzle != MmaInputSmemSwizzle::None) {
