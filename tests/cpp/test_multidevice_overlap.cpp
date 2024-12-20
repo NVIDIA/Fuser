@@ -1056,7 +1056,7 @@ TEST_F(
     initializeIO();
     c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
 
-    for (auto i : c10::irange(number_of_rings_)) {      
+    for (auto i : c10::irange(number_of_rings_)) {
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
@@ -1091,7 +1091,9 @@ TEST_F(
   }
 }
 
-TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementation) {
+TEST_F(
+    RingAllgatherOverlapTest,
+    RingAllgatherBasedPipeliningHostIRImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
@@ -1102,8 +1104,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   hic->addInput(tvb_unsharded);
   hic->addInput(tvc_unsharded);
 
-  auto* i =
-      IrBuilder::create<Val>(DataType::Index);
+  auto* i = IrBuilder::create<Val>(DataType::Index);
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
@@ -1119,8 +1120,7 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
       CircularBufferLoopStage::NotApplicable,
       /*circular_buffer_loop_stage_depth=*/0);
 
-  auto* j =
-      IrBuilder::create<Val>(DataType::Index);
+  auto* j = IrBuilder::create<Val>(DataType::Index);
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva->axis(0)->extent();
   auto* step_j = hic->oneVal();
@@ -1145,14 +1145,20 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   auto* number_of_steps_per_ring_val =
       IrBuilder::create<Val>(number_of_steps_per_ring_);
 
-  auto* send_rank =
-      mod(add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
-  auto* recv_rank = mod(
-      add(number_of_steps_per_ring_val, sub(my_device_index_val, hic->oneVal())),
-      number_of_steps_per_ring_val);
+  auto* send_rank = mod(
+      add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
+  auto* recv_rank =
+      mod(add(number_of_steps_per_ring_val,
+              sub(my_device_index_val, hic->oneVal())),
+          number_of_steps_per_ring_val);
 
-  auto *slice_index = mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val), number_of_steps_per_ring_val);
-  auto *next_slice_index = mod(add(sub(sub(my_device_index_val, j), hic->oneVal()), number_of_steps_per_ring_val), number_of_steps_per_ring_val);
+  auto* slice_index =
+      mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val),
+          number_of_steps_per_ring_val);
+  auto* next_slice_index =
+      mod(add(sub(sub(my_device_index_val, j), hic->oneVal()),
+              number_of_steps_per_ring_val),
+          number_of_steps_per_ring_val);
 
   TensorView* tmp1 = select(tva, 0, slice_index);
   TensorView* tmp2 = select(tva, 0, next_slice_index);
@@ -1161,7 +1167,8 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
   TensorView* tva_j_next_slice = select(tmp2, 0, i);
   TensorView* tvc_j = select(tmp3, 0, i);
 
-  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+  auto* mm =
+      IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
@@ -1179,12 +1186,14 @@ TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningHostIRImplementatio
 
   auto* cond = ne(j, hic->zeroVal());
   auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
-  auto* if_not_first_ring_step_wait = IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  auto* if_not_first_ring_step_wait =
+      IrBuilder::create<kir::IfThenElse>(wait_predicate);
   if_not_first_ring_step_wait->thenBody().push_back(wait);
 
   auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
   auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
-  auto* if_not_last_ring_step_post_comms = IrBuilder::create<kir::IfThenElse>(comm_predicate);
+  auto* if_not_last_ring_step_post_comms =
+      IrBuilder::create<kir::IfThenElse>(comm_predicate);
   if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
   if_not_last_ring_step_post_comms->thenBody().push_back(send);
   if_not_last_ring_step_post_comms->thenBody().push_back(recv);
