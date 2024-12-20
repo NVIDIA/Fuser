@@ -9249,8 +9249,6 @@ TEST_F(NVFuserTest, AllIdsMultipleDependencies) {
   tv1->split(0, 4);
   tv1->split(0, 8);
 
-  fusion.print();
-
   auto all_ids = tv1->domain()->allIDs();
 
   auto split2 = tv1->axis(0)->definition()->as<Split>();
