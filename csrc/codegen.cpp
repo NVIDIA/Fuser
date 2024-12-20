@@ -3325,10 +3325,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Use a custom synchronization method if enabled
     if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
-    } else if (isAligned()) {
-      indent() << "__syncthreads();\n";
     } else {
-      indent() << "__barrier_sync(0);\n";
+      ArgumentBuilder sync_call_template_parms;
+      sync_call_template_parms.arg(isAligned());
+
+      ArgumentBuilder sync_call_args;
+      sync_call_args.arg(genComputeBlockDim());
+
+      auto sync_call =
+          genCall("block_sync::sync", sync_call_template_parms, sync_call_args);
+      indent() << sync_call << ";\n";
     }
   }
 
