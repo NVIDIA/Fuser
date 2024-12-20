@@ -2722,7 +2722,6 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
             [&]() { ke.compile(&fusion, inputs); },
             testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
                 "Reason: Fusion contains Float8_xxx values")));
-        GTEST_SKIP() << "skipping tests on pre-HOPPER GPUs";
       } else {
         ke.compile(&fusion, inputs);
         auto outputs = ke.run(inputs);
