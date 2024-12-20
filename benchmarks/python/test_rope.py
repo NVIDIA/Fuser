@@ -318,7 +318,12 @@ def llama_hf_rope(config_str):
         # adding size of cos, sin
         n_elements += 2 * cfg.seq_length * cfg.rope_n_elem
         # adding size of qkv.grad
-        n_elements += cfg.batches * cfg.seq_length * cfg.head_size * (cfg.n_head + 2 * cfg.n_query_groups)
+        n_elements += (
+            cfg.batches
+            * cfg.seq_length
+            * cfg.head_size
+            * (cfg.n_head + 2 * cfg.n_query_groups)
+        )
         # scale by dtype size
         return n_elements * torch.bfloat16.itemsize
 
@@ -522,15 +527,21 @@ def hf_qwen2_rope():
     def iobytes():
         n_elements = 0
         # adding size of query_states.grad + key_states.grad + value_states.grad
-        n_elements += 3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        n_elements += (
+            3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        )
         # adding size of query_states + key_states
-        n_elements += 2 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        n_elements += (
+            2 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        )
         # adding size of cos, sin
         n_elements += 2 * cfg.batch_size * cfg.seq_len * head_dim
         # adding size of q.grad
         n_elements += cfg.batch_size * cfg.seq_len * cfg.num_attention_heads * head_dim
         # adding size of k.grad, v.grad
-        n_elements += 2 *cfg.batch_size * cfg.seq_len * cfg.num_key_value_heads * head_dim
+        n_elements += (
+            2 * cfg.batch_size * cfg.seq_len * cfg.num_key_value_heads * head_dim
+        )
         # adding size of cos.grad, sin.grad
         n_elements += 2 * cfg.batch_size * cfg.seq_len * head_dim
         # scale by dtype size
@@ -878,13 +889,25 @@ def hf_phi3_rope():
     def iobytes():
         n_elements = 0
         # adding size of query_states.grad + key_states.grad +  value_states.grad
-        n_elements += 3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        n_elements += (
+            3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        )
         # adding size of qkv.grad
-        n_elements += cfg.batch_size * cfg.seq_len * (cfg.num_attention_heads * head_dim + 2 * (cfg.num_key_value_heads * head_dim))
+        n_elements += (
+            cfg.batch_size
+            * cfg.seq_len
+            * (
+                cfg.num_attention_heads * head_dim
+                + 2 * (cfg.num_key_value_heads * head_dim)
+            )
+        )
         # matmul output size
         n_elements_matmul_out = head_dim / 2 * cfg.seq_len
         # totoal io sizes
-        return n_elements * torch.bfloat16.itemsize + n_elements_matmul_out * torch.float32.itemsize
+        return (
+            n_elements * torch.bfloat16.itemsize
+            + n_elements_matmul_out * torch.float32.itemsize
+        )
 
     return HfPhi3Rope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
@@ -1116,15 +1139,24 @@ def hf_mistral_nemo_rope():
     def iobytes():
         n_elements = 0
         # adding size of query_states.grad + key_states.grad +  value_states.grad
-        n_elements += 3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * cfg.head_dim
+        n_elements += (
+            3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * cfg.head_dim
+        )
         # adding size of q.grad
-        n_elements += cfg.batch_size * cfg.seq_len * cfg.num_attention_heads * cfg.head_dim
+        n_elements += (
+            cfg.batch_size * cfg.seq_len * cfg.num_attention_heads * cfg.head_dim
+        )
         # adding size of k.grad, v.grad
-        n_elements += 2 *cfg.batch_size * cfg.seq_len * cfg.num_key_value_heads * cfg.head_dim
+        n_elements += (
+            2 * cfg.batch_size * cfg.seq_len * cfg.num_key_value_heads * cfg.head_dim
+        )
         # matmul output size
         n_elements_matmul_out = head_dim / 2 * cfg.seq_len
         # totoal io sizes
-        return n_elements * torch.bfloat16.itemsize + n_elements_matmul_out * torch.float32.itemsize
+        return (
+            n_elements * torch.bfloat16.itemsize
+            + n_elements_matmul_out * torch.float32.itemsize
+        )
 
     return MistralNemoRope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
@@ -1202,4 +1234,9 @@ def test_rope_variations_bwd_benchmark(
 
     benchmark_fn = with_executor(executor, fwd_call)
     # FIXME I don't think the automatic IObytes computation is correct
-    run_benchmark(benchmark, unary_bwd_torch, [output, grad()], iobytes=iobytes())
+    run_benchmark(
+        benchmark,
+        unary_bwd_torch,
+        [output, grad()],
+        iobytes=iobytes() if executor == "thunder" else None,
+    )
