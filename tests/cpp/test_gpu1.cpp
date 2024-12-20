@@ -2711,13 +2711,17 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
       std::vector<c10::IValue> inputs = {input1};
 
       KernelExecutor ke;
-
+#if (CUDA_VERSION >= 12010)
+      if (!deviceMajorMinorCheck(8, 9)) {
+#elif (CUDA_VERSION >= 11080)
       if (!deviceMajorMinorCheck(9)) {
+#else
+      if (true) {
+#endif
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, inputs); },
             testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains Float8_xxx values which was introduced in Hopper (9.0)")));
-        GTEST_SKIP() << "skipping tests on pre-HOPPER GPUs";
+                "Reason: Fusion contains Float8_xxx values")));
       } else {
         ke.compile(&fusion, inputs);
         auto outputs = ke.run(inputs);
