@@ -120,6 +120,8 @@ class Val;
   f(GridSync);                        \
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
+  f(MaxNReg);                         \
+  f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
