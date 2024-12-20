@@ -3505,6 +3505,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
+  void handle(const kir::Return* ret) final {
+    indent() << "return;\n";
+  }
+
  private:
   std::stringstream code_;
   const kir::Kernel* kernel_;
