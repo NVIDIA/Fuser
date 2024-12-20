@@ -759,6 +759,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmarks/cpp/transpose.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
+    ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
   )
 
   add_executable(nvfuser_bench ${BENCHMARK_SRCS})

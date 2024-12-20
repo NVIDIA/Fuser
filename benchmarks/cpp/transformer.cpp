@@ -43,25 +43,20 @@ static constexpr double kParamScale = 0.02;
 
 // Return reduction tensor view and output of reduction
 static void setupTransformerForward(Fusion* fusion, DataType dtype) {
-
-  FusionGuard fg(fusion);
-
-  auto* communicator_ = Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
+  Communicator* communicator_ = &Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
 
   const int64_t D = communicator_->size(); // number of devices
-
-  NVF_ERROR((4 * E) % D == 0, "Requires number of devices ", D, "evenly divide 4*E=", 4*E);
 
   std::unique_ptr<DistributedTransformer> model = std::make_unique<DistributedTransformer>(
         D, B, E, H, S, kDropoutProb, kSdpaProb);
 
-  const auto mesh = DeviceMesh::createForNumDevices(D);
+  model->setupForward(fusion, dtype, /*sequence_parallel*/false);
 }
 
 static void NvFuserScheduler_TransformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
-    DataType dtype) {
+    DataType dtype) { /*
   auto w = benchmark_state.range(0);
   auto x = benchmark_state.range(1);
   auto y = benchmark_state.range(2);
@@ -80,18 +75,18 @@ static void NvFuserScheduler_TransformerFwd(
       runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
-      bytes * int64_t(benchmark_state.iterations()));
+      bytes * int64_t(benchmark_state.iterations()));*/
 }
 
 //------------------------------------------------------------------------------
 
 NVFUSER_BENCHMARK_DEFINE(
-    nick_transformer,
+    TransformerForward,
     setupTransformerForward,
     NvFuserScheduler_TransformerFwd,
     DataType::Float);
 
-NVFUSER_BENCHMARK_RUN(nick_transformer)
+NVFUSER_BENCHMARK_RUN(TransformerForward)
     // ->RangeMultiplier(2)
     ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
     ->Unit(benchmark::kMicrosecond)

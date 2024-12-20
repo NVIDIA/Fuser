@@ -392,11 +392,13 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
       linear0_grads.grad_x};
 }
 
-std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
+/* NVFuser benchmark manages the unique_ptr for Fusion and FusionExecutorCache,
+   so update the raw pointer with this setupForward function */
+void DistributedTransformer::setupForward(
+    Fusion *fusion,
     DataType dtype,
     bool sequence_parallel) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  FusionGuard fg(fusion);
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* x = sequence_parallel
@@ -478,7 +480,13 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
     shardBetween({mha_in}, {mha_tvs.output}, mha_w0);
     shardBetween({mlp_in}, {mlp_tvs.output}, mlp_w0);
   }
+}
 
+std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
+    DataType dtype,
+    bool sequence_parallel) {
+  auto fusion = std::make_unique<Fusion>();
+  setupForward(fusion.get(), dtype, sequence_parallel);
   return std::make_unique<FusionExecutorCache>(std::move(fusion));
 }
 

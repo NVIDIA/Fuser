@@ -45,6 +45,10 @@ class DistributedTransformer {
         kDropoutProb(dropout_prob),
         kSdpaProb(sdpa_dropout_prob) {}
 
+  void setupForward(
+      Fusion *fusion,
+      DataType dtype,
+      bool sequence_parallel = false);
   std::unique_ptr<FusionExecutorCache> forward(
       DataType dtype,
       bool sequence_parallel = false);
