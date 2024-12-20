@@ -23,55 +23,42 @@
 
 #include <benchmarks/cpp/utils.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/multidevice_transformer.h>
 
 using namespace nvfuser;
 
+namespace {
+// Note: We test on smaller model and input sizes to avoid high error
+// accumulation for validation.
+static constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+// Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
+// it throws off the seed offset between the sharded nvFuser program and the
+// unsharded reference.
+static constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+// Note parameters scaled by kParamScale following weight initialization
+// recommendations:
+// https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
+static constexpr double kParamScale = 0.02;
+} // namespace
+
 // Return reduction tensor view and output of reduction
-static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
+static void setupTransformerForward(Fusion* fusion, DataType dtype) {
+
   FusionGuard fg(fusion);
 
-  bool is_fp16 = dtype == DataType::Half;
+  auto* communicator_ = Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
 
-  TensorView* tv0 = TensorViewBuilder()
-                        .ndims(4)
-                        .dtype(dtype)
-                        .contiguity({true, std::nullopt, std::nullopt, true})
-                        .shape({-1, 1, 1, -1})
-                        .build();
-  TensorView* tv1 = makeContigTensor(4, dtype);
+  const int64_t D = communicator_->size(); // number of devices
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
+  NVF_ERROR((4 * E) % D == 0, "Requires number of devices ", D, "evenly divide 4*E=", 4*E);
 
-  // TODO: should be input
-  auto d16 = IrBuilder::create<Val>(1.0);
+  std::unique_ptr<DistributedTransformer> model = std::make_unique<DistributedTransformer>(
+        D, B, E, H, S, kDropoutProb, kSdpaProb);
 
-  if (is_fp16) {
-    tv0 = castOp(DataType::Float, tv0);
-    tv1 = castOp(DataType::Float, tv1);
-  }
-
-  auto tv2 = div(tv1, d16);
-  auto tv3 = add(tv2, tv0);
-
-  auto tv10 = softmax(tv3, 3);
-  auto dropout_tvs = dropout(tv10, IrBuilder::create<Val>(0.9));
-  auto tv12 = dropout_tvs.mask;
-  auto tv14 = dropout_tvs.output;
-
-  if (is_fp16) {
-    tv14 = castOp(DataType::Half, tv14);
-    tv10 = castOp(DataType::Half, tv10);
-    tv3 = castOp(DataType::Half, tv3);
-  }
-
-  fusion->addOutput(tv14);
-  fusion->addOutput(tv12);
-  fusion->addOutput(tv10);
-  fusion->addOutput(tv3);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
 }
 
-static void NvFuserScheduler_DivMaxSoftDropFwd(
+static void NvFuserScheduler_TransformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
     DataType dtype) {
@@ -100,8 +87,8 @@ static void NvFuserScheduler_DivMaxSoftDropFwd(
 
 NVFUSER_BENCHMARK_DEFINE(
     nick_transformer,
-    setupDivMaxSoftmaxDropoutForward,
-    NvFuserScheduler_DivMaxSoftDropFwd,
+    setupTransformerForward,
+    NvFuserScheduler_TransformerFwd,
     DataType::Float);
 
 NVFUSER_BENCHMARK_RUN(nick_transformer)
