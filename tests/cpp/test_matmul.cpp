@@ -4021,8 +4021,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4078,8 +4078,8 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4141,8 +4141,8 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
       at::matmul(a_ref.squeeze().t(), b_ref.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4203,8 +4203,8 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
