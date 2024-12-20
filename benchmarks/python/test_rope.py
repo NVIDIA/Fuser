@@ -310,7 +310,19 @@ def llama_hf_rope(config_str):
         )
         return grad
 
-    return LitGPTRope(cfg).cuda().bfloat16(), inputs, grads
+    # Manual IOBytes computes the theoretical total bandwidth for bwd kernel.
+    def iobytes():
+        n_elements = 0
+        # adding size of q.grad + k.grad
+        n_elements += 2 * cfg.batches * cfg.n_head * cfg.seq_length * cfg.head_size
+        # adding size of cos, sin
+        n_elements += 2 * cfg.seq_length * rope_n_elem
+        # adding size of qkv.grad
+        n_elements += cfg.batches * cfg.seq_length * cfg.head_size * (cfg.n_head + 2 * cfg.n_query_groups)
+        # scale by dtype size
+        return n_elements * torch.bfloat16.itemsize
+
+    return LitGPTRope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
 def hf_qwen2_rope():
@@ -506,7 +518,23 @@ def hf_qwen2_rope():
         )
         return grad
 
-    return Qwen2Rope(cfg).cuda().bfloat16(), inputs, grads
+    # Manual IOBytes computes the theoretical total bandwidth for bwd kernel.
+    def iobytes():
+        n_elements = 0
+        # adding size of query_states.grad + key_states.grad +  value_states.grad
+        n_elements += 3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        # adding size of cos, sin
+        n_elements += 2 * cfg.batch_size * cfg.seq_len * head_dim
+        # adding size of q.grad
+        n_elements += cfg.batch_size * cfg.seq_len * cfg.num_attention_heads * head_dim
+        # adding size of k.grad, v.grad
+        n_elements += 2 *cfg.batch_size * cfg.seq_len * cfg.num_key_value_heads * head_dim
+        # adding size of cos.grad, sin.grad
+        n_elements += 2 * cfg.batch_size * cfg.seq_len * head_dim
+        # scale by dtype size
+        return n_elements * torch.bfloat16.itemsize
+
+    return Qwen2Rope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
 def hf_phi3_rope():
@@ -844,7 +872,17 @@ def hf_phi3_rope():
         )
         return grad
 
-    return HfPhi3Rope(cfg).cuda().bfloat16(), inputs, grads
+    # Manual IOBytes computes the theoretical total bandwidth for bwd kernel.
+    def iobytes():
+        n_elements = 0
+        # adding size of query_states.grad + key_states.grad +  value_states.grad
+        n_elements += 3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * head_dim
+        # adding size of qkv.grad
+        n_elements += cfg.batch_size * cfg.seq_len * (cfg.num_attention_heads * head_dim + 2 * (cfg.num_key_value_heads * head_dim))
+        # scale by dtype size and adding positional_ids
+        return n_elements * torch.bfloat16.itemsize + cfg.seq_len * torch.int
+
+    return HfPhi3Rope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
 def hf_mistral_nemo_rope():
@@ -1070,7 +1108,19 @@ def hf_mistral_nemo_rope():
         )
         return grad
 
-    return MistralNemoRope(cfg).cuda().bfloat16(), inputs, grads
+    # Manual IOBytes computes the theoretical total bandwidth for bwd kernel.
+    def iobytes():
+        n_elements = 0
+        # adding size of query_states.grad + key_states.grad +  value_states.grad
+        n_elements += 3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * cfg.head_dim
+        # adding size of q.grad
+        n_elements += cfg.batch_size * cfg.seq_len * cfg.num_attention_heads * cfg.head_dim
+        # adding size of k.grad, v.grad
+        n_elements += 2 *cfg.batch_size * cfg.seq_len * cfg.num_key_value_heads * cfg.head_dim
+        # scale by dtype size
+        return n_elements * torch.bfloat16.itemsize + cfg.seq_len * torch.int
+
+    return MistralNemoRope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
 # { 'name_benchmark' : (fn, [[sizes0, optional_strides0, dtype0], [sizes1, dtype1], ...]) }
@@ -1102,7 +1152,7 @@ def test_rope_variations_fwd_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, inputs, _ = rope_setup[rope_variation]()
+    model, inputs, _, _ = rope_setup[rope_variation]()
 
     def fwd_call(inp):
         return model(*inp)
@@ -1130,7 +1180,7 @@ def test_rope_variations_bwd_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, fwd_inputs, grad = rope_setup[rope_variation]()
+    model, fwd_inputs, grad, iobytes = rope_setup[rope_variation]()
 
     def fwd_call(inp):
         return model(*inp)
@@ -1146,4 +1196,4 @@ def test_rope_variations_bwd_benchmark(
 
     benchmark_fn = with_executor(executor, fwd_call)
     # FIXME I don't think the automatic IObytes computation is correct
-    run_benchmark(benchmark, unary_bwd_torch, [output, grad()])
+    run_benchmark(benchmark, unary_bwd_torch, [output, grad()], iobytes=iobytes())
