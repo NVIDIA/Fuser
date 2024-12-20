@@ -30,6 +30,118 @@ class RopeTest : public NVFuserTest {
 
 // clang-format off
 /*
+def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 4096, 1024], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+    T1 = fd.define_tensor(shape=[64], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T2 = fd.define_tensor(shape=[1, 4096], contiguity=[None, True], dtype=DataType.Int, is_cpu=False, stride_order=[1, 0])
+    T8 = fd.ops.reshape(T0, new_shape=[1, 4096, 8, 128])
+    T9 = fd.ops.permute(T8, dims=[0, 2, 1, 3])
+    T14 = fd.ops.broadcast_in_dim(T1, shape=[1, 64, 1], broadcast_dims=[1])
+    T15 = fd.ops.cast(T14, dtype=DataType.Float)
+    T20 = fd.ops.broadcast_in_dim(T15, shape=[1, 64, 1], broadcast_dims=[0, 1, 2])
+    T25 = fd.ops.broadcast_in_dim(T2, shape=[1, 1, 4096], broadcast_dims=[0, 2])
+    T26 = fd.ops.cast(T25, dtype=DataType.Float)
+    T33 = fd.ops.broadcast_in_dim(T9, shape=[1, 8, 1, 4096, 128], broadcast_dims=[0, 1, 3, 4])
+    T40 = fd.ops.broadcast_in_dim(T33, shape=[1, 8, 4, 4096, 128], broadcast_dims=[0, 1, 2, 3, 4])
+    T46 = fd.ops.reshape(T40, new_shape=[1, 32, 4096, 128])
+    fd.add_output(T20)
+    fd.add_output(T26)
+    fd.add_output(T46)
+*/
+// clang-format on
+TEST_F(RopeTest, HFMistralNemoFwd1) {
+  const int64_t batch_size = 1;
+  const int64_t seq_len = 4096;
+  const int64_t head_dim = 128;
+  const int64_t num_attention_heads = 32;
+  const int64_t num_key_value_heads = 8;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{
+      batch_size, seq_len, head_dim * num_key_value_heads};
+  std::vector<int64_t> shape2{head_dim / 2};
+  std::vector<int64_t> shape3{batch_size, seq_len};
+
+  auto tv0 = makeContigConcreteTensor(shape1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(shape2, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigConcreteTensor(shape3, DataType::Int);
+  fusion.addInput(tv2);
+
+  // T3
+  auto tv8 = reshape(
+      tv0, shape1, {batch_size, seq_len, num_key_value_heads, head_dim});
+  // T4
+  auto tv9 = permute(tv8, {0, 2, 1, 3});
+  // T5
+  auto tv14 = broadcast(tv1, {true, false, true});
+  // T6
+  auto tv15 = castOp(DataType::Float, tv14);
+  // T7. This is actually converted to just a set op
+  auto tv20 = expand(
+      tv15,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(1L),
+          IrBuilder::create<Val>(head_dim / 2),
+          IrBuilder::create<Val>(1L)});
+  // T8
+  auto tv25 = broadcast(tv2, {false, true, false});
+  // T9
+  auto tv26 = castOp(DataType::Float, tv25);
+  // T10
+  auto tv33 = broadcast(tv9, {false, false, true, false, false});
+  // T11
+  auto tv40 = expand(
+      tv33,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(num_key_value_heads),
+          IrBuilder::create<Val>(num_attention_heads / num_key_value_heads),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(head_dim)});
+  // T12
+  auto tv46 = reshape(
+      tv40,
+      {batch_size,
+       num_key_value_heads,
+       num_attention_heads / num_key_value_heads,
+       seq_len,
+       head_dim},
+      {batch_size, num_attention_heads, seq_len, head_dim});
+  fusion.addOutput(tv20);
+  fusion.addOutput(tv26);
+  fusion.addOutput(tv46);
+
+  fusion.printMath();
+
+  std::stringstream file_name;
+  file_name << "mistral1.dot";
+  IrGraphGenerator::print(
+      &fusion,
+      file_name.str().c_str(),
+      IrGraphGenerator::DetailLevel::ComputeOnly);
+
+  auto options_float =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options_bf16);
+  auto t1 = at::randn(shape2, options_bf16);
+  auto t2 = at::randn(shape3, options_float).to(at::kLong);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+}
+
+// clang-format off
+/*
 def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
     T0 = fd.define_tensor(shape=[1, 4096, 4096], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
     T1 = fd.define_tensor(shape=[1, 4096, 1024], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
@@ -85,7 +197,7 @@ def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
     fd.add_output(T166)
 */
 // clang-format on
-TEST_F(RopeTest, HFMistralNemoFwd) {
+TEST_F(RopeTest, HFMistralNemoFwd2) {
   const int64_t batch_size = 1;
   const int64_t seq_len = 4096;
   const int64_t head_dim = 128;
