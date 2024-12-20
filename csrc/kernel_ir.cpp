@@ -485,6 +485,47 @@ std::string WgMmaFence::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WgMmaFence)
 
+MaxNReg::MaxNReg(
+    IrBuilderPasskey passkey,
+    Val* number_of_registers,
+    bool increase_registers)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addInput(number_of_registers);
+  addDataAttribute(increase_registers);
+}
+
+std::string MaxNReg::toString(int indent_size) const {
+  return (increaseRegisters()) ? "setmaxnreg.inc.sync.aligned.u32"
+                               : "setmaxnreg.dec.sync.aligned.u32";
+}
+
+std::string MaxNReg::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MaxNReg can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MaxNReg)
+
+Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Return::toString(int indent_size) const {
+  return "return";
+}
+
+std::string Return::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Return can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Return)
+
 MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,
     Val* mbarrier,

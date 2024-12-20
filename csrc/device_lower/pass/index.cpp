@@ -2583,6 +2583,16 @@ void IndexLowering::handle(const kir::WgMmaFence* fence) {
   pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::MaxNReg* maxnreg) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::MaxNReg*>(maxnreg)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Return* ret) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Return*>(ret)); // NOLINT
+}
+
 void IndexLowering::handle(const kir::AsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT
