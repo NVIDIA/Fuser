@@ -112,6 +112,7 @@ class HostIrEvaluator final : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
+  void handle(GetCurrentStream* get_current_stream) override;
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
