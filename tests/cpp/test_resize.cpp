@@ -4282,7 +4282,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
   }
 }
 
-TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs) {
+TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -4368,7 +4368,12 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs) {
     auto outputs = ke.run(inputs);
     testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
-    GTEST_SKIP() << "Scheduling not yet supported";
+    // Make sure all slices are detected as exclusive
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_TRUE(non_exclusive_resize_info.empty());
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs(inputs);
@@ -4385,6 +4390,296 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs) {
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
+}
+
+// Two horizontal slices, both of which slice the same iter domain.
+TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({-1, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(1L), tv1->getLogicalDomain().at(1)->extent()}});
+
+  auto tv3 = sin(tv2);
+
+  auto tv4 = sin(tv1);
+
+  auto tv5 = slice(
+      tv4,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(2L), tv1->getLogicalDomain().at(1)->extent()}});
+
+  auto tv6 = sin(tv5);
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv6);
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+      ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+
+  // tv1 is the input of the first slice, which is not exclusive as
+  // tv1 is also a producer of tv4.
+  EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
+  EXPECT_EQ(
+      non_exclusive_resize_info.at(tv1),
+      exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
+
+  // Similary, tv4 is the input of the second slice, which is not exclusive as
+  // tv1 is also a producer of tv2.
+  EXPECT_EQ(non_exclusive_resize_info.count(tv4), 1);
+  EXPECT_EQ(
+      non_exclusive_resize_info.at(tv4),
+      exact_graph.toGroups(std::vector<Val*>{tv4->axis(1)}));
+}
+
+// Non-exclusive slice due to a dependency to a fusion output
+TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({-1, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor({-1});
+  fusion.addInput(tv1);
+
+  auto tv2 = sin(tv0);
+
+  fusion.addOutput(tv2);
+
+  auto tv3 = add(tv2, broadcast(tv1, {false, true}));
+
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(1L), tv3->getLogicalDomain().at(1)->extent()}});
+
+  auto tv5 = sin(tv4);
+
+  fusion.addOutput(tv5);
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+      ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+
+  // tv3 is the input of the slice, which is not exclusive as
+  // tv3 depends on tv2, which is a fusion output
+  EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
+  EXPECT_EQ(
+      non_exclusive_resize_info.at(tv3),
+      exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)}));
+}
+
+// Slice input tensor depends on a fusion output, but the slice is
+// still considered exclusive as the fusion output has no
+// corresponding ID for the sliced ID. More specifically, tv2 is a
+// fusion output and has a dependency to the input of the
+// slice. However, the resize is done for the second axis of tv3,
+// for which tv2 has no corresponding ID. In this case, it should be
+// safe to do the propagation of the resize.
+//
+// Note that scheduling is not yet supported due to the existence of
+// the dependency from the slice input ID to the broadcast ID.
+TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({-1, 100});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor({shape[0]});
+  fusion.addInput(tv1);
+
+  auto tv2 = sin(tv1);
+
+  fusion.addOutput(tv2);
+
+  auto tv3 = add(tv0, broadcast(tv2, {false, true}));
+
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(1L), tv3->getLogicalDomain().at(1)->extent()}});
+
+  auto tv5 = sin(tv4);
+
+  fusion.addOutput(tv5);
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+      ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+
+  EXPECT_TRUE(non_exclusive_resize_info.empty());
+}
+
+// Testing chained slices. Should be considered exclusive
+TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({-1, 100});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(1L), tv1->getLogicalDomain().at(1)->extent()}});
+
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv2->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(3L), tv2->getLogicalDomain().at(1)->extent()}});
+
+  auto tv4 = sin(tv3);
+
+  fusion.addOutput(tv4);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  const bool use_scheduler = GetParam();
+
+  if (!use_scheduler) {
+    scheduler_tools::propagateResizeToInputs(tv2->definition());
+    scheduler_tools::propagateResizeToInputs(tv3->definition());
+    auto ref_tv = tv4;
+
+    // Fusion should have a uniform loop domain
+    checkLoopDomainEquivalence(ref_tv);
+
+    // Schedule the reference
+    ref_tv->flatten();
+    // For TIDx
+    ref_tv->split(0, 128);
+    // For BIDx
+    ref_tv->split(0, 4);
+
+    scheduler_tools::scheduleLoopDomainsLike(
+        fusion.allTvs(), ref_tv->getLoopDomain());
+
+    // Fusion should still have a uniform loop domain
+    checkLoopDomainEquivalence(ref_tv);
+
+    inlineMost();
+
+    // All tensors, except for fusion inputs, should be fully inlined
+    for (auto tv : fusion.allTvs()) {
+      if (tv->isFusionInput()) {
+        continue;
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), tv->nDims());
+    }
+
+    ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+    ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  } else {
+    // The two slices do not conflict
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_TRUE(non_exclusive_resize_info.empty());
+
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+    testValidate(
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    EXPECT_FALSE(runtime->isSegmented());
+    const auto& heuristic_param =
+        runtime->schedulerHeuristics()->heuristicsList().front();
+    EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+    Fusion* scheduled_fusion =
+        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+            ->fusion();
+    checkLoopDomainEquivalence(
+        scheduled_fusion->outputs().at(0)->as<TensorView>());
+  }
+}
+
+// Testing chained slices. The first slice is considered
+// non-exclusive, but the following slice should not.
+TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs6) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({-1, 100});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(1L), tv1->getLogicalDomain().at(1)->extent()}});
+
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv2->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(3L), tv2->getLogicalDomain().at(1)->extent()}});
+
+  auto tv4 = sin(tv3);
+  fusion.addOutput(tv4);
+
+  auto tv5 = sin(tv1);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  // The two slices do not conflict
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+  auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+      ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+  EXPECT_EQ(non_exclusive_resize_info.size(), 1);
+  EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
+  EXPECT_EQ(
+      non_exclusive_resize_info.at(tv1),
+      exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
 }
 
 // RoPE-like rotation patten
@@ -4451,16 +4746,6 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
     // For BIDx
     ref_tv->split(0, 4);
 
-    {
-      IdModel id_model(&fusion, false);
-      id_model.buildExactGraph();
-      std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-      auto dot_string =
-          id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-      ofs << dot_string;
-      ofs.close();
-    }
-
     scheduler_tools::scheduleLoopDomainsLike(
         fusion.allTvs(), ref_tv->getLoopDomain(), /*update_mode=*/true);
 
@@ -4485,6 +4770,26 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
     auto outputs = ke.run(inputs);
     testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
+    // tv1 is not considered exclusive as tv0 is also a consumer of
+    // tv3. Same for tv3. While the common input, tv0, is a fusion
+    // input, so it isn't actually scheduled, since a cache is
+    // inserted, which is indeed scheduled, the two slices do
+    // conflict.
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
+    EXPECT_EQ(
+        non_exclusive_resize_info.at(tv1),
+        exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
+    EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
+    EXPECT_EQ(
+        non_exclusive_resize_info.at(tv3),
+        exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)}));
+    // These two entries should be all the info map has.
+    EXPECT_EQ(non_exclusive_resize_info.size(), 2);
+
     GTEST_SKIP() << "Scheduling not yet supported";
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -4605,6 +4910,26 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     auto outputs = ke.run(inputs);
     testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
+    // tv1 is not considered exclusive as tv0 is also a consumer of
+    // tv3. Same for tv3. While the common input, tv0, is a fusion
+    // input, so it isn't actually scheduled, since a cache is
+    // inserted, which is indeed scheduled, the two slices do
+    // conflict.
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_EQ(non_exclusive_resize_info.count(tv1), 1);
+    EXPECT_EQ(
+        non_exclusive_resize_info.at(tv1),
+        exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)}));
+    EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
+    EXPECT_EQ(
+        non_exclusive_resize_info.at(tv3),
+        exact_graph.toGroups(std::vector<Val*>{tv3->axis(1)}));
+    // These two entries should be all the info map has.
+    EXPECT_EQ(non_exclusive_resize_info.size(), 2);
+
     GTEST_SKIP() << "Scheduling not yet supported";
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -4691,6 +5016,12 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
     auto outputs = ke.run(inputs);
     testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_TRUE(non_exclusive_resize_info.empty());
+
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs(inputs);
     testValidate(
@@ -4787,7 +5118,11 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
     auto outputs = ke.run(inputs);
     testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
-    GTEST_SKIP() << "Scheduling not yet supported";
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+        ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+    EXPECT_TRUE(non_exclusive_resize_info.empty());
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs(inputs);
