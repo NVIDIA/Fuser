@@ -782,7 +782,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 };
 
-// Insert wait expressions for WAR harzard for async operations such as wgmma
+// Insert wait expressions for WAR hazard for async operations such as wgmma
 // and tma store. To do so, we find the structure like the following example:
 //   for 1
 //     for 2

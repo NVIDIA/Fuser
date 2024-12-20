@@ -633,7 +633,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap);
+                  .smem_circular_buffer_prefetch_gap,
+          WarpSpecialized(ParallelType::TIDy));
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
@@ -641,7 +642,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap);
+                  .smem_circular_buffer_prefetch_gap,
+          WarpSpecialized(ParallelType::TIDy));
     }
   }
 
