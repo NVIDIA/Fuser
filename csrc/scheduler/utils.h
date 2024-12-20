@@ -334,7 +334,10 @@ NVF_API void clearMemorySpace(Fusion* fusion);
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-NVF_API std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+NVF_API std::vector<TensorView*> cacheInputs(
+    Fusion* fusion,
+    bool unroll,
+    bool propagate_allocation = false);
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
