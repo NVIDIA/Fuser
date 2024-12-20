@@ -1995,6 +1995,10 @@ std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
   sync_exprs.push_back(commit);
   auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
   sync_exprs.push_back(wait);
+  if (async_type == AsyncOpType::WgMma) {
+    auto sync = IrBuilder::create<kir::BlockSync>(true);
+    sync_exprs.push_back(sync);
+  }
   return sync_exprs;
 }
 
