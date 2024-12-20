@@ -120,6 +120,20 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  // Having different resizes between outputs is not allowed at this
+  // moment. For example, consider a fusion like:
+  //
+  // t0 = [i0]
+  // fusion.addInput(t0)
+  // t1 = t0[:i0/2]
+  // t2 = t0[i0/2:]
+  // fusion.addOutput(t1)
+  // fusion.addOutput(t2)
+  //
+  // For now, this is not going to be fused since t1 and t2 have
+  // different resize ops, although in this case, since the extents of t1 and
+  // t2 are the same, it should be relatively straightforward to fuse them
+  // together.
   for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     if (out_tv == ref_tv) {
       continue;

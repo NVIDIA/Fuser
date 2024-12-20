@@ -161,12 +161,12 @@ std::unordered_map<TensorView*, ResizeExclusivityInfo> getNonExclusiveResizeInfo
         }
 
         // This resize input ID is not exclusively used
-        info.shared_tvs.push_back(dep_tv);
+        info.non_exclusive_dep_tvs.push_back(dep_tv);
         info.resized_ids.pushBack(resize_inp_id);
       }
     }
 
-    if (!info.shared_tvs.empty()) {
+    if (!info.non_exclusive_dep_tvs.empty()) {
       NVF_ERROR(non_exclusive_resizes.emplace(out_tv, info).second);
     }
 
