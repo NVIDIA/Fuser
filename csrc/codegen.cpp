@@ -3026,7 +3026,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->isUnrolled()) {
+    // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
+    // main loop when static shapes are used. To avoid hinting that the
+    // compiler should maximally unroll such loops leading to very long
+    // compiles, we skip that case here. It will be picked up in one of the
+    // branches below and unrolled only to the stage depth instead.
+    if (loop->isUnrolled() &&
+        loop->circularBufferLoopStage() != CircularBufferLoopStage::Main) {
       indent() << "#pragma unroll\n";
     } else if (
         loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
