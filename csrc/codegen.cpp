@@ -274,6 +274,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
     code_ << "__global__ void ";
+    // TODO Fix hardcoded values
+    code_ << "__launch_bounds__(384, 1) ";
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
           kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(

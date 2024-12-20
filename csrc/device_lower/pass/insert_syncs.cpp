@@ -393,11 +393,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
+        auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
+        registerInsertBefore(expr, wgmma_fence, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
           // Makes sure that writes to operands in the generic proxy are visible
           // to the async proxy
-          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
-          registerInsertBefore(expr, wgmma_fence, scope);
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
@@ -1006,6 +1006,21 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Process the expressions in the for loop
     kir::ExprMutator::handle(for_loop);
+
+    // NOTE Warp Specialization require WAR wgmma sync before launching next tma
+    // load
+    if (for_loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp) {
+      for (Expr* expr : for_loop->body().exprs()) {
+        if (expr->isA<kir::MBarrierArrive>()) {
+          auto sync_exprs = lower_utils::getSyncExprs(AsyncOpType::WgMma, 0);
+          while (!sync_exprs.empty()) {
+            registerInsertBefore(expr, sync_exprs.back(), &for_loop->body());
+            sync_exprs.pop_back();
+          }
+        }
+      }
+    }
 
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
