@@ -179,6 +179,32 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
+GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  auto stream = IrBuilder::createInContainer<Stream>(passkey.ir_container_);
+  addAttribute(stream);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetCurrentStream)
+
+std::string GetCurrentStream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "GetCurrentStream into " << stream()->toString()
+                          << std::endl;
+  return ss.str();
+}
+
+// TODO: implement better ?
+std::string GetCurrentStream::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+// TODO: implement
+bool GetCurrentStream::sameAs(const Statement* other) const {
+  return false;
+}
+
 Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
     : Expr(passkey, {}, {}, {expr}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
