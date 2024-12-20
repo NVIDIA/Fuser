@@ -18,6 +18,7 @@
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <val_graph_visitor.h>
 
 #include <c10/util/irange.h>
 
@@ -55,30 +56,6 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
 }
 
-void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  for (auto* pad_op : ir_utils::filterByType<PadOp>(exprs)) {
-    if (!pad_op->out()->isA<TensorView>()) {
-      continue;
-    }
-
-    auto* out_tv = pad_op->out()->as<TensorView>();
-
-    auto consumer_exprs = StmtSort::getExprsBetween(
-        {out_tv->getMaybeRootDomain().begin(),
-         out_tv->getMaybeRootDomain().end()},
-        {out_tv->getLogicalDomain().begin(), out_tv->getLogicalDomain().end()});
-
-    // NOTE: if we can assume that PadOp is always on inputs, then we can skip
-    // to innermost resize instead.
-    auto resize_ops = ir_utils::filterByType<Resize>(consumer_exprs);
-    std::copy(
-        resize_ops.begin(),
-        resize_ops.end(),
-        std::inserter(resize_in_pad_, resize_in_pad_.end()));
-  }
-}
-
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     TensorView* reference,
     const std::vector<IterDomain*>& ids,
@@ -91,8 +68,6 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
-
-  initializeResizeInfo(reference->fusion());
 
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
@@ -400,44 +375,51 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     if (it == frontier.end()) {
       return;
     }
-
     auto pos = std::distance(frontier.begin(), it);
-    if (resize_in_pad_.count(resize_op) != 0) {
-      // resize created by PadOp.
 
-      // project resize op to frontier.
-      frontier[pos] = id_to;
-      // clear left of resize, since those are no long contiguous.
-      frontier.erase(frontier.begin(), it);
+    // project resize op to frontier.
+    frontier[pos] = id_to;
+    // clear left of resize, since those are no long contiguous.
+    frontier.erase(frontier.begin(), it);
 
-      if (recording_) {
-        // TODO: support negative resize extent.
-        //
-        // Limit current support to only positive resize extent for now. So we
-        // only consider the pad_extent, which becomes the real buffer on
-        // output. Hence we do GCD among padded extent as well as extent of the
-        // id_from. Note since we are taking the GCD here, I don't think using
-        // id_from or id_to makes a difference.
-        auto consumer_factor = getProjectedExtent(id_from);
-        auto comp = [](Val* factor, Val* extent) {
-          return SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::eqExpr(
-                  extent, extent->container()->zeroVal()),
-              factor,
-              // for extent < 0, we'll take max(1, extent). Because of the gcd,
-              // This is effectively excluding the resize id from vectorization.
-              SimplifyingIrBuilder::gcdExpr(
-                  factor,
-                  SimplifyingIrBuilder::maxExpr(
-                      extent->container()->oneVal(), extent)));
-        };
-        consumer_factor = comp(consumer_factor, resize_op->leftExpand());
-        consumer_factor = comp(consumer_factor, resize_op->rightExpand());
-        addProjectedExtent(id_to, consumer_factor);
-      }
-    } else {
-      // unsupproted resize.
-      frontier.erase(frontier.begin(), it + 1);
+    if (recording_) {
+      // we need to check slice offset at this point.
+      auto projected_extent = getProjectedExtent(id_from);
+
+      // projected_extent == 0: return the projected_extent as-is
+      // resize_extent == 0   : no resizing, return the projected_extent as-is
+      // resize_extent != 0   : slicing/padding, return gcd(projected_extent,
+      // abs(resize_extent)) This is a conservative analysis of the offset for
+      // data accessing. A better approach needs to consider the actual start
+      // pointer address and handle it in alignment analysis in runtime info. We
+      // also need to consider multiple resize stacked together and how they
+      // could interact with each other. Translating this to code: if
+      // (resize_extent == 0 || projected_extent == 0) {
+      //   return projected_extent;
+      // } else {
+      //   gcd(projected_extent, abs(resize_extent));
+      // }
+      auto comp = [](Val* projected_extent, Val* resize_extent) {
+        return SimplifyingIrBuilder::whereExpr(
+            SimplifyingIrBuilder::logicalOrExpr(
+                SimplifyingIrBuilder::eqExpr(
+                    resize_extent, resize_extent->container()->zeroVal()),
+                SimplifyingIrBuilder::eqExpr(
+                    projected_extent,
+                    projected_extent->container()->zeroVal())),
+            projected_extent,
+            SimplifyingIrBuilder::gcdExpr(
+                projected_extent, IrBuilder::absExpr(resize_extent)));
+      };
+      projected_extent = comp(projected_extent, resize_op->leftExpand());
+      projected_extent = comp(projected_extent, resize_op->rightExpand());
+
+      // cap extent by the destination, this is useful when the id_to is resized
+      // to zero, where projected_extent shouldn't go beyond the total extent.
+      projected_extent =
+          SimplifyingIrBuilder::minExpr(projected_extent, id_to->extent());
+
+      addProjectedExtent(id_to, projected_extent);
     }
   };
 
@@ -848,14 +830,14 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getLogicalDomain();
+  auto logical_dom = ref->getLogicalDomain();
   if (!logical_reorder_map.empty()) {
-    root_dom = TensorDomain::orderedAs(root_dom, logical_reorder_map);
+    logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
-  while (!root_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
+  while (!logical_dom.empty()) {
+    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
                           .getTvToContigMergeOfInnerSizeMap());
-    root_dom.erase(root_dom.begin());
+    logical_dom.erase(logical_dom.begin());
   }
   return mappers;
 }

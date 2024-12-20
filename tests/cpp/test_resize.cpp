@@ -5488,53 +5488,6 @@ TEST_F(ResizeTest, VectorizePadNonInnermost) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// padding with negative extent should prevent us considering the resize id for
-// vectorization. So the example below should only have a vectorization factor
-// of 2
-TEST_F(ResizeTest, VectorizePadNonInnermostNegativeExtent) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const std::vector<int64_t> shape({1024L, 1024L, 2L});
-
-  // Using a concrete tensor to avoid dynamic resize
-  auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  auto tv1 =
-      pad(tv0,
-          {IrBuilder::create<Val>(0L),
-           IrBuilder::create<Val>(0L),
-           IrBuilder::create<Val>(-4L),
-           IrBuilder::create<Val>(4L),
-           IrBuilder::create<Val>(0L),
-           IrBuilder::create<Val>(0L)});
-  fusion.addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
-
-  // check that we vectorize 4
-  bool found_vectorize = false;
-  auto exprs = fusion.exprs();
-  auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
-  EXPECT_EQ(pad_ops.size(), 1);
-  EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
-  for (auto id : pad_ops.at(0)->out()->as<TensorView>()->getLoopDomain()) {
-    if (id->getParallelType() == ParallelType::Vectorize) {
-      EXPECT_EQ(id->extent()->evaluate(), 2);
-      found_vectorize = true;
-      break;
-    }
-  }
-  EXPECT_TRUE(found_vectorize);
-
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
-}
-
 TEST_F(ResizeTest, PadAndCacheUses) {
   Fusion fusion;
   FusionGuard fg(&fusion);
