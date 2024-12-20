@@ -755,6 +755,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmarks/cpp/softmax_backward.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/softmax_dropout.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/timm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/transpose.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
