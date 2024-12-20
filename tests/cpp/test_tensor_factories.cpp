@@ -230,6 +230,47 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
   }
 }
 
+TEST_F(TensorFactoryTest, IoatAndBcast) {
+  auto fusion = std::make_unique<Fusion>();
+
+  FusionGuard gf(fusion.get());
+
+  // auto tv_to_triu_on = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  auto tv_to_triu_on = makeSymbolicTensor(2, DataType::Half);
+  fusion->addInput(tv_to_triu_on);
+
+  auto tv0 = iota(
+      tv_to_triu_on->domain()->logical()[0]->extent(),
+      IrBuilder::create<Val>(0, DataType::Index),
+      IrBuilder::create<Val>(1, DataType::Index),
+      DataType::Int);
+
+  auto tv1 = iota(
+      tv_to_triu_on->domain()->logical()[1]->extent(),
+      IrBuilder::create<Val>(0, DataType::Index),
+      IrBuilder::create<Val>(1, DataType::Index),
+      DataType::Int);
+
+  auto tv0b = broadcast(tv0, {false, true});
+  auto tv1b = broadcast(tv1, {true, false});
+  auto tv2 = le(tv0b, tv1b);
+  auto tv3 =
+      where(tv2, tv_to_triu_on, IrBuilder::create<Val>(0, DataType::Half));
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto in_tensor = at::randn({8, 4}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
+  std::cout << executor_cache.getCodeFor({in_tensor}, true) << std::endl;
+
+  std::cout << "cg_outputs dims " << cg_outputs[0].sizes();
+  std::cout << "cg_outputs \n" << cg_outputs[0] << std::endl;
+
+  EXPECT_TRUE(cg_outputs[0].allclose(at::triu(in_tensor, 0), .001, .001));
+}
+
 TEST_F(TensorFactoryTest, StandaloneARange) {
   auto starts_ends = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
