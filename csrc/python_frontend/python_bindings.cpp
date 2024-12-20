@@ -365,6 +365,36 @@ Tensor slice_fn(
   return output;
 }
 
+Vector shapeDef(Tensor arg) {
+  FUSER_PERF_SCOPE("Operators.shape");
+  auto fd = arg.fusion_definition;
+  NVF_CHECK(fd->ops.validUse(), "Attempting to add to a completed definition!");
+  Vector output = fd->defineVector(arg.dims);
+  fd->defineRecord(new ShapeOpRecord(
+      {fd->recordingState(arg())}, {fd->recordingState(output())}));
+  return output;
+}
+
+Scalar sizeDef(Tensor arg, int64_t dim) {
+  FUSER_PERF_SCOPE("Operators.size");
+  auto fd = arg.fusion_definition;
+  NVF_CHECK(fd->ops.validUse(), "Attempting to add to a completed definition!");
+  Scalar output = fd->defineScalar();
+  fd->defineRecord(new SizeOpRecord(
+      {fd->recordingState(arg())}, {fd->recordingState(output())}, dim));
+  return output;
+}
+
+Scalar atDef(Vector arg, int64_t index) {
+  FUSER_PERF_SCOPE("Operators.at");
+  auto fd = arg.fusion_definition;
+  NVF_CHECK(fd->ops.validUse(), "Attempting to add to a completed definition!");
+  Scalar output = fd->defineScalar();
+  fd->defineRecord(new AtOpRecord(
+      {fd->recordingState(arg())}, {fd->recordingState(output())}, index));
+  return output;
+}
+
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -1003,6 +1033,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
   tensor_class.def(pybind11::self == pybind11::self);
   tensor_class.def(pybind11::self != pybind11::self);
+  tensor_class.def("shape", shapeDef, py::return_value_policy::reference);
+  tensor_class.def("size", sizeDef, py::return_value_policy::reference);
 
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
@@ -1012,6 +1044,144 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
   scalar_class.def(pybind11::self == pybind11::self);
   scalar_class.def(pybind11::self != pybind11::self);
+
+#define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
+  tensor_class.def(                                                            \
+      "__" op_str "__",                                                        \
+      [](Tensor input) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = input.fusion_definition;                        \
+        NVF_CHECK(                                                             \
+            !fd->completed(), "Attempting to add to a completed definition!"); \
+        Tensor output = fd->defineTensor(input.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(               \
+            {fd->recordingState(input())},                                     \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType::Unary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));              \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  scalar_class.def(                                                            \
+      "__" op_str "__",                                                        \
+      [](Scalar input) -> Scalar {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = input.fusion_definition;                        \
+        NVF_CHECK(                                                             \
+            !fd->completed(), "Attempting to add to a completed definition!"); \
+        Scalar output = fd->defineScalar();                                    \
+        fd->defineRecord(new OpRecord<Val*, Val*>(                             \
+            {fd->recordingState(input())},                                     \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType::Unary_VAL,                                      \
+            static_cast<Val* (*)(Val*)>(op_name)));                            \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+  NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("abs", abs)
+  NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
+#undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
+
+#define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
+  tensor_class.def(                                                            \
+      py_op,                                                                   \
+      [](Tensor arg1, Tensor arg2) -> Tensor {                                 \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = arg1.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType::Binary_TV,                                      \
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  tensor_class.def(                                                            \
+      py_op,                                                                   \
+      [](Tensor arg1, Scalar arg2) -> Tensor {                                 \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = arg1.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(         \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType::Binary_TV_VAL,                                  \
+            static_cast<TensorView* (*)(TensorView*, Val*)>(op_name)));        \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  scalar_class.def(                                                            \
+      py_op,                                                                   \
+      [](Scalar arg1, Tensor arg2) -> Tensor {                                 \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = arg1.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg2.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*>(         \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType::Binary_VAL_TV,                                  \
+            static_cast<TensorView* (*)(Val*, TensorView*)>(op_name)));        \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  scalar_class.def(                                                            \
+      py_op,                                                                   \
+      [](Scalar arg1, Scalar arg2) -> Scalar {                                 \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = arg2.fusion_definition;                         \
+        Scalar output = fd->defineScalar();                                    \
+        fd->defineRecord(new OpRecord<Val*, Val*, Val*>(                       \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType::Binary_VAL,                                     \
+            static_cast<Val* (*)(Val*, Val*)>(op_name)));                      \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__add__", "add", add)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__mul__", "mul", mul)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__pow__", "pow", pow)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__sub__", "sub", sub)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__mod__", "mod", mod)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__eq__", "eq", eq)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__ge__", "ge", ge)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__gt__", "gt", gt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__le__", "le", le)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__lt__", "lt", lt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__ne__", "ne", ne)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
+      "__and__", "bitwise_and", bitwise_and)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__or__", "bitwise_or", bitwise_or)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
+      "__xor__", "bitwise_xor", bitwise_xor)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
+      "__lshift__", "bitwise_left_shift", bitwise_left_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
+      "__rshift__", "bitwise_right_shift", bitwise_right_shift)
+  // In python, __truediv__ (/) always returns a float regardless of whether
+  // the input arguments are float or integer. __truediv__ (/) corresponds with
+  // pytorch torch.true_divide(a, b). The __div__ operator is deprecated in
+  // python 3.
+  //
+  // In nvfuser, truediv function in csrc/ops/arith.h has the same semantics as
+  // python's operator __truediv__ (/). The div function in csrc/ops/arith.h
+  // truncates the result instead of promoting it to float. It has the same
+  // semantics as the C++'s (/) operator. In pytorch,
+  // torch.div(a, b, rounding_mode='trunc') corresponds C-style integer
+  // division.
+  //
+  // Hence, in the python frontend, the __truediv__ (/) python operator maps to
+  // trunc division.
+  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__truediv__", "div", div)
+#undef NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
   device_mesh_class.def(py::init<std::vector<int64_t>>());
@@ -1042,6 +1212,14 @@ void initNvFuserPythonBindings(PyObject* module) {
       "size", [](Vector& self) { return self.size; });
   vector_class.def(pybind11::self == pybind11::self);
   vector_class.def(pybind11::self != pybind11::self);
+  vector_class.def(
+      "at",
+      [](Vector arg, int64_t index) -> Scalar { return atDef(arg, index); },
+      py::return_value_policy::reference);
+  vector_class.def(
+      "__getitem__",
+      [](Vector arg, int64_t index) -> Scalar { return atDef(arg, index); },
+      py::return_value_policy::reference);
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for
@@ -1589,6 +1767,504 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::return_value_policy::reference);
 
+  //! The ScedOperators class is a nested class of FusionDefinition to allow the
+  //! user to query the class for the list of schedule operators.
+  //!
+  //! Example:
+  //!   help(FusionDefinition.SchedOperators)
+  //!
+  //! Additional operators are expected to be defined below as needed.
+  py::class_<FusionDefinition::SchedOperators> nvf_sched(
+      fusion_def, "SchedOperators");
+  nvf_sched.def(py::init<FusionDefinition*>());
+  nvf_sched.def(
+      "to_string",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
+        // NOTE: For debugging purposes, print the state of TensorView
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        // Determine if tensor is a result from a reduction operation.
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        return tv->toString();
+      },
+      py::arg("tensor"));
+  nvf_sched.def(
+      "user_schedule_ir",
+      [](FusionDefinition::SchedOperators& self) {
+        return self.fusion_definition->userScheduleIr();
+      },
+      py::return_value_policy::reference);
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_set_device_mesh",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const DeviceMesh& mesh) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->setDeviceMesh(mesh);
+      },
+      py::arg("tensor"),
+      py::arg("mesh"));
+  nvf_sched.def(
+      "parallelize",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int axis,
+         const ParallelType& parallel_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->axis(axis)->parallelize(parallel_type);
+      },
+      py::arg("tensor"),
+      py::arg("axis"),
+      py::arg("parallel_type"));
+  nvf_sched.def(
+      "merge",
+      [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {
+        FUSER_PERF_SCOPE("SchedOperators.merge");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        input_tv->merge(dim);
+      },
+      py::arg("arg"),
+      py::arg("dim"));
+  auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
+                                  Tensor arg,
+                                  const std::vector<int64_t>& dims) -> Tensor {
+    FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    TensorView* input_tv =
+        fd->getFusionState(arg.index)->template as<TensorView>();
+    TensorView* output_tv = input_tv->rFactor(dims);
+    return fd->addTensor(output_tv);
+  };
+  nvf_sched.def(
+      "reduction_factor",
+      reduction_factor_func,
+      py::arg("arg"),
+      py::arg("dims"));
+  nvf_sched.def(
+      "rfactor", reduction_factor_func, py::arg("arg"), py::arg("dims"));
+  nvf_sched.def(
+      "reorder",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor arg,
+         const std::unordered_map<int64_t, int64_t>& old2new) {
+        FUSER_PERF_SCOPE("SchedOperators.reorder");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        input_tv->reorder(old2new);
+      },
+      py::arg("arg"),
+      py::arg("old2new"));
+  nvf_sched.def(
+      "split",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor arg,
+         int64_t dim,
+         int64_t factor,
+         bool inner_split) {
+        FUSER_PERF_SCOPE("SchedOperators.split");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        input_tv->split(dim, factor, inner_split);
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::arg("factor"),
+      py::arg("inner_split") = true);
+  nvf_sched.def(
+      "set_allocation_as_loop",
+      [](FusionDefinition::SchedOperators& self, Tensor arg) {
+        FUSER_PERF_SCOPE("SchedOperators.set_allocation_as_loop");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto* tv = fd->getFusionState(arg.index)->template as<TensorView>();
+        tv->setAllocationDomain(tv->getLoopDomain(), true);
+      },
+      py::arg("arg"));
+  nvf_sched.def(
+      "cache_after",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const LoadStoreOpType& op_type,
+         const CacheOp& cache_op) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("op_type") = LoadStoreOpType::Set,
+      py::arg("cache_op") = CacheOp::Unspecified);
+  nvf_sched.def(
+      "cache_before",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const LoadStoreOpType& op_type) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheBefore(op_type);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("op_type") = LoadStoreOpType::Set);
+  nvf_sched.def(
+      "cache_fork",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheFork();
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"));
+  nvf_sched.def(
+      "set_memory_type",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const MemoryType& memory_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->setMemoryType(memory_type);
+      },
+      py::arg("tensor"),
+      py::arg("memory_type"));
+  nvf_sched.def(
+      "transform_like",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const std::vector<Tensor>& selected_tensors) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* reference_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+
+        TransformPropagator propagator(reference_tv);
+        if (selected_tensors.empty()) {
+          // Propagate scheduler transformations on reference TensorView to the
+          // rest of the fusion.
+          MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+        } else {
+          // Propagate scheduler transformations on reference TensorView to the
+          // subset of the fusion.
+          std::unordered_set<TensorView*> selected_tv_set;
+          selected_tv_set.reserve(selected_tensors.size());
+          std::transform(
+              selected_tensors.begin(),
+              selected_tensors.end(),
+              std::inserter(selected_tv_set, selected_tv_set.end()),
+              [&fd](const Tensor& t) {
+                return fd->getFusionState(t.index)->template as<TensorView>();
+              });
+          SetSelector selector(
+              {selected_tv_set.begin(), selected_tv_set.end()});
+          MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+              .traverse(&propagator);
+        }
+      },
+      py::arg("tensor"),
+      py::arg("selected_tensors") = std::vector<Tensor>());
+  nvf_sched.def(
+      "parallelize_like",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int64_t pos,
+         const std::vector<Tensor>& selected_tensors,
+         const std::unordered_set<ParallelType>& selected_parallel_types,
+         bool propagate_padding) {
+        // Propagate the parallelization from the selected dimensions of the
+        // reference tensor to their corresponding dimensions in all selected
+        // tensors in the DAG.
+        //
+        // 1. Position `pos` means selecting all the dimensions
+        // [0, 1, ..., pos - 1]. pos = -1 means selecting all dimensions.
+        // 2. `selected_tvs` are selected tensors in the DAG. Empty
+        // `selected_tvs` means selecting all tensors in the fusion of
+        // `reference_tv`.
+        // 3. `selected_parallel_types` are the selected parallel types. Empty
+        // `selected_parallel_types` means selecting all parallel types.
+
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* reference_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+
+        std::vector<TensorView*> selected_tvs;
+        selected_tvs.reserve(selected_tensors.size());
+        std::transform(
+            selected_tensors.begin(),
+            selected_tensors.end(),
+            std::back_inserter(selected_tvs),
+            [&fd](const Tensor& t) {
+              return fd->getFusionState(t.index)->template as<TensorView>();
+            });
+
+        nvfuser::scheduler_utils::parallelizeAllLike(
+            reference_tv,
+            pos,
+            selected_tvs,
+            selected_parallel_types,
+            propagate_padding);
+      },
+      py::arg("tensor"),
+      py::arg("pos") = -1,
+      py::arg("selected_tensors") = std::vector<Tensor>(),
+      py::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
+      py::arg("propagate_padding") = true);
+  nvf_sched.def(
+      "inline_most",
+      [](FusionDefinition::SchedOperators& self,
+         const std::vector<Tensor>& selected_tensors) {
+        // Inline to the right most allowed position for the selected tensors in
+        // the current fusion.
+
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+
+        if (selected_tensors.empty()) {
+          nvfuser::inlineMost();
+        } else {
+          std::vector<TensorView*> selected_tvs;
+          selected_tvs.reserve(selected_tensors.size());
+          std::transform(
+              selected_tensors.begin(),
+              selected_tensors.end(),
+              std::back_inserter(selected_tvs),
+              [&fd](const Tensor& t) {
+                return fd->getFusionState(t.index)->template as<TensorView>();
+              });
+          nvfuser::inlineMost(selected_tvs);
+        }
+      },
+      py::arg("selected_tensors") = std::vector<Tensor>());
+  nvf_sched.def(
+      "inline_at",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int64_t pos,
+         bool best_effort,
+         const std::vector<Tensor>& selected_tensors) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* reference_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+
+        if (selected_tensors.empty()) {
+          // Inline to the position corresponding to the reference position in
+          // the reference tensor for all tensors in the current fusion.
+          nvfuser::inlineAllAt(reference_tv, pos, best_effort);
+        } else {
+          // Inline to the position corresponding to the reference position in
+          // the reference tensor for selected tensors in the current fusion.
+          std::unordered_set<TensorView*> selected_tvs;
+          selected_tvs.reserve(selected_tensors.size());
+          std::transform(
+              selected_tensors.begin(),
+              selected_tensors.end(),
+              std::inserter(selected_tvs, selected_tvs.end()),
+              [&fd](const Tensor& t) {
+                return fd->getFusionState(t.index)->template as<TensorView>();
+              });
+
+          nvfuser::inlineSelectedAt(
+              selected_tvs, reference_tv, pos, best_effort);
+        }
+      },
+      py::arg("tensor"),
+      py::arg("pos") = -1,
+      py::arg("best_effort") = false,
+      py::arg("selected_tensors") = std::vector<Tensor>());
+  nvf_sched.def("tensors", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    // Return all Tensors in FusionDefinition
+    return self.fusion_definition->tensors();
+  });
+  nvf_sched.def(
+      "is_reduction",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        // Determine if tensor is a result from a reduction operation.
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        return (
+            !tv->isFusionInput() &&
+            std::any_of(
+                tv->getMaybeRootDomain().begin(),
+                tv->getMaybeRootDomain().end(),
+                [](IterDomain* id) { return id->isReduction(); }) &&
+            !isResharding(tv->definition()));
+      },
+      py::arg("tensor"));
+  nvf_sched.def(
+      "can_schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const SchedulerType& scheduler_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        return self.fusion_definition->userSchedule()->canScheduleDebug(
+            scheduler_type);
+      },
+      py::arg("scheduler_type"));
+  nvf_sched.def(
+      "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        std::vector<SchedulerType> valid_scheduler_types;
+        valid_scheduler_types.reserve(all_heuristics_in_priority_order.size());
+        std::copy_if(
+            all_heuristics_in_priority_order.begin(),
+            all_heuristics_in_priority_order.end(),
+            std::back_inserter(valid_scheduler_types),
+            [sched = self.fusion_definition->userSchedule()](
+                SchedulerType scheduler_type) {
+              return sched->canSchedule(scheduler_type);
+            });
+        return valid_scheduler_types;
+      });
+  nvf_sched.def(
+      "schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const SchedulerType& scheduler_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto&& [can_schedule, error_msg] =
+            sched->canScheduleDebug(scheduler_type);
+        NVF_CHECK(can_schedule, error_msg);
+        sched->scheduleWithType(scheduler_type);
+      },
+      py::arg("heuristic"));
+  nvf_sched.def("schedule", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    UserSchedule* sched = self.fusion_definition->userSchedule();
+    sched->schedule();
+  });
+  nvf_sched.def(
+      "compute_pointwise_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> PointwiseParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::PointWise);
+        return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_reduction_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> ReductionParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::Reduction);
+        return *parameters->as<ReductionParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_matmul_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::Matmul);
+        return *parameters->as<MatmulParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "schedule_hyperparameters",
+      [](FusionDefinition::SchedOperators& self)
+          -> scheduler_utils::SchedulerHyperParameters& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto scheduler_hyperparameters_entry = HeuristicDataCacheEntry<
+            HeuristicCompileTime::SchedulerHyperParameters>(
+            sched->data_cache.get(), []() {
+              return std::make_unique<
+                  scheduler_utils::SchedulerHyperParameters>(
+                  /*vectorize_factor=*/1,
+                  /*unroll_factor=*/1,
+                  /*threads_per_block_min=*/1,
+                  /*threads_per_block_max=*/1);
+            });
+        return scheduler_hyperparameters_entry.get();
+      },
+      py::return_value_policy::reference);
+}
+
+void bindOps(py::class_<FusionDefinition>& fusion_def) {
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
   //!
@@ -1756,45 +2432,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("randn_like", randn_like)
 
 #undef NVFUSER_PYTHON_BINDING_UNARY_RANDOM_OP
-
-#define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
-  tensor_class.def(                                                            \
-      "__" op_str "__",                                                        \
-      [](Tensor input) -> Tensor {                                             \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = input.fusion_definition;                        \
-        NVF_CHECK(                                                             \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(input.dims);                          \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(               \
-            {fd->recordingState(input())},                                     \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType::Unary_TV,                                       \
-            static_cast<TensorView* (*)(TensorView*)>(op_name)));              \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      "__" op_str "__",                                                        \
-      [](Scalar input) -> Scalar {                                             \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = input.fusion_definition;                        \
-        NVF_CHECK(                                                             \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*>(                             \
-            {fd->recordingState(input())},                                     \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType::Unary_VAL,                                      \
-            static_cast<Val* (*)(Val*)>(op_name)));                            \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);
-  NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("abs", abs)
-  NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
-#undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
 
 #define NVFUSER_PYTHON_BINDING_MATMUL_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
@@ -1974,105 +2611,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("logical_right_shift", logical_right_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP("gcd", gcd)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
-
-#define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
-  tensor_class.def(                                                            \
-      py_op,                                                                   \
-      [](Tensor arg1, Tensor arg2) -> Tensor {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType::Binary_TV,                                      \
-            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      py_op,                                                                   \
-      [](Tensor arg1, Scalar arg2) -> Tensor {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(         \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType::Binary_TV_VAL,                                  \
-            static_cast<TensorView* (*)(TensorView*, Val*)>(op_name)));        \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      py_op,                                                                   \
-      [](Scalar arg1, Tensor arg2) -> Tensor {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*>(         \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType::Binary_VAL_TV,                                  \
-            static_cast<TensorView* (*)(Val*, TensorView*)>(op_name)));        \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      py_op,                                                                   \
-      [](Scalar arg1, Scalar arg2) -> Scalar {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg2.fusion_definition;                         \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*>(                       \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType::Binary_VAL,                                     \
-            static_cast<Val* (*)(Val*, Val*)>(op_name)));                      \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);
-
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__add__", "add", add)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__mul__", "mul", mul)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__pow__", "pow", pow)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__sub__", "sub", sub)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__mod__", "mod", mod)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__eq__", "eq", eq)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__ge__", "ge", ge)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__gt__", "gt", gt)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__le__", "le", le)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__lt__", "lt", lt)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__ne__", "ne", ne)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__and__", "bitwise_and", bitwise_and)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__or__", "bitwise_or", bitwise_or)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__xor__", "bitwise_xor", bitwise_xor)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__lshift__", "bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__rshift__", "bitwise_right_shift", bitwise_right_shift)
-  // In python, __truediv__ (/) always returns a float regardless of whether
-  // the input arguments are float or integer. __truediv__ (/) corresponds with
-  // pytorch torch.true_divide(a, b). The __div__ operator is deprecated in
-  // python 3.
-  //
-  // In nvfuser, truediv function in csrc/ops/arith.h has the same semantics as
-  // python's operator __truediv__ (/). The div function in csrc/ops/arith.h
-  // truncates the result instead of promoting it to float. It has the same
-  // semantics as the C++'s (/) operator. In pytorch,
-  // torch.div(a, b, rounding_mode='trunc') corresponds C-style integer
-  // division.
-  //
-  // Hence, in the python frontend, the __truediv__ (/) python operator maps to
-  // trunc division.
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__truediv__", "div", div)
-#undef NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL
 
 #define NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP(op_str, op_name)          \
   nvf_ops.def(                                                                \
@@ -3187,81 +3725,28 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dims"),
       py::return_value_policy::reference);
 
-  auto shape_def = [](Tensor arg) -> Vector {
-    FUSER_PERF_SCOPE("Operators.shape");
-    auto fd = arg.fusion_definition;
-    NVF_CHECK(
-        fd->ops.validUse(), "Attempting to add to a completed definition!");
-    Vector output = fd->defineVector(arg.dims);
-    fd->defineRecord(new ShapeOpRecord(
-        {fd->recordingState(arg())}, {fd->recordingState(output())}));
-    return output;
-  };
-
-  tensor_class.def(
-      "shape",
-      [&shape_def](Tensor arg) -> Vector { return shape_def(arg); },
-      py::return_value_policy::reference);
   nvf_ops.def(
       "shape",
-      [&shape_def](FusionDefinition::Operators& self, Tensor arg) -> Vector {
-        return shape_def(arg);
+      [](FusionDefinition::Operators& self, Tensor arg) -> Vector {
+        return shapeDef(arg);
       },
       py::arg("arg"),
       py::return_value_policy::reference);
 
-  auto size_def = [](Tensor arg, int64_t dim) -> Scalar {
-    FUSER_PERF_SCOPE("Operators.size");
-    auto fd = arg.fusion_definition;
-    NVF_CHECK(
-        fd->ops.validUse(), "Attempting to add to a completed definition!");
-    Scalar output = fd->defineScalar();
-    fd->defineRecord(new SizeOpRecord(
-        {fd->recordingState(arg())}, {fd->recordingState(output())}, dim));
-    return output;
-  };
-
-  tensor_class.def(
-      "size",
-      [&size_def](Tensor arg, int64_t dim) -> Scalar {
-        return size_def(arg, dim);
-      },
-      py::return_value_policy::reference);
   nvf_ops.def(
       "size",
-      [&size_def](FusionDefinition::Operators& self, Tensor arg, int64_t dim)
-          -> Scalar { return size_def(arg, dim); },
+      [](FusionDefinition::Operators& self, Tensor arg, int64_t dim) -> Scalar {
+        return sizeDef(arg, dim);
+      },
       py::arg("arg"),
       py::arg("dim"),
       py::return_value_policy::reference);
 
-  auto at_def = [](Vector arg, int64_t index) -> Scalar {
-    FUSER_PERF_SCOPE("Operators.at");
-    auto fd = arg.fusion_definition;
-    NVF_CHECK(
-        fd->ops.validUse(), "Attempting to add to a completed definition!");
-    Scalar output = fd->defineScalar();
-    fd->defineRecord(new AtOpRecord(
-        {fd->recordingState(arg())}, {fd->recordingState(output())}, index));
-    return output;
-  };
-
-  vector_class.def(
-      "at",
-      [&at_def](Vector arg, int64_t index) -> Scalar {
-        return at_def(arg, index);
-      },
-      py::return_value_policy::reference);
-  vector_class.def(
-      "__getitem__",
-      [&at_def](Vector arg, int64_t index) -> Scalar {
-        return at_def(arg, index);
-      },
-      py::return_value_policy::reference);
   nvf_ops.def(
       "at",
-      [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index)
-          -> Scalar { return at_def(arg, index); },
+      [](FusionDefinition::Operators& self,
+         Vector arg,
+         int64_t index) -> Scalar { return atDef(arg, index); },
       py::arg("arg"),
       py::arg("index"),
       py::return_value_policy::reference);
@@ -3567,502 +4052,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dropout_p").none(true) = py::none(),
       py::arg("is_causal").none(true) = py::none(),
       py::arg("scale").none(true) = py::none(),
-      py::return_value_policy::reference);
-
-  //! The ScedOperators class is a nested class of FusionDefinition to allow the
-  //! user to query the class for the list of schedule operators.
-  //!
-  //! Example:
-  //!   help(FusionDefinition.SchedOperators)
-  //!
-  //! Additional operators are expected to be defined below as needed.
-  py::class_<FusionDefinition::SchedOperators> nvf_sched(
-      fusion_def, "SchedOperators");
-  nvf_sched.def(py::init<FusionDefinition*>());
-  nvf_sched.def(
-      "to_string",
-      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
-        // NOTE: For debugging purposes, print the state of TensorView
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        // Determine if tensor is a result from a reduction operation.
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-        return tv->toString();
-      },
-      py::arg("tensor"));
-  nvf_sched.def(
-      "user_schedule_ir",
-      [](FusionDefinition::SchedOperators& self) {
-        return self.fusion_definition->userScheduleIr();
-      },
-      py::return_value_policy::reference);
-  //! experimental API for multidevice support
-  nvf_sched.def(
-      "_set_device_mesh",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         const DeviceMesh& mesh) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
-        tv->setDeviceMesh(mesh);
-      },
-      py::arg("tensor"),
-      py::arg("mesh"));
-  nvf_sched.def(
-      "parallelize",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         int axis,
-         const ParallelType& parallel_type) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
-        tv->axis(axis)->parallelize(parallel_type);
-      },
-      py::arg("tensor"),
-      py::arg("axis"),
-      py::arg("parallel_type"));
-  nvf_sched.def(
-      "merge",
-      [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {
-        FUSER_PERF_SCOPE("SchedOperators.merge");
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto input_tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->merge(dim);
-      },
-      py::arg("arg"),
-      py::arg("dim"));
-  auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
-                                  Tensor arg,
-                                  const std::vector<int64_t>& dims) -> Tensor {
-    FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
-    NVF_CHECK(
-        self.validUse(),
-        "Attempting to use a SchedOperators Op prior to definition!");
-    FusionDefinition* fd = self.fusion_definition;
-    TensorView* input_tv =
-        fd->getFusionState(arg.index)->template as<TensorView>();
-    TensorView* output_tv = input_tv->rFactor(dims);
-    return fd->addTensor(output_tv);
-  };
-  nvf_sched.def(
-      "reduction_factor",
-      reduction_factor_func,
-      py::arg("arg"),
-      py::arg("dims"));
-  nvf_sched.def(
-      "rfactor", reduction_factor_func, py::arg("arg"), py::arg("dims"));
-  nvf_sched.def(
-      "reorder",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor arg,
-         const std::unordered_map<int64_t, int64_t>& old2new) {
-        FUSER_PERF_SCOPE("SchedOperators.reorder");
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto input_tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->reorder(old2new);
-      },
-      py::arg("arg"),
-      py::arg("old2new"));
-  nvf_sched.def(
-      "split",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor arg,
-         int64_t dim,
-         int64_t factor,
-         bool inner_split) {
-        FUSER_PERF_SCOPE("SchedOperators.split");
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto input_tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->split(dim, factor, inner_split);
-      },
-      py::arg("arg"),
-      py::arg("dim"),
-      py::arg("factor"),
-      py::arg("inner_split") = true);
-  nvf_sched.def(
-      "set_allocation_as_loop",
-      [](FusionDefinition::SchedOperators& self, Tensor arg) {
-        FUSER_PERF_SCOPE("SchedOperators.set_allocation_as_loop");
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto* tv = fd->getFusionState(arg.index)->template as<TensorView>();
-        tv->setAllocationDomain(tv->getLoopDomain(), true);
-      },
-      py::arg("arg"));
-  nvf_sched.def(
-      "cache_after",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         const LoadStoreOpType& op_type,
-         const CacheOp& cache_op) -> Tensor {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* input_tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-        TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
-        return fd->addTensor(output_tv);
-      },
-      py::arg("tensor"),
-      py::arg("op_type") = LoadStoreOpType::Set,
-      py::arg("cache_op") = CacheOp::Unspecified);
-  nvf_sched.def(
-      "cache_before",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         const LoadStoreOpType& op_type) -> Tensor {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* input_tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-        TensorView* output_tv = input_tv->cacheBefore(op_type);
-        return fd->addTensor(output_tv);
-      },
-      py::arg("tensor"),
-      py::arg("op_type") = LoadStoreOpType::Set);
-  nvf_sched.def(
-      "cache_fork",
-      [](FusionDefinition::SchedOperators& self, Tensor tensor) -> Tensor {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* input_tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-        TensorView* output_tv = input_tv->cacheFork();
-        return fd->addTensor(output_tv);
-      },
-      py::arg("tensor"));
-  nvf_sched.def(
-      "set_memory_type",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         const MemoryType& memory_type) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-        tv->setMemoryType(memory_type);
-      },
-      py::arg("tensor"),
-      py::arg("memory_type"));
-  nvf_sched.def(
-      "transform_like",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         const std::vector<Tensor>& selected_tensors) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* reference_tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-
-        TransformPropagator propagator(reference_tv);
-        if (selected_tensors.empty()) {
-          // Propagate scheduler transformations on reference TensorView to the
-          // rest of the fusion.
-          MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
-        } else {
-          // Propagate scheduler transformations on reference TensorView to the
-          // subset of the fusion.
-          std::unordered_set<TensorView*> selected_tv_set;
-          selected_tv_set.reserve(selected_tensors.size());
-          std::transform(
-              selected_tensors.begin(),
-              selected_tensors.end(),
-              std::inserter(selected_tv_set, selected_tv_set.end()),
-              [&fd](const Tensor& t) {
-                return fd->getFusionState(t.index)->template as<TensorView>();
-              });
-          SetSelector selector(
-              {selected_tv_set.begin(), selected_tv_set.end()});
-          MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
-              .traverse(&propagator);
-        }
-      },
-      py::arg("tensor"),
-      py::arg("selected_tensors") = std::vector<Tensor>());
-  nvf_sched.def(
-      "parallelize_like",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         int64_t pos,
-         const std::vector<Tensor>& selected_tensors,
-         const std::unordered_set<ParallelType>& selected_parallel_types,
-         bool propagate_padding) {
-        // Propagate the parallelization from the selected dimensions of the
-        // reference tensor to their corresponding dimensions in all selected
-        // tensors in the DAG.
-        //
-        // 1. Position `pos` means selecting all the dimensions
-        // [0, 1, ..., pos - 1]. pos = -1 means selecting all dimensions.
-        // 2. `selected_tvs` are selected tensors in the DAG. Empty
-        // `selected_tvs` means selecting all tensors in the fusion of
-        // `reference_tv`.
-        // 3. `selected_parallel_types` are the selected parallel types. Empty
-        // `selected_parallel_types` means selecting all parallel types.
-
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* reference_tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-
-        std::vector<TensorView*> selected_tvs;
-        selected_tvs.reserve(selected_tensors.size());
-        std::transform(
-            selected_tensors.begin(),
-            selected_tensors.end(),
-            std::back_inserter(selected_tvs),
-            [&fd](const Tensor& t) {
-              return fd->getFusionState(t.index)->template as<TensorView>();
-            });
-
-        nvfuser::scheduler_utils::parallelizeAllLike(
-            reference_tv,
-            pos,
-            selected_tvs,
-            selected_parallel_types,
-            propagate_padding);
-      },
-      py::arg("tensor"),
-      py::arg("pos") = -1,
-      py::arg("selected_tensors") = std::vector<Tensor>(),
-      py::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
-      py::arg("propagate_padding") = true);
-  nvf_sched.def(
-      "inline_most",
-      [](FusionDefinition::SchedOperators& self,
-         const std::vector<Tensor>& selected_tensors) {
-        // Inline to the right most allowed position for the selected tensors in
-        // the current fusion.
-
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-
-        FusionDefinition* fd = self.fusion_definition;
-
-        if (selected_tensors.empty()) {
-          nvfuser::inlineMost();
-        } else {
-          std::vector<TensorView*> selected_tvs;
-          selected_tvs.reserve(selected_tensors.size());
-          std::transform(
-              selected_tensors.begin(),
-              selected_tensors.end(),
-              std::back_inserter(selected_tvs),
-              [&fd](const Tensor& t) {
-                return fd->getFusionState(t.index)->template as<TensorView>();
-              });
-          nvfuser::inlineMost(selected_tvs);
-        }
-      },
-      py::arg("selected_tensors") = std::vector<Tensor>());
-  nvf_sched.def(
-      "inline_at",
-      [](FusionDefinition::SchedOperators& self,
-         Tensor tensor,
-         int64_t pos,
-         bool best_effort,
-         const std::vector<Tensor>& selected_tensors) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* reference_tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-
-        if (selected_tensors.empty()) {
-          // Inline to the position corresponding to the reference position in
-          // the reference tensor for all tensors in the current fusion.
-          nvfuser::inlineAllAt(reference_tv, pos, best_effort);
-        } else {
-          // Inline to the position corresponding to the reference position in
-          // the reference tensor for selected tensors in the current fusion.
-          std::unordered_set<TensorView*> selected_tvs;
-          selected_tvs.reserve(selected_tensors.size());
-          std::transform(
-              selected_tensors.begin(),
-              selected_tensors.end(),
-              std::inserter(selected_tvs, selected_tvs.end()),
-              [&fd](const Tensor& t) {
-                return fd->getFusionState(t.index)->template as<TensorView>();
-              });
-
-          nvfuser::inlineSelectedAt(
-              selected_tvs, reference_tv, pos, best_effort);
-        }
-      },
-      py::arg("tensor"),
-      py::arg("pos") = -1,
-      py::arg("best_effort") = false,
-      py::arg("selected_tensors") = std::vector<Tensor>());
-  nvf_sched.def("tensors", [](FusionDefinition::SchedOperators& self) {
-    NVF_CHECK(
-        self.validUse(),
-        "Attempting to use a SchedOperators Op prior to definition!");
-    // Return all Tensors in FusionDefinition
-    return self.fusion_definition->tensors();
-  });
-  nvf_sched.def(
-      "is_reduction",
-      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        // Determine if tensor is a result from a reduction operation.
-        FusionDefinition* fd = self.fusion_definition;
-        TensorView* tv =
-            fd->getFusionState(tensor.index)->template as<TensorView>();
-        return (
-            !tv->isFusionInput() &&
-            std::any_of(
-                tv->getMaybeRootDomain().begin(),
-                tv->getMaybeRootDomain().end(),
-                [](IterDomain* id) { return id->isReduction(); }) &&
-            !isResharding(tv->definition()));
-      },
-      py::arg("tensor"));
-  nvf_sched.def(
-      "can_schedule",
-      [](FusionDefinition::SchedOperators& self,
-         const SchedulerType& scheduler_type) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        return self.fusion_definition->userSchedule()->canScheduleDebug(
-            scheduler_type);
-      },
-      py::arg("scheduler_type"));
-  nvf_sched.def(
-      "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-
-        std::vector<SchedulerType> valid_scheduler_types;
-        valid_scheduler_types.reserve(all_heuristics_in_priority_order.size());
-        std::copy_if(
-            all_heuristics_in_priority_order.begin(),
-            all_heuristics_in_priority_order.end(),
-            std::back_inserter(valid_scheduler_types),
-            [sched = self.fusion_definition->userSchedule()](
-                SchedulerType scheduler_type) {
-              return sched->canSchedule(scheduler_type);
-            });
-        return valid_scheduler_types;
-      });
-  nvf_sched.def(
-      "schedule",
-      [](FusionDefinition::SchedOperators& self,
-         const SchedulerType& scheduler_type) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto&& [can_schedule, error_msg] =
-            sched->canScheduleDebug(scheduler_type);
-        NVF_CHECK(can_schedule, error_msg);
-        sched->scheduleWithType(scheduler_type);
-      },
-      py::arg("heuristic"));
-  nvf_sched.def("schedule", [](FusionDefinition::SchedOperators& self) {
-    NVF_CHECK(
-        self.validUse(),
-        "Attempting to use a SchedOperators Op prior to definition!");
-    UserSchedule* sched = self.fusion_definition->userSchedule();
-    sched->schedule();
-  });
-  nvf_sched.def(
-      "compute_pointwise_heuristics",
-      [](FusionDefinition::SchedOperators& self) -> PointwiseParams& {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        UserSchedule* sched = self.fusion_definition->userSchedule();
-        HeuristicParams* parameters =
-            sched->computeHeuristics(SchedulerType::PointWise);
-        return *parameters->as<PointwiseParams>();
-      },
-      py::return_value_policy::reference);
-  nvf_sched.def(
-      "compute_reduction_heuristics",
-      [](FusionDefinition::SchedOperators& self) -> ReductionParams& {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        UserSchedule* sched = self.fusion_definition->userSchedule();
-        HeuristicParams* parameters =
-            sched->computeHeuristics(SchedulerType::Reduction);
-        return *parameters->as<ReductionParams>();
-      },
-      py::return_value_policy::reference);
-  nvf_sched.def(
-      "compute_matmul_heuristics",
-      [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        UserSchedule* sched = self.fusion_definition->userSchedule();
-        HeuristicParams* parameters =
-            sched->computeHeuristics(SchedulerType::Matmul);
-        return *parameters->as<MatmulParams>();
-      },
-      py::return_value_policy::reference);
-  nvf_sched.def(
-      "schedule_hyperparameters",
-      [](FusionDefinition::SchedOperators& self)
-          -> scheduler_utils::SchedulerHyperParameters& {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto scheduler_hyperparameters_entry = HeuristicDataCacheEntry<
-            HeuristicCompileTime::SchedulerHyperParameters>(
-            sched->data_cache.get(), []() {
-              return std::make_unique<
-                  scheduler_utils::SchedulerHyperParameters>(
-                  /*vectorize_factor=*/1,
-                  /*unroll_factor=*/1,
-                  /*threads_per_block_min=*/1,
-                  /*threads_per_block_max=*/1);
-            });
-        return scheduler_hyperparameters_entry.get();
-      },
       py::return_value_policy::reference);
 }
 
