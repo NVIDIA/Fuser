@@ -91,10 +91,26 @@ void propagateResizeToInputs(Expr* resize_op);
 // long as the first slice is considered non-exclusive. This will be
 // important when resolving the non-exclusiveness by replication.
 //
-// The function returns a map from tensors that are input to
-// non-exclusive ops to their resize input ID groups. This map will be
+// The function returns a map from tensors that are outputs to
+// non-exclusive ops to ResizeExclusivityInfo. This map will be
 // used to resolve the non-exclusiveness by replication.
-std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
+struct ResizeExclusivityInfo {
+  // Dependent tensors that should not be resized
+  std::vector<TensorView*> non_exclusive_dep_tvs;
+  // ID groups of resize input IDs
+  ValGroups resized_ids;
+
+  bool operator==(const ResizeExclusivityInfo& other) const {
+    return non_exclusive_dep_tvs == other.non_exclusive_dep_tvs &&
+        resized_ids == other.resized_ids;
+  }
+
+  bool operator!=(const ResizeExclusivityInfo& other) const {
+    return !(*this == other);
+  }
+};
+
+std::unordered_map<TensorView*, ResizeExclusivityInfo> getNonExclusiveResizeInfo(
     const std::vector<Expr*>& ordered_resize_tensor_ops,
     const ValGraph& exact_graph);
 
