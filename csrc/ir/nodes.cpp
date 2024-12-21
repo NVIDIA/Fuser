@@ -24,6 +24,7 @@
 #include <type.h>
 
 #include <c10/util/irange.h>
+#include <torch/nn/options/embedding.h>
 
 #include <complex>
 #include <iterator>
@@ -5411,7 +5412,18 @@ std::vector<PolymorphicValue> EmbeddingOp::evaluate(
     auto idx = 5 + this->has_padding_idx;
     max_norm = inputs.at(idx).as<double>();
   }
-  return {at::embedding(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse)};
+  namespace F = torch::nn::functional;
+  return {
+    F::embedding(
+      input, 
+      weight, 
+      F::EmbeddingFuncOptions()
+      .padding_idx(padding_idx)
+      .max_norm(max_norm)
+      .norm_type(norm_type)
+      .scale_grad_by_freq(scale_grad_by_freq)
+      .sparse(sparse))
+  };
 }
 
 } // namespace nvfuser
