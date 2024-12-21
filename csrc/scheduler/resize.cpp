@@ -239,7 +239,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
-  if (getenv("VECTORIZE")) {
+  // Skip vectorization of the first segment
+  bool vectorize = getenv("VECTORIZE") && (fusion->inputs().size() > 1);
+
+  if (vectorize) {
     std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
     std::cerr << "Input tensor: " << fusion->inputs().at(0)->toString() << "\n";
 
@@ -249,11 +252,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         ref_tv,
         fusion->inputs().at(0)->as<TensorView>()->getMaybeAllocationDomain());
 
+    int64_t bdimx = 128;
+    if (getenv("BDIMX")) {
+      bdimx = atoi(getenv("BDIMX"));
+    }
+    int64_t gdimx = 1 << 14;
+    if (getenv("GDIMX")) {
+      gdimx = atoi(getenv("GDIMX"));
+    }
+
     int64_t vec_factor = 4;
     ref_tv->split(-1, vec_factor);
     ref_tv->flatten(outermost_pos, -2);
-    ref_tv->split(outermost_pos, 128);
-    ref_tv->split(outermost_pos, 1 << 14);
+    ref_tv->split(outermost_pos, bdimx);
+    ref_tv->split(outermost_pos, gdimx);
     ref_tv->axis(-2)->parallelize(ParallelType::TIDx);
     ref_tv->axis(-3)->parallelize(ParallelType::BIDx);
   } else {
@@ -274,21 +286,15 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_tools::scheduleLoopDomainsLike(
       fusion->allTvs(), ref_tv->getLoopDomain(), true);
 
-  if (getenv("VECTORIZE")) {
+  if (vectorize) {
     for (auto inp_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
       for (auto consumer_tv : ir_utils::consumerTvsOf(inp_tv)) {
-        // if (inp_tv->name() == 0 || inp_tv->name() == 1 || inp_tv->name() ==
-        // 2) {
         consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-        //}
       }
     }
     // To avoid vectorizing the outputs of the first segment
-    if (fusion->inputs().size() > 1) {
-      for (auto out_tv :
-           ir_utils::filterByType<TensorView>(fusion->outputs())) {
-        out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
+    for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+      out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   }
 
