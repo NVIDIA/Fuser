@@ -48,14 +48,14 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
 
 
-def with_executor(executor: str, fwd_fn: Callable) -> Callable:
+def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
     assert executor in ["eager", "torchcompile", "thunder"]
     if executor == "eager":
         return fwd_fn
     if executor == "torchcompile":
-        return torch.compile(fwd_fn)
+        return torch.compile(fwd_fn, **kwargs)
     if executor == "thunder":
-        return thunder.jit(fwd_fn, nv_enable_bookend=False, executors=[nvfuserex])
+        return thunder.jit(fwd_fn, nv_enable_bookend=False, executors=[nvfuserex], **kwargs)
 
 
 def compute_total_iobytes(
