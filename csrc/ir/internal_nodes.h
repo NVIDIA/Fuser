@@ -1451,15 +1451,15 @@ class NVF_API MmaOp : public Expr {
     return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
-  int m() const {
+  int64_t m() const {
     return getM(macro());
   }
 
-  int n() const {
+  int64_t n() const {
     return getN(macro());
   }
 
-  int k() const {
+  int64_t k() const {
     return getK(macro());
   }
 
