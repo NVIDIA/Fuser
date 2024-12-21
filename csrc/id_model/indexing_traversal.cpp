@@ -65,18 +65,26 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
       /*build_graphs=*/false);
 
   // Gather all resize exprs for each of the inputs and outputs
-  std::unordered_map<Val*, std::vector<Resize*>> tv_resize_map;
-  for (auto inp : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto expr : inp->domain()->allExprs()) {
+  std::unordered_map<TensorView*, std::vector<Resize*>> tv_resize_map;
+  for (auto inp : expr->inputs()) {
+    auto inp_tv = ir_utils::getTv(inp);
+    if (inp_tv == nullptr) {
+      continue;
+    }
+    for (auto expr : inp_tv->domain()->allExprs()) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
-        tv_resize_map[inp].push_back(resize);
+        tv_resize_map[inp_tv].push_back(resize);
       }
     }
   }
-  for (auto out : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    for (auto expr : out->domain()->allExprs()) {
+  for (auto out : expr->outputs()) {
+    auto out_tv = ir_utils::getTv(out);
+    if (out_tv == nullptr) {
+      continue;
+    }
+    for (auto expr : out_tv->domain()->allExprs()) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
-        tv_resize_map[out].push_back(resize);
+        tv_resize_map[out_tv].push_back(resize);
       }
     }
   }
@@ -149,9 +157,17 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   };
 
   bool single_id_resized_multiple_times = false;
-  for (auto out : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    for (auto inp : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (isSingleIdResizedMultipleTimes(inp, out)) {
+  for (auto out : expr->outputs()) {
+    auto out_tv = ir_utils::getTv(out);
+    if (out_tv == nullptr) {
+      continue;
+    }
+    for (auto inp : expr->inputs()) {
+      auto inp_tv = ir_utils::getTv(inp);
+      if (inp_tv == nullptr) {
+        continue;
+      }
+      if (isSingleIdResizedMultipleTimes(inp_tv, out_tv)) {
         single_id_resized_multiple_times = true;
         break;
       }
