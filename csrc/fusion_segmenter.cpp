@@ -29,6 +29,8 @@ namespace nvfuser {
 
 namespace {
 
+bool _debug = false;
+
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
 // This helper function converts selected keys to their corresponding values.
@@ -2611,6 +2613,10 @@ SchedulerType tryMerge(
     const std::vector<SegmentedGroup*>& segmented_groups) {
   FusionSegmentGuard fsg(segmented_fusion, segmented_groups);
 
+  if (_debug) {
+    NVF_ERROR(segmented_groups.size() > 1);
+  }
+
   NVF_ERROR(
       !segmented_fusion->completeFusion()->unordered_exprs().empty(),
       "We shouldn't attempt to merge empty fusions. "
@@ -3623,11 +3629,14 @@ class PreferredMergeCandidatePicker {
     for (auto& group : groups_) {
       // Currently there's only one preference for select-like
       // ops. Additional preferences can be added similarly.
-      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
-      if (!neighbor_to_merge.has_value()) {
-        continue;
+      if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+      } else if (auto neighbor_to_merge =
+                     mergeCastToHigherPrecisionWithConsumers(group);
+                 neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
       }
-      candidates_.emplace_back(group, *neighbor_to_merge);
     }
   }
 
@@ -3649,6 +3658,9 @@ class PreferredMergeCandidatePicker {
   //! reduction, not between the softmax and takeAlongAxis.
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
       SegmentedGroup* group) const;
+
+  std::optional<SegmentedGroup::NeighborGroup>
+  mergeCastToHigherPrecisionWithConsumers(SegmentedGroup* group) const;
 
  private:
   const std::vector<SegmentedGroup*>& groups_;
@@ -3709,6 +3721,52 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
+}
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergeCastToHigherPrecisionWithConsumers(SegmentedGroup* group) const {
+  const auto& exprs = group->exprs();
+
+  if (exprs.size() != 1) {
+    return std::nullopt;
+  }
+
+  auto uop = dynamic_cast<UnaryOp*>(exprs.at(0));
+
+  if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+    return std::nullopt;
+  }
+
+  auto inp_tv = ir_utils::getTvInput(uop);
+  auto out_tv = ir_utils::getTvOutput(uop);
+  if (inp_tv == nullptr || out_tv == nullptr) {
+    return std::nullopt;
+  }
+
+  auto inp_dtype = inp_tv->dtype().type;
+  auto out_dtype = out_tv->dtype().type;
+  auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
+  auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
+
+  if (inp_prim_type == nullptr || out_prim_type == nullptr) {
+    return std::nullopt;
+  }
+
+  if (primDataTypeSize(*inp_prim_type) >= primDataTypeSize(*out_prim_type)) {
+    return std::nullopt;
+  }
+
+  // For simplicity, limit this optimization only when there's only
+  // one consumer
+  if (group->consumer_edges.size() != 1) {
+    return std::nullopt;
+  }
+
+  auto edge = group->consumer_edges.front();
+
+  std::cerr << "Prefer merging with consumer:  " << uop->toString();
+
+  return SegmentedGroup::NeighborGroup(edge->to, edge);
 }
 
 } // namespace
@@ -3951,6 +4009,8 @@ void SegmentCandidateFinder::findSegments() {
 
   segmented_fusion_->validateIfDebug();
 
+  _debug = true;
+
   if (options_.run_herrmann_merge) {
     bool merged_nodes = true;
     // Initial merge iteration
@@ -3960,11 +4020,15 @@ void SegmentCandidateFinder::findSegments() {
 
       resetLevels();
 
+      std::cerr << "While loop start\n";
+
       // Try preferred merge first
       for (auto& [group, neighbor] :
            PreferredMergeCandidatePicker::get(groups())) {
         trySetUpMerge(group, {neighbor});
       }
+
+      std::cerr << "Preferred merged? " << !to_merge_.empty() << "\n";
 
       // If there are preferred groups to merge, merge them first
       // without considering the rest of groups
