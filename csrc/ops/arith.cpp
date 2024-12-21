@@ -504,14 +504,30 @@ TensorView* triu(TensorView* tv, Val* offset) {
       tv->nDims(),
       "D tensor");
 
+  // Let's say we want a triu of a 2D tensor of shape [2, 4]
+  // We broadcast the iota of the outer dim
+  // [0    [0, 0, 0, 0]
+  // 1] -> [1, 1, 1, 1]
+  // We broadcast the iota of the inner dim
+  // [0, 1, 2, 3] -> [0, 1, 2, 3]
+  //                 [0, 1, 2, 3]
+  // Using LE on the bcast tensors we get the mask
+  //[0, 0, 0, 0]  LE [0, 1, 2, 3]
+  //[1, 1, 1, 1]     [0, 1, 2, 3]
+  // Gives:
+  //[1, 0, 0, 0]
+  //[0, 1, 0, 0]
+  // If triu has an offset of k, we shift/subtract the iota of the columns by k
+  // before broadcasting and comparing with the iota of the rows.
+  auto dims = tv->domain()->logical().size();
   auto tv_rows = iota(
-      tv->domain()->logical()[1]->extent(),
+      tv->domain()->logical()[dims - 2]->extent(),
       IrBuilder::create<Val>(0, DataType::Index),
       IrBuilder::create<Val>(1, DataType::Index),
       DataType::Int);
 
   auto tv_columns = iota(
-      tv->domain()->logical()[2]->extent(),
+      tv->domain()->logical()[dims - 1]->extent(),
       SimplifyingIrBuilder::mulExpr(
           offset, IrBuilder::create<Val>(-1, DataType::Index)),
       IrBuilder::create<Val>(1, DataType::Index),
