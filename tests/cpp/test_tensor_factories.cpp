@@ -231,25 +231,32 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
 }
 
 TEST_F(TensorFactoryTest, SimpleTriu) {
-  auto fusion = std::make_unique<Fusion>();
+  std::vector<std::vector<int64_t>> input_sizes = {
+      {64, 64}, {4, 16}, {16, 4}, {16, 8, 32}};
+  auto offsets = {0, 1, 2, -1, -2, 200, -200};
 
-  FusionGuard gf(fusion.get());
+  for (auto input_size : input_sizes) {
+    for (auto offset : offsets) {
+      auto fusion = std::make_unique<Fusion>();
+      FusionGuard fg(fusion.get());
 
-  auto tv_to_triu_on = makeSymbolicTensor(3, DataType::Half);
-  fusion->addInput(tv_to_triu_on);
+      auto tv_to_triu_on =
+          makeSymbolicTensor(input_size.size(), DataType::Half);
+      fusion->addInput(tv_to_triu_on);
 
-  int64_t k_factor = -2;
-  auto out = triu(tv_to_triu_on, IrBuilder::create<Val>(k_factor, DataType::Int));
-  fusion->addOutput(out);
+      auto out =
+          triu(tv_to_triu_on, IrBuilder::create<Val>(offset, DataType::Int));
+      fusion->addOutput(out);
 
+      auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+      auto in_tensor = at::randn(input_size, options);
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto in_tensor = at::randn({4, 4, 8}, options);
+      FusionExecutorCache executor_cache(std::move(fusion));
+      auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
 
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
-
-  EXPECT_TRUE(cg_outputs[0].allclose(at::triu(in_tensor, k_factor), .001, .001));
+      EXPECT_TRUE(at::equal(cg_outputs[0], at::triu(in_tensor, offset)));
+    }
+  }
 }
 
 TEST_F(TensorFactoryTest, StandaloneARange) {
