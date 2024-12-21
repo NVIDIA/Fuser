@@ -277,9 +277,17 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   if (getenv("VECTORIZE")) {
     for (auto inp_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
       for (auto consumer_tv : ir_utils::consumerTvsOf(inp_tv)) {
-        if (inp_tv->name() == 0 || inp_tv->name() == 1 || inp_tv->name() == 2) {
-          consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-        }
+        // if (inp_tv->name() == 0 || inp_tv->name() == 1 || inp_tv->name() ==
+        // 2) {
+        consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+        //}
+      }
+    }
+    // To avoid vectorizing the outputs of the first segment
+    if (fusion->inputs().size() > 1) {
+      for (auto out_tv :
+           ir_utils::filterByType<TensorView>(fusion->outputs())) {
+        out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
       }
     }
   }
