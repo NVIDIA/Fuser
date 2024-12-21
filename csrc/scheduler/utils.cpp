@@ -2674,6 +2674,97 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
+void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
+  IdModel id_model(tv->fusion(), /*build_graphs=*/false);
+  const auto& graph = id_model.buildBroadcastGraph();
+
+  ValGroups target_groups = graph.toGroups(tv->getLoopDomain());
+  ValGroups ref_groups = graph.toGroups(ref);
+
+  auto path = ValGraphBFS::getExprGroupsBetween(
+                  graph,
+                  target_groups,
+                  ref_groups,
+                  /*require_all_to_visited=*/false)
+                  .first;
+  path = reverse(path);
+
+  std::deque<ValGroup> ordered_domain{
+      ref_groups.vector().begin(), ref_groups.vector().end()};
+
+  std::cerr << "Ref: " << toDelimitedString(ref) << "\n";
+
+  std::cerr << "Ref to target:\n";
+  for (const auto& [expr_g, dir] : path) {
+    std::cerr << dir << ", " << expr_g->front()->toString();
+    auto inputs = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+    auto outputs = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+    std::deque<ValGroup>::iterator innermost_it = ordered_domain.end();
+    // Not all inputs are guaranteed to be found
+    for (auto it = inputs.rbegin(); it != inputs.rend(); ++it) {
+      innermost_it =
+          std::find(ordered_domain.begin(), ordered_domain.end(), *it);
+      if (innermost_it != ordered_domain.end()) {
+        break;
+      }
+    }
+    if (innermost_it == ordered_domain.end()) {
+      std::cerr << "Inputs: " << nvfuser::toString(inputs) << "\n";
+      std::cerr << "Ordered domain: " << nvfuser::toString(ordered_domain)
+                << "\n";
+    }
+    NVF_ERROR(innermost_it != ordered_domain.end());
+    ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
+    for (const auto& inp : inputs) {
+      ordered_domain.erase(
+          std::remove(ordered_domain.begin(), ordered_domain.end(), inp),
+          ordered_domain.end());
+    }
+  }
+
+  std::cerr << "Result:\n";
+  for (const auto& vg : ordered_domain) {
+    std::cerr << nvfuser::toString(vg) << "\n";
+  }
+
+  std::unordered_map<int64_t, int64_t> old2new;
+  // Move all new IDs to outermost
+  int64_t new_id_pos = 0;
+  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    const auto& loop_id_group = graph.toGroup(tv->getLoopDomain().at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it == ordered_domain.end()) {
+      std::cerr << "Not found: " << tv->getLoopDomain().at(i)->toString()
+                << "\n";
+      std::cerr << "Placed at: " << new_id_pos << "\n";
+      old2new.emplace((int64_t)i, new_id_pos);
+      ++new_id_pos;
+    }
+  }
+  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    const auto& loop_id_group = graph.toGroup(tv->getLoopDomain().at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it != ordered_domain.end()) {
+      std::cerr << "Found: " << tv->getLoopDomain().at(i)->toString() << "\n";
+      int64_t new_pos =
+          (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
+      std::cerr << "Placed at: " << new_pos << "\n";
+      old2new.emplace((int64_t)i, new_pos);
+    }
+  }
+
+  for (const auto& [old_pos, new_pos] : old2new) {
+    std::cerr << old_pos << " -> " << new_pos << "\n";
+  }
+
+  tv->reorder(old2new);
+  std::cerr << "Reordered: " << tv->toString() << "\n";
+}
+
 } // namespace scheduler_utils
 
 } // namespace nvfuser

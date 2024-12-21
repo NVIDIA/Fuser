@@ -119,7 +119,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // This doesn't work yet due to issue #3571
-  if (!getenv("SKIP_BROADCAST_CHECK")) {
+  if (getenv("BROADCAST_CHECK")) {
     if (std::any_of(
             ref_tv->getLogicalDomain().begin(),
             ref_tv->getLogicalDomain().end(),
@@ -239,12 +239,31 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
-  // Schedule only the remaining IDs
-  ref_tv->flatten(outermost_pos);
-  ref_tv->split(outermost_pos, 128);
-  ref_tv->split(outermost_pos, 1 << 14);
-  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
-  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  if (getenv("VECTORIZE")) {
+    std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
+    std::cerr << "Input tensor: " << fusion->inputs().at(0)->toString() << "\n";
+
+    // Reorder the reference as the allocation domain of the fusion
+    // inputs. For now, just use the first input
+    scheduler_utils::reorderTensorLike(
+        ref_tv,
+        fusion->inputs().at(0)->as<TensorView>()->getMaybeAllocationDomain());
+
+    int64_t vec_factor = 4;
+    ref_tv->split(-1, vec_factor);
+    ref_tv->flatten(outermost_pos, -2);
+    ref_tv->split(outermost_pos, 128);
+    ref_tv->split(outermost_pos, 1 << 14);
+    ref_tv->axis(-2)->parallelize(ParallelType::TIDx);
+    ref_tv->axis(-3)->parallelize(ParallelType::BIDx);
+  } else {
+    // Schedule only the remaining IDs
+    ref_tv->flatten(outermost_pos);
+    ref_tv->split(outermost_pos, 128);
+    ref_tv->split(outermost_pos, 1 << 14);
+    ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+    ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  }
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
@@ -254,6 +273,16 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // scheduler.
   scheduler_tools::scheduleLoopDomainsLike(
       fusion->allTvs(), ref_tv->getLoopDomain(), true);
+
+  if (getenv("VECTORIZE")) {
+    for (auto inp_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+      for (auto consumer_tv : ir_utils::consumerTvsOf(inp_tv)) {
+        if (inp_tv->name() == 0 || inp_tv->name() == 1 || inp_tv->name() == 2) {
+          consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+      }
+    }
+  }
 
   inlineMost();
 
