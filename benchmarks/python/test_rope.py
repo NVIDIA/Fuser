@@ -1187,7 +1187,10 @@ def test_rope_variations_fwd_benchmark(
     rope_variation: str,
     executor: str,
 ):
-    if executor == "torchcompile":
+    kwargs = {}
+    if executor == "thunder":
+        kwargs['nv_enable_matmul'] = True
+    elif executor == "torchcompile":
         clear_dynamo_cache()
 
     model, inputs, _, _ = rope_setup[rope_variation]()
@@ -1195,7 +1198,8 @@ def test_rope_variations_fwd_benchmark(
     def fwd_call(inp):
         return model(*inp)
 
-    benchmark_fn = with_executor(executor, fwd_call)
+    # Compile the fwd fn for torchcompile
+    benchmark_fn = with_executor(executor, fwd_call, **kwargs)
     run_benchmark(benchmark, benchmark_fn, inputs())
 
 
@@ -1215,7 +1219,10 @@ def test_rope_variations_bwd_benchmark(
     rope_variation: str,
     executor: str,
 ):
-    if executor == "torchcompile":
+    kwargs = {}
+    if executor == "thunder":
+        kwargs['nv_enable_matmul'] = True
+    elif executor == "torchcompile":
         clear_dynamo_cache()
 
     model, fwd_inputs, grad, iobytes = rope_setup[rope_variation]()
@@ -1224,7 +1231,7 @@ def test_rope_variations_bwd_benchmark(
         return model(*inp)
 
     # execute the compiled fwd fn
-    fwd_fn = with_executor(executor, fwd_call)
+    fwd_fn = with_executor(executor, fwd_call, **kwargs)
     outputs = fwd_fn(fwd_inputs())
 
     # accumulate all output, so we can feed a single grad and use the unary bwd function
@@ -1232,7 +1239,6 @@ def test_rope_variations_bwd_benchmark(
     for i in range(1, len(outputs)):
         output += outputs[i]
 
-    benchmark_fn = with_executor(executor, fwd_call)
     # FIXME I don't think the automatic IObytes computation is correct
     run_benchmark(
         benchmark,

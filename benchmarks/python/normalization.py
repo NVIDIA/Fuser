@@ -453,10 +453,7 @@ def norm_fwd_baseline_benchmark(
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
-    kwargs = {}
-    if executor == "torchcompile":
-        kwargs['nv_enable_matmul'] = True
-    benchmark_fn = with_executor(executor, norm_fwd_fn, **kwargs)
+    benchmark_fn = with_executor(executor, norm_fwd_fn)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
@@ -495,11 +492,7 @@ def norm_bwd_baseline_benchmark(
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
-    # Compile the fwd fn for torchcompile
-    kwargs = {}
-    if executor == "torchcompile":
-        kwargs['nv_enable_matmul'] = True
-    fwd_fn = with_executor(executor, norm_fwd_fn, **kwargs)
+    fwd_fn = with_executor(executor, norm_fwd_fn)
     fwd_inputs = [inputs, weight, bias, running_mean, running_var]
     outputs = fwd_fn(fwd_inputs)
 
