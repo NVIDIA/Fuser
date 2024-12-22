@@ -500,9 +500,9 @@ TensorView* triu(TensorView* tv, Val* offset) {
 
   NVF_CHECK(
       tv->nDims() >= 2,
-      "triu is only supported for 2+D tensors, but got ",
+      "input tensor for triu must have 2 or more dims, but got ",
       tv->nDims(),
-      "D tensor");
+      " dims");
 
   // Let's say we want a triu of a 2D tensor of shape [2, 4]
   // We broadcast the iota of the outer dim
@@ -537,6 +537,10 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
   return where(mask, tv, IrBuilder::create<Val>(0, tv->dtype()));
+}
+
+TensorView* triu(TensorView* tv) {
+  return triu(tv, IrBuilder::create<Val>(0));
 }
 
 // UNARY OPERATIONS
