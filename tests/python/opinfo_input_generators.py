@@ -638,6 +638,8 @@ def elementwise_unary_generator(
 
     # Typical inputs
     for shape in shapes:
+        if op.name == "triu" and len(shape) < 2:
+            continue
         yield SampleInput(make_arg(shape))
         yield SampleInput(make_arg(shape, noncontiguous=True))
 
@@ -1591,3 +1593,39 @@ def div_input_generator(
         denom = torch.where(denom_is_small, denom_scaled_to_minabs, denom).detach()
         denom.requires_grad_(requires_grad)
         yield SampleInput(numer, denom)
+
+
+def triu_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False):
+    offsets = (0, 1, -1, 2, 3, -3, 1024, -1024)
+
+    for element in elementwise_unary_generator(
+        op,
+        dtype,
+        requires_grad,
+        enable_extremal_value_testing=False,
+        enable_large_value_testing=False,
+        enable_small_value_testing=False,
+    ):
+        yield element
+        for offset in offsets:
+            yield SampleInput(*element.args, offset)
+
+
+def triu_error_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    yield SampleInput(
+        make_arg((4, 16)), 5.6
+    ), RuntimeError, "offset must have integral type"
+
+    invalid_shapes = (
+        (),
+        (4,),
+    )
+
+    for shape in invalid_shapes:
+        yield SampleInput(
+            make_arg(shape),
+        ), RuntimeError, f"input tensor for triu must have 2 or more dims, but got {len(shape)} dims"

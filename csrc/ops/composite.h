@@ -36,6 +36,7 @@ NVF_API TensorView* dropout_backward(
     Val* scale);
 
 NVF_API TensorView* triu(TensorView* tv, Val* offset);
+NVF_API TensorView* triu(TensorView* tv);
 
 struct LstmResult {
   TensorView* cell = nullptr;
