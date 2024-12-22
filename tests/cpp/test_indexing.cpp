@@ -362,7 +362,6 @@ class PredicateIndexValidator : public kir::IrVisitor {
         "No inline predicate detected: ",
         expr->toString());
 
-    std::cerr << expr->toString();
     validateInlinePredicate(out_ti, inline_ite->predicate()->value());
 
     // If there's an other IfThenElse in the scope stack, validate the
