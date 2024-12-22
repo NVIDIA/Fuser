@@ -1198,8 +1198,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp>(tv)) {
-      // Right now, tensors that are input to the slice, select, and pad ops
+        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+      // Right now, tensors that are input to select ops
       // can't be cached as they must be in global memory.
       continue;
     }
@@ -1214,7 +1214,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // caching load instructions.
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isA<PadOp>()) {
+      if (!use->isA<PadOp>() && !use->isA<SliceOp>()) {
         cached_uses.push_back(use);
       }
     }
@@ -2679,6 +2679,7 @@ void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
   const auto& graph = id_model.buildBroadcastGraph();
 
   ValGroups target_groups = graph.toGroups(tv->getLoopDomain());
+
   ValGroups ref_groups = graph.toGroups(ref);
 
   auto path = ValGraphBFS::getExprGroupsBetween(

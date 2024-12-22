@@ -29,8 +29,6 @@ namespace nvfuser {
 
 namespace {
 
-bool _debug = false;
-
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
 // This helper function converts selected keys to their corresponding values.
@@ -2200,6 +2198,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
         group2->exprs_.end());
 
     auto producer_edges = getMergedProducerEdges(group1, group2);
+
     // Connect joined group to resulting neighbors
     for (auto edge : producer_edges) {
       auto from = edge->from;
@@ -2612,10 +2611,6 @@ SchedulerType tryMerge(
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
   FusionSegmentGuard fsg(segmented_fusion, segmented_groups);
-
-  if (_debug) {
-    NVF_ERROR(segmented_groups.size() > 1);
-  }
 
   NVF_ERROR(
       !segmented_fusion->completeFusion()->unordered_exprs().empty(),
@@ -3627,15 +3622,22 @@ class PreferredMergeCandidatePicker {
   PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
       : groups_(groups) {
     for (auto& group : groups_) {
+      if (all_candidates_.count(group)) {
+        continue;
+      }
       // Currently there's only one preference for select-like
       // ops. Additional preferences can be added similarly.
       if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
           neighbor_to_merge.has_value()) {
         candidates_.emplace_back(group, *neighbor_to_merge);
+        all_candidates_.insert(group);
+        all_candidates_.insert(neighbor_to_merge->group);
       } else if (auto neighbor_to_merge =
                      mergeCastToHigherPrecisionWithConsumers(group);
                  neighbor_to_merge.has_value()) {
         candidates_.emplace_back(group, *neighbor_to_merge);
+        all_candidates_.insert(group);
+        all_candidates_.insert(neighbor_to_merge->group);
       }
     }
   }
@@ -3664,6 +3666,7 @@ class PreferredMergeCandidatePicker {
 
  private:
   const std::vector<SegmentedGroup*>& groups_;
+  std::unordered_set<SegmentedGroup*> all_candidates_;
   std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
       candidates_;
 };
@@ -3719,12 +3722,20 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
+  if (all_candidates_.count((*producer_edge_it)->from)) {
+    return std::nullopt;
+  }
+
   return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
 }
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     mergeCastToHigherPrecisionWithConsumers(SegmentedGroup* group) const {
+  if (!getenv("CAST_SEGMENT")) {
+    return std::nullopt;
+  }
+
   const auto& exprs = group->exprs();
 
   if (exprs.size() != 1) {
@@ -3764,7 +3775,9 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   auto edge = group->consumer_edges.front();
 
-  std::cerr << "Prefer merging with consumer:  " << uop->toString();
+  if (all_candidates_.count(edge->to)) {
+    return std::nullopt;
+  }
 
   return SegmentedGroup::NeighborGroup(edge->to, edge);
 }
@@ -4009,8 +4022,6 @@ void SegmentCandidateFinder::findSegments() {
 
   segmented_fusion_->validateIfDebug();
 
-  _debug = true;
-
   if (options_.run_herrmann_merge) {
     bool merged_nodes = true;
     // Initial merge iteration
@@ -4020,15 +4031,11 @@ void SegmentCandidateFinder::findSegments() {
 
       resetLevels();
 
-      std::cerr << "While loop start\n";
-
       // Try preferred merge first
       for (auto& [group, neighbor] :
            PreferredMergeCandidatePicker::get(groups())) {
         trySetUpMerge(group, {neighbor});
       }
-
-      std::cerr << "Preferred merged? " << !to_merge_.empty() << "\n";
 
       // If there are preferred groups to merge, merge them first
       // without considering the rest of groups

@@ -199,7 +199,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
-  scheduler_utils::cacheInputs(fusion, true);
+  auto cache_tvs = scheduler_utils::cacheInputs(fusion, true);
+  for (const auto& cache_tv : cache_tvs) {
+    std::cerr << "Inserted cache: " << cache_tv->definition()->toString();
+  }
+
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
@@ -244,13 +248,46 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   if (vectorize) {
     std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
-    std::cerr << "Input tensor: " << fusion->inputs().at(0)->toString() << "\n";
+    TensorView* allocation_ref_tv = nullptr;
+    for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+      if (allocation_ref_tv == nullptr ||
+          allocation_ref_tv->getLogicalDomain().size() <
+              inp->getLogicalDomain().size()) {
+        allocation_ref_tv = inp;
+      }
+    }
+    std::cerr << "Allocation ref tensor: " << allocation_ref_tv->toString()
+              << ", "
+              << toDelimitedString(
+                     allocation_ref_tv->getMaybeAllocationDomain())
+              << "\n";
+
+    auto ref_alloc = allocation_ref_tv->getMaybeAllocationDomain();
+    std::vector<IterDomain*> ref_alloc_reordered;
+    ref_alloc_reordered.reserve(ref_alloc.size());
+    // Move broadcast outer
+    for (const auto i : c10::irange(ref_alloc.size())) {
+      if (ref_alloc.at(i)->isBroadcast()) {
+        ref_alloc_reordered.push_back(ref_alloc.at(i));
+      }
+    }
+    for (const auto i : c10::irange(ref_alloc.size())) {
+      if (!ref_alloc.at(i)->isBroadcast()) {
+        ref_alloc_reordered.push_back(ref_alloc.at(i));
+      }
+    }
+
+    std::cerr << "Ref alloc before: "
+              << toDelimitedString(
+                     allocation_ref_tv->getMaybeAllocationDomain())
+              << ", reordered: " << toDelimitedString(ref_alloc_reordered)
+              << "\n";
 
     // Reorder the reference as the allocation domain of the fusion
     // inputs. For now, just use the first input
-    scheduler_utils::reorderTensorLike(
-        ref_tv,
-        fusion->inputs().at(0)->as<TensorView>()->getMaybeAllocationDomain());
+    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc_reordered);
+
+    std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
 
     int64_t bdimx = 128;
     if (getenv("BDIMX")) {
@@ -260,8 +297,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     if (getenv("GDIMX")) {
       gdimx = atoi(getenv("GDIMX"));
     }
-
     int64_t vec_factor = 4;
+    if (getenv("VEC")) {
+      vec_factor = atoi(getenv("VEC"));
+    }
+
     ref_tv->split(-1, vec_factor);
     ref_tv->flatten(outermost_pos, -2);
     ref_tv->split(outermost_pos, bdimx);
@@ -288,6 +328,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   if (vectorize) {
     for (auto inp_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+      if (inp_tv->name() == 2) {
+        continue;
+      }
       for (auto consumer_tv : ir_utils::consumerTvsOf(inp_tv)) {
         consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
       }
