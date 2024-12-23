@@ -653,6 +653,13 @@ void RecordFunctorFactory::setupFunctionMaps() {
       ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
   unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
 
+#define NVFUSER_UNARY_TV_ALPHA_OP(op_str, op_name)                          \
+  unary_tv.emplace(                                                         \
+      ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
+  binary_tv_val.emplace(                                                    \
+      ("ops." op_str),                                                      \
+      static_cast<TensorView* (*)(TensorView*, Val*)>(op_name));
+
 #define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \
   binary_tv.emplace(                               \
       ("ops." op_str),                             \
@@ -807,6 +814,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("isreal", isreal)
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
+
+  NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
