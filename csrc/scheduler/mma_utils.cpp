@@ -1311,8 +1311,9 @@ void scheduleStMatrixForMmaOutput(
       ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
       "We only support 16x16 and 16x16 stmatrix now");
 
-  NVF_ERROR(
-      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
+  NVF_CHECK(
+      dataTypeSize(tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
   auto s =
