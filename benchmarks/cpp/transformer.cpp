@@ -112,27 +112,7 @@ static at::Tensor transformerShardTensor(at::Tensor tensor, TensorView* tv, Comm
 static void NvFuserScheduler_TransformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
-    DataType dtype) { /*
-  auto w = benchmark_state.range(0);
-  auto x = benchmark_state.range(1);
-  auto y = benchmark_state.range(2);
-  auto z = benchmark_state.range(3);
-
-  at::manual_seed(0);
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-
-  at::Tensor t0 = at::randn({w, 1, 1, z}, options);
-  at::Tensor t1 = at::randn({w, x, y, z}, options);
-
-  std::vector<c10::IValue> at_inputs = {t0, t1};
-
-  auto bytes =
-      runBenchmarkIterations(benchmark_state, executor_cache, at_inputs);
-
-  benchmark_state.SetBytesProcessed(
-      bytes * int64_t(benchmark_state.iterations()));*/
-
+    DataType dtype) {
   Communicator* communicator_ = &Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
   const int64_t D = communicator_->size(); // number of devices
 
