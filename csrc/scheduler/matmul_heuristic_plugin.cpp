@@ -141,6 +141,9 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
   setConfigTile(config->instruction_tile, getMmaOpShape(mparams->mma_macro));
+  config->cluster_dims[0] = std::get<0>(mparams->cluster_dims);
+  config->cluster_dims[1] = std::get<1>(mparams->cluster_dims);
+  config->cluster_dims[2] = std::get<2>(mparams->cluster_dims);
   config->splitk_factor = mparams->splitk_factor;
   config->grid_swizzle_factor = mparams->grid_swizzle_factor;
   config->cta_order =
@@ -163,6 +166,9 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   };
   setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
+  std::get<0>(mparams->cluster_dims) = config->cluster_dims[0];
+  std::get<1>(mparams->cluster_dims) = config->cluster_dims[1];
+  std::get<2>(mparams->cluster_dims) = config->cluster_dims[2];
   mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
   mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap =
