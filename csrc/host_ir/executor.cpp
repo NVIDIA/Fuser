@@ -217,12 +217,6 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
     dispatch(expr);
   }
 
-  c10::cuda::getCurrentCUDAStream(
-      static_cast<c10::DeviceIndex>(my_device_index_))
-      .synchronize();
-  for (auto event : events_) {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
-  }
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
