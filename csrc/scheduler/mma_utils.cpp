@@ -20,6 +20,7 @@
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
+#include "options.h"
 
 namespace nvfuser {
 
@@ -187,7 +188,8 @@ TensorView* getOperandTv(
   NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
   const std::vector<TensorView*>& operands = it->second;
   NVF_ERROR(
-      operands.size() == 1,
+      isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+          operands.size() == 1,
       "Exactly one operand is expected in each A and B role");
   return operands.front();
 }
@@ -1347,10 +1349,13 @@ void scheduleStMatrixForMmaOutput(
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << patterns.size();
-    return ss.str();
+    if (!isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+      std::stringstream ss;
+      ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+         << patterns.size();
+      return ss.str();
+    }
+    TORCH_WARN("TODO: Update getOperandInnerDims for multiple patterns");
   }
   const MatmulPattern& pattern = patterns[0];
   IdModel id_model(fusion);
@@ -1777,32 +1782,77 @@ std::string MatmulPattern::toString() const {
   return ss.str();
 }
 
-MmaOp* MatmulPattern::translateToMmaOp() {
-  if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
-    // No translation needed
-    return mma_op;
-  } else if (output->definition()->isA<ReductionOp>()) {
-    Val* init = IrBuilder::create<Val>(0.0, output->dtype());
-    // This replaces the mul and sum by overwriting output->definition()
-    return IrBuilder::create<MmaOp>(
-        output,
-        A,
-        B,
-        init,
-        MmaOp::AxisMapping::trivialMapping(output->nDims()));
+namespace {
+
+// The `MatmulTranslator` helper class is used to map different matrix
+// multiplication patterns to `MmaOp`. The `MmaOp` expression maps to the
+//  TensorCore ptx function.
+//
+//    1. `MmaOp` --This expression is what we need, so no changes required.
+// 2. `ReductionOp` -- This expression corresponds with the sum operation in
+// the `broadcast->multiply->sum` pattern.
+// 3. `LinearOp` -- This expression is `y = w @ x + beta`, so it is replaced
+// with `MmaOp` and pointwise `add`.
+// 4. `MatmulOp` -- This expression is `y = A[M, K] @ B[K, N]`. The `MmaOp`
+// expression requires `[M, N, K]` ordering, so it requires transposing the
+// `B` operand. It also support batch matrix multiplication, which is
+// tracked by `MmaOp::AxisMapping`.
+//
+// `finalizeMatmulOrLinearOp`
+//  * Fused-Multiply-Sum (FMS) is the output from MmaOp.
+//  * The output dtype can be different than the original output dtype.
+//  * This function casts the FMS TensorView to the original output dtype if
+//   necessary.
+//
+// `OptInDispatch` is used to catch any unsupported `MatmulPattern`. It is
+// preferred to throw an error than to fallback to a sub-optimal default
+// `MmaOp` translation.
+class MatmulTranslator : public OptInDispatch {
+ public:
+  static MmaOp* translate(MatmulPattern& pattern, bool avoid_intermediates) {
+    MatmulTranslator trans(pattern, avoid_intermediates);
+    trans.dispatch(pattern.output->definition());
+    return trans.mma_;
   }
 
-  // This will hold the translated output from MatmulOp or LinearOp
-  TensorView* fms = nullptr;
-  MmaOp* mma_op = nullptr;
-  if (auto lop = dynamic_cast<LinearOp*>(output->definition())) {
+ private:
+  MatmulTranslator(MatmulPattern& pattern, bool avoid_intermediates)
+      : pattern_(pattern), avoid_intermediates_(avoid_intermediates) {}
+
+  using OptInDispatch::handle;
+
+  void handle(MmaOp* mma) final {
+    mma_ = mma;
+  }
+
+  void handle(ReductionOp* rop) final {
+    Val* init = IrBuilder::create<Val>(0.0, pattern_.output->dtype());
+    // This replaces the mul and sum by overwriting output->definition()
+    mma_ = IrBuilder::create<MmaOp>(
+        pattern_.output,
+        pattern_.A,
+        pattern_.B,
+        init,
+        MmaOp::AxisMapping::trivialMapping(pattern_.output->nDims()));
+  }
+
+  void handle(LinearOp* lop) final {
+    // This will hold the translated output from MatmulOp or LinearOp
+    TensorView* fms = nullptr;
     // Linear takes inputs input, weight(, bias)
-    //   - input can be any dimension > 0. We assert that it must be at least 2
-    //   and refuse to translate if dimension is 1.
+    //   - input can be any dimension > 0. We assert that it must be at least
+    //   2 and refuse to translate if dimension is 1.
     //   - weight can be one or two dimensional. We refuse to translate if
     //   dimension is 1.
     //   - bias, if present, can be zero or one dimensional. Bias can only be
     //   present if weight is 2D
+    //
+    // When A has dimension greater than two, all the preceding dimensions
+    // are essentially also M dimensions. The output is shaped like
+    //
+    // A [ ... iS0{M} iS1{K} ]
+    // B [ iS2{N} iS3{K} ]
+    // out [ ... iS3{M} iS3{N} rS3{K} ]
     //
     // We translate by broadcasting input, weight, and bias such that the
     // contracted dimension K is in the last position (this is true of the
@@ -1810,97 +1860,216 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
     NVF_ERROR(
-        A->nDims() > 1 && B->nDims() > 1,
+        pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
         "Cannot translate LinearOp with 1D input");
-    std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
-    bcast_dim[bcast_dim.size() - 2] = true; // N
-    A = broadcast(A, bcast_dim);
+    NVF_ERROR(
+        pattern_.B->nDims() == 2,
+        "Cannot translate LinearOp without 2D weight tensor");
+    if (avoid_intermediates_) {
+      MmaOp::AxisMapping axis_mapping;
+      int64_t out_dim = pattern_.A->nDims() + 1L;
+      axis_mapping.a_axes.reserve(out_dim);
+      for (int64_t d : c10::irange(out_dim - 2L)) {
+        axis_mapping.a_axes.push_back(d);
+      }
+      axis_mapping.a_axes.reserve(out_dim);
+      for (size_t d : c10::irange(out_dim - 2)) {
+        axis_mapping.a_axes.push_back((int64_t)d);
+      }
+      axis_mapping.a_axes.push_back(-1); // missing N dimension
+      axis_mapping.a_axes.push_back(pattern_.A->nDims() - 1); // K dimension
 
-    bcast_dim[bcast_dim.size() - 2] = false; // reset N
-    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
-    B = broadcast(B, bcast_dim);
+      axis_mapping.b_axes.reserve(out_dim);
+      axis_mapping.b_axes.resize(out_dim, -1);
+      axis_mapping.b_axes[out_dim - 2] = 0; // N
+      axis_mapping.b_axes[out_dim - 1] = 1; // K
 
-    fms = fusedMultiplySum(A, B, {-1});
-    mma_op = fms->definition()->as<MmaOp>();
+      int64_t num_M_dims = 1 + pattern_.A->nDims() - pattern_.B->nDims();
+
+      // Add loop broadcasts to A and B to mimic logical broadcasts for
+      // simpler scheduling
+      pattern_.A->broadcast(-2); // There's always a single N dimension
+
+      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+        // Broadcast B for every M dimension in A
+        pattern_.B->broadcast(0);
+      }
+
+      fms = fusedMultiplySum(
+          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+    } else {
+      std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
+      bcast_dim[bcast_dim.size() - 2] = true; // N
+      pattern_.A = broadcast(pattern_.A, bcast_dim);
+
+      bcast_dim[bcast_dim.size() - 2] = false; // reset N
+      std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+      pattern_.B = broadcast(pattern_.B, bcast_dim);
+
+      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
+    }
+
+    mma_ = fms->definition()->as<MmaOp>();
 
     auto* bias = dynamic_cast<TensorView*>(lop->bias());
     if (bias != nullptr) {
       fms = add(fms, bias);
     }
-  } else if (output->definition()->isA<MatmulOp>()) {
-    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
-    // must transpose B then broadcast both operands before creating the final
-    // op.
+    finalizeMatmulOpOrLinearOp(fms);
+  }
+
+  void handle(MatmulOp* mop) final {
+    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so
+    // we must transpose B then broadcast both operands before creating the
+    // final op.
     //
     // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
     // whose dtype matches that of the inputs. We will most commonly then also
     // need to cast the output of the MmaOp to produce the output TensorView.
+    //
+    // There are two possibilities:
+    //
+    // Case 1: A->nDims() > B->nDims():
+    //
+    //   A [ ..., B1, ..., Bn, M, K ]
+    //   B [ B1, ..., Bn, K, N ]
+    //
+    //   All the preceding dimensions in A are additional M dimensions. There
+    //   are batch dimensions in between those and "M".
+    //
+    // Case 2: A->nDims() <= B->nDims():
+    //
+    //   A [ B1, ..., Bn, M, K ]
+    //   B [ ..., B1, ..., Bn, K, N ]
+    //
+    //   All the preceding dimensions in B are additional N dimensions. There
+    //   are batch dimensions in between those and "N".
+    //
+    // In either case, to form the output we transpose B in the last two dims,
+    // and prepend broadcasts to the lower dimensional input as needed.
     NVF_ERROR(
-        A->nDims() > 1 && B->nDims() > 1,
+        pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
-    TensorView* Btrans = transpose(B, -2, -1);
-    A = unsqueeze(A, -2);
-    B = unsqueeze(Btrans, -3);
-    // A and B might have different dimensions. If so, broadcast the smaller one
-    // up to the size of the larger.
-    int64_t out_dims = std::max(A->nDims(), B->nDims());
-    // Add new outer broadcast dimensions if necessary
-    A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
-    B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
-    fms = fusedMultiplySum(A, B, {-1});
-    mma_op = fms->definition()->as<MmaOp>();
-  } else {
-    NVF_THROW(
-        "Could not translate matmul pattern with output ",
-        output->toString(),
-        " to MmaOp");
+    TensorView* fms = nullptr;
+    if (avoid_intermediates_) {
+      MmaOp::AxisMapping axis_mapping;
+      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims()) + 1;
+
+      axis_mapping.a_axes.resize((size_t)out_dims, -1);
+      axis_mapping.b_axes.resize((size_t)out_dims, -1);
+
+      for (size_t a_axis : c10::irange((size_t)pattern_.A->nDims() - 1)) {
+        // Output is [ ... M, N, K ]
+        // This loop maps everything but N and K to A
+        int64_t out_axis =
+            (int64_t)a_axis + (out_dims - 1 - pattern_.A->nDims());
+        axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
+      }
+      // Map the K dim, skipping one position
+      axis_mapping.a_axes.at((size_t)out_dims - 1) = pattern_.A->nDims() - 1;
+
+      for (size_t b_axis : c10::irange((size_t)pattern_.B->nDims() - 2)) {
+        // Output is [ ... M, N, K ]
+        // This loop maps everything before M to B, skipping the output M dim
+        int64_t out_axis =
+            (int64_t)b_axis + (out_dims - pattern_.B->nDims()) - 1;
+        axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
+      }
+      // Skip the K dim and map N and K
+      axis_mapping.b_axes.at((size_t)out_dims - 2) = pattern_.B->nDims() - 1;
+      axis_mapping.b_axes.at((size_t)out_dims - 1) = pattern_.B->nDims() - 2;
+
+      fms = fusedMultiplySum(
+          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+
+      int64_t num_M_dims =
+          std::max(1 + pattern_.A->nDims() - pattern_.B->nDims(), (int64_t)1);
+
+      // Reorder to BMNK.
+      // Add loop broadcasts to A and B to mimick logical broadcasts for
+      // simpler scheduling
+      pattern_.A->broadcast(-2);
+
+      pattern_.B->reorder({{-2, -1}});
+      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+        // Broadcast B for every M dimension in A
+        pattern_.B->broadcast(-3);
+      }
+    } else {
+      TensorView* Btrans = transpose(pattern_.B, -2, -1);
+      pattern_.A = unsqueeze(pattern_.A, -2);
+      pattern_.B = unsqueeze(Btrans, -3);
+      // A and B might have different dimensions. If so, broadcast the smaller
+      // one up to the size of the larger.
+      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims());
+      // Add new outer broadcast dimensions if necessary
+      pattern_.A = ops::maybe_broadcast_inner_to_rank(pattern_.A, out_dims);
+      pattern_.B = ops::maybe_broadcast_inner_to_rank(pattern_.B, out_dims);
+      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
+    }
+    mma_ = fms->definition()->as<MmaOp>();
+    finalizeMatmulOpOrLinearOp(fms);
   }
-  NVF_ERROR(fms != nullptr);
-  NVF_ERROR(mma_op != nullptr);
 
   // The following is common to both MatmulOp and LinearOp translation
+  void finalizeMatmulOpOrLinearOp(TensorView* fms) {
+    NVF_ERROR(fms != nullptr);
+    NVF_ERROR(mma_ != nullptr);
 
-  // TODO: skip downcasting if the only uses of `output` are casts back to
-  // higher precision in order avoid the round trip cast in defining an
-  // epilogue that starts with MatmulOp.
-  if (output->dtype() != fms->dtype()) {
-    // When fms is a different dtype from output, it means we _might_ need to
-    // insert a cast. However, we can skip inserting that cast for any uses of
-    // output that are simply casts back to Float.
+    // TODO: skip downcasting if the only uses of `output` are casts back to
+    // higher precision in order avoid the round trip cast in defining an
+    // epilogue that starts with MatmulOp.
+    if (pattern_.output->dtype() != fms->dtype()) {
+      // When fms is a different dtype from output, it means we _might_ need
+      // to insert a cast. However, we can skip inserting that cast for any
+      // uses of output that are simply casts back to Float.
 
-    // This vector holds tensors that would be round-trip cast to the same
-    // dtype as fms. We first collect these Vals then we do the replacements
-    // separately in order to avoid dereferencing an Expr* that has already
-    // been replaced.
-    std::vector<Val*> round_trip_vals;
-    for (Expr* use : output->uses()) {
-      if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
-          uop->getUnaryOpType() == UnaryOpType::Cast &&
-          uop->out()->dtype() == fms->dtype()) {
-        round_trip_vals.push_back(uop->out());
+      // This vector holds tensors that would be round-trip cast to the same
+      // dtype as fms. We first collect these Vals then we do the replacements
+      // separately in order to avoid dereferencing an Expr* that has already
+      // been replaced.
+      std::vector<Val*> round_trip_vals;
+      for (Expr* use : pattern_.output->uses()) {
+        if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
+            uop->getUnaryOpType() == UnaryOpType::Cast &&
+            uop->out()->dtype() == fms->dtype()) {
+          round_trip_vals.push_back(uop->out());
+        }
       }
+      // If there are any uses that were not round-trip casts, then we should
+      // insert the castOp.
+      if (pattern_.output->uses().size() > round_trip_vals.size()) {
+        TensorView* old_output = pattern_.output;
+        pattern_.output = castOp(pattern_.output->dtype(), fms);
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+            old_output, pattern_.output);
+      }
+      // if any casts are skipped, then we reset output to point to the Float
+      // output fms instead of the downcast.
+      if (!round_trip_vals.empty()) {
+        pattern_.output = fms;
+      }
+      // Finally, replace the round_trip_vals with fms
+      for (Val* v : round_trip_vals) {
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
+      }
+    } else {
+      // No cast needed, for example the inputs might be Float
+      ir_utils::transferDefinitionToNewOutputs(
+          fms->definition(), {pattern_.output});
     }
-    // If there are any uses that were not round-trip casts, then we should
-    // insert the castOp.
-    if (output->uses().size() > round_trip_vals.size()) {
-      TensorView* old_output = output;
-      output = castOp(output->dtype(), fms);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
-    }
-    // if any casts are skipped, then we reset output to point to the Float
-    // output fms instead of the downcast.
-    if (!round_trip_vals.empty()) {
-      output = fms;
-    }
-    // Finally, replace the round_trip_vals with fms
-    for (Val* v : round_trip_vals) {
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
-    }
-  } else {
-    // No cast needed, for example the inputs might be Float
-    ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
   }
-  return mma_op;
+
+ private:
+  MatmulPattern& pattern_;
+  bool avoid_intermediates_;
+  MmaOp* mma_ = nullptr;
+};
+
+} // namespace
+
+MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
+  return MatmulTranslator::translate(*this, avoid_intermediates);
 }
 
 namespace {
@@ -1986,17 +2155,18 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   // for each valgroup, store a pair of flags. The first records whether the
   // group is present at all in the tv. The second records whether the value is
   // concrete (i.e. not reduction, broadcast, or device).
-  std::unordered_map<ValGroup, std::pair<DimPresence, DimPresence>> flags;
+  std::unordered_map<ValGroup, DimPresence> flags;
   const auto recordPresence = [&graph, &flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getLogicalDomain()) {
       const ValGroup& g = graph.toGroup(id);
-      auto& [present_flags, concrete_flags] = flags[g];
-      present_flags.set(tensor_num);
+      DimPresence& group_flags = flags[g];
+      // Note: broadcast or device dims will be initialized to have all false
+      // flags above
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      concrete_flags.set(tensor_num);
+      group_flags.set(tensor_num);
     }
   };
   recordPresence(A, 0);
@@ -2005,8 +2175,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   DimRolesMap dim_roles;
 
-  for (const auto& [g, f] : flags) {
-    const auto& [present_flags, concrete_flags] = f;
+  for (const auto& [g, concrete_flags] : flags) {
     if (concrete_flags.all() || concrete_flags.none()) {
       // Batch dimensions are any of those that are not concretized or reduced.
       // These could be all Iteration or all Broadcast
@@ -2019,9 +2188,25 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
       dim_roles[g] = MatmulDimRole::N;
     } else {
       NVF_THROW(
-          "IterDomain ValGroup should be present in at least two of A, B, output.",
-          " present_flags: ",
-          present_flags);
+          "IterDomain ValGroup should be concrete in at least two of A, B, output.",
+          " concrete_flags: ",
+          concrete_flags);
+    }
+  }
+
+  // NOTE: For Hopper, we create loop broadcasts to mimic logical broadcasts
+  // when translating MatmulOp and LinearOp. Here we detect these and map them
+  // appropriately.
+  for (IterDomain* id : A->getLoopDomain()) {
+    const ValGroup& g = graph.toGroup(id);
+    if (dim_roles.count(g) == 0) {
+      dim_roles[g] = MatmulDimRole::N;
+    }
+  }
+  for (IterDomain* id : B->getLoopDomain()) {
+    const ValGroup& g = graph.toGroup(id);
+    if (dim_roles.count(g) == 0) {
+      dim_roles[g] = MatmulDimRole::M;
     }
   }
 

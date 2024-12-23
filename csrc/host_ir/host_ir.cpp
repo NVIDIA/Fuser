@@ -195,16 +195,6 @@ std::string GetCurrentStream::toString(int indent_size) const {
   return ss.str();
 }
 
-// TODO: implement better ?
-std::string GetCurrentStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
-}
-
-// TODO: implement
-bool GetCurrentStream::sameAs(const Statement* other) const {
-  return false;
-}
-
 Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
     : Expr(passkey, {}, {}, {expr}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

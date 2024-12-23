@@ -405,7 +405,7 @@ using HopperMmaRSStMatrixTestParams = std::tuple<
     PrimDataType,
     MmaLayout,
     MmaInputSmemSwizzle,
-    std::vector<int>>;
+    std::vector<int64_t>>;
 
 class HopperRSStmatrix
     : public HopperBase,
@@ -415,7 +415,7 @@ class HopperRSStmatrix
   MmaMacro macro;
   PrimDataType dtype;
   MmaInputSmemSwizzle swizzle_b;
-  std::vector<int> tile_sizes;
+  std::vector<int64_t> tile_sizes;
 
   void SetUp() override {
     HopperBase::SetUp();
@@ -434,8 +434,8 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   auto shapes = matmulAtInputShape3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout);
 
-  auto tile_m = tile_sizes.at(0);
-  auto tile_n = tile_sizes.at(1);
+  int64_t tile_m = tile_sizes.at(0);
+  int64_t tile_n = tile_sizes.at(1);
 
   if (getM(macro) % tile_m || getN(macro) % tile_n) {
     GTEST_SKIP() << "skipping test as output is not divisible by tile size";
@@ -574,8 +574,8 @@ INSTANTIATE_TEST_SUITE_P(
         kAllSmemSwizzleModes,
         testing::Values(
             // M, N
-            std::vector<int>{16, 8},
-            std::vector<int>{16, 16})));
+            std::vector<int64_t>{16, 8},
+            std::vector<int64_t>{16, 16})));
 
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,

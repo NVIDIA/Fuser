@@ -68,12 +68,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  if (!hasAtLeastTwoValidGroups(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "cannot find two mismatching inner most dimensions");
-    return false;
-  }
-
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "no support for reduction ops");
@@ -84,6 +78,12 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  if (!hasAtLeastTwoValidGroups(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "cannot find two mismatching inner most dimensions");
     return false;
   }
 
@@ -155,9 +155,9 @@ bool hasSmallTransposeDimensions(
 
 // DomainMap uses the ComputeAtMap to find a reference TensorView
 // that maps to all iterDomains in the fusion.
-class DomainMap : public pointwise_utils::DomainMap {
+class TransposeDomainMap : public scheduler_tools::DomainMap {
  public:
-  using pointwise_utils::DomainMap::DomainMap;
+  using scheduler_tools::DomainMap::DomainMap;
 
   // Note that this may not be able to find any reference if any
   // tensor in the group is only connected with an input through
@@ -170,8 +170,16 @@ class DomainMap : public pointwise_utils::DomainMap {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
     for (auto tv : group) {
+      // since transpose scheduler have different set of reference, we skip IDs
+      // coverage check of the reference on outputs of the fusion. Note that
+      // this is not ideal, we would want to instead have reference tensor
+      // checked against all its target IO tensors.
+      // TODO: open an issue for this one. transpose scheduler is not supposed
+      // to reuse pointwise_utils::DomainMap::isValidRefrence. This function is
+      // too restrictive and doesn't align well with the scheme of transpose
+      // scheduler
       if (isValidReference(tv)) {
-        int64_t dims = (int64_t)pointwise_utils::nRootDims(tv);
+        int64_t dims = (int64_t)pointwise_utils::nLogicalDims(tv);
         if (dims > max_dims) {
           result = tv;
           max_dims = dims;
@@ -196,7 +204,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   static bool hasAtLeastTwoValidGroups(Fusion* fusion) {
     FusionGuard fg(fusion);
-    DomainMap domain_map(fusion);
+    TransposeDomainMap domain_map(fusion);
     auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
     if (grouped_inputs_outputs.size() < 2) {
       return false;
@@ -560,12 +568,14 @@ HeuristicDataCacheEntry<HeuristicCompileTime::TransposeDomainMap> getDomainMap(
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::TransposeDomainMap>(
           data_cache,
-          [fusion]() { return std::make_unique<DomainMap>(fusion); });
+          [fusion]() { return std::make_unique<TransposeDomainMap>(fusion); });
   return domain_map_entry;
 }
 
 HeuristicDataCacheEntry<HeuristicCompileTime::InputsOutputsInnerDimGroups>
-getInputsOutputsGroups(HeuristicDataCache* data_cache, DomainMap& domain_map) {
+getInputsOutputsGroups(
+    HeuristicDataCache* data_cache,
+    TransposeDomainMap& domain_map) {
   auto grouped_inputs_outputs_entry = HeuristicDataCacheEntry<
       HeuristicCompileTime::InputsOutputsInnerDimGroups>(
       data_cache, [&domain_map]() {
@@ -584,7 +594,7 @@ getInputsOutputsGroups(HeuristicDataCache* data_cache, DomainMap& domain_map) {
 HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensorsForGroups>
 getReferenceTensors(
     HeuristicDataCache* data_cache,
-    DomainMap& domain_map,
+    TransposeDomainMap& domain_map,
     std::vector<std::vector<TensorView*>>& grouped_inputs_outputs) {
   auto reference_tensors_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensorsForGroups>(
@@ -609,7 +619,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
-    DomainMap& domain_map) {
+    TransposeDomainMap& domain_map) {
   auto ref_logical = reference->getLogicalDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
@@ -635,7 +645,7 @@ getInnerMostDimInfoInReference(
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& group_references,
     TensorView* global_reference,
-    DomainMap& domain_map) {
+    TransposeDomainMap& domain_map) {
   auto innermost_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>(
           data_cache, [&]() {
@@ -659,7 +669,7 @@ std::string getTransposeRuntimeRejectReason(
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
   auto domain_map_entry = getDomainMap(data_cache, fusion);
-  auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
+  auto& domain_map = dynamic_cast<TransposeDomainMap&>(domain_map_entry.get());
   auto grouped_inputs_outputs_entry =
       getInputsOutputsGroups(data_cache, domain_map);
   auto grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
@@ -789,7 +799,7 @@ std::string getTransposeRuntimeRejectReason(
 } // namespace
 
 bool hasAtLeastTwoValidGroups(Fusion* fusion) {
-  return DomainMap::hasAtLeastTwoValidGroups(fusion);
+  return TransposeDomainMap::hasAtLeastTwoValidGroups(fusion);
 }
 
 std::unique_ptr<TransposeParams> getTransposeHeuristics(
@@ -802,7 +812,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   const auto index_type = runtime_info.getIndexType();
 
   auto domain_map_entry = getDomainMap(data_cache, fusion);
-  auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
+  auto& domain_map = dynamic_cast<TransposeDomainMap&>(domain_map_entry.get());
   auto grouped_inputs_outputs_entry =
       getInputsOutputsGroups(data_cache, domain_map);
   auto grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
@@ -990,12 +1000,12 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "max_io_dtype_size: " << max_io_dtype_size << "\n"
             << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
             << "\n"
-            << "reference1: " << reference1 << "\n"
+            << "reference1: " << reference1->toString() << "\n"
             << "inner_most_id1 position: " << inner_most_pos1_in_ref1
             << " (in reference 1)\n"
             << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
             << "\n"
-            << "reference2: " << reference2 << "\n"
+            << "reference2: " << reference2->toString() << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
     if (hasSmallTransposeDimensions(tparams)) {
@@ -1045,11 +1055,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.
@@ -1057,7 +1067,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     return;
   }
 
-  DomainMap domain_map(fusion);
+  TransposeDomainMap domain_map(fusion);
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
   NVF_ERROR(grouped_inputs_outputs.size() >= 2);
 
