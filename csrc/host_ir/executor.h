@@ -139,6 +139,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
+  const int64_t my_device_index_;
 };
 
 } // namespace hir

@@ -174,12 +174,9 @@ class GetCurrentStream : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
     return "hir::GetCurrentStream";
   }
-
-  bool sameAs(const Statement* other) const override;
 
   Stream* stream() const {
     return attributes_.at(0)->as<Stream>();

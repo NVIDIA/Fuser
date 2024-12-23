@@ -188,7 +188,8 @@ HostIrEvaluator::HostIrEvaluator(
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params) {
+      params_(params),
+      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -274,11 +275,10 @@ void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
 }
 
 void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
-  auto my_device_index = static_cast<c10::DeviceIndex>(
-      communicator_ ? communicator_->deviceId() : 0);
   streams_.insert(
       {get_current_stream->stream(),
-       c10::cuda::getCurrentCUDAStream(my_device_index)});
+       c10::cuda::getCurrentCUDAStream(
+           static_cast<c10::DeviceIndex>(my_device_index_))});
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
