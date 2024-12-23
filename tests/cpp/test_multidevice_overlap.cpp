@@ -1104,7 +1104,7 @@ TEST_F(
   hic->addInput(tvb_unsharded);
   hic->addInput(tvc_unsharded);
 
-  auto* i = IrBuilder::create<Val>(DataType::Index);
+  auto* i = IrBuilder::create<Val>(DataType::Index); // for-loop running index
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
