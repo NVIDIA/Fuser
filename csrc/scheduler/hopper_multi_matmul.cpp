@@ -521,9 +521,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Set LoadStoreOp
       // TODO: extend support when mma is not cast to half
-      NVF_ERROR(
-          dc->dtype() == DataType::Half,
-          "We support smem_epilogue on hopper only when the output of mma is cast to half");
+      NVF_CHECK(
+          dataTypeSize(dc->dtype()) == 2,
+          "We support use_smem_epilogue on Hopper only when the output is 16-bit");
 
       d_smem->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::StMatrix);

@@ -112,6 +112,7 @@ class HostIrEvaluator final : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
+  void handle(GetCurrentStream* get_current_stream) override;
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
@@ -138,6 +139,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
+  const int64_t my_device_index_;
 };
 
 } // namespace hir

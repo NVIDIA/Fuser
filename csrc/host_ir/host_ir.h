@@ -161,6 +161,28 @@ class SetCurrentStream : public Expr {
   }
 };
 
+class GetCurrentStream : public Expr {
+ public:
+  using Expr::Expr;
+  GetCurrentStream(IrBuilderPasskey passkey);
+
+  GetCurrentStream(const GetCurrentStream& other) = delete;
+  GetCurrentStream& operator=(const GetCurrentStream& other) = delete;
+  GetCurrentStream(GetCurrentStream&& other) = delete;
+  GetCurrentStream& operator=(GetCurrentStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::GetCurrentStream";
+  }
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
+};
+
 class Wait : public Expr {
  public:
   using Expr::Expr;
