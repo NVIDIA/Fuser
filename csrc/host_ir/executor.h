@@ -74,6 +74,7 @@ struct HostIrEvaluatorParams {
   // Experimental: whether to cache fusion executor. WAR: avoid recompilation
   // but implicitely assumes that the input shape don't change over iterations
   bool cache_fusion_executor = false;
+  // number of additional cuda streams to use at runtime for comm+compute pipelining
   int64_t number_of_streams = 4;
 };
 

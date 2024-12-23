@@ -24,8 +24,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
     hir::HostIrEvaluatorParams params)
-    : comm_(comm),
-      number_of_outputs_(static_cast<int64_t>(fusion->outputs().size())) {
+    : comm_(comm) {
   std::unique_ptr<hir::HostIrContainer> hic =
       HostIrLower::lower(std::move(fusion), comm.deviceId());
   // Create the HostIrEvaluator representing the host program
@@ -53,9 +52,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
         inputs.at(input_idx);
   }
 
-  auto outputs = host_ir_executor_->runWithInput(val_to_IValue);
-  return std::vector<at::Tensor>(
-      outputs.end() - number_of_outputs_, outputs.end());
+  return host_ir_executor_->runWithInput(val_to_IValue);
 }
 
 std::ostream& MultiDeviceExecutor::print(std::ostream& os) {

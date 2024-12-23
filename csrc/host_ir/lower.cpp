@@ -414,44 +414,22 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
 
   TensorView* tva_j = select(tva, 0, j);
-  TensorView* tva_j_unsqueezed = tva_j; // unsqueeze(tva_j, 0);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
   TensorView* tvc_j = select(tvc, 0, j);
-
-  // [TAG: adding articifial outputs]
-  // The following line is artificial but necessary to make tva_j_unsqueeze a
-  // consumer of tva_j.
-  //
-  // HostIrEvaluator::handle(ForLoop*) relies on `Val::uses()` to find all
-  // **transitive** consumers of the loop index `j`.  `tva_j_unsqueezed` is a
-  // bit special among all transitive consumers of `j`. It doesn't use `j`
-  // directly but uses `tva_j` which is a TensorView.  TensorView's uses are
-  // built lazily by Fusion::resetTvUses. For efficiency, Fusion::resetTvUses
-  // only fix TensorViews that can reach outputs. Therefore, we add
-  // tva_j_unsqueezed as an output.  Other TensorViews don't need this
-  // treatmenet because they are direct users of `j`, a scalar whose uses are
-  // built eagerly upon registration.
-  //
-  // We could have added `tvc_j` instead as an output, which transitively
-  // consumes `tva_j_unsqueezed`. However, `tvc_j` has two definitions, a Select
-  // and a MatmulOp, and StmtSort::getExprs only traverse via the first
-  // registered definition (i.e. the Select). This sounds like a bug -- I wonder
-  // how nvFuser resets the TensorView uses of a kir::Kernel, also non-SSA.
-  hic->addOutput(tva_j_unsqueezed);
 
   NVF_ERROR(
       tva->hasDeviceMesh(),
       "The matmul's input ",
       tva,
       "is expected to have a DeviceMesh");
-  for (auto tv : {tva_j, tva_allgathered_j, tva_j_unsqueezed, tvc_j}) {
+  for (auto tv : {tva_j, tva_allgathered_j, tvc_j}) {
     tv->setDeviceMesh(tva->getDeviceMesh());
   }
 
   auto* communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       /*out=*/tva_allgathered_j,
-      /*in=*/tva_j_unsqueezed,
+      /*in=*/tva_j,
       /*team=*/tva->getDeviceMesh().vector());
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
@@ -464,7 +442,6 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   std::vector<Expr*> loop_body = {
       set_stream,
       tva_j->definition(),
-      tva_j_unsqueezed->definition(),
       tva_allgathered_j->definition(),
       communication,
       wait,
