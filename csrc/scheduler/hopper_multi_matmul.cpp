@@ -520,27 +520,36 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setMemoryType(MemoryType::Shared);
 
       // Set LoadStoreOp
+      // TODO: extend support when mma is not cast to half
+      NVF_ERROR(
+          dc->dtype() == DataType::Half,
+          "We support smem_epilogue on hopper only when the output of mma is cast to half");
+
       d_smem->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::StMatrix);
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
-      // Block Schedule and Parallelize
+      // Apply the common transforms to dc, d_smem, d
+      // After these transforms we schedule the inner two non-reduction loops
+      // (instruction tile) of dc and propagate is back till the outputs of mma.
       blockTileTensors(tvs_to_schedule);
       parallelizeBlocks(tvs_to_schedule);
-
-      // Apply mma common transformation
       for (auto tv : tvs_to_schedule) {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
-      // Schedule register cache; Output from epilogue
-      {
-        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-            dc->getLoopDomain());
-        dc->setLoopDomain(s.as<IterDomain*>());
-        dc->setAllocationDomain(s.as<IterDomain*>(), true);
-      }
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          dc->getLoopDomain());
+      dc->setLoopDomain(s.as<IterDomain*>());
+      dc->setAllocationDomain(s.as<IterDomain*>(), true);
+
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          dc,
+          -1,
+          propagate_to,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 

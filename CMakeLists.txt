@@ -587,6 +587,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_vectorization_analysis.cpp
 )
 
 if(BUILD_TEST)

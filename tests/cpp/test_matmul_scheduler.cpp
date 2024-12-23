@@ -1060,7 +1060,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 //   for Ampere with strict ref check, hence single layout check
 TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   // TODO: Make these tests work with Hopper as well as Ampere
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
@@ -2481,7 +2481,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
 
 // Test that our fake plugin works to override the default heuristic
 TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -2720,17 +2720,23 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
-class MatmulFusionTest : public MatmulSchedulerTest,
-                         public ::testing::WithParamInterface<bool> {
+class MatmulFusionTest
+    : public MatmulSchedulerTest,
+      public ::testing::WithParamInterface<std::pair<bool, bool>> {
  protected:
   void SetUp() override {
     if (fusion_enabled) {
       EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
     }
+    if (horizontal_fusion_enabled) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::FuseMultipleMatmuls);
+    }
   }
 
   EnableOptionsGuard eog_;
-  bool fusion_enabled = GetParam();
+  bool fusion_enabled = GetParam().first;
+  bool horizontal_fusion_enabled = GetParam().second;
 };
 
 // Test that we can segment a Fusion containing two matmuls
@@ -2788,21 +2794,28 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
 
-  EXPECT_TRUE(runtime->isSegmented());
+  size_t expected_kernels =
+      fusion_enabled ? (horizontal_fusion_enabled ? 1 : 2) : 3;
 
-  if (fusion_enabled) {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
-  } else {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
-  }
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), expected_kernels);
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulFusionTest,
-    ::testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "fuse" : "dontfuse";
+    ::testing::ValuesIn(std::vector<std::pair<bool, bool>>{
+        {false, false},
+        {true, false},
+        {true, true}}),
+    [](const testing::TestParamInfo<std::pair<bool, bool>>& info) {
+      bool fuse = info.param.first;
+      bool horiz_fuse = info.param.second;
+      if (horiz_fuse) {
+        NVF_ERROR(
+            fuse, "Horizontal fusion enabled but overall fusion disabled");
+      }
+      return fuse ? (horiz_fuse ? "fuse_horizontal" : "fuse_single")
+                  : "dontfuse";
     });
 
 // This test can be used to check that an external plugin has been loaded. It
@@ -3143,7 +3156,7 @@ INSTANTIATE_TEST_SUITE_P(
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   int M = 32, N = 64, K = 128;
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -3379,10 +3392,6 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 // TODO: Remove this test once the architecture agnostic can be
 // run on hopper.
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
-  if (use_smem_epilogue) {
-    GTEST_SKIP()
-        << "TODO: We don't support smem epilogue in the Hopper matmul scheduler right now";
-  }
   const auto& [A, B] =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
   const auto& C = matmulAtInput2D(
