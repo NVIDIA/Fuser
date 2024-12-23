@@ -358,12 +358,12 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   TensorView* tvb = matmul->inB();
   TensorView* tvc = matmul->out();
   NVF_ERROR(
-      !isSharded(tvb), "The B operand ", tvb, " is expected to be sharded");
+      !isSharded(tvb), "The B operand ", tvb, " is expected to not be sharded");
   NVF_ERROR(
       !isSharded(tvc),
       "The output ",
       matmul->out(),
-      " is expected to be sharded");
+      " is expected to not be sharded");
   const int64_t sharded_axis_index =
       getShardedLogicalAxis(tva, ParallelType::DIDx);
   IterDomain* stream_axis = tva->axis(0);
