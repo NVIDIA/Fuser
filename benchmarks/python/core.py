@@ -55,7 +55,9 @@ def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
     if executor == "torchcompile":
         return torch.compile(fwd_fn, **kwargs)
     if executor == "thunder":
-        return thunder.jit(fwd_fn, nv_enable_bookend=False, executors=[nvfuserex], **kwargs)
+        return thunder.jit(
+            fwd_fn, nv_enable_bookend=False, executors=[nvfuserex], **kwargs
+        )
 
 
 def compute_total_iobytes(
