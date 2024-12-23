@@ -545,11 +545,12 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kFloat),
-      inputs.second.squeeze().to(at::kFloat),
-      layout);
+                  inputs.first.squeeze().to(at::kFloat),
+                  inputs.second.squeeze().to(at::kFloat),
+                  layout)
+                  .to(data_type_to_aten(dtype));
 
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref.to(at::kHalf), 1e-1, 1e-1));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-1, 1e-1));
 }
 
 std::string testNameHopperRS(
@@ -569,7 +570,7 @@ INSTANTIATE_TEST_SUITE_P(
     HopperRSStmatrix,
     testing::Combine(
         kAllHopperMacros,
-        testing::Values(DataType::Half),
+        testing::Values(DataType::Half, DataType::BFloat16),
         testing::Values(MmaLayout::TN, MmaLayout::TT),
         kAllSmemSwizzleModes,
         testing::Values(

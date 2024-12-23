@@ -2811,7 +2811,7 @@ TEST_P(LdMatrixTest, Regular) {
 
 // We get shapes M and N from MmaMacrao. The vector of ints are
 // the tile_m and tile_n factors (8x8, 16x8 and 16x16).
-using StMatrixTestParams = std::tuple<MmaMacro, std::vector<int>>;
+using StMatrixTestParams = std::tuple<MmaMacro, std::vector<int>, DataType>;
 
 class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
  protected:
@@ -2829,6 +2829,7 @@ TEST_P(StMatrixTest, Regular) {
 
   auto macro = std::get<0>(GetParam());
   auto tile_sizes = std::get<1>(GetParam());
+  auto dtype = std::get<2>(GetParam());
   auto sizeM = getM(macro);
   auto sizeN = getN(macro);
   int64_t tile_m = tile_sizes.at(0);
@@ -2843,7 +2844,7 @@ TEST_P(StMatrixTest, Regular) {
   fusion.manage("st_matrix_m", sizeM);
   fusion.manage("st_matrix_n", sizeN);
 
-  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
+  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, dtype);
   fusion.addInput(tv0);
   // tv0 (global) -> tv1 (registers)
   auto tv1 = set(tv0);
@@ -2871,7 +2872,8 @@ TEST_P(StMatrixTest, Regular) {
   tv3->split(0, 32);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
 
   KernelExecutor ke;
@@ -2937,6 +2939,7 @@ TEST_P(LdMatrixTest, Transpose) {
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({getK(macro), size2}, options);
 
   KernelExecutor ke;
