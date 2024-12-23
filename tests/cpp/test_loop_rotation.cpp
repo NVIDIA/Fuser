@@ -572,7 +572,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   i0 = toSmem(T4);
   float* ptr1;
   ptr1 = T0.data + (4LL * T0.alloc_stride[0LL]);
-  #pragma unroll
+  #pragma unroll 4
   for(nvfuser_index_t i2 = 0LL; i2 < 4LL; ++i2) {
     float* ptr3;
     ptr3 = T0.data + (T0.alloc_stride[0LL] * i2);
@@ -602,7 +602,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   float T1[2LL];
   T1[0LL]
      = T4[0LL];
-  #pragma unroll 5
+  #pragma unroll 4
   for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
     float* ptr8;
     ptr8 = ptr1 + (T0.alloc_stride[0LL] * i7);
@@ -633,7 +633,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.commit_group;\n");
-    #pragma unroll
+    #pragma unroll 1
     for(nvfuser_index_t i14 = 0LL; i14 < 2LL; ++i14) {
       T1[((1LL + i14) % 2LL)]
          = T4[(i11 + i14)];
