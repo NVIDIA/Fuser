@@ -4055,8 +4055,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
@@ -4112,8 +4112,8 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
@@ -4175,8 +4175,8 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
@@ -4237,8 +4237,8 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));

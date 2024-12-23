@@ -39,7 +39,7 @@ enum class DebugDumpOption {
   FusionIrPresched, //!< Dump the segmented Fusion IR before it is scheduled
   // TODO(wujingyue): name the following FusionIrSched
   FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
-            //!< to `KernelExecutor::compileFusion`.
+            //!< to `KernelExecutor::compile`.
   FusionIrGraph, //!< Dump a GraphViz graph of the Fusion IR
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness

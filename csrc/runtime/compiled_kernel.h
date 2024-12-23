@@ -39,12 +39,19 @@ class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API CompiledKernel() = default;
+  NVF_API CompiledKernel(
+      Fusion* fusion,
+      CompileParams compile_params,
+      const std::vector<std::function<void(GpuLower*)>>& pre_lowering_hooks,
+      const std::vector<std::function<void(kir::Kernel*)>>&
+          post_lowering_hooks);
+
   NVF_API CompiledKernel(Fusion* fusion, CompileParams compile_params);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compileFusion(
+  NVF_API void compile(
       c10::Device device,
       int64_t block_size,
       SchedulerType scheduler_type = SchedulerType::None,
@@ -52,19 +59,6 @@ class CompiledKernel : public NonCopyable {
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
       int64_t group_id = 0);
-
-  // Register a lowering hooks that are called to modify the GpuLower object
-  // before running lowering passes. The main use case is for unit tests to
-  // modify the lowering process.
-  void registerLoweringHook(std::function<void(GpuLower*)> hook) {
-    lowering_hooks_.push_back(std::move(hook));
-  }
-
-  // Register a post-lowering hooks that are called to modify the kernel after
-  // lowering. The main use case is for unit tests to modify the kernel.
-  void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
-    post_lowering_hooks_.push_back(std::move(hook));
-  }
 
   // Function to query whether compilation was attempted for a `CompiledKernel`
   bool isCompiled() const {
@@ -251,12 +245,6 @@ class CompiledKernel : public NonCopyable {
   const std::string& kernelCode() const {
     return kernel_code_;
   }
-  std::vector<std::function<void(GpuLower*)>>& loweringHooks() {
-    return lowering_hooks_;
-  }
-  std::vector<std::function<void(kir::Kernel*)>>& postLoweringHooks() {
-    return post_lowering_hooks_;
-  }
 
   //! Deserialize Fusion Executor using flatbuffers
   void deserialize(
@@ -334,15 +322,6 @@ class CompiledKernel : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
-
-  // Lowering hooks that are called after the GpuLower instance is created
-  // before running lowering passes.
-  // The main use case is for unit tests to modify the lowering process.
-  std::vector<std::function<void(GpuLower*)>> lowering_hooks_;
-
-  // Post-lowering hooks that are called to modify the kernel after lowering.
-  // The main use case is for unit tests to modify the kernel.
-  std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 };
 
 } // namespace nvfuser

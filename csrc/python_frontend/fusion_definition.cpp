@@ -405,7 +405,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
         outputs = user_sched.executor->run(inputs);
       } else {
         // Automatic scheduler was used for UserSchedule.
-        // Pass launch and compile params to compileFusion and runFusion.
+        // Pass launch and compile params to compile and run.
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compile(
               user_sched.scheduled_fusion.get(),

@@ -2597,7 +2597,7 @@ TEST_P(WelfordReduction, Test) {
   // lowering pass will use int64 as the index tpye, since this test saves
   // `tv_N` as index type, it may cause vectorization size validation error. For
   // example, the heuristics set index type to int32 and the max vectorization
-  // factor is 4, if compile para is not passed to compileFusion, the lowering
+  // factor is 4, if compile para is not passed to compile, the lowering
   // pass uses int64 as index type, so the max vectorization factor is 16 bytes
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.

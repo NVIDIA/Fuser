@@ -254,8 +254,8 @@ void KernelExecutor::compile(
 
   // Lowered is needed to compute launch parameters as it uses the CA map. We
   // could modify that, but simply generating that part first.
-  compiled_kernel_ =
-      std::make_unique<CompiledKernel>(fusion_.get(), compile_params);
+  compiled_kernel_ = std::make_unique<CompiledKernel>(
+      fusion_.get(), compile_params, lowering_hooks_, post_lowering_hooks_);
 
   // TODO: pass block_size here;
   std::optional<int64_t> dynamic_smem = std::nullopt;
@@ -276,20 +276,10 @@ void KernelExecutor::compile(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
-  // TODO: Fix, This hook doesn't do anything as we needed to lower compiled
-  // kernel already
-  for (const auto& hook : lowering_hooks_) {
-    compiled_kernel_->registerLoweringHook(hook);
-  }
-
-  for (const auto& hook : post_lowering_hooks_) {
-    compiled_kernel_->registerPostLoweringHook(hook);
-  }
-
   // Now that we have launch parameters we can compile the kernel. It's a bit
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.
-  compiled_kernel_->compileFusion(
+  compiled_kernel_->compile(
       device,
       launch_params.nThreads(),
       scheduler_type,

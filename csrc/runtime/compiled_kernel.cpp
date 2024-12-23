@@ -1046,19 +1046,28 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
-    CompileParams compile_params)
+    CompileParams compile_params,
+    const std::vector<std::function<void(GpuLower*)>>& pre_lowering_hooks,
+    const std::vector<std::function<void(kir::Kernel*)>>& post_lowering_hooks)
     : compile_params_(compile_params),
       lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
   // TODO: No hooks can be sent because this is in the constructor
-  for (const auto& hook : lowering_hooks_) {
+  for (const auto& hook : pre_lowering_hooks) {
     hook(lowered_.get());
   }
   lowered_->run();
+  for (const auto& hook : post_lowering_hooks) {
+    hook(lowered_->kernel());
+  }
 }
 
-// TODO:Rename to "compile"
-void CompiledKernel::compileFusion(
+NVF_API CompiledKernel::CompiledKernel(
+    Fusion* fusion,
+    CompileParams compile_params)
+    : CompiledKernel(fusion, compile_params, {}, {}) {}
+
+void CompiledKernel::compile(
     c10::Device device,
     int64_t block_size,
     SchedulerType scheduler_type,
@@ -1066,7 +1075,7 @@ void CompiledKernel::compileFusion(
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id) {
-  FUSER_PERF_SCOPE("CompiledKernel::compileFusion");
+  FUSER_PERF_SCOPE("CompiledKernel::compile");
 
   NVF_ERROR(
       !fusion()->outputs().empty(),
@@ -1133,10 +1142,6 @@ void CompiledKernel::compileFusion(
   warp_size_ = properties->warpSize;
   kir::Kernel* kernel = lowered_->kernel();
 
-  // TODO: Should this be pushed to construction
-  for (const auto& hook : post_lowering_hooks_) {
-    hook(kernel);
-  }
   createKernelId(scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
