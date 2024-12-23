@@ -2939,7 +2939,6 @@ TEST_P(LdMatrixTest, Transpose) {
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({getK(macro), size2}, options);
 
   KernelExecutor ke;
