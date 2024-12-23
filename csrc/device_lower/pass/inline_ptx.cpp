@@ -272,6 +272,19 @@ class LowerToInlinePtx : public kir::ExprMutator {
             std::vector<Val*>{},
             kir::Asm::Options{/*volatile=*/true}));
   }
+
+  void handle(kir::MaxNReg* maxnreg) final {
+    std::string ptx = (maxnreg->increaseRegisters())
+        ? "setmaxnreg.inc.sync.aligned.u32"
+        : "setmaxnreg.dec.sync.aligned.u32";
+    registerReplace(
+        maxnreg,
+        IrBuilder::create<kir::Asm>(
+            ptx,
+            std::vector<Val*>{},
+            std::vector<Val*>{maxnreg->numberOfRegisters()},
+            kir::Asm::Options{/*volatile=*/true}));
+  }
 };
 
 std::vector<Expr*> lowerToInlinePtx(const std::vector<Expr*>& exprs) {
