@@ -132,10 +132,6 @@ def test_rope_variations_bwd_benchmark(
     for i in range(1, len(outputs)):
         output += outputs[i]
 
-    # FIXME I don't think the automatic IObytes computation is correct
-    run_benchmark(
-        benchmark,
-        unary_bwd_torch,
-        [output, grad()],
-        iobytes=iobytes() if executor == "thunder" else None,
-    )
+    # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
+    # a reference point for torchcompile and eager executor for comparison.
+    run_benchmark(benchmark, unary_bwd_torch, [output, grad()], iobytes=iobytes())
