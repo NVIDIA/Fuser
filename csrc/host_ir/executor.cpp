@@ -282,7 +282,19 @@ void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
-  getCUDAStream(synchronize->stream()).synchronize();
+  cudaStream_t current_stream =
+      c10::cuda::getCurrentCUDAStream(
+          static_cast<c10::DeviceIndex>(my_device_index_))
+          .stream();
+  cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
+
+  cudaEvent_t event = {};
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream_to_sync));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {

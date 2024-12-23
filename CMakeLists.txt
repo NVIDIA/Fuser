@@ -231,8 +231,10 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/resize.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/maxinfo_propagator.cpp
@@ -584,6 +586,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_vectorization_analysis.cpp
 )
 
 if(BUILD_TEST)
@@ -644,6 +647,7 @@ if(BUILD_TEST)
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
+    ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communicator.cpp
