@@ -201,7 +201,7 @@ NVFUSER_BENCHMARK_DEFINE(
     TransformerForward,
     setupTransformerForward,
     NvFuserScheduler_TransformerFwd,
-    DataType::Float);
+    DataType::BFloat16);
 
 NVFUSER_BENCHMARK_RUN(TransformerForward)
     // ->RangeMultiplier(2)
