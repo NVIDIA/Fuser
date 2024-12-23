@@ -3569,8 +3569,12 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("scale").none(true) = py::none(),
       py::return_value_policy::reference);
 
-  //! The ScedOperators class is a nested class of FusionDefinition to allow the
-  //! user to query the class for the list of schedule operators.
+  bindSchedulingOperators(fusion_def);
+}
+
+void bindSchedulingOperators(py::class_<FusionDefinition>& fusion_def) {
+  //! The SchedOperators class is a nested class of FusionDefinition to allow
+  //! the user to query the class for the list of schedule operators.
   //!
   //! Example:
   //!   help(FusionDefinition.SchedOperators)
