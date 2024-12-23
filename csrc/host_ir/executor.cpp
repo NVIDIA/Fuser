@@ -274,6 +274,13 @@ void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
   setCurrentCUDAStream(getCUDAStream(set_current_stream->stream()));
 }
 
+void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
+  streams_.insert(
+      {get_current_stream->stream(),
+       c10::cuda::getCurrentCUDAStream(
+           static_cast<c10::DeviceIndex>(my_device_index_))});
+}
+
 void HostIrEvaluator::handle(Synchronize* synchronize) {
   cudaStream_t current_stream =
       c10::cuda::getCurrentCUDAStream(
