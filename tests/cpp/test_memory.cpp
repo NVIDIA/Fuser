@@ -2888,13 +2888,14 @@ std::string testNameStMatrixTest(
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto tile_sizes = std::get<1>(info.param);
+  auto dtype = std::get<2>(info.param);
   auto sizeM = getM(macro);
   auto sizeN = getN(macro);
   auto tile_m = tile_sizes.at(0);
   auto tile_n = tile_sizes.at(1);
 
   os << "m_" << sizeM << "_n_" << sizeN << "_tile_m_" << tile_m << "_tile_n_"
-     << tile_n;
+     << tile_n << "_" << mma_utils::dtypeToChar(dtype);
   return os.str();
 }
 
@@ -2906,7 +2907,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             // tile_m, tile_n
             std::vector<int>{16, 8},
-            std::vector<int>{16, 16})),
+            std::vector<int>{16, 16}),
+        testing::Values(DataType::Half, DataType::BFloat16)),
     testNameStMatrixTest);
 
 TEST_P(LdMatrixTest, Transpose) {
