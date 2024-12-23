@@ -515,8 +515,8 @@ TensorView* triu(TensorView* tv, Val* offset) {
   //[0, 0, 0, 0]  LE [0, 1, 2, 3]
   //[1, 1, 1, 1]     [0, 1, 2, 3]
   // Gives:
-  //[1, 0, 0, 0]
-  //[0, 1, 0, 0]
+  //[1, 1, 1, 1]
+  //[0, 1, 1, 1]
   // If triu has an offset of k, we shift/subtract the iota of the columns by k
   // before broadcasting and comparing with the iota of the rows.
   auto dims = tv->domain()->logical().size();
