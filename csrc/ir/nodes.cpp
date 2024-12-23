@@ -557,6 +557,12 @@ std::string UnaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string UnaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getUnaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(UnaryOp)
 
 BinaryOp::BinaryOp(
@@ -724,6 +730,12 @@ std::string BinaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string BinaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getBinaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BinaryOp)
 
 TernaryOp::TernaryOp(
@@ -822,6 +834,12 @@ std::string TernaryOp::toInlineString(int indent_size) const {
       in1()->toInlineString(),
       in2()->toInlineString(),
       in3()->toInlineString());
+  return ss.str();
+}
+
+std::string TernaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getTernaryOpType() << ")";
   return ss.str();
 }
 

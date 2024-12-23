@@ -513,6 +513,26 @@ TEST_F(StreamTest, HostIrDefaultStream) {
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
 
+TEST_F(StreamTest, HostIrGetCurrentStream) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  auto get_stream = IrBuilder::create<GetCurrentStream>();
+  auto current_stream = get_stream->stream();
+  auto other_stream = IrBuilder::create<Stream>();
+  hic->pushBackTopLevelExprs(get_stream);
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(other_stream));
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<SetCurrentStream>(current_stream));
+
+  auto cuda_stream = c10::cuda::getStreamFromPool();
+  setCurrentCUDAStream(cuda_stream);
+
+  HostIrEvaluator hie(std::move(hic));
+  hie.runWithInput({});
+
+  EXPECT_EQ(cuda_stream, c10::cuda::getCurrentCUDAStream(0));
+}
+
 TEST_F(StreamTest, ByIndex) {
   constexpr int64_t kStreamIndex1 = 2;
   constexpr int64_t kStreamIndex2 = 3;
