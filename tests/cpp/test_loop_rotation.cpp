@@ -307,7 +307,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   nvfuser_index_t i0;
   i0 = 4LL * T0.alloc_stride[0LL];
   float T1[15LL];
-  #pragma unroll
+  #pragma unroll 4
   for(nvfuser_index_t i1 = 0LL; i1 < 4LL; ++i1) {
     nvfuser_index_t i2;
     i2 = 3LL * i1;
@@ -335,7 +335,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T1[i6];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll 5
+  #pragma unroll 4
   for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
     nvfuser_index_t i8;
     i8 = 4LL + i7;
@@ -433,7 +433,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T0[(T0.alloc_stride[1LL] * (i3 + nvfuser_zero))];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll
+  #pragma unroll 4
   for(nvfuser_index_t i4 = 0LL; i4 < 4LL; ++i4) {
     nvfuser_index_t i5;
     i5 = 3LL + (3LL * i4);
@@ -474,7 +474,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T1[i8];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll 5
+  #pragma unroll 4
   for(nvfuser_index_t i9 = 0LL; i9 < T0.logical_size[0LL]; ++i9) {
     nvfuser_index_t i10;
     i10 = 3LL * i9;
