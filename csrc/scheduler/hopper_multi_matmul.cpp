@@ -38,16 +38,25 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
     return (is_mma_result) ? idx - 1 : idx;
   };
 
-  // Original: [..., Mo, No, Mi, Ni]
+  // The input is originally block tiled so that the inner dims are the CTA tile
+  // size
+  // Original: [..., M, N(, K)]
+  // We split this into warp tiles then instruction tiles
+  tv->split(apply_k_dim_offset(-2), params_->tile_sizes.warp_tile.m);
   tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
+  tv->split(apply_k_dim_offset(-1), params_->tile_sizes.warp_tile.n);
   tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
-  // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-  tv->reorder({{apply_k_dim_offset(-3), apply_k_dim_offset(-2)}});
-  // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-  tv->merge(apply_k_dim_offset(-4));
-  // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-  tv->axis(apply_k_dim_offset(-3))->parallelize(ParallelType::TIDy);
-  // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+  // After Split: [..., Mo, Mw, Mi, No, Nw, Nwi]
+  tv->reorder({
+      {apply_k_dim_offset(-3), apply_k_dim_offset(-5)},
+      {apply_k_dim_offset(-2), apply_k_dim_offset(-3)},
+  });
+  // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
+
+  tv->merge(apply_k_dim_offset(-6));
+  // After Merge: [..., Mo * No, Mio, Nio, Mii, Nii]
+  tv->axis(apply_k_dim_offset(-5))->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
