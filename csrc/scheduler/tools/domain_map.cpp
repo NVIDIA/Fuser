@@ -431,13 +431,6 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   FusionGuard fg(fusion);
   TransposeDomainMap domain_map(fusion);
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
-  {
-    std::cerr << "hasAtLeastTwoValidGroups\n";
-    for (const auto& vec : grouped_inputs_outputs) {
-      std::cerr << "Group: " << toDelimitedString(vec) << "\n";
-    }
-    std::cerr << "hasAtLeastTwoValidGroups done\n";
-  }
   if (grouped_inputs_outputs.size() < 2) {
     return false;
   }
