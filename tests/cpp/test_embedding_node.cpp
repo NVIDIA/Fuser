@@ -47,4 +47,17 @@ TEST_F(EmbeddingTest, Basic) {
   EXPECT_TRUE(at::allclose(nvf_out[0], aten_out));  
 }
 
+// INSTANTIATE_TEST_SUITE_P(
+//     LinearWithoutBias,
+//     LinearNodeParametrizedTest,
+//     testing::Combine(
+//         testing::Values(
+//             Sizes({k}),
+//             Sizes({m, k}),
+//             Sizes({b, m, k}),
+//             Sizes({1, k}),
+//             Sizes({b, 1, k})),
+//         testing::Values(Sizes({n, k}), Sizes({1, k})),
+//         testing::Values(std::nullopt)));
+        
 } // namespace nvfuser
