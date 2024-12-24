@@ -2860,13 +2860,17 @@ TEST_P(StMatrixTest, Regular) {
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  auto s =
-      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv1->getLoopDomain());
-  tv1->setLoopDomain(s.as<IterDomain*>());
-  tv1->setAllocationDomain(s.as<IterDomain*>(), true);
+  for (auto tv : {tv1, tv2}) {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
+  }
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   mma_utils::scheduleStMatrixForMmaOutput(
       tv2, /*swizzle=*/MmaInputSmemSwizzle::None, tile_m, tile_n);
+
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
   tv3->merge(0);
   tv3->split(0, 32);

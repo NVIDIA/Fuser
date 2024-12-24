@@ -2660,7 +2660,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
+TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
@@ -2671,12 +2671,20 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   // A - tv0, B - tv1
   auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+  TensorView* tv2 = makeContigConcreteTensor({-1}, DataType::Half);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+  // We add these computations to test
+  // scheduling (with epilogue) when the ouptut of mma is not
+  // cast to half.
+  auto tv4 = maybeCastOp(DataType::Float, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
+  auto tv6 = neg(tv5);
 
-  fusion->addOutput(tv2);
+  fusion->addOutput(tv6);
 
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
@@ -2689,10 +2697,14 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
+  auto c = at::randn({M}, options);
   auto t0 = a.unsqueeze(1);
   auto t1 = b.unsqueeze(0);
-  auto tref = at::matmul(a.to(at::kFloat), b.to(at::kFloat).t());
-  std::vector<c10::IValue> inputs{t0, t1};
+  auto tref =
+      atBiasEpilogue(
+          at::matmul(a.to(at::kFloat), b.to(at::kFloat).t()), c.to(at::kFloat))
+          .neg_();
+  std::vector<c10::IValue> inputs{t0, t1, c};
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2705,9 +2717,7 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
-  // TODO: Currently we use stmatrix whenever this is true. We cannot do that
-  // when the dtype is not 16 bits.
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true;
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
