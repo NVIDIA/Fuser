@@ -9,6 +9,7 @@
 
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <ops/utils.h>
 #include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
@@ -24,7 +25,8 @@ bool isCast(Expr* expr) {
 
 bool isMovableMeta(Expr* expr) {
   return (!expr->output(0)->isFusionOutput()) &&
-  (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() || ir_utils::isSimpleTVSet(expr));
+      (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() ||
+       ir_utils::isSimpleTVSet(expr));
 }
 
 // replaces input to the cast op that produes cast_output, return the new
@@ -167,7 +169,8 @@ void moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
     if (starting_anchor->getDataType().value() == output_dtype) {
       // if output dtype is identical to starting_anchor dtype, we can't keep
       // the last cast op and will need to re-write all uses here
-      ir_utils::replaceValue(expr->fusion(), {{expr->output(0), starting_anchor}});
+      ir_utils::replaceValue(
+          expr->fusion(), {{expr->output(0), starting_anchor}});
     } else {
       replaceInputInCast(expr->output(0), starting_anchor);
     }
@@ -197,7 +200,8 @@ void castOptimizationPass(Fusion* fusion) {
         Expr* meta = expr->input(0)->definition();
 
         // replayed cast
-        Val* replayed_expr_out = castOp(expr->output(0)->dtype(), meta->input(0));
+        Val* replayed_expr_out =
+            castOp(expr->output(0)->dtype(), meta->input(0));
 
         // replayed meta
         // replay meta on new inputs
@@ -205,8 +209,9 @@ void castOptimizationPass(Fusion* fusion) {
             meta, meta->input(0), replayed_expr_out);
         // update replayed meta output
         Val* replayed_meta_out = ops::newValLike(
-          meta->output(0), meta->output(0)->getDataType().value());
-        replayed_meta = transferDefinitionToNewOutputs(replayed_meta, {replayed_meta_out});
+            meta->output(0), meta->output(0)->getDataType().value());
+        replayed_meta = ir_utils::transferDefinitionToNewOutputs(
+            replayed_meta, {replayed_meta_out});
 
         // replace uses of old second output
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
