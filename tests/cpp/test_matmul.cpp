@@ -4243,4 +4243,77 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
+// This tests that we can use a small instruction tile with a medium size
+// warpgroup tile and a large CTA tile.
+TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // K, M
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto a_ref = at::randn({K, M, 1}, options);
+  auto b_ref = at::randn({K, 1, N}, options);
+  auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
+
+  MatMulTileOptions gemm_tile;
+  // Regardless of the instruction, this should result in 2 warp groups i.e. 256
+  // threads
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  std::vector<c10::IValue> inputs = {a_ref, b_ref};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  EXPECT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+
+  auto cg_outputs = ke.run(inputs);
+
+  // Check number of launched threads matches what we expect
+  EXPECT_EQ(ke.lastLaunchParams().bdimx(), 128);
+  EXPECT_EQ(ke.lastLaunchParams().bdimy(), 2)
+      << " expected 2 warp groups (BIDy == 2) but found BIDy=="
+      << ke.lastLaunchParams().bdimy();
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+}
+
 } // namespace nvfuser
