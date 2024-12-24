@@ -71,11 +71,11 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& broadcast_graph = id_model.buildBroadcastGraph();
 
-  auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
   // Slicing of or to a broadcast ID is not allowed yet.
-  for (auto tensor_op : resize_based_tensor_ops) {
-    TensorView* out_tv = tensor_op->output(0)->as<TensorView>();
+  for (auto resize_tensor_op : resize_tensor_ops) {
+    TensorView* out_tv = resize_tensor_op->output(0)->as<TensorView>();
     for (auto logical_id : out_tv->getLogicalDomain()) {
       Resize* resize = dynamic_cast<Resize*>(logical_id->definition());
       if (resize == nullptr) {
@@ -188,17 +188,21 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_utils::cacheInputs(fusion, true);
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& exact_graph = id_model.buildExactGraph();
 
-  // Replicate resize inputs if necessary to avoid conflicting propagations
-  for (const auto& [out_tv, exlusivity_info] :
-       scheduler_tools::getNonExclusiveResizeInfo(
-           resize_based_tensor_ops, exact_graph)) {
-    auto resize_based_op = out_tv->definition();
-    auto inp_tv = resize_based_op->input(0)->as<TensorView>();
+  // Replicate resize inputs if necessary to avoid conflicting
+  // propagations
+  const auto exclusivity_info_map = scheduler_tools::getNonExclusiveResizeInfo(
+      resize_tensor_ops, exact_graph);
+  for (auto resize_tensor_op : resize_tensor_ops) {
+    auto out_tv = resize_tensor_op->output(0)->as<TensorView>();
+    if (exclusivity_info_map.count(out_tv) == 0) {
+      continue;
+    }
+    auto inp_tv = resize_tensor_op->input(0)->as<TensorView>();
     // Since cacheInput may skip caching if an input is used by
     // slice/pad, inp_tv may be a fusion input, in which case it is
     // not necessary to recompute the tensor.
@@ -206,7 +210,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       continue;
     }
     auto inp_tv_copy = RecomputeTv::recompute(inp_tv);
-    ir_utils::replaceValInExprInputs(resize_based_op, inp_tv, inp_tv_copy);
+    ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
   for (auto expr : fusion->exprs()) {

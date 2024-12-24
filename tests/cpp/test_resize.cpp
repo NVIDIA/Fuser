@@ -5123,6 +5123,104 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   }
 }
 
+// Rotate twice. Resolving the non-exclusivity must be done in a
+// topological order.
+TEST_F(ResizeSchedulerTest, SliceRotateCatTwice) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({-1, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[1] / 2)}});
+
+  auto tv3 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(shape[1] / 2),
+        IrBuilder::create<Val>(shape[1])}});
+
+  auto tv4 = cat({tv3, tv2}, -1);
+
+  auto tv5 = slice(
+      tv4,
+      {{fusion.zeroVal(), tv4->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[1] / 2)}});
+
+  auto tv6 = slice(
+      tv4,
+      {{fusion.zeroVal(), tv4->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(shape[1] / 2),
+        IrBuilder::create<Val>(shape[1])}});
+
+  auto tv7 = cat({tv6, tv5}, -1);
+
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  // tv1 is not considered exclusive as tv0 is also a consumer of
+  // tv3. Same for tv3. While the common input, tv0, is a fusion
+  // input, so it isn't actually scheduled, since a cache is
+  // inserted, which is indeed scheduled, the two slices do
+  // conflict.
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+  auto non_exclusive_resize_info = scheduler_tools::getNonExclusiveResizeInfo(
+      ir_utils::getOpsOfType<SliceOp, PadOp>(&fusion), exact_graph);
+
+  // tv2
+  EXPECT_EQ(non_exclusive_resize_info.count(tv2), 1);
+  scheduler_tools::ResizeExclusivityInfo tv2_info{
+      {tv1}, exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)})};
+  EXPECT_EQ(non_exclusive_resize_info.at(tv2), tv2_info);
+
+  // tv3
+  EXPECT_EQ(non_exclusive_resize_info.count(tv3), 1);
+  scheduler_tools::ResizeExclusivityInfo tv3_info{
+      {tv1}, exact_graph.toGroups(std::vector<Val*>{tv1->axis(1)})};
+  EXPECT_EQ(non_exclusive_resize_info.at(tv3), tv3_info);
+
+  // tv5
+  EXPECT_EQ(non_exclusive_resize_info.count(tv5), 1);
+  scheduler_tools::ResizeExclusivityInfo tv5_info{
+      {tv4}, exact_graph.toGroups(std::vector<Val*>{tv4->axis(1)})};
+  EXPECT_EQ(non_exclusive_resize_info.at(tv5), tv5_info);
+
+  // tv6
+  EXPECT_EQ(non_exclusive_resize_info.count(tv6), 1);
+  scheduler_tools::ResizeExclusivityInfo tv6_info{
+      {tv4}, exact_graph.toGroups(std::vector<Val*>{tv4->axis(1)})};
+  EXPECT_EQ(non_exclusive_resize_info.at(tv6), tv6_info);
+
+  // These should be all the info the map has.
+  EXPECT_EQ(non_exclusive_resize_info.size(), 4);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+}
+
 // Consumer-based scheduling of pad
 TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
   auto fusion_ptr = std::make_unique<Fusion>();
