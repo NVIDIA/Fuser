@@ -157,7 +157,7 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
 }
 
 TensorView* replayAxisOp(
-    AxisOps simple_op_type,
+    AxisOp simple_op_type,
     const AxisOps& axis_ops,
     TensorView* tv) {
   switch (simple_op_type) {
