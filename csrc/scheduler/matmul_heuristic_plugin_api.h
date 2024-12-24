@@ -72,6 +72,7 @@ struct KernelConfig {
   Tile cta_tile = {128, 128, 32};
   Tile warp_tile = {64, 64, 32};
   Tile instruction_tile = {16, 16, 16};
+  Tile cluster_dims = {1, 1, 1};
   uint16_t splitk_factor = 1;
   uint8_t load_stages = 2;
   // The circular buffering prefetch distance will be set to
