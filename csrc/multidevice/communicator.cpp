@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cuda_utils.h>
 #include <multidevice/communicator.h>
 #include <options.h>
 
@@ -195,6 +196,8 @@ Communicator::Communicator(
   if (!is_available_) {
     return;
   }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(local_rank_));
 
 #ifdef NVFUSER_DISTRIBUTED
   c10d::TCPStoreOptions store_opts;
