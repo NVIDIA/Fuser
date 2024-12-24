@@ -20,6 +20,21 @@
 
 namespace nvfuser::ir_utils {
 
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr) {
+  auto* ldst = dynamic_cast<LoadStoreOp*>(expr);
+  if (ldst == nullptr) {
+    return false;
+  }
+  auto in_tv = dynamic_cast<TensorView*>(ldst->in());
+  auto out_tv = dynamic_cast<TensorView*>(ldst->out());
+  return ldst->opType() == LoadStoreOpType::Set && in_tv != nullptr &&
+      out_tv != nullptr
+      // The hasRoot() check is to prevent picking up Set.Permute ops here
+      && !ldst->out()->as<TensorView>()->hasRoot();
+}
+
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
     int64_t ndims) {

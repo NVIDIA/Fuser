@@ -20,6 +20,11 @@ bool isCast(Expr* expr) {
   return false;
 }
 
+bool isMovableMeta(Expr* expr) {
+  return (!expr->output(0)->isFusionOutput()) &&
+  (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() || ir_utils::isSimpleTVSet(expr));
+}
+
 // replaces input to the cast op that produes cast_output, return the new
 // cast_output
 Val* replaceInputInCast(Val* cast_output, Val* new_input) {
@@ -92,6 +97,86 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
+void moveChainedCasts(Expr* expr, const std::unordered_set<Expr*>& visited) {
+  std::list<Val*> chain_cast_vals;
+  auto prev_expr = expr->input(0)->definition();
+  while (isCast(prev_expr)) {
+    auto intermediate_cast = prev_expr->output(0);
+    // 1.2 Note, if the output of prev_expr
+    //   is used by other operation(s); or
+    //   is a direct output from fusion
+    // we skip the casting chaining
+    if (intermediate_cast->isFusionOutput() ||
+        intermediate_cast->uses().size() > 1) {
+      break;
+    }
+
+    // adding prev_expr to visited node so we'll short-cut it.
+    visited.insert(prev_expr);
+    // in the loop, we just repetitively chaining consecutive casts.
+    chain_cast_vals.push_front(intermediate_cast);
+    prev_expr = prev_expr->input(0)->definition();
+  }
+
+  // skip current expr if there's no chain_cast_vals
+  if (chain_cast_vals.empty()) {
+    continue;
+  }
+
+  // 1.3.1 Note, chain_cast_vals has a straight-line use without branches
+  auto lo_anchor = chain_cast_vals.front()->definition()->input(0);
+  auto anchor_dtype = lo_anchor->getDataType().value();
+  auto starting_anchor = lo_anchor;
+  for (auto val : chain_cast_vals) {
+    auto val_dtype = val->getDataType().value();
+
+    // 1.3.2.a short-cut when we are not losing precision
+    if (isInclusiveType(anchor_dtype, val_dtype)) {
+      continue;
+    }
+
+    // 1.3.2.c NOTE: To enter here, we have
+    //   !isInclusiveType(anchor_dtype, val_dtype) &&
+    //   !isInclusiveType(val_dtype, anchor_dtype)
+    //
+    // Which means the dtype between lo_anchor and val isn't compatible and
+    // can't be fold away without losing information. So we update the
+    // starting_anchor to current val, which ensures that we preserve the
+    // incompatible casts. e.g. for cases where no one type is strictly wider
+    // than the other: i.e. bf16 & fp16, int32 & float32 e.t.c.
+    if (!isInclusiveType(val_dtype, anchor_dtype)) {
+      lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
+      val = replaceInputInCast(val, lo_anchor);
+      // We need to update the starting_anchor for the fold to be past this
+      // current cast.
+      starting_anchor = val;
+    }
+    // 1.3.2.b/c updating new lo_anchor to current val
+    lo_anchor = val;
+    anchor_dtype = lo_anchor->getDataType().value();
+  }
+
+  auto output_dtype = expr->output(0)->getDataType().value();
+
+  if (isInclusiveType(output_dtype, anchor_dtype)) {
+    // 1.4.a: if lo_anchor is no narrower than output_dtype, everything is an
+    // no-op
+
+    if (starting_anchor->getDataType().value() == output_dtype) {
+      // if output dtype is identical to starting_anchor dtype, we can't keep
+      // the last cast op and will need to re-write all uses here
+      ir_utils::replaceValue(fusion, {{expr->output(0), starting_anchor}});
+    } else {
+      replaceInputInCast(expr->output(0), starting_anchor);
+    }
+  } else {
+    // 1.4.b: This is the case where we cannot fold away the cast of
+    // lo_anchor; we'll just re-wire input to expr with lo_anchor
+    lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
+    replaceInputInCast(expr->output(0), lo_anchor);
+  }
+}
+
 void castOptimizationPass(Fusion* fusion) {
   auto exprs = fusion->exprs();
   std::unordered_set<Expr*> visited;
@@ -102,83 +187,28 @@ void castOptimizationPass(Fusion* fusion) {
     if (visited.count(expr) != 0 || !isCast(expr)) {
       continue;
     }
-    std::list<Val*> chain_cast_vals;
-    auto prev_expr = expr->input(0)->definition();
-    while (isCast(prev_expr)) {
-      auto intermediate_cast = prev_expr->output(0);
-      // 1.2 Note, if the output of prev_expr
-      //   is used by other operation(s); or
-      //   is a direct output from fusion
-      // we skip the casting chaining
-      if (intermediate_cast->isFusionOutput() ||
-          intermediate_cast->uses().size() > 1) {
-        break;
+
+    do {
+      // replay [meta -> expr] with
+      //        [expr -> meta]
+      if (isMovableMeta(expr->definition())) {
+        Expr* meta = expr->definition();
+
+        // replayed cast
+        TensorView* replayed_expr_out = castOp(expr->output(0)->dtype(), meta->output(0));
+
+        // replayed meta
+        Expr* replayed_meta = replayExprWithNewInput(meta, replayed_expr_out);
+
+        // replace uses of old second output
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+            expr->output(0), replayed_meta->output(0));
+
+        // swap expr
+        expr = replayed_expr_out->definition();
       }
-
-      // adding prev_expr to visited node so we'll short-cut it.
-      visited.insert(prev_expr);
-      // in the loop, we just repetitively chaining consecutive casts.
-      chain_cast_vals.push_front(intermediate_cast);
-      prev_expr = prev_expr->input(0)->definition();
-    }
-
-    // skip current expr if there's no chain_cast_vals
-    if (chain_cast_vals.empty()) {
-      continue;
-    }
-
-    // 1.3.1 Note, chain_cast_vals has a straight-line use without branches
-    auto lo_anchor = chain_cast_vals.front()->definition()->input(0);
-    auto anchor_dtype = lo_anchor->getDataType().value();
-    auto starting_anchor = lo_anchor;
-    for (auto val : chain_cast_vals) {
-      auto val_dtype = val->getDataType().value();
-
-      // 1.3.2.a short-cut when we are not losing precision
-      if (isInclusiveType(anchor_dtype, val_dtype)) {
-        continue;
-      }
-
-      // 1.3.2.c NOTE: To enter here, we have
-      //   !isInclusiveType(anchor_dtype, val_dtype) &&
-      //   !isInclusiveType(val_dtype, anchor_dtype)
-      //
-      // Which means the dtype between lo_anchor and val isn't compatible and
-      // can't be fold away without losing information. So we update the
-      // starting_anchor to current val, which ensures that we preserve the
-      // incompatible casts. e.g. for cases where no one type is strictly wider
-      // than the other: i.e. bf16 & fp16, int32 & float32 e.t.c.
-      if (!isInclusiveType(val_dtype, anchor_dtype)) {
-        lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
-        val = replaceInputInCast(val, lo_anchor);
-        // We need to update the starting_anchor for the fold to be past this
-        // current cast.
-        starting_anchor = val;
-      }
-      // 1.3.2.b/c updating new lo_anchor to current val
-      lo_anchor = val;
-      anchor_dtype = lo_anchor->getDataType().value();
-    }
-
-    auto output_dtype = expr->output(0)->getDataType().value();
-
-    if (isInclusiveType(output_dtype, anchor_dtype)) {
-      // 1.4.a: if lo_anchor is no narrower than output_dtype, everything is an
-      // no-op
-
-      if (starting_anchor->getDataType().value() == output_dtype) {
-        // if output dtype is identical to starting_anchor dtype, we can't keep
-        // the last cast op and will need to re-write all uses here
-        ir_utils::replaceValue(fusion, {{expr->output(0), starting_anchor}});
-      } else {
-        replaceInputInCast(expr->output(0), starting_anchor);
-      }
-    } else {
-      // 1.4.b: This is the case where we cannot fold away the cast of
-      // lo_anchor; we'll just re-wire input to expr with lo_anchor
-      lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
-      replaceInputInCast(expr->output(0), lo_anchor);
-    }
+      moveChainedCasts(expr, visited);
+    } while (isMovableMeta(expr->definition()))
   }
 }
 
