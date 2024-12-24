@@ -492,7 +492,6 @@ def norm_bwd_baseline_benchmark(
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
-    # Compile the fwd fn for torchcompile
     fwd_fn = with_executor(executor, norm_fwd_fn)
     fwd_inputs = [inputs, weight, bias, running_mean, running_var]
     outputs = fwd_fn(fwd_inputs)
