@@ -322,17 +322,27 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   if (!isReplaceableExpr(first)) {
     // replace [unary-op -> second] with:
     //         [second -> unary-op]
-    if (auto uop = dynamic_cast<UnaryOp*>(expr)) {
+    if (auto uop = dynamic_cast<UnaryOp*>(first)) {
       // skip if we cannot transform the pattern
       if (uop->out()->isFusionOutput() || uop->out()->uses().size() > 1) {
         return orig;
       }
-      replayed_second = nvfuser::ir_utils::replaceValInExprInputs(
+
+      // move second up
+      Expr* replayed_second = nvfuser::ir_utils::replaceValInExprInputs(
           second, uop->out(), uop->in());
-      Expr* replayed_uop =
-          replayExprWithNewInput(uop, replayed_second->output(0));
+      auto replayed_second_out = replayed_second->output(0)->as<TensorView>();
+
+      // replay uop
+      replayed_uop_out = ops::newValLike(
+          replayed_second_out, uop->out()->getDataType().value());
+      IrBuilder::create<UnaryOp>(
+          uop->getUnaryOpType(), replayed_uop_out, replayed_second_out);
+
+      // replace uses of old second output
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-          second->output(0), replayed_uop->output(0));
+          second->output(0), replayed_uop_out);
+      return replayed_second_out;
     }
 
     return orig;
