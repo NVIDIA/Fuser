@@ -156,8 +156,10 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
   return flags;
 }
 
-
-TensorView* replayAxisOp(AxisOps simple_op_type, const AxisOps& axis_ops, TensorView* tv) {
+TensorView* replayAxisOp(
+    AxisOps simple_op_type,
+    const AxisOps& axis_ops,
+    TensorView* tv) {
   switch (simple_op_type) {
     case AxisOp::PRESERVE:
       // This is equivalent to a set Op
@@ -352,7 +354,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       std::optional<AxisOp> second_op_type_opt =
           getSimplifiedOpType(second_ops);
 
-      TensorView* replayed_second_out = replayAxisOp(second_op_type_opt.value(), second_ops, uop_in_tv);
+      TensorView* replayed_second_out =
+          replayAxisOp(second_op_type_opt.value(), second_ops, uop_in_tv);
 
       // replay uop
       Val* replayed_uop_out = ops::newValLike(
@@ -382,7 +385,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     replacement = first->output(0)->as<TensorView>();
   } else {
     TensorView* input_tv = first->input(0)->as<TensorView>();
-    replacement = replayAxisOp(simple_op_type_opt.value(), simplified_ops, input_tv);
+    replacement =
+        replayAxisOp(simple_op_type_opt.value(), simplified_ops, input_tv);
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
 
