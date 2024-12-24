@@ -156,6 +156,22 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
   return flags;
 }
 
+
+TensorView* replayAxisOp(AxisOps simple_op_type, const AxisOps& axis_ops, TensorView* tv) {
+  switch (simple_op_type) {
+    case AxisOp::PRESERVE:
+      // This is equivalent to a set Op
+      replacement = tv;
+      break;
+    case AxisOp::SQUEEZE:
+      replacement = squeeze(tv, nonPreservedDims(axis_ops));
+      break;
+    case AxisOp::BROADCAST:
+      replacement = broadcast(tv, nonPreservedDims(axis_ops));
+      break;
+  }
+}
+
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
 //! descriptor of their composition
 AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
@@ -335,23 +351,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       // replay second  on unary-op input
       std::optional<AxisOp> second_op_type_opt =
           getSimplifiedOpType(second_ops);
-      TensorView* replayed_second_out;
 
-      // Expr* replayed_second = nvfuser::ir_utils::replaceValInExprInputs(
-      //     second, uop->out(), uop->in());
-      // auto replayed_second_out = replayed_second->output(0)->as<TensorView>();
-      switch (second_op_type_opt.value()) {
-        case AxisOp::PRESERVE:
-          // This is equivalent to a set Op
-          replayed_second_out = uop_in_tv;
-          break;
-        case AxisOp::SQUEEZE:
-          replayed_second_out = squeeze(uop_in_tv, nonPreservedDims(second_ops));
-          break;
-        case AxisOp::BROADCAST:
-          replayed_second_out = broadcast(uop_in_tv, nonPreservedDims(second_ops));
-          break;
-      }
+      TensorView* replayed_second_out = replayAxisOp(second_op_type_opt.value(), second_ops, uop_in_tv);
 
       // replay uop
       Val* replayed_uop_out = ops::newValLike(
@@ -381,18 +382,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     replacement = first->output(0)->as<TensorView>();
   } else {
     TensorView* input_tv = first->input(0)->as<TensorView>();
-    switch (simple_op_type_opt.value()) {
-      case AxisOp::PRESERVE:
-        // This is equivalent to a set Op
-        replacement = input_tv;
-        break;
-      case AxisOp::SQUEEZE:
-        replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
-        break;
-      case AxisOp::BROADCAST:
-        replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
-        break;
-    }
+    replacement = replayAxisOp(simple_op_type_opt.value(), simplified_ops, input_tv);
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
 
