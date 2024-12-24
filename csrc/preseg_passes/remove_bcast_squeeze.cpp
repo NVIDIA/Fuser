@@ -163,13 +163,13 @@ TensorView* replayAxisOp(
   switch (simple_op_type) {
     case AxisOp::PRESERVE:
       // This is equivalent to a set Op
-      replacement = tv;
+      return tv;
       break;
     case AxisOp::SQUEEZE:
-      replacement = squeeze(tv, nonPreservedDims(axis_ops));
+      return squeeze(tv, nonPreservedDims(axis_ops));
       break;
     case AxisOp::BROADCAST:
-      replacement = broadcast(tv, nonPreservedDims(axis_ops));
+      return broadcast(tv, nonPreservedDims(axis_ops));
       break;
   }
 }
