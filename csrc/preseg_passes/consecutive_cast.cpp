@@ -99,7 +99,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
-void moveChainedCasts(Expr* expr, const std::unordered_set<Expr*>& visited) {
+void moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
   std::list<Val*> chain_cast_vals;
   auto prev_expr = expr->input(0)->definition();
   while (isCast(prev_expr)) {
@@ -197,14 +197,20 @@ void castOptimizationPass(Fusion* fusion) {
         Expr* meta = expr->input(0)->definition();
 
         // replayed cast
-        TensorView* replayed_expr_out = castOp(expr->output(0)->dtype(), meta->output(0));
+        Val* replayed_expr_out = castOp(expr->output(0)->dtype(), meta->input(0));
 
         // replayed meta
-        Expr* replayed_meta = replayExprWithNewInput(meta, replayed_expr_out);
+        // replay meta on new inputs
+        Expr* replayed_meta = nvfuser::ir_utils::replaceValInExprInputs(
+            meta, meta->input(0), replayed_expr_out);
+        // update replayed meta output
+        Val* replayed_meta_out = ops::newValLike(
+          meta->output(0), meta->output(0)->getDataType().value());
+        replayed_meta = transferDefinitionToNewOutputs(replayed_meta, {replayed_meta_out});
 
         // replace uses of old second output
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-            expr->output(0), replayed_meta->output(0));
+            expr->output(0), replayed_meta_out);
 
         // swap expr
         expr = replayed_expr_out->definition();
