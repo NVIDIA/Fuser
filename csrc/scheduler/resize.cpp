@@ -8,6 +8,7 @@
 
 #include <debug.h>
 #include <instrumentation.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -179,6 +180,14 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  if (getenv("SKIP_TRANSPOSE")) {
+    if (hasAtLeastTwoValidGroups(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Transpose pattern not supported.");
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -199,6 +208,22 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
+  {
+    std::cout << std::endl;
+    std::cout << "Resize scheduling\n";
+    fusion->printMath();
+    std::cout << std::endl;
+  }
+
+  {
+    std::stringstream file_name;
+    file_name << "pre_scheduling.dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
+  }
+
   auto cache_tvs = scheduler_utils::cacheInputs(fusion, true);
   for (const auto& cache_tv : cache_tvs) {
     std::cerr << "Inserted cache: " << cache_tv->definition()->toString();
@@ -206,17 +231,22 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& exact_graph = id_model.buildExactGraph();
 
-  // Replicate resize inputs if necessary to avoid conflicting propagations
-  for (const auto& [out_tv, exlusivity_info] :
-       scheduler_tools::getNonExclusiveResizeInfo(
-           resize_based_tensor_ops, exact_graph)) {
-    auto resize_based_op = out_tv->definition();
-    auto inp_tv = resize_based_op->input(0)->as<TensorView>();
+  // Replicate resize inputs if necessary to avoid conflicting
+  // propagations
+  const auto exclusivity_info_map = scheduler_tools::getNonExclusiveResizeInfo(
+      resize_tensor_ops, exact_graph);
+  for (auto resize_tensor_op : resize_tensor_ops) {
+    auto out_tv = resize_tensor_op->output(0)->as<TensorView>();
+    if (exclusivity_info_map.count(out_tv) == 0) {
+      continue;
+    }
+    std::cerr << "NonExclusive op: " << resize_tensor_op->toString();
+    auto inp_tv = resize_tensor_op->input(0)->as<TensorView>();
     // Since cacheInput may skip caching if an input is used by
     // slice/pad, inp_tv may be a fusion input, in which case it is
     // not necessary to recompute the tensor.
@@ -224,7 +254,21 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       continue;
     }
     auto inp_tv_copy = RecomputeTv::recompute(inp_tv);
-    ir_utils::replaceValInExprInputs(resize_based_op, inp_tv, inp_tv_copy);
+    ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
+  }
+
+  {
+    std::cout << std::endl;
+    std::cout << "After recomputation\n";
+    fusion->printMath();
+    std::cout << std::endl;
+
+    std::stringstream file_name;
+    file_name << "after_recomputation.dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
   }
 
   for (auto expr : fusion->exprs()) {
