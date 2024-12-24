@@ -8,6 +8,8 @@
 #include <preseg_passes/consecutive_cast.h>
 
 #include <ir/utils.h>
+#include <ops/arith.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -120,7 +122,7 @@ void moveChainedCasts(Expr* expr, const std::unordered_set<Expr*>& visited) {
 
   // skip current expr if there's no chain_cast_vals
   if (chain_cast_vals.empty()) {
-    continue;
+    return;
   }
 
   // 1.3.1 Note, chain_cast_vals has a straight-line use without branches
@@ -165,7 +167,7 @@ void moveChainedCasts(Expr* expr, const std::unordered_set<Expr*>& visited) {
     if (starting_anchor->getDataType().value() == output_dtype) {
       // if output dtype is identical to starting_anchor dtype, we can't keep
       // the last cast op and will need to re-write all uses here
-      ir_utils::replaceValue(fusion, {{expr->output(0), starting_anchor}});
+      ir_utils::replaceValue(expr->fusion(), {{expr->output(0), starting_anchor}});
     } else {
       replaceInputInCast(expr->output(0), starting_anchor);
     }
@@ -191,8 +193,8 @@ void castOptimizationPass(Fusion* fusion) {
     do {
       // replay [meta -> expr] with
       //        [expr -> meta]
-      if (isMovableMeta(expr->definition())) {
-        Expr* meta = expr->definition();
+      if (isMovableMeta(expr->input(0)->definition())) {
+        Expr* meta = expr->input(0)->definition();
 
         // replayed cast
         TensorView* replayed_expr_out = castOp(expr->output(0)->dtype(), meta->output(0));
@@ -208,7 +210,7 @@ void castOptimizationPass(Fusion* fusion) {
         expr = replayed_expr_out->definition();
       }
       moveChainedCasts(expr, visited);
-    } while (isMovableMeta(expr->definition()))
+    } while (isMovableMeta(expr->input(0)->definition()));
   }
 }
 
