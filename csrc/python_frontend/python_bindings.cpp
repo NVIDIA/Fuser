@@ -3569,7 +3569,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("scale").none(true) = py::none(),
       py::return_value_policy::reference);
 
-  bindSchedulingOperators(fusion_def);
+  bindSchedule(fusion_def);
 }
 
 void cleanup() {

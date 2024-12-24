@@ -16,7 +16,7 @@
 
 namespace nvfuser::python_frontend {
 
-void bindSchedulingOperators(py::class_<FusionDefinition>& fusion_def) {
+void bindSchedule(py::class_<FusionDefinition>& fusion_def) {
   //! The SchedOperators class is a nested class of FusionDefinition to allow
   //! the user to query the class for the list of schedule operators.
   //!
