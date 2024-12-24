@@ -24,6 +24,9 @@ class HostIrLower {
   static std::unique_ptr<hir::HostIrContainer> lower(
       std::unique_ptr<Fusion> fusion,
       int64_t my_device_index);
+
+ private:
+  static std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
 };
 
 } // namespace nvfuser
