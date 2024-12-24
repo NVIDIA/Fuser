@@ -17,19 +17,6 @@
 namespace nvfuser {
 namespace pointwise_utils {
 
-// Returns number of non-reduction/non-broadcas/non-device dims in logical
-// domain
-inline int64_t nLogicalDims(const TensorView* tv) {
-  auto logical_dom = tv->getLogicalDomain();
-  int64_t tv_n_dims = 0;
-  for (auto dim : logical_dom) {
-    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
-      tv_n_dims++;
-    }
-  }
-  return tv_n_dims;
-}
-
 class PointwiseDomainMap : public scheduler_tools::DomainMap {
  public:
   using scheduler_tools::DomainMap::DomainMap;

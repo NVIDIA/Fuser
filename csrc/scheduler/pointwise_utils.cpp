@@ -19,7 +19,7 @@ TensorView* PointwiseDomainMap::findReferenceTensor(
     if (isValidReference(output_tv) &&
         hasMinimumSize(output_tv, minimum_num_axes) &&
         !output_tv->isFusionInput()) {
-      int64_t n_dims = nLogicalDims(output_tv);
+      int64_t n_dims = scheduler_utils::nLogicalDims(output_tv);
       if (n_dims > max_dims) {
         result = output_tv;
         max_dims = n_dims;

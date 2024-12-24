@@ -733,6 +733,10 @@ void moveNonConcretizedBroadcastInnermost(
 // the position of the outermost non-DID axis.
 int64_t reorderDevicesToOuter(TensorView* tv);
 
+// Returns number of non-reduction/non-broadcas/non-device dims in logical
+// domain
+int64_t nLogicalDims(const TensorView* tv);
+
 void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 } // namespace scheduler_utils
 } // namespace nvfuser
