@@ -319,6 +319,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   if (!isReplaceableExpr(second)) {
     return orig;
   }
+  AxisOps second_ops = exprToAxisOps(second);
+
   Expr* first = second->input(0)->definition();
   if (!isReplaceableExpr(first)) {
     // replace [unary-op -> second] with:
@@ -328,11 +330,28 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       if (uop->out()->isFusionOutput() || uop->out()->uses().size() > 1) {
         return orig;
       }
+      TensorView* uop_in_tv = uop->in()->as<TensorView>();
 
-      // move second up
-      Expr* replayed_second = nvfuser::ir_utils::replaceValInExprInputs(
-          second, uop->out(), uop->in());
-      auto replayed_second_out = replayed_second->output(0)->as<TensorView>();
+      // replay second  on unary-op input
+      std::optional<AxisOp> second_op_type_opt =
+          getSimplifiedOpType(second_ops);
+      TensorView* replayed_second_out;
+
+      // Expr* replayed_second = nvfuser::ir_utils::replaceValInExprInputs(
+      //     second, uop->out(), uop->in());
+      // auto replayed_second_out = replayed_second->output(0)->as<TensorView>();
+      switch (second_op_type_opt.value()) {
+        case AxisOp::PRESERVE:
+          // This is equivalent to a set Op
+          replayed_second_out = uop_in_tv;
+          break;
+        case AxisOp::SQUEEZE:
+          replayed_second_out = squeeze(uop_in_tv, nonPreservedDims(second_ops));
+          break;
+        case AxisOp::BROADCAST:
+          replayed_second_out = broadcast(uop_in_tv, nonPreservedDims(second_ops));
+          break;
+      }
 
       // replay uop
       Val* replayed_uop_out = ops::newValLike(
@@ -348,9 +367,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
     return orig;
   }
-
   AxisOps first_ops = exprToAxisOps(first);
-  AxisOps second_ops = exprToAxisOps(second);
+
   AxisOps simplified_ops = composeOps(first_ops, second_ops);
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
