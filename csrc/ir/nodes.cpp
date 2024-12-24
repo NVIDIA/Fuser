@@ -1278,7 +1278,7 @@ std::string BroadcastOp::toString(int indent_size) const {
     ss << (f ? "true" : "false");
     is_first = false;
   }
-  ss << " )\n";
+  ss << "} )\n";
   return ss.str();
 }
 
