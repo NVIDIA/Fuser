@@ -3052,6 +3052,43 @@ struct SdpaBwdOpRecord : RecordFunctor {
   }
 };
 
+struct EmbeddingOpRecord : RecordFunctor {
+  EmbeddingOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.embedding",
+            serde::RecordType::EmbeddingOp) {}
+  ~EmbeddingOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new EmbeddingOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto input = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto weight = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto padding_idx = (args_.at(2).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(2).index)->as<Val>()
+        : nullptr;
+    auto max_norm = (args_.at(3).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+        : nullptr;
+    auto norm_type = (args_.at(4).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+        : nullptr;
+    auto scale_grad_by_freq = (args_.at(5).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(5).index)->as<Val>()
+        : nullptr;
+    auto sparse = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
+        : nullptr;
+
+    auto output = embedding(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+};
+
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

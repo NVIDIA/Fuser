@@ -42,6 +42,7 @@ enum RecordType: int {
     CastTv,
     CastVal,
     CatOp,
+    EmbeddingOp,
     End,
     ExpandOp,
     FullOp,
