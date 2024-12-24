@@ -11,6 +11,7 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <ops/utils.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 
@@ -334,7 +335,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       auto replayed_second_out = replayed_second->output(0)->as<TensorView>();
 
       // replay uop
-      replayed_uop_out = ops::newValLike(
+      Val* replayed_uop_out = ops::newValLike(
           replayed_second_out, uop->out()->getDataType().value());
       IrBuilder::create<UnaryOp>(
           uop->getUnaryOpType(), replayed_uop_out, replayed_second_out);
