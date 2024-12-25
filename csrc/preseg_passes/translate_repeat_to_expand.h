@@ -29,6 +29,17 @@ namespace nvfuser::preseg_passes {
 // And all uses of t1 will be replaced by t4. This pattern commonly
 // appears in RoPE, e.g.,
 // https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L136.
+// While the resize scheduler should be able to handle these patterns for
+// pointwise-only segments, it is currently limited to only pointwise
+// fusions only. This translation should promote larger fusions
+// as it is not specific to any surrounding ops.
+//
+// Note that there's a potential downside compared to handling cat ops
+// directly. Since insertion of broadcast IDs is not represented as
+// Fusion IR expressions, a fusion may have more disconnected ID
+// graphs after the translation, which may cause a segmentation that
+// could be avoided with the original fusion. See
+// PresegTest.TranslateRepeatToExpand4 for a concrete example.
 class TranslateRepeatToExpand
     : public OptimizationPass<TranslateRepeatToExpand> {
   friend class OptimizationPass<TranslateRepeatToExpand>;

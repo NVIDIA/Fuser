@@ -49,9 +49,6 @@ class RepeatToExpandTranslator {
   // followed by a concat. If a single concat op has multiple pad
   // inputs that resize the same iter domain of the same input tensor,
   // that must correspond to a repetition.
-  //
-  // NOTE: Consider translating the addition-based concat to an actual
-  // CatOp. By doing so, this pass would just need to find concat ops.
   void inspect() {
     const auto exprs = fusion_->exprs();
 
@@ -85,15 +82,12 @@ class RepeatToExpandTranslator {
                                .mapConsumerToProducer()
                                .at(out_padded_root_id);
 
-      // The padded tensor must be used by a concat or an addition
-      auto cat_inp = getMaybeValidConcatInp(pad_out);
-
-      if (cat_inp == nullptr) {
+      // The padded tensor must be immediately used by a concat only
+      if (pad_out->uses().size() != 1 || !pad_out->uses().at(0)->isA<CatOp>()) {
         continue;
       }
 
-      // Note that this can be a CatOp or an addition
-      auto cat_op = cat_inp->uses().at(0);
+      auto cat_op = pad_out->uses().at(0);
 
       // If other inputs to the same concat op are already found, make
       // sure this path from the pad op is compatible with the known
@@ -103,7 +97,7 @@ class RepeatToExpandTranslator {
         RepetitionInfo info;
         info.input_tv = pad_inp;
         info.repeated_id = inp_padded_id;
-        info.cat_inp_tvs.push_back(cat_inp);
+        info.cat_inp_tvs.push_back(pad_out);
         repeat_info_map_.emplace(cat_op, info);
       } else {
         auto& info = repeat_info_map_.at(cat_op);
@@ -112,7 +106,7 @@ class RepeatToExpandTranslator {
           repeat_info_map_.erase(cat_op);
           continue;
         }
-        info.cat_inp_tvs.push_back(cat_inp);
+        info.cat_inp_tvs.push_back(pad_out);
       }
     }
 
@@ -130,49 +124,12 @@ class RepeatToExpandTranslator {
     }
   }
 
-  // For an output of a pad, finds the corresponding tensor that is an
-  // input to a concat. For this translation to work, there must not
-  // be other uses than the immediate concat, except type casting,
-  // which may be used when repating fp16 tensors with an
-  // addition. nullptr is returned if no valid tensor is found.
-  TensorView* getMaybeValidConcatInp(TensorView* pad_out_tv) {
-    if (pad_out_tv->uses().size() != 1) {
-      return nullptr;
-    }
-
-    // Skip cast
-    if (auto uop = dynamic_cast<UnaryOp*>(pad_out_tv->uses().at(0));
-        uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast) {
-      pad_out_tv = uop->output(0)->as<TensorView>();
-
-      if (pad_out_tv->uses().size() != 1) {
-        return nullptr;
-      }
-    }
-
-    if (pad_out_tv->uses().size() != 1) {
-      return nullptr;
-    }
-
-    auto use_expr = pad_out_tv->uses().at(0);
-    if (use_expr->isA<CatOp>() ||
-        (use_expr->isA<BinaryOp>() &&
-         use_expr->as<BinaryOp>()->getBinaryOpType() == BinaryOpType::Add)) {
-      return pad_out_tv;
-    } else {
-      return nullptr;
-    }
-  }
-
   // For each detected repetition:
   //
   // Step 1. Insert a broadcast ID immediately outside of the
   // repeated ID
   // Step 2. Expand the broadcast ID by the repetition factor
   // Step 3. Flatten the expanded ID and the repeated ID
-  // Step 4. Cast the flattened tensor if necessary. If the
-  // concatenation is done by addition and the inputs are fp16,
-  // there must be casting to fp32 before the addition.
   void translate() {
     const auto exprs = fusion_->exprs();
     // Apply the translation in a reverse topological order. Since the
@@ -191,6 +148,8 @@ class RepeatToExpandTranslator {
       if (info.cat_inp_tvs.size() < 2) {
         continue;
       }
+
+      auto original_out_tv = expr->output(0)->as<TensorView>();
 
       // Step 1
       auto inp_domain =
@@ -213,29 +172,8 @@ class RepeatToExpandTranslator {
       auto flattened_tv =
           flatten(expanded_tv, repeated_id_offset, repeated_id_offset + 1);
 
-      // Step 4
-      TensorView* new_out_tv = nullptr;
-      auto origin_out_tv = expr->output(0)->as<TensorView>();
-
-      if (info.input_tv->dtype() != origin_out_tv->dtype()) {
-        // Input should be either Half or BFloat16
-        NVF_ERROR(
-            info.input_tv->dtype() == DataType::Half ||
-                info.input_tv->dtype() == DataType::BFloat16,
-            "Unexpected input type: ",
-            info.input_tv->toString());
-        // Output should be either Float
-        NVF_ERROR(
-            origin_out_tv->dtype() == DataType::Float,
-            "Unexpected output type: ",
-            origin_out_tv->toString());
-        new_out_tv = castOp(DataType::Float, flattened_tv);
-      } else {
-        new_out_tv = flattened_tv;
-      }
-
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-          origin_out_tv, new_out_tv);
+          original_out_tv, flattened_tv);
     }
   }
 
