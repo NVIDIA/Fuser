@@ -38,20 +38,15 @@ class TestEmbedding(NVFuserTest):
             out = fd.ops.embedding(input, weight, *optional_inputs)
             fd.add_output(out)
 
-        N, S = 5, 2
+        N, S = 10, 3
         input = torch.randint(N, (S,), dtype=torch.int64, device='cuda', requires_grad=False)
         weight = torch.randn(N, S, dtype=torch.bfloat16, device='cuda', requires_grad=True)
         
-        # padding_idx_vals = [None, -1]
-        # max_norm_vals = [None, 1e-5]
-        # norm_type_vals = [None, 2, 1]
-        # scale_grad_by_freq = [None, True]
-        # sparse = [None, False]
-        padding_idx_vals = [None]
-        max_norm_vals = [1e-5]
-        norm_type_vals = [None]
-        scale_grad_by_freq = [None]
-        sparse = [None]
+        padding_idx_vals = [None, -1, -2]
+        max_norm_vals = [None, 1e-5]
+        norm_type_vals = [None, 2.0, 1.0]
+        scale_grad_by_freq = [None, True]
+        sparse = [None, False, True]
         optional_inputs_dtypes = [DataType.Int, DataType.Float, DataType.Float, DataType.Bool, DataType.Bool]
 
         
@@ -81,6 +76,4 @@ class TestEmbedding(NVFuserTest):
                 scale_grad_by_freq = False if scale_grad_by_freq is None else scale_grad_by_freq
                 sparse = False if sparse is None else sparse
                 ref_out = F.embedding(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse)
-                print (nvf_out[0])
-                print (ref_out)
                 torch.testing.assert_close(nvf_out[0], ref_out)
