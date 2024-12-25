@@ -182,20 +182,18 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 #endif
 
-  if (getenv("SKIP_TRANSPOSE")) {
-    if (hasAtLeastTwoValidGroups(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "Transpose pattern not supported.");
-      return false;
-    }
+  if (hasAtLeastTwoValidGroups(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Transpose pattern not supported.");
+    return false;
+  }
 
-    scheduler_tools::TransposeDomainMap domain_map(fusion);
-    auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
-    if (grouped_inputs_outputs.size() >= 2) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "Multiple transpose groups not supported.");
-      return false;
-    }
+  scheduler_tools::TransposeDomainMap domain_map(fusion);
+  auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
+  if (grouped_inputs_outputs.size() >= 2) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Multiple transpose groups not supported.");
+    return false;
   }
 
   return true;
