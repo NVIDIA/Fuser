@@ -537,32 +537,14 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
   auto T12 = sum(T11, {0, 2});
   auto T13 = permute(T1, {0, 2, 1});
   auto T14 = castOp(DataType::BFloat16, T12);
-  TensorView* T15 = nullptr;
-  if (getenv("TRANSLATE_REPEAT")) {
-    std::vector<bool> bc_flags(T13->nDims() + 1, false);
-    bc_flags.at(bc_flags.size() - 2) = true;
-    auto t13_bc = broadcast(T13, bc_flags);
-    std::vector<Val*> expanded_sizes(
-        t13_bc->nDims(), IrBuilder::create<Val>(-1L));
-    expanded_sizes.at(expanded_sizes.size() - 2) = IrBuilder::create<Val>(2L);
-    auto t13_expanded = expand(t13_bc, expanded_sizes);
-    std::vector<Val*> reshape_sizes;
-    for (const auto logical_id : T13->getLogicalDomain()) {
-      reshape_sizes.push_back(logical_id->extent());
-    }
-    reshape_sizes.back() =
-        SimplifyingIrBuilder::mulExpr(reshape_sizes.back(), 2);
-    auto t13_reshaped = reshape(t13_expanded, reshape_sizes);
-    T15 = t13_reshaped;
-  } else {
-    T15 = cat({T13, T13}, -1);
-  }
+  auto T15 = cat({T13, T13}, -1);
   auto T22 = broadcast(T14, {true, false, true, false, false});
   auto T23 = sin(T15);
   auto T24 = castOp(DataType::Float, T22);
   auto T25 = castOp(DataType::BFloat16, T23);
   auto T26 = sum(T24, {0, 2});
   auto T32 = broadcast(T25, {false, true, false, false});
+  T32 = segment_set(T32);
   auto T33 = castOp(DataType::BFloat16, T26);
   auto T39 = expand(
       T32,
@@ -637,6 +619,7 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
         IrBuilder::create<Val>(head_dim)}});
   auto T146 = castOp(DataType::BFloat16, T105);
   auto T147 = castOp(DataType::BFloat16, T106);
+  T112 = segment_set(T112);
   auto T153 = expand(
       T112,
       std::vector<Val*>{
