@@ -1311,19 +1311,9 @@ void scheduleStMatrixForMmaOutput(
       ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
       "We only support 16x16 and 16x16 stmatrix now");
 
-  NVF_ERROR(
-      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
-
-  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
-  auto s =
-      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
-
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    // Create tma store allocation domain with swizzle
-    mma_utils::scheduleTMAStoreForMmaOutput(tv, swizzle);
-  }
-
-  tv->setLoopDomain(s.as<IterDomain*>());
+  NVF_CHECK(
+      dataTypeSize(tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   if (tile_m == 16 && tile_n == 16) {
     // Let [M, N] be [64, 32]
@@ -1343,7 +1333,6 @@ void scheduleStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
-  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
