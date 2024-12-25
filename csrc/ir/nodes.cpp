@@ -5357,11 +5357,15 @@ EmbeddingOp::EmbeddingOp(
   addInput(sparse);
   if (padding_idx != nullptr) {
     addInput(padding_idx);
-    this->has_padding_idx = true;
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
   }
   if (max_norm != nullptr) {
     addInput(max_norm);
-    this->has_max_norm = true;
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
   }
 }
 
@@ -5404,16 +5408,15 @@ std::vector<PolymorphicValue> EmbeddingOp::evaluate(
   auto scale_grad_by_freq = inputs.at(3).as<bool>();
   auto sparse = inputs.at(4).as<bool>();
   std::optional<int64_t> padding_idx = std::nullopt;
-  if (this->has_padding_idx){
+  if (has_padding_idx()){
     padding_idx = inputs.at(5).as<int64_t>();
   }
   std::optional<double> max_norm = std::nullopt;
-  if (this->has_max_norm){
-    auto idx = 5 + this->has_padding_idx;
+  if (has_max_norm()){
+    auto idx = 5 + has_padding_idx();
     max_norm = inputs.at(idx).as<double>();
-    debug() << max_norm.value() << std::endl;
   }
-  debug() << norm_type << std::endl;
+
   namespace F = torch::nn::functional;
   return {
     F::embedding(

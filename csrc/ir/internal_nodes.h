@@ -2764,26 +2764,30 @@ class EmbeddingOp : public Expr {
   }
 
   Val* padding_idx() const {
-    if (has_padding_idx){
+    if (has_padding_idx()){
       return input(5);
     }
     return nullptr;
   }
 
   Val* max_norm() const {
-    if (has_max_norm){
-      return input(5 + has_padding_idx);
+    if (has_max_norm()){
+      return input(5 + has_padding_idx());
     }
     return nullptr;
+  }
+
+  bool has_padding_idx() const {
+    return attribute<bool>(0);
+  }
+
+  bool has_max_norm() const {
+    return attribute<bool>(1);
   }
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-
- private:
-  bool has_padding_idx = false;
-  bool has_max_norm = false;
 };
 
 } // namespace nvfuser
