@@ -19,12 +19,22 @@ namespace nvfuser::preseg_passes {
 namespace {
 
 struct RepetitionInfo {
+  // Input tensor that is repeated
   TensorView* input_tv = nullptr;
+  // Repeated logical ID of the input tensor
   IterDomain* repeated_id = nullptr;
+  // Tensors fed into the concat op
   std::vector<TensorView*> cat_inp_tvs;
-  TensorView* output_tv = nullptr;
 };
 
+// Translation algorithm overview:
+//
+// Step 1: Inspection. Traverses the given fusion and looks for a
+// sequence of ops that correspond to a repeatition. See
+// RepeatToExpandTranslator::inspect() for more details.
+//
+// Step 2: Apply the translation in a reverse topologial order. See
+// RepeatToExpandTranslator::translate() for more details.
 class RepeatToExpandTranslator {
  public:
   RepeatToExpandTranslator(Fusion* fusion) : fusion_(fusion) {}
@@ -34,45 +44,22 @@ class RepeatToExpandTranslator {
     translate();
   }
 
-  // TODO: Consider translating the addition-based concat to an actual
+ private:
+  // Traverse through the fusion and gather all patterns of a pad
+  // followed by a concat. If a single concat op has multiple pad
+  // inputs that resize the same iter domain of the same input tensor,
+  // that must correspond to a repetition.
+  //
+  // NOTE: Consider translating the addition-based concat to an actual
   // CatOp. By doing so, this pass would just need to find concat ops.
   void inspect() {
     const auto exprs = fusion_->exprs();
 
-    auto get_cat_inp = [](TensorView* tv) -> TensorView* {
-      if (tv->uses().size() != 1) {
-        return nullptr;
-      }
-
-      // Skip cast
-      if (auto uop = dynamic_cast<UnaryOp*>(tv->uses().at(0));
-          uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast) {
-        tv = uop->output(0)->as<TensorView>();
-
-        if (tv->uses().size() != 1) {
-          return nullptr;
-        }
-      }
-
-      if (tv->uses().size() != 1) {
-        return nullptr;
-      }
-
-      auto use_expr = tv->uses().at(0);
-      if (use_expr->isA<CatOp>() ||
-          (use_expr->isA<BinaryOp>() &&
-           use_expr->as<BinaryOp>()->getBinaryOpType() == BinaryOpType::Add)) {
-        return tv;
-      } else {
-        return nullptr;
-      }
-    };
-
     for (auto pad : ir_utils::filterByType<PadOp>(exprs)) {
-      auto repeat_inp = pad->input(0)->as<TensorView>();
+      auto pad_inp = pad->input(0)->as<TensorView>();
       auto pad_out = pad->output(0)->as<TensorView>();
 
-      // There must be just one logical ID expanded by this pad op
+      // Not supported if there are multiple expanded logical IDs
       IterDomain* out_padded_root_id = nullptr;
       bool multiple_resizes_found = false;
       for (const auto i : c10::irange(pad_out->getLogicalDomain().size())) {
@@ -89,15 +76,18 @@ class RepeatToExpandTranslator {
         out_padded_root_id = resize->in();
       }
 
-      if (multiple_resizes_found) {
+      if (multiple_resizes_found || out_padded_root_id == nullptr) {
+        // Unsupported pattern
         break;
       }
 
-      auto inp_padded_id = PairwiseLogicalDomainMap(repeat_inp, pad_out)
+      auto inp_padded_id = PairwiseLogicalDomainMap(pad_inp, pad_out)
                                .mapConsumerToProducer()
                                .at(out_padded_root_id);
 
-      auto cat_inp = get_cat_inp(pad_out);
+      // The padded tensor must be used by a concat or an addition
+      auto cat_inp = getMaybeValidConcatInp(pad_out);
+
       if (cat_inp == nullptr) {
         continue;
       }
@@ -105,17 +95,21 @@ class RepeatToExpandTranslator {
       // Note that this can be a CatOp or an addition
       auto cat_op = cat_inp->uses().at(0);
 
-      if (auto it = repeat_info_map.find(cat_op); it == repeat_info_map.end()) {
+      // If other inputs to the same concat op are already found, make
+      // sure this path from the pad op is compatible with the known
+      // ops.
+      if (auto it = repeat_info_map_.find(cat_op);
+          it == repeat_info_map_.end()) {
         RepetitionInfo info;
-        info.input_tv = repeat_inp;
+        info.input_tv = pad_inp;
         info.repeated_id = inp_padded_id;
         info.cat_inp_tvs.push_back(cat_inp);
-        repeat_info_map.emplace(cat_op, info);
+        repeat_info_map_.emplace(cat_op, info);
       } else {
-        auto& info = repeat_info_map.at(cat_op);
-        if (info.input_tv != repeat_inp || info.repeated_id != inp_padded_id) {
+        auto& info = repeat_info_map_.at(cat_op);
+        if (info.input_tv != pad_inp || info.repeated_id != inp_padded_id) {
           // Invalid
-          repeat_info_map.erase(cat_op);
+          repeat_info_map_.erase(cat_op);
           continue;
         }
         info.cat_inp_tvs.push_back(cat_inp);
@@ -123,19 +117,62 @@ class RepeatToExpandTranslator {
     }
 
     // Remove invalid entries
-    for (auto it = repeat_info_map.begin(); it != repeat_info_map.end();) {
+    for (auto it = repeat_info_map_.begin(); it != repeat_info_map_.end();) {
       Expr* concatenating_expr = it->first;
       const RepetitionInfo& info = it->second;
       // Make sure all inputs to concatenating_expr are detected
       if (concatenating_expr->inputs().size() != info.cat_inp_tvs.size()) {
         // Invalid
-        it = repeat_info_map.erase(it);
+        it = repeat_info_map_.erase(it);
         continue;
       }
       ++it;
     }
   }
 
+  // For an output of a pad, finds the corresponding tensor that is an
+  // input to a concat. For this translation to work, there must not
+  // be other uses than the immediate concat, except type casting,
+  // which may be used when repating fp16 tensors with an
+  // addition. nullptr is returned if no valid tensor is found.
+  TensorView* getMaybeValidConcatInp(TensorView* pad_out_tv) {
+    if (pad_out_tv->uses().size() != 1) {
+      return nullptr;
+    }
+
+    // Skip cast
+    if (auto uop = dynamic_cast<UnaryOp*>(pad_out_tv->uses().at(0));
+        uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast) {
+      pad_out_tv = uop->output(0)->as<TensorView>();
+
+      if (pad_out_tv->uses().size() != 1) {
+        return nullptr;
+      }
+    }
+
+    if (pad_out_tv->uses().size() != 1) {
+      return nullptr;
+    }
+
+    auto use_expr = pad_out_tv->uses().at(0);
+    if (use_expr->isA<CatOp>() ||
+        (use_expr->isA<BinaryOp>() &&
+         use_expr->as<BinaryOp>()->getBinaryOpType() == BinaryOpType::Add)) {
+      return pad_out_tv;
+    } else {
+      return nullptr;
+    }
+  }
+
+  // For each detected repetition:
+  //
+  // Step 1. Insert a broadcast ID immediately outside of the
+  // repeated ID
+  // Step 2. Expand the broadcast ID by the repetition factor
+  // Step 3. Flatten the expanded ID and the repeated ID
+  // Step 4. Cast the flattened tensor if necessary. If the
+  // concatenation is done by addition and the inputs are fp16,
+  // there must be casting to fp32 before the addition.
   void translate() {
     const auto exprs = fusion_->exprs();
     // Apply the translation in a reverse topological order. Since the
@@ -144,8 +181,8 @@ class RepeatToExpandTranslator {
     // info invalid.
     for (auto exprs_it = exprs.rbegin(); exprs_it != exprs.rend(); ++exprs_it) {
       Expr* expr = *exprs_it;
-      auto repeat_info_map_it = repeat_info_map.find(expr);
-      if (repeat_info_map_it == repeat_info_map.end()) {
+      auto repeat_info_map_it = repeat_info_map_.find(expr);
+      if (repeat_info_map_it == repeat_info_map_.end()) {
         continue;
       }
 
@@ -154,14 +191,6 @@ class RepeatToExpandTranslator {
       if (info.cat_inp_tvs.size() < 2) {
         continue;
       }
-
-      // Step 1. Insert a broadcast ID immediately outside of the
-      // repeated ID
-      // Step 2. Expand the broadcast ID by the repetition factor
-      // Step 3. Flatten the expanded ID and the repeated ID
-      // Step 4. Cast the flattened tensor if necessary. If the
-      // concatenation is done by addition and the inputs are fp16,
-      // there must be casting to fp32 before the addition.
 
       // Step 1
       auto inp_domain =
@@ -212,8 +241,8 @@ class RepeatToExpandTranslator {
 
  private:
   Fusion* fusion_ = nullptr;
-  // Map of concatenating expr to its infoi
-  std::unordered_map<Expr*, RepetitionInfo> repeat_info_map;
+  // Map of concat exprs to their info about repetition
+  std::unordered_map<Expr*, RepetitionInfo> repeat_info_map_;
 };
 
 } // namespace
