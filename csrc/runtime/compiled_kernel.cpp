@@ -12,6 +12,7 @@
 #include <cuda_utils.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <disjoint_set.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
@@ -1042,6 +1043,68 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
   buffer << cuda_src.rdbuf();
   return buffer.str();
 }
+
+bool requiresDisabledParamCache(const Fusion* fusion) {
+  std::vector<Val*> output_extents;
+  for (auto out : fusion->outputs()) {
+    const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
+    // walking through outputs to see if output shapes are dependent on
+    // non-tensor inputs. For which case, we should have disabled output
+    // allocation, since the caching id only looks at tensor shapes.
+    // See issue https://github.com/csarofeen/pytorch/issues/2002
+    for (const auto id : logical_domain) {
+      Val* extent = nullptr;
+      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
+        continue;
+      } else if (id->isBroadcast() && id->hasExpandedExtent()) {
+        extent = id->expandedExtent();
+      } else {
+        extent = id->extent();
+      }
+      output_extents.emplace_back(extent);
+    }
+  }
+
+  VectorOfUniqueEntries<Val*> input_dependencies;
+  for (auto inp : InputsOf::outputs(output_extents)) {
+    if (inp->isFusionInput()) {
+      input_dependencies.pushBack(inp);
+    }
+  }
+  if (std::any_of(
+          input_dependencies.begin(), input_dependencies.end(), [](Val* inp) {
+            return inp->isScalar();
+          })) {
+    return true;
+  } else if (!input_dependencies.empty()) {
+    VectorOfUniqueEntries<Expr*> all_exprs(DependencyCheck::getAllExprsBetween(
+        input_dependencies.set(), output_extents));
+
+    VectorOfUniqueEntries<Val*> meta_data_outputs;
+    for (auto meta_data_op :
+         ir_utils::filterByType<GetMetaData>(all_exprs.vector())) {
+      meta_data_outputs.pushBack(
+          meta_data_op->outputs().begin(), meta_data_op->outputs().end());
+    }
+
+    VectorOfUniqueEntries<Expr*> before_meta_data_exprs(
+        DependencyCheck::getAllExprsBetween(
+            input_dependencies.set(), meta_data_outputs.vector()));
+
+    VectorOfUniqueEntries<Expr*> after_meta_data_exprs(
+        DependencyCheck::getAllExprsBetween(
+            meta_data_outputs.set(), output_extents));
+
+    auto subtraction = all_exprs;
+    subtraction = subtraction.computeSubtract(before_meta_data_exprs);
+    subtraction = subtraction.computeSubtract(after_meta_data_exprs);
+    if (!subtraction.empty()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 NVF_API CompiledKernel::CompiledKernel(
@@ -1082,6 +1145,7 @@ void CompiledKernel::compile(
       "No output found for this kernel, aborting.");
 
   options_.device = device;
+  disable_parameter_cache_ = requiresDisabledParamCache(fusion());
 
   for (auto out : fusion()->outputs()) {
     const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
@@ -1112,7 +1176,7 @@ void CompiledKernel::compile(
       // TODO: parameter cache is too big a hammer here. We should consider
       // separate the caching logic of output sizes & launch params. Since
       // output size dependency should only invalidate the output sizes
-      disable_parameter_cache_ = true;
+      NVF_ERROR(disable_parameter_cache_ == true, "Messed up!");
       break;
     }
   }
@@ -1137,8 +1201,8 @@ void CompiledKernel::compile(
   NVF_ERROR(
       options_.device.is_cuda(), "Provided device to CUDA fuser is the CPU.");
   auto properties = at::cuda::getDeviceProperties(options_.device.index());
-  // TODO: These properties should be set as part of the constructor so that it
-  // can be const
+  // TODO: These properties should be set as part of the constructor so that
+  // it can be const
   warp_size_ = properties->warpSize;
   kir::Kernel* kernel = lowered_->kernel();
 
@@ -1174,12 +1238,11 @@ void CompiledKernel::compile(
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
-  // If the loaded external source code is empty, revert to the default codegen.
-  // The external_structured_code is moved to structured_code and explicitly
-  // cleared to avoid use-after-move scenarios.
-  // Note: we index these with getGlobalFusionCount() instead of fusion_id_ in
-  // order to match the numbering of files output with
-  // NVFUSER_DUMP=cuda_to_file
+  // If the loaded external source code is empty, revert to the default
+  // codegen. The external_structured_code is moved to structured_code and
+  // explicitly cleared to avoid use-after-move scenarios. Note: we index
+  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
+  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
   auto structured_code =
       getStructuredCodeFromExternalFiles(getGlobalFusionCount());
   if (structured_code.empty()) {
@@ -1239,8 +1302,8 @@ void CompiledKernel::compile(
   // compilation.
 
   // Basically setting high water mark as 1 when we don't provide args for
-  // compilation, it will just generate a kernel that gets ditched at the first
-  // run - not great. We should have better heuristics.
+  // compilation, it will just generate a kernel that gets ditched at the
+  // first run - not great. We should have better heuristics.
   block_size_high_water_mark_ =
       std::max<int64_t>(block_size, block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
