@@ -101,7 +101,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
-void moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
+Expr* moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
   std::list<Val*> chain_cast_vals;
   auto prev_expr = expr->input(0)->definition();
   while (isCast(prev_expr)) {
@@ -124,7 +124,7 @@ void moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
 
   // skip current expr if there's no chain_cast_vals
   if (chain_cast_vals.empty()) {
-    return;
+    return expr;
   }
 
   // 1.3.1 Note, chain_cast_vals has a straight-line use without branches
@@ -172,14 +172,17 @@ void moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
       ir_utils::replaceValue(
           expr->fusion(), {{expr->output(0), starting_anchor}});
     } else {
-      replaceInputInCast(expr->output(0), starting_anchor);
+      Val* new_expr_val = replaceInputInCast(expr->output(0), starting_anchor);
+      Expr* expr = new_expr_val->definition();
     }
   } else {
     // 1.4.b: This is the case where we cannot fold away the cast of
     // lo_anchor; we'll just re-wire input to expr with lo_anchor
     lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
-    replaceInputInCast(expr->output(0), lo_anchor);
+    Val* new_expr_val = replaceInputInCast(expr->output(0), lo_anchor);
+    Expr* expr = new_expr_val->definition();
   }
+  return expr;
 }
 
 void castOptimizationPass(Fusion* fusion) {
@@ -221,7 +224,7 @@ void castOptimizationPass(Fusion* fusion) {
         // swap expr
         expr = replayed_expr_out->definition();
       }
-      moveChainedCasts(expr, visited);
+      expr = moveChainedCasts(expr, visited);
     } while (isMovableMeta(expr->input(0)->definition()));
   }
 }
