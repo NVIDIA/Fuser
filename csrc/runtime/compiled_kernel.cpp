@@ -1145,41 +1145,11 @@ void CompiledKernel::compile(
       "No output found for this kernel, aborting.");
 
   options_.device = device;
+  // Parameter cache doesn't cache on input scalars, so if one is used as a
+  // dynamic input size of a tensor the cache doesn't work correctly. This
+  // should be enabled in the cache, but since it's not, for now we will disable
+  // it under these circumstances.
   disable_parameter_cache_ = requiresDisabledParamCache(fusion());
-
-  for (auto out : fusion()->outputs()) {
-    const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
-    // walking through outputs to see if output shapes are dependent on
-    // non-tensor inputs. For which case, we should have disabled output
-    // allocation, since the caching id only looks at tensor shapes.
-    // See issue https://github.com/csarofeen/pytorch/issues/2002
-    std::vector<Val*> output_extents;
-    for (const auto id : logical_domain) {
-      Val* extent = nullptr;
-      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
-        continue;
-      } else if (id->isBroadcast() && id->hasExpandedExtent()) {
-        extent = id->expandedExtent();
-      } else {
-        extent = id->extent();
-      }
-      output_extents.emplace_back(extent);
-    }
-    auto dependencies = InputsOf::outputs(output_extents);
-    if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
-          // Once lowered extents can be a function of the input tensor meta
-          // data. Need to make sure it's an input and it's not a tensorview.
-          // The other option would be too see if there's a metadata grabbing op
-          // between them.
-          return val->isFusionInput() && !val->isA<TensorView>();
-        })) {
-      // TODO: parameter cache is too big a hammer here. We should consider
-      // separate the caching logic of output sizes & launch params. Since
-      // output size dependency should only invalidate the output sizes
-      NVF_ERROR(disable_parameter_cache_ == true, "Messed up!");
-      break;
-    }
-  }
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
     fusion()->print();
