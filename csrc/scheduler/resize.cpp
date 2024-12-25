@@ -174,11 +174,13 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Disable the scheduler if there's a squeeze op. The loop option
   // may also need to be enabled in that case, but that option is not
   // turned on automatically yet.
+#if 0
   if (ir_utils::hasOpsOfType<SqueezeOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "SqueezeOp not supported.");
     return false;
   }
+#endif
 
   if (getenv("SKIP_TRANSPOSE")) {
     if (hasAtLeastTwoValidGroups(fusion)) {
