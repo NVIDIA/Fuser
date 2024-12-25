@@ -517,12 +517,6 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3c->getLoopDomain());
-    tv3c->setLoopDomain(s.as<IterDomain*>());
-    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setAllocationDomain(s.as<IterDomain*>(), true);
 
@@ -531,8 +525,26 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+
   MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3->getLoopDomain());
+
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      mma_utils::scheduleTMAStoreForMmaOutput(tv3, swizzle);
+    }
+
+    tv3->setLoopDomain(s.as<IterDomain*>());
+  }
   mma_utils::scheduleStMatrixForMmaOutput(tv3, swizzle, tile_m, tile_n);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);
 
