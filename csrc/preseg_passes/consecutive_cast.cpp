@@ -173,14 +173,14 @@ Expr* moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
           expr->fusion(), {{expr->output(0), starting_anchor}});
     } else {
       Val* new_expr_val = replaceInputInCast(expr->output(0), starting_anchor);
-      Expr* expr = new_expr_val->definition();
+      expr = new_expr_val->definition();
     }
   } else {
     // 1.4.b: This is the case where we cannot fold away the cast of
     // lo_anchor; we'll just re-wire input to expr with lo_anchor
     lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
     Val* new_expr_val = replaceInputInCast(expr->output(0), lo_anchor);
-    Expr* expr = new_expr_val->definition();
+    expr = new_expr_val->definition();
   }
   return expr;
 }
