@@ -20,7 +20,7 @@ using EmbeddingTest = NVFuserTest;
 
 constexpr int64_t n = 5, s = 2;
 
-TEST_F(EmbeddingTest, Basic) {
+TEST_F(EmbeddingTest, EmbeddingNode) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> inp_shape({s});
@@ -45,19 +45,5 @@ TEST_F(EmbeddingTest, Basic) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs({input, weight});
   EXPECT_TRUE(at::allclose(nvf_out[0], aten_out));  
-}
-
-// INSTANTIATE_TEST_SUITE_P(
-//     LinearWithoutBias,
-//     LinearNodeParametrizedTest,
-//     testing::Combine(
-//         testing::Values(
-//             Sizes({k}),
-//             Sizes({m, k}),
-//             Sizes({b, m, k}),
-//             Sizes({1, k}),
-//             Sizes({b, 1, k})),
-//         testing::Values(Sizes({n, k}), Sizes({1, k})),
-//         testing::Values(std::nullopt)));
-        
+}        
 } // namespace nvfuser
