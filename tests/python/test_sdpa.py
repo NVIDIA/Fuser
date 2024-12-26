@@ -53,7 +53,9 @@ class TestSdpa(NVFuserTest):
                 fusion_func,
                 inputs,
             )
-        torch.testing.assert_close(nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + 1))
+        torch.testing.assert_close(
+            nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + 1)
+        )
 
     def test_sdpa_fwd(self):
         def fusion_func(
