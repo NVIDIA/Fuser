@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import itertools
 import math
+import pytest
 import torch
 import torch.nn.functional as F
-import pytest
-import itertools
-from utils import NVFuserTest, is_pre_ampere
-from nvfuser import FusionDefinition, DataType, FusionCache
 from functools import partial
+from nvfuser import FusionDefinition, DataType, FusionCache
+from utils import NVFuserTest, is_pre_ampere
 
 
 @pytest.mark.skipif(
