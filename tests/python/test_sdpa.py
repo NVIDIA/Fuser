@@ -39,7 +39,7 @@ class TestSdpa(NVFuserTest):
             ) = fd.ops.sdpfa_fwd(q, k, v, dropout_p=None, is_causal=None, scale=None)
             fd.add_output(lse)
 
-        n, h, l, s, e = 1, 1, 4, 4, 1
+        n, h, l, s, e = 1, 1, 4, 4, 2
         inputs = [
             torch.ones((n, h, l, e), dtype=torch.bfloat16, device="cuda"),
             torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
@@ -53,11 +53,11 @@ class TestSdpa(NVFuserTest):
                 fusion_func,
                 inputs,
             )
-        # Ignoring size-1 dimensions, Q @ K^T generates a SxS matrix full of 1s.
-        # Therefore, the logsumexp of each row is expected to be log(e^1 * s) =
-        # log(s) + 1.
+        # Ignoring size-1 dimensions, `q @ k^T / sqrt(e)` generates a `l`x`s`
+        # matrix full of `sqrt(e)`s.  Therefore, the logsumexp of each row is
+        # expected to be log(exp(sqrt(e)) * s) = log(s) + sqrt(e).
         torch.testing.assert_close(
-            nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + 1)
+            nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + e ** 0.5)
         )
 
     def test_sdpa_fwd(self):
