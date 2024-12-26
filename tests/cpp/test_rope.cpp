@@ -538,14 +538,22 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
   auto T13 = permute(T1, {0, 2, 1});
   auto T14 = castOp(DataType::BFloat16, T12);
   auto T15 = cat({T13, T13}, -1);
+#if 0
   auto T22 = broadcast(T14, {true, false, true, false, false});
   auto T23 = sin(T15);
   auto T24 = castOp(DataType::Float, T22);
   auto T25 = castOp(DataType::BFloat16, T23);
   auto T26 = sum(T24, {0, 2});
+#else
+  auto T23 = sin(T15);
+  auto T25 = castOp(DataType::BFloat16, T23);
+  auto T33 = set(T14);
+#endif
   auto T32 = broadcast(T25, {false, true, false, false});
-  T32 = segment_set(T32);
-  auto T33 = castOp(DataType::BFloat16, T26);
+  if (getenv("SEGMENT_SET")) {
+    T32 = segment_set(T32);
+  }
+  // auto T33 = castOp(DataType::BFloat16, T26);
   auto T39 = expand(
       T32,
       std::vector<Val*>{
@@ -619,7 +627,9 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
         IrBuilder::create<Val>(head_dim)}});
   auto T146 = castOp(DataType::BFloat16, T105);
   auto T147 = castOp(DataType::BFloat16, T106);
-  T112 = segment_set(T112);
+  if (getenv("SEGMENT_SET")) {
+    T112 = segment_set(T112);
+  }
   auto T153 = expand(
       T112,
       std::vector<Val*>{
@@ -642,22 +652,23 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
       T145, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)});
   auto T203 = pad(
       T146, {IrBuilder::create<Val>(head_dim / 2), IrBuilder::create<Val>(0L)});
-  auto T210 = broadcast(T147, {true, false, true, false, false});
+  // auto T210 = broadcast(T147, {true, false, true, false, false});
   auto T211 = castOp(DataType::Float, T153);
   auto T212 = castOp(DataType::Float, T164);
   auto T213 = castOp(DataType::Float, T175);
   auto T214 = castOp(DataType::Float, T181);
   auto T215 = castOp(DataType::Float, T192);
   auto T216 = castOp(DataType::Float, T203);
-  auto T217 = castOp(DataType::Float, T210);
+  // auto T217 = castOp(DataType::Float, T210);
   auto T218 = mul(T211, T52);
   auto T219 = add(T213, T212);
   auto T220 = mul(T214, T54);
   auto T221 = add(T216, T215);
-  auto T222 = sum(T217, {0, 2});
+  // auto T222 = sum(T217, {0, 2});
   auto T223 = add(T219, T218);
   auto T224 = add(T221, T220);
-  auto T225 = castOp(DataType::BFloat16, T222);
+  // auto T225 = castOp(DataType::BFloat16, T222);
+  auto T225 = set(T147);
   auto T226 = castOp(DataType::BFloat16, T223);
   auto T227 = castOp(DataType::BFloat16, T224);
   auto T233 = broadcast(T225, {true, false, false, false});
@@ -704,6 +715,30 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
   auto t2 = at::randn(shape2, options_bf16);
   auto t3 = at::randn(shape3, options_bf16);
   std::vector<c10::IValue> inputs({t0, t1, t2, t3});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(RopeTest, TMP) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto T0 = makeContigConcreteTensor({1, 32});
+  fusion.addInput(T0);
+
+  auto T1 = squeeze(T0, {0});
+  fusion.addOutput(T1);
+
+  fusion.printMath();
+
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 32}, options_fp32);
+  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors = executor_cache.runFusionWithInputs(inputs);
