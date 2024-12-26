@@ -53,6 +53,9 @@ class TestSdpa(NVFuserTest):
                 fusion_func,
                 inputs,
             )
+        # Ignoring size-1 dimensions, Q @ K^T generates a SxS matrix full of 1s.
+        # Therefore, the logsumexp of each row is expected to be log(e^1 * s) =
+        # log(s) + 1.
         torch.testing.assert_close(
             nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + 1)
         )
