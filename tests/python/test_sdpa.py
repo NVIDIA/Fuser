@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import math
 import torch
-from utils import NVFuserTest, is_pre_ampere
-from nvfuser import FusionDefinition, DataType, FusionCache
+import torch.nn.functional as F
 import pytest
 import itertools
+from utils import NVFuserTest, is_pre_ampere
+from nvfuser import FusionDefinition, DataType, FusionCache
 from functools import partial
-import torch.nn.functional as F
 
 
 @pytest.mark.skipif(
@@ -17,6 +18,43 @@ import torch.nn.functional as F
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 class TestSdpa(NVFuserTest):
+    def test_softmax_logsumexp(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            q = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                dtype=DataType.BFloat16,
+            )
+            k = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                dtype=DataType.BFloat16,
+            )
+            v = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                dtype=DataType.BFloat16,
+            )
+            (
+                _,
+                lse,
+                *_,
+            ) = fd.ops.sdpfa_fwd(q, k, v, dropout_p=None, is_causal=None, scale=None)
+            fd.add_output(lse)
+
+        n, h, l, s, e = 1, 1, 4, 4, 1
+        inputs = [
+            torch.ones((n, h, l, e), dtype=torch.bfloat16, device="cuda"),
+            torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
+            torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
+        ]
+
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            nvf_out, _ = self.exec_nvfuser(
+                fusion_func,
+                inputs,
+            )
+        torch.testing.assert_close(nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + 1))
+
     def test_sdpa_fwd(self):
         def fusion_func(
             fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
@@ -46,9 +84,7 @@ class TestSdpa(NVFuserTest):
                 is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
             if has_scale:
                 scale = fd.define_scalar(value=None, dtype=DataType.Double)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p, is_causal, scale
-            )
+            attn, *_ = fd.ops.sdpfa_fwd(q, k, v, dropout_p, is_causal, scale)
             fd.add_output(attn)
 
         N, H, L, S, E = 4, 8, 16, 16, 8
