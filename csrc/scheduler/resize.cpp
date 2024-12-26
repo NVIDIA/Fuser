@@ -16,6 +16,7 @@
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/resize.h>
+#include <scheduler/resize_heuristic.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
@@ -204,8 +205,38 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ResizeScheduler::computeHeuristics");
-  auto params = std::make_unique<HeuristicParams>(SchedulerType::Resize);
+  auto params = std::make_unique<ResizeParams>(SchedulerType::Resize);
+  params->tag = "Resize heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
+
+  const int64_t bdimx = 128;
+
+  int64_t max_num_elms = -1;
+  for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    int64_t num_elms = 1;
+    for (auto logical_id : out_tv->getLogicalDomain()) {
+      auto inferred_val =
+          runtime_info.expressionEvaluator().evaluate(logical_id->extent());
+      NVF_ERROR(
+          inferred_val.hasValue(),
+          "Error inferring extent of: ",
+          logical_id->toString());
+      num_elms *= inferred_val.as<int64_t>();
+    }
+    std::cerr << "Output: " << out_tv->toString() << ", num elems: " << num_elms
+              << "\n";
+    max_num_elms = std::max(max_num_elms, num_elms);
+  }
+
+  std::cerr << "Max num elms: " << max_num_elms << "\n";
+
+  if (ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx) {
+    std::cerr << "Split gdimx\n";
+    params->split_grid_x_dim = true;
+  } else {
+    params->split_grid_x_dim = false;
+  }
+
   return params;
 }
 
@@ -213,6 +244,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
   FusionGuard fg(fusion);
+  const auto rparams = dynamic_cast<const ResizeParams*>(params);
+  NVF_ERROR(rparams != nullptr);
 
   scheduler_utils::clearMemorySpace(fusion);
 
@@ -298,6 +331,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Skip vectorization of the first segment
   bool vectorize = getenv("VECTORIZE") && (fusion->inputs().size() > 1);
 
+  // Use this value if not -1
+  int64_t gdimx = -1;
+  if (getenv("GDIMX")) {
+    gdimx = atoi(getenv("GDIMX"));
+  }
+
   if (vectorize) {
     std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
     TensorView* allocation_ref_tv = nullptr;
@@ -345,10 +384,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     if (getenv("BDIMX")) {
       bdimx = atoi(getenv("BDIMX"));
     }
-    int64_t gdimx = 1 << 14;
-    if (getenv("GDIMX")) {
-      gdimx = atoi(getenv("GDIMX"));
-    }
     int64_t vec_factor = 4;
     if (getenv("VEC")) {
       vec_factor = atoi(getenv("VEC"));
@@ -357,15 +392,23 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ref_tv->split(-1, vec_factor);
     ref_tv->flatten(outermost_pos, -2);
     ref_tv->split(outermost_pos, bdimx);
-    ref_tv->split(outermost_pos, gdimx);
     ref_tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (gdimx > 0) {
+      ref_tv->split(outermost_pos, gdimx);
+    } else if (rparams->split_grid_x_dim) {
+      ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
+    }
     ref_tv->axis(-3)->parallelize(ParallelType::BIDx);
   } else {
     // Schedule only the remaining IDs
     ref_tv->flatten(outermost_pos);
     ref_tv->split(outermost_pos, 128);
-    ref_tv->split(outermost_pos, 1 << 14);
     ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+    if (gdimx > 0) {
+      ref_tv->split(outermost_pos, gdimx);
+    } else if (rparams->split_grid_x_dim) {
+      ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
+    }
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
   }
 
