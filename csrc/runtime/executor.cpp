@@ -397,7 +397,7 @@ void KernelExecutor::compile(
       if (arg->is<at::Tensor>()) {
         const at::Tensor& tensor = arg->as<at::Tensor>();
         for (const size_t dim_i : c10::irange(tensor.ndimension())) {
-          int64_t size = tensor.size(dim_i);
+          int64_t size = tensor.size((int64_t)dim_i);
           NVF_CHECK(
               size < (1LL << 31),
               "TMA enabled with 64-bit indexing. Expected all input dims to be < 2^31 but found ",
