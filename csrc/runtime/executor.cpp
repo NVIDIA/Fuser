@@ -16,6 +16,7 @@
 #include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
@@ -304,6 +305,9 @@ void KernelExecutor::compile(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
+  createKernelId(
+      scheduler_type, fusion_id_, concrete_id_, runtime_id_, group_id_);
+
   // TODO: refactor the options_ passed through
   options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
@@ -346,10 +350,21 @@ void KernelExecutor::compile(
     }
   }
 
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
+    fusion->printMath();
+  }
+
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
     fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
+    std::stringstream file_name;
+    file_name << "__tmp_fusion_ir_graph_" << kernel_id_ << ".dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
   }
 
   //! Force index_type to int and disable magic zero if we detect that the
@@ -428,8 +443,7 @@ void KernelExecutor::compile(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  createKernelId(
-      scheduler_type, fusion_id_, concrete_id_, runtime_id_, group_id_);
+
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {

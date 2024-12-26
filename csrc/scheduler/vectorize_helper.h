@@ -289,9 +289,6 @@ class NVF_API ContiguousInnerDimensionsMapper
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
 
-  // traverse fusion to mark the origin of Resize
-  void initializeResizeInfo(Fusion* fusion);
-
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
   // recording_ starts as false, and stays that way during the first series of
@@ -311,9 +308,6 @@ class NVF_API ContiguousInnerDimensionsMapper
       tv_infos_;
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
-
-  //! stores all Resize* op that's added from PadOp*
-  std::unordered_set<Resize*> resize_in_pad_;
 };
 
 // logical_reorder_map is provided to assume reference_tv will be reordered per

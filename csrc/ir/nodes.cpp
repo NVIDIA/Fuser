@@ -557,6 +557,12 @@ std::string UnaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string UnaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getUnaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(UnaryOp)
 
 BinaryOp::BinaryOp(
@@ -724,6 +730,12 @@ std::string BinaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string BinaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getBinaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BinaryOp)
 
 TernaryOp::TernaryOp(
@@ -822,6 +834,12 @@ std::string TernaryOp::toInlineString(int indent_size) const {
       in1()->toInlineString(),
       in2()->toInlineString(),
       in3()->toInlineString());
+  return ss.str();
+}
+
+std::string TernaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getTernaryOpType() << ")";
   return ss.str();
 }
 
@@ -1250,7 +1268,17 @@ BroadcastOp::BroadcastOp(
 std::string BroadcastOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = broadcast( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = broadcast( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getBroadcastDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
@@ -4399,6 +4427,39 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   return {at::cat(unpadded_inputs, concat_dim)};
 }
 
+namespace {
+
+// Given a tensorview, compute the strides according to the allocation domain
+// for re-striding the corresponding ATen tensor.
+std::vector<int64_t> computeStrides(
+    TensorView* tv,
+    const c10::IntArrayRef sizes) {
+  const auto& logical_domain = tv->getLogicalDomain();
+  const auto& allocation_domain = tv->getMaybeAllocationDomain();
+
+  std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
+      TensorDomain::noReductions(logical_domain),
+      TensorDomain::noReductions(allocation_domain));
+  NVF_CHECK(
+      out_order.has_value(),
+      "Valid permute from logical to allocation domain was not found.");
+
+  auto rank = sizes.size();
+  std::vector<int64_t> sorted_strides(rank);
+  auto permuted_sizes = ir_utils::applyPermutation(sizes.vec(), *out_order);
+  sorted_strides[rank - 1] = 1;
+  for (int64_t idx = (int64_t)rank - 2; idx >= 0; idx--) {
+    sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];
+  }
+  // Rearrange the strides in correct order of allocation
+  std::vector<int64_t> strides(rank);
+  for (auto idx : c10::irange(rank)) {
+    strides[out_order.value()[idx]] = sorted_strides[idx];
+  }
+  return strides;
+}
+} // namespace
+
 MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
     : Expr(passkey) {
   addOutput(out);
@@ -4425,7 +4486,17 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
-  return {at::matmul(a, b)};
+
+  auto matmul_out = at::matmul(a, b);
+  if (ir_utils::hasTrivialAllocationDomain(out())) {
+    return {matmul_out};
+  }
+  auto matmul_sizes = matmul_out.sizes();
+  auto strides = computeStrides(out(), matmul_sizes);
+  auto strided_matmul_out =
+      at::empty_strided(matmul_sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
 }
 
 LinearOp::LinearOp(

@@ -40,6 +40,7 @@ enum class DebugDumpOption {
   // TODO(wujingyue): name the following FusionIrSched
   FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
             //!< to `KernelExecutor::compileFusion`.
+  FusionIrGraph, //!< Dump a GraphViz graph of the Fusion IR
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
