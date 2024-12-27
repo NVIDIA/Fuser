@@ -7,7 +7,10 @@
 // clang-format on
 #include <id_model/id_model.h>
 #include <id_model/indexing_traversal.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -240,9 +243,52 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
       local_graph,
       {from_groups.vector().begin(), from_groups.vector().end()},
       {to_groups.vector().begin(), to_groups.vector().end()},
-      /*require_all_to_visited=*/true);
+      /*require_all_to_visited=*/false);
   traversal.traverse();
   auto [path, all_visited] = traversal.getShortestExprPath();
+
+  if (!all_visited) {
+    auto reachable_vals = ValGroups(getReachableValsFrom<ValGraphBFS>(
+        {from_groups.vector().begin(), from_groups.vector().end()},
+        {to_groups.vector().begin(), to_groups.vector().end()},
+        Direction::Undefined,
+        local_graph));
+    for (const auto& to_group : to_groups) {
+      if (reachable_vals.has(to_group)) {
+        continue;
+      }
+
+      // Broadcast groups may not be reachable, which should be
+      // fine. For example, Index::getConsumerPerDimLogicalIndex may
+      // try to get an index of a broadcast logical ID. However, the
+      // loop domain of the tensor may not use the broadcast logical
+      // ID, which is completely fine.
+      if (to_group->front()->as<IterDomain>()->isBroadcast()) {
+        continue;
+      }
+
+      // Otherwise, this is an error. Need to understand why this
+      // happens.
+      // Dump the graph for debugging
+      std::ofstream ofs("local_graph.dot", std::ofstream::trunc);
+      auto dot_string = local_graph.toGraphvizDotGraph();
+      ofs << dot_string;
+      ofs.close();
+      std::stringstream ss;
+      ss << "Resize war indexing path failed. Expr: " << expr->toString()
+         << "From IDs: " << toDelimitedString(from_ids) << "\n"
+         << "From groups: " << nvfuser::toString(from_groups) << "\n"
+         << "To IDs: " << toDelimitedString(to_ids) << "\n"
+         << "To groups: " << nvfuser::toString(to_groups) << "\n"
+         << "Reachable IDs: "
+         << nvfuser::toString(getReachableValsFrom<ValGraphBFS>(
+                {from_groups.vector().begin(), from_groups.vector().end()},
+                {to_groups.vector().begin(), to_groups.vector().end()},
+                Direction::Undefined,
+                local_graph));
+      NVF_THROW(ss.str());
+    }
+  }
 
   for (const auto& [g, d] : path) {
     if (g->front()->isA<Resize>()) {
