@@ -323,6 +323,26 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   //
   // In the case of the update mode, the target should be just the
   // current loop domain of the tensor.
+  //
+  // TODO: Reconsider if ignoring broadcast IDs is the right thing to
+  // do. There can be legitimate broadcast transformations in the
+  // reference, and if there's a matching broadcast ID in this tv, the
+  // transformations should be propagated. However, when a concrete ID
+  // of a referene tv replaces a broadcast ID of this tv, there's no
+  // path from the concrete ID to the broadcast ID, thus getting a
+  // path would fail. I think the fundamental problem is the
+  // disconnection to the broadcast ID. This could be avoided if the
+  // Broadcast graph was used. However, for scheduling loop domains,
+  // the Broadcast graph isn't the right choice when a corresponding
+  // concrete ID is resized. For example, if a concrete
+  // ID is resized to a broadcast ID, how should the corresponding
+  // broadcast ID be resized? If the same resize were applied, the
+  // extent of the resized broadcast ID would become negative, which
+  // is probably not what we would want. Perhaps, we should consider
+  // expanding the broadcast ID to the concrete size and only map
+  // expanded broadcast IDs with concrete IDs. And if the expand is
+  // represented with an IterDomain exprssion, we could avoid
+  // disconnected IDs.
   ValGroups tv_target_domains = graph().toGroups(TensorDomain::noBroadcasts(
       update_loop_domain_only_ ? tv->getLoopDomain()
                                : tv->getMaybeRootDomain()));

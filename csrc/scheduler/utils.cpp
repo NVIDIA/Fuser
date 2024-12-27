@@ -2685,13 +2685,15 @@ void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
 
   ValGroups ref_groups = graph.toGroups(ref);
 
+  // Traverse from the reference to the target tv.
+
   auto path = ValGraphBFS::getExprGroupsBetween(
                   graph,
-                  target_groups,
                   ref_groups,
+                  target_groups,
                   /*require_all_to_visited=*/false)
                   .first;
-  path = reverse(path);
+  // path = reverse(path);
 
   std::deque<ValGroup> ordered_domain{
       ref_groups.vector().begin(), ref_groups.vector().end()};
@@ -2705,22 +2707,23 @@ void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
         expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
     auto outputs = getOutputsOfExpr(
         expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+
+    // Inserts the outputs at the innermost position
     std::deque<ValGroup>::iterator innermost_it = ordered_domain.end();
-    // Not all inputs are guaranteed to be found
     for (auto it = inputs.rbegin(); it != inputs.rend(); ++it) {
       innermost_it =
           std::find(ordered_domain.begin(), ordered_domain.end(), *it);
-      if (innermost_it != ordered_domain.end()) {
-        break;
+      if (innermost_it == ordered_domain.end()) {
+        std::cerr << "Inputs: " << nvfuser::toString(inputs) << "\n";
+        std::cerr << "Ordered domain: " << nvfuser::toString(ordered_domain)
+                  << "\n";
       }
+      NVF_ERROR(innermost_it != ordered_domain.end());
+      break;
     }
-    if (innermost_it == ordered_domain.end()) {
-      std::cerr << "Inputs: " << nvfuser::toString(inputs) << "\n";
-      std::cerr << "Ordered domain: " << nvfuser::toString(ordered_domain)
-                << "\n";
-    }
-    NVF_ERROR(innermost_it != ordered_domain.end());
     ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
+
+    // Removes the inputs
     for (const auto& inp : inputs) {
       ordered_domain.erase(
           std::remove(ordered_domain.begin(), ordered_domain.end(), inp),

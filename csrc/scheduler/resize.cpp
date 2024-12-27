@@ -32,6 +32,30 @@ TensorView* getReferenceTensor(Fusion* fusion) {
   return pointwise_utils::getReferenceTensor(fusion);
 }
 
+std::pair<TensorView*, int64_t> getLargestTensor(
+    const std::vector<Val*>& vals,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t max_num_elms = -1;
+  TensorView* largest_tv = nullptr;
+  for (auto tv : ir_utils::filterByType<TensorView>(vals)) {
+    int64_t num_elms = 1;
+    for (auto logical_id : tv->getLogicalDomain()) {
+      auto inferred_val =
+          runtime_info.expressionEvaluator().evaluate(logical_id->extent());
+      NVF_ERROR(
+          inferred_val.hasValue(),
+          "Error inferring extent of: ",
+          logical_id->toString());
+      num_elms *= inferred_val.as<int64_t>();
+    }
+    if (num_elms > max_num_elms) {
+      largest_tv = tv;
+      max_num_elms = num_elms;
+    }
+  }
+  return std::make_pair(largest_tv, max_num_elms);
+}
+
 } // namespace
 
 bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -211,24 +235,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
   const int64_t bdimx = 128;
 
-  int64_t max_num_elms = -1;
-  for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    int64_t num_elms = 1;
-    for (auto logical_id : out_tv->getLogicalDomain()) {
-      auto inferred_val =
-          runtime_info.expressionEvaluator().evaluate(logical_id->extent());
-      NVF_ERROR(
-          inferred_val.hasValue(),
-          "Error inferring extent of: ",
-          logical_id->toString());
-      num_elms *= inferred_val.as<int64_t>();
-    }
-    std::cerr << "Output: " << out_tv->toString() << ", num elems: " << num_elms
-              << "\n";
-    max_num_elms = std::max(max_num_elms, num_elms);
-  }
-
-  std::cerr << "Max num elms: " << max_num_elms << "\n";
+  const auto& [largest_output, max_num_elms] =
+      getLargestTensor(fusion->outputs(), runtime_info);
 
   if (ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx) {
     std::cerr << "Split gdimx\n";
@@ -236,6 +244,16 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   } else {
     params->split_grid_x_dim = false;
   }
+
+  const auto largest_input =
+      getLargestTensor(fusion->inputs(), runtime_info).first;
+  int64_t index_of_largest_input = std::distance(
+      fusion->inputs().begin(),
+      std::find(
+          fusion->inputs().begin(), fusion->inputs().end(), largest_input));
+
+  std::cerr << "Largest input: " << largest_input->toString() << "\n";
+  params->largest_input = index_of_largest_input;
 
   return params;
 }
@@ -350,14 +368,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   if (vectorize) {
     std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
-    TensorView* allocation_ref_tv = nullptr;
-    for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-      if (allocation_ref_tv == nullptr ||
-          allocation_ref_tv->getLogicalDomain().size() <
-              inp->getLogicalDomain().size()) {
-        allocation_ref_tv = inp;
-      }
-    }
+    TensorView* allocation_ref_tv =
+        fusion->inputs().at(rparams->largest_input)->as<TensorView>();
+
     std::cerr << "Allocation ref tensor: " << allocation_ref_tv->toString()
               << ", "
               << toDelimitedString(
@@ -365,8 +378,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
               << "\n";
 
     auto ref_alloc = allocation_ref_tv->getMaybeAllocationDomain();
+#if 0
     std::vector<IterDomain*> ref_alloc_reordered;
     ref_alloc_reordered.reserve(ref_alloc.size());
+
     // Move broadcast outer
     for (const auto i : c10::irange(ref_alloc.size())) {
       if (ref_alloc.at(i)->isBroadcast()) {
@@ -384,10 +399,14 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
                      allocation_ref_tv->getMaybeAllocationDomain())
               << ", reordered: " << toDelimitedString(ref_alloc_reordered)
               << "\n";
+    // Reorder the reference as the allocation domain of the largest fusion
+    // input
+    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc_reordered);
+#endif
 
-    // Reorder the reference as the allocation domain of the fusion
-    // inputs. For now, just use the first input
-    // scheduler_utils::reorderTensorLike(ref_tv, ref_alloc_reordered);
+    if (getenv("REORDER")) {
+      scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
+    }
 
     std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
 
@@ -418,6 +437,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     }
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
   }
+
+  std::cout << "Before ref prop\n";
+  fusion->print();
+  std::cout << std::endl;
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
