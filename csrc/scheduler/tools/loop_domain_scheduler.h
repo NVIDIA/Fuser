@@ -12,8 +12,10 @@
 namespace nvfuser {
 
 class Expr;
+class Fusion;
 class TensorView;
 class IterDomain;
+class ViewOp;
 
 namespace scheduler_tools {
 
@@ -63,6 +65,8 @@ void scheduleLoopDomainsLike(
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
     Expr* transform);
+
+void cancelReshapeTransforms(Fusion* fusion);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

@@ -320,6 +320,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
+  // Mistral bwd has a reshape at the end of the fusion that merges
+  // the two innermost dimensions. To make the below vectorization to
+  // work, the vectorization needs to be applied to the innermost
+  // dimension only, so the merge needs to be canceled.
+  scheduler_tools::cancelReshapeTransforms(fusion);
+
   auto ref_tv = getReferenceTensor(fusion);
 
   // Just simple scheduling for now.
@@ -328,8 +334,13 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
+  int64_t vec_factor = -1;
+  if (getenv("VEC")) {
+    vec_factor = atoi(getenv("VEC"));
+  }
+
   // Skip vectorization of the first segment
-  bool vectorize = getenv("VECTORIZE") && (fusion->inputs().size() > 1);
+  bool vectorize = vec_factor > 1 && (fusion->inputs().size() > 1);
 
   // Use this value if not -1
   int64_t gdimx = -1;
@@ -376,17 +387,13 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     // Reorder the reference as the allocation domain of the fusion
     // inputs. For now, just use the first input
-    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc_reordered);
+    // scheduler_utils::reorderTensorLike(ref_tv, ref_alloc_reordered);
 
     std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
 
     int64_t bdimx = 128;
     if (getenv("BDIMX")) {
       bdimx = atoi(getenv("BDIMX"));
-    }
-    int64_t vec_factor = 4;
-    if (getenv("VEC")) {
-      vec_factor = atoi(getenv("VEC"));
     }
 
     ref_tv->split(-1, vec_factor);

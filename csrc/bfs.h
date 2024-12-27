@@ -549,6 +549,75 @@ class BFS {
   Direction allowed_direction_ = Direction::Undefined;
 };
 
+template <
+    typename ExprT,
+    typename ValT,
+    typename DefinitionT,
+    typename UsesT,
+    typename InputsT,
+    typename OutputsT>
+class BFSWithPermissiveDependence
+    : public BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT> {
+ public:
+  using NodeType =
+      typename BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>::
+          NodeType;
+
+  BFSWithPermissiveDependence(
+      DefinitionT definition,
+      UsesT uses,
+      InputsT inputs,
+      OutputsT outputs,
+      std::vector<NodeType> from,
+      std::vector<NodeType> to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>(
+            definition,
+            uses,
+            inputs,
+            outputs,
+            std::move(from),
+            std::move(to),
+            require_all_to_visited,
+            allowed_direction) {}
+
+  std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
+      const ExprT& expr) const override {
+    // Either any inputs or any outputs must have been visited
+    decltype(auto) inputs = this->inputs_(expr);
+    if (!inputs.empty() && this->allowed_direction_ != Direction::Backward &&
+        std::any_of(
+            inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
+              return this->isDependencySatisfied(input);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          inputs.begin(),
+          inputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValT& input) -> bool { return this->isVisited(input); });
+      return std::make_pair(Direction::Forward, prev_nodes);
+    }
+
+    decltype(auto) outputs = this->outputs_(expr);
+    if (!outputs.empty() && this->allowed_direction_ != Direction::Forward &&
+        std::any_of(
+            outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
+              return this->isDependencySatisfied(output);
+            })) {
+      std::vector<NodeType> prev_nodes;
+      std::copy_if(
+          outputs.begin(),
+          outputs.end(),
+          std::back_inserter(prev_nodes),
+          [&](const ValT& output) -> bool { return this->isVisited(output); });
+      return std::make_pair(Direction::Backward, prev_nodes);
+    }
+    return std::nullopt;
+  }
+};
+
 // Find the shortest path from the from vals to the to
 // vals. Dependency between vals and exprs must be satisfied.
 // It is an error if no valid path is found unless
