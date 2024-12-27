@@ -57,7 +57,7 @@ class TestSdpa(NVFuserTest):
         # matrix full of `sqrt(e)`s.  Therefore, the logsumexp of each row is
         # expected to be log(exp(sqrt(e)) * s) = log(s) + sqrt(e).
         torch.testing.assert_close(
-            nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + e ** 0.5)
+            nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + e**0.5)
         )
 
     def test_sdpa_fwd(self):
