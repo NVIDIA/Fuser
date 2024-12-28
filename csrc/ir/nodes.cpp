@@ -4647,7 +4647,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   } else {
     out = at::linear(in, weight);
   }
-  
+
   for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
     out = out.unsqueeze(0);
   }
