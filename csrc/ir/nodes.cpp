@@ -4642,11 +4642,12 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   at::Tensor out;
   if (has_bias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
-    // squeeze_device_dims(bias, num_device_dims);
+    squeeze_device_dims(bias, num_device_dims);
     out = at::linear(in, weight, bias);
   } else {
     out = at::linear(in, weight);
   }
+  
   for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
     out = out.unsqueeze(0);
   }

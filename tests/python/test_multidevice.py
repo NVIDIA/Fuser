@@ -110,6 +110,7 @@ def test_linear(multidevice_test):
         out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-3
     )
 
+
 @pytest.mark.mpi
 def test_linear_loop_split(mpi_test):
     class Model(FusionDefinition):
@@ -119,7 +120,7 @@ def test_linear_loop_split(mpi_test):
             self._batch = batch
             self._sequence = sequence
             self._hidden = hidden
-        
+
         def definition(self):
             d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
             self.inp = self.define_tensor([b, s, e])
@@ -129,21 +130,21 @@ def test_linear_loop_split(mpi_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.bias, self.out]: 
+            for t in [self.inp, self.weight, self.bias, self.out]:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard N for weight (N, K) and bias (N)
             for t in [self.weight, self.bias]:
-              self.sched.split(t, 0, d, False)
-              self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-              self.sched.set_allocation_as_loop(t)
+                self.sched.split(t, 0, d, False)
+                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(t)
 
             # Output of linear: {.., i{M}, i{N}, r{K}}
             # Shard N -> axis(-2)
             self.sched.split(self.out, -2, d, False)
             self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
             self.sched.set_allocation_as_loop(self.out)
-    
+
     d = mpi_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     rank = mpi_test.rank
@@ -156,13 +157,15 @@ def test_linear_loop_split(mpi_test):
     sharded_weight_tensor = mpi_test.shard_tensor(unsharded_weight_tensor, 0, mesh)
     unsharded_bias_tensor = torch.randn(d * e)
     sharded_bias_tensor = mpi_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
-    
+
     fd = Model(d, b, s, e)
     out_tensors = fd.execute([inp_tensor, sharded_weight_tensor, sharded_bias_tensor])
-    print (f'Output tensor: {out_tensors[0].shape}')
+    print(f"Output tensor: {out_tensors[0].shape}")
 
     # [b, s, d*e]
-    unsharded_out_tensor = torch.nn.functional.linear(inp_tensor, unsharded_weight_tensor.cuda(), unsharded_bias_tensor.cuda())
+    unsharded_out_tensor = torch.nn.functional.linear(
+        inp_tensor, unsharded_weight_tensor.cuda(), unsharded_bias_tensor.cuda()
+    )
     expected_out_tensor = unsharded_out_tensor.view([b, s, d, e]).permute(2, 0, 1, 3)[
         rank : rank + 1
     ]
@@ -170,7 +173,8 @@ def test_linear_loop_split(mpi_test):
     torch.testing.assert_close(
         out_tensors[0], expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
     )
-    
+
+
 @pytest.mark.mpi
 def test_matmul_allreduce(multidevice_test):
     d, b, s, e = multidevice_test.size, 1, 4, 8
