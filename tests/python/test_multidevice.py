@@ -132,7 +132,7 @@ def test_linear_loop_split(mpi_test):
             for t in [self.inp, self.weight, self.bias, self.out]: 
                 self.sched._set_device_mesh(t, mesh)
 
-            # Shard N for weight and bias
+            # Shard N for weight (N, K) and bias (N)
             for t in [self.weight, self.bias]:
               self.sched.split(t, 0, d, False)
               self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
@@ -170,7 +170,7 @@ def test_linear_loop_split(mpi_test):
     torch.testing.assert_close(
         out_tensors[0], expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
     )
-
+    
 @pytest.mark.mpi
 def test_matmul_allreduce(multidevice_test):
     d, b, s, e = multidevice_test.size, 1, 4, 8
