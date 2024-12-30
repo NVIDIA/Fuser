@@ -1848,8 +1848,8 @@ class MatmulTranslator : public OptInDispatch {
     // logical domains in input and weight already). Then we form an MmaOp and
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
-    int64_t a_dims = pattern_.A->getLogicalDomain().size();
-    int64_t b_dims = pattern_.B->getLogicalDomain().size();
+    int64_t a_dims = (int64_t)pattern_.A->getLogicalDomain().size();
+    int64_t b_dims = (int64_t)pattern_.B->getLogicalDomain().size();
     NVF_ERROR(
         a_dims > 1 && b_dims > 1, "Cannot translate LinearOp with 1D input");
     NVF_ERROR(
