@@ -226,7 +226,7 @@ bool fillDefaultHopperHeuristic(
 
   // The MmaOp output is a 32-bit float which requires one register per value
 
-  const DimType max_registers_per_sm = 512 * 100;
+  const DimType max_registers_per_sm = 512L * 100L;
 
   const auto ratiosValid = [&](const DimType m_ratio, const DimType n_ratio) {
     DimType cta_m = warp_tile.m * m_ratio;
@@ -320,7 +320,7 @@ inline bool initCoreHeuristics(
     return fillDefaultHopperHeuristic(
         mparams, problem_shape, tensor_roles, num_problems);
   } else if (isAmpere(mparams->mma_macro) || isTuring(mparams->mma_macro)) {
-    return fillDefaultHopperHeuristic(
+    return fillDefaultAmpereHeuristic(
         mparams, problem_shape, tensor_roles, num_problems);
   }
   // Unsupported arch

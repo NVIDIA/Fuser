@@ -1860,14 +1860,12 @@ class MatmulTranslator : public OptInDispatch {
     // logical domains in input and weight already). Then we form an MmaOp and
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
-    size_t a_dims = pattern_.A->getLogicalDomain().size();
-    size_t b_dims = pattern_.B->getLogicalDomain().size();
+    int64_t a_dims = pattern_.A->getLogicalDomain().size();
+    int64_t b_dims = pattern_.B->getLogicalDomain().size();
     NVF_ERROR(
-        a_dims > 1 && b_dims > 1,
-        "Cannot translate LinearOp with 1D input");
+        a_dims > 1 && b_dims > 1, "Cannot translate LinearOp with 1D input");
     NVF_ERROR(
-        b_dims == 2,
-        "Cannot translate LinearOp without 2D weight tensor");
+        b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
       MmaOp::AxisMapping axis_mapping;
       int64_t out_dim = a_dims + 1L;
@@ -1876,7 +1874,7 @@ class MatmulTranslator : public OptInDispatch {
         axis_mapping.a_axes.push_back((int64_t)d);
       }
       axis_mapping.a_axes.push_back(-1); // missing N dimension
-      axis_mapping.a_axes.push_back(a_dims - 1); // K dimension
+      axis_mapping.a_axes.push_back(a_dims - 1L); // K dimension
 
       axis_mapping.b_axes.reserve(out_dim);
       axis_mapping.b_axes.resize(out_dim, -1);
