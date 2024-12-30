@@ -165,7 +165,8 @@ class RepeatToExpandTranslator {
       // Step 2
       std::vector<Val*> expanded_sizes(
           bcast_flags.size(), IrBuilder::create<Val>(-1L));
-      expanded_sizes.at(repeated_id_offset) = IrBuilder::create<Val>(2L);
+      expanded_sizes.at(repeated_id_offset) =
+          IrBuilder::create<Val>((int64_t)info.cat_inp_tvs.size());
       auto expanded_tv = expand(broadcast_tv, expanded_sizes);
 
       // Step 3
