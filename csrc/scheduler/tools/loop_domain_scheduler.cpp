@@ -230,8 +230,9 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   }
 
   const auto path_from_ref = getReplayPath(tv);
-  const ExprGroups all_existing_expr_groups =
-      graph().toGroups(tv->domain()->allExprs());
+  const ExprGroups all_existing_expr_groups = update_loop_domain_only_
+      ? ExprGroups{}
+      : graph().toGroups(tv->domain()->allExprs());
 
   // Replay the path on the target tensor
   for (const auto& [expr_g, dir] : path_from_ref) {
