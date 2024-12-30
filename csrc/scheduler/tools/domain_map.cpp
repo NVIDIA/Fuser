@@ -178,18 +178,15 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 bool DomainMap::areAllTargetIdsCoveredBy(
     TensorView* target_tv,
     TensorView* reference_tv) const {
-  auto get_source_iter_domains = [this](TensorView* tv) {
+  auto get_source_iter_domains = [this](const std::vector<IterDomain*>& ids) {
     // traverse back to collect all disjoint set producer IDs for each ID in the
     // logical domain of tv.
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
-    std::for_each(
-        tv->getLogicalDomain().begin(),
-        tv->getLogicalDomain().end(),
-        [&](IterDomain* tv_logical_id) {
-          all_producer_sets.pushBack(
-              ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
-        });
+    std::for_each(ids.begin(), ids.end(), [&](IterDomain* tv_logical_id) {
+      all_producer_sets.pushBack(
+          ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
+    });
     all_producer_sets.pushBack(
         ca_map_.getAllDisjointSetProducers(all_producer_sets));
 
@@ -213,7 +210,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // this contains all source iter domain that's covered by reference_tv, so
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
-  for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
+  for (IterDomain* source_id_ref :
+       get_source_iter_domains(reference_tv->getLogicalDomain())) {
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
@@ -226,9 +224,10 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 
       // Note that ideally we should also be able to handle merge/split on
       // broadcast IDs, so we should really move this skip inside the loop below
-      // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
-      // currently we have the issue that split/merge does not preserve expanded
-      // broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
+      // `get_source_iter_domains(target_tv->getLogicalDomain())` and skip
+      // broadcast source IDs. currently we have the issue that split/merge does
+      // not preserve expanded broadcasts, see issue:
+      // https://github.com/NVIDIA/Fuser/issues/1126
       covered_source_ids.insert(id_out);
     }
   }
@@ -248,7 +247,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // https://github.com/NVIDIA/Fuser/issues/3542
 
   // Check all source iter domain involved in producing target_tv
-  for (IterDomain* source_id_out : get_source_iter_domains(target_tv)) {
+  for (IterDomain* source_id_out :
+       get_source_iter_domains(target_tv->getLogicalDomain())) {
     // NOTE: we use concrete id instead. This allows us to link indirect
     // broadcast. So in the example below: T2[i0, i1] = T0[i0, b0] + T1[i0, i1]
     // T3[i0, i9] = pad(T0[i0, b0])
@@ -256,137 +256,143 @@ bool DomainMap::areAllTargetIdsCoveredBy(
     //     -> source ID b0
     //     -> concrete map to i1
     // So T3 is contained by T2. See test `PointwiseTest.DomainMapPad1`
-    auto concrete_source_id_out =
+    auto concrete_id_out =
         ca_map_.getConcreteMappedID(source_id_out, IdMappingMode::PERMISSIVE);
-    // if we find any source_id_out that's not contained, it's possible our
-    // propagation would fail since transformation involving this iter domain
-    // can't be resolved.
-    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out)) {
+
+    for (IterDomain* concrete_source_id_out : get_source_iter_domains({concrete_id_out)) {
+        // if we find any source_id_out that's not contained, it's possible our
+        // propagation would fail since transformation involving this iter
+        // domain can't be resolved.
+        if (!getMappedInputConcreteID(
+                covered_source_ids, concrete_source_id_out)) {
+          return false;
+        }
+      }
+  }
+  return true;
+  }
+
+  // Reference domains must exactly match with the input domains. See
+  // also PR #661
+  IterDomain* DomainMap::getMappedInputConcreteID(
+      const std::unordered_set<IterDomain*>& in_concrete_ids,
+      IterDomain* out_id) const {
+    auto in_concrete_id_iter = std::find_if(
+        in_concrete_ids.begin(),
+        in_concrete_ids.end(),
+        [&](IterDomain* in_concrete_id) {
+          return ca_map_.areMapped(
+              in_concrete_id, out_id, IdMappingMode::EXACT);
+        });
+    if (in_concrete_id_iter != in_concrete_ids.end()) {
+      return *in_concrete_id_iter;
+    } else {
+      return nullptr;
+    }
+  }
+
+  // Erase input concrete ID if it is mapped to output ID
+  bool DomainMap::eraseIfMapped(
+      std::unordered_set<IterDomain*> & in_concrete_ids, IterDomain * out_id)
+      const {
+    auto mapped_input_conrete_id =
+        getMappedInputConcreteID(in_concrete_ids, out_id);
+    if (mapped_input_conrete_id != nullptr) {
+      in_concrete_ids.erase(mapped_input_conrete_id);
+      return true;
+    } else {
       return false;
     }
   }
-  return true;
-}
 
-// Reference domains must exactly match with the input domains. See
-// also PR #661
-IterDomain* DomainMap::getMappedInputConcreteID(
-    const std::unordered_set<IterDomain*>& in_concrete_ids,
-    IterDomain* out_id) const {
-  auto in_concrete_id_iter = std::find_if(
-      in_concrete_ids.begin(),
-      in_concrete_ids.end(),
-      [&](IterDomain* in_concrete_id) {
-        return ca_map_.areMapped(in_concrete_id, out_id, IdMappingMode::EXACT);
-      });
-  if (in_concrete_id_iter != in_concrete_ids.end()) {
-    return *in_concrete_id_iter;
-  } else {
-    return nullptr;
-  }
-}
+  void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
+      std::unordered_set<IterDomain*> & in_ids,
+      const std::vector<IterDomain*>& ids) const {
+    // Use ComputeAtMap::getAllDisjointSetProducers to grab all producer
+    // IDs through rfactor exprs
+    VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+        exact_sets;
+    std::for_each(ids.begin(), ids.end(), [&](IterDomain* id) {
+      exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+    });
 
-// Erase input concrete ID if it is mapped to output ID
-bool DomainMap::eraseIfMapped(
-    std::unordered_set<IterDomain*>& in_concrete_ids,
-    IterDomain* out_id) const {
-  auto mapped_input_conrete_id =
-      getMappedInputConcreteID(in_concrete_ids, out_id);
-  if (mapped_input_conrete_id != nullptr) {
-    in_concrete_ids.erase(mapped_input_conrete_id);
-    return true;
-  } else {
-    return false;
-  }
-}
+    // Traverse through indexed domains.
+    const auto indexed_id_multimap =
+        getIndexedConsumerToProducerMap(fusion_, ca_map_);
 
-void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
-    std::unordered_set<IterDomain*>& in_ids,
-    const std::vector<IterDomain*>& ids) const {
-  // Use ComputeAtMap::getAllDisjointSetProducers to grab all producer
-  // IDs through rfactor exprs
-  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      exact_sets;
-  std::for_each(ids.begin(), ids.end(), [&](IterDomain* id) {
-    exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
-  });
+    VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+        all_exact_sets_covered;
 
-  // Traverse through indexed domains.
-  const auto indexed_id_multimap =
-      getIndexedConsumerToProducerMap(fusion_, ca_map_);
+    // Back traverses through the exact map and indexed
+    // producer-consumer pairs
+    for (auto current_sets = exact_sets; !current_sets.empty();) {
+      auto producer_sets = ca_map_.getAllDisjointSetProducers(current_sets);
+      all_exact_sets_covered.pushBack(producer_sets);
 
-  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      all_exact_sets_covered;
+      current_sets.clear();
 
-  // Back traverses through the exact map and indexed
-  // producer-consumer pairs
-  for (auto current_sets = exact_sets; !current_sets.empty();) {
-    auto producer_sets = ca_map_.getAllDisjointSetProducers(current_sets);
-    all_exact_sets_covered.pushBack(producer_sets);
-
-    current_sets.clear();
-
-    // Further traversal if any of the new producer sets is a producer
-    // of indexed domains
-    for (const auto& producer_set : producer_sets) {
-      auto indexed_id_multimap_range =
-          indexed_id_multimap.equal_range(producer_set);
-      for (auto producer_of_producer_it = indexed_id_multimap_range.first;
-           producer_of_producer_it != indexed_id_multimap_range.second;
-           ++producer_of_producer_it) {
-        current_sets.pushBack(producer_of_producer_it->second);
+      // Further traversal if any of the new producer sets is a producer
+      // of indexed domains
+      for (const auto& producer_set : producer_sets) {
+        auto indexed_id_multimap_range =
+            indexed_id_multimap.equal_range(producer_set);
+        for (auto producer_of_producer_it = indexed_id_multimap_range.first;
+             producer_of_producer_it != indexed_id_multimap_range.second;
+             ++producer_of_producer_it) {
+          current_sets.pushBack(producer_of_producer_it->second);
+        }
       }
     }
+
+    for (const auto& exact_set_ptr : all_exact_sets_covered) {
+      auto exact_concrete_id = ca_map_.getConcreteMappedID(
+          exact_set_ptr->front(), IdMappingMode::EXACT);
+      eraseIfMapped(in_ids, exact_concrete_id);
+    }
   }
 
-  for (const auto& exact_set_ptr : all_exact_sets_covered) {
-    auto exact_concrete_id = ca_map_.getConcreteMappedID(
-        exact_set_ptr->front(), IdMappingMode::EXACT);
-    eraseIfMapped(in_ids, exact_concrete_id);
+  // Find any id in domain that maps with target id
+  IterDomain* DomainMap::anyMapped(
+      const std::vector<IterDomain*>& domain, IterDomain* target) const {
+    for (auto id : domain) {
+      if (ca_map_.areMapped(id, target, IdMappingMode::EXACT)) {
+        return id;
+      }
+    }
+    return nullptr;
   }
-}
 
-// Find any id in domain that maps with target id
-IterDomain* DomainMap::anyMapped(
-    const std::vector<IterDomain*>& domain,
-    IterDomain* target) const {
-  for (auto id : domain) {
-    if (ca_map_.areMapped(id, target, IdMappingMode::EXACT)) {
-      return id;
+  // Determine if output TensorView is a valid reference tensor for this fusion.
+  // The reference tensor must map to all the iterDomains in each input and
+  // output
+  bool DomainMap::isValidReference(TensorView * tv) const {
+    for (auto input_tv :
+         ir_utils::filterByType<TensorView>(fusion_->inputs())) {
+      if (input_tv->uses().empty()) {
+        continue;
+      }
+      // TODO: Same backward traversal from tv is done for all input
+      // tvs. Consider doing the analysis one for all inputs
+      if (!areAllInputIdsMappedTo(input_tv, tv)) {
+        return false;
+      }
     }
+    // The check on outputs are optional, transpose scheduler might propose a
+    // secondary reference that only applies to a subset of IO tensors. Ideally
+    // we should have a more robust check and consider the IO groups instead of
+    // blindly skip outputs.
+    for (auto output_tv :
+         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+      // no need to check for self.
+      if (output_tv == tv) {
+        continue;
+      }
+      if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
+        return false;
+      }
+    }
+    return true;
   }
-  return nullptr;
-}
-
-// Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input and output
-bool DomainMap::isValidReference(TensorView* tv) const {
-  for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
-    if (input_tv->uses().empty()) {
-      continue;
-    }
-    // TODO: Same backward traversal from tv is done for all input
-    // tvs. Consider doing the analysis one for all inputs
-    if (!areAllInputIdsMappedTo(input_tv, tv)) {
-      return false;
-    }
-  }
-  // The check on outputs are optional, transpose scheduler might propose a
-  // secondary reference that only applies to a subset of IO tensors. Ideally we
-  // should have a more robust check and consider the IO groups instead of
-  // blindly skip outputs.
-  for (auto output_tv :
-       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-    // no need to check for self.
-    if (output_tv == tv) {
-      continue;
-    }
-    if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
-      return false;
-    }
-  }
-  return true;
-}
 
 } // namespace scheduler_tools
 } // namespace nvfuser
