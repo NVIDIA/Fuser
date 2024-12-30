@@ -36,11 +36,11 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
   Val* replayed_meta_out = ops::newValLike(
       meta->output(0), new_in->getDataType().value());
 
-  if (expr->is<SqueezeOp>()) {
+  if (expr->isA<SqueezeOp>()) {
     IrBuilder::create<SqueezeOp>(replayed_meta_out, new_in, expr->as<SqueezeOp>()->getSqueezeDimFlags());
-  } else if (expr->is<BroadcastOp>()) {
+  } else if (expr->isA<BroadcastOp>()) {
     IrBuilder::create<BroadcastOp>(replayed_meta_out, new_in, expr->as<BroadcastOp>()->getBroadcastDimFlags());
-  } else if (expr->is<ViewOp>()) {
+  } else if (expr->isA<ViewOp>()) {
     IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
   } else {
     NVF_ERROR(false, "not identified operation");
