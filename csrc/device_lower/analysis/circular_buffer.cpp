@@ -232,9 +232,11 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(
 
 const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
     IterDomain* circular_buffer_axis) const {
-  auto concrete_id = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
 
-  auto maybe_depth_it = circular_buffer_options_.find(concrete_id);
+  auto maybe_depth_it = circular_buffer_options_.find(circular_buffer_axis);
 
   NVF_ERROR(
       maybe_depth_it != circular_buffer_options_.end(),
