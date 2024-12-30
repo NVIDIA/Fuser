@@ -213,9 +213,11 @@ void castOptimizationPass(Fusion* fusion) {
         // replay meta on new inputs.
         Expr* replayed_meta = nvfuser::ir_utils::replaceValInExprInputs(
             meta, meta->input(0), replayed_expr_out);
+
         // update replayed meta output.
-        replayed_meta = ir_utils::transferDefinitionToNewOutputs(
-            replayed_meta, {replayed_meta_out});
+        OptOutMutator mutator;
+        mutator.registerMutation(replayed_meta->output(0), replayed_meta_out);
+        mutator.mutateExprOutputsOnly(replayed_meta);
 
         // replace uses of old second output.
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
