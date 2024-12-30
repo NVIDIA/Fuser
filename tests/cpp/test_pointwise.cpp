@@ -1259,7 +1259,7 @@ TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
   fusion.addOutput(tv4);
   fusion.addOutput(tv3);
 
-  DomainMapUnitTest domain_map(fusion);
+  DomainMapUnitTest domain_map(fusion_ptr.get());
   EXPECT_TRUE(domain_map.isValidReference(tv4));
 
   auto options =
