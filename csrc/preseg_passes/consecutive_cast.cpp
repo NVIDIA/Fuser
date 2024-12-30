@@ -208,7 +208,7 @@ void castOptimizationPass(Fusion* fusion) {
 
         // preparing new meta output.
         Val* replayed_meta_out = ops::newValLike(
-            meta->output(0), meta->output(0)->getDataType().value());
+            meta->output(0), expr->output(0)->getDataType().value());
 
         // replay meta on new inputs.
         Expr* replayed_meta = nvfuser::ir_utils::replaceValInExprInputs(
