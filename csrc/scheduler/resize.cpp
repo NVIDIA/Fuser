@@ -239,7 +239,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
       getLargestTensor(fusion->outputs(), runtime_info);
 
   if (ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx) {
-    std::cerr << "Split gdimx\n";
     params->split_grid_x_dim = true;
   } else {
     params->split_grid_x_dim = false;
@@ -247,22 +246,28 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
   const auto largest_input =
       getLargestTensor(fusion->inputs(), runtime_info).first;
-  int64_t index_of_largest_input = std::distance(
-      fusion->inputs().begin(),
-      std::find(
-          fusion->inputs().begin(), fusion->inputs().end(), largest_input));
+  if (largest_input != nullptr) {
+    int64_t index_of_largest_input = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), largest_input));
 
-  std::cerr << "Largest input: " << largest_input->toString() << "\n";
-  params->largest_input = index_of_largest_input;
+    params->largest_input = index_of_largest_input;
+  } else {
+    params->largest_input = -1;
+  }
 
-  // Vectorization based on the largest input
+  // Vectorization based on the largest input if there's any input
+  // tv. Or the largest output otherwise.
+  auto ref_tv_for_vectorization =
+      largest_input != nullptr ? largest_input : largest_output;
   // TODO: Consider vectorizing merged IDs, not just the innermost
   // TODO: Use the reorder map
   params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      largest_input,
+      ref_tv_for_vectorization,
       data_cache,
-      (int64_t)largest_input->getLogicalDomain().size() - 2,
+      (int64_t)ref_tv_for_vectorization->getLogicalDomain().size() - 1,
       {});
 
   return params;
@@ -293,10 +298,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         IrGraphGenerator::DetailLevel::ComputeOnly);
   }
 
-  auto cache_tvs = scheduler_utils::cacheInputs(fusion, true);
-  for (const auto& cache_tv : cache_tvs) {
-    std::cerr << "Inserted cache: " << cache_tv->definition()->toString();
-  }
+  scheduler_utils::cacheInputs(fusion, true);
 
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
@@ -314,7 +316,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     if (exclusivity_info_map.count(out_tv) == 0) {
       continue;
     }
-    std::cerr << "NonExclusive op: " << resize_tensor_op->toString();
     auto inp_tv = resize_tensor_op->input(0)->as<TensorView>();
     // Since cacheInput may skip caching if an input is used by
     // slice/pad, inp_tv may be a fusion input, in which case it is
@@ -348,14 +349,19 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  auto largest_input =
-      fusion->inputs().at(rparams->largest_input)->as<TensorView>();
+  TensorView* largest_input = nullptr;
+  if (rparams->largest_input >= 0) {
+    largest_input =
+        fusion->inputs().at(rparams->largest_input)->as<TensorView>();
+  }
 
   // Mistral bwd has a reshape at the end of the fusion that merges
   // the two innermost dimensions. To make the below vectorization to
   // work, the vectorization needs to be applied to the innermost
   // dimension only, so the merge needs to be canceled.
-  scheduler_tools::cancelReshapeTransforms(largest_input);
+  if (largest_input != nullptr) {
+    scheduler_tools::cancelReshapeTransforms(largest_input);
+  }
 
   // Should it be scheduled based on largest_input?
   // No, that doesn't work when an expanded domain is reshaped.
@@ -363,13 +369,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   auto ref_tv = getReferenceTensor(fusion);
   NVF_ERROR(ref_tv != nullptr);
 
-  std::cerr << "Scheduling referene: " << ref_tv->toString() << "\n";
+  std::cerr << "Scheduling reference: " << ref_tv->toString() << "\n";
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
-
-  // Make sure the DID ID located at the outermost position
-  const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
   int64_t vec_factor = rparams->vectorization_factor;
   if (getenv("VEC")) {
@@ -389,22 +392,27 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
 
-  std::vector<IterDomain*> ref_alloc;
-  ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
-  std::copy_if(
-      largest_input->getMaybeAllocationDomain().begin(),
-      largest_input->getMaybeAllocationDomain().end(),
-      std::back_inserter(ref_alloc),
-      [](IterDomain* alloc_id) {
-        return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
-            !alloc_id->isDeviceDim();
-      });
+  if (largest_input != nullptr) {
+    std::vector<IterDomain*> ref_alloc;
+    ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
+    std::copy_if(
+        largest_input->getMaybeAllocationDomain().begin(),
+        largest_input->getMaybeAllocationDomain().end(),
+        std::back_inserter(ref_alloc),
+        [](IterDomain* alloc_id) {
+          return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
+              !alloc_id->isDeviceDim();
+        });
 
-  std::cerr << "Ref alloc before: " << toDelimitedString(ref_alloc) << "\n";
-  // Reorder the reference as the allocation domain of the largest fusion
-  // input
-  ref_tv->reorder(
-      scheduler_utils::getMapToReorderTensorLike(ref_tv, ref_alloc));
+    std::cerr << "Ref alloc before: " << toDelimitedString(ref_alloc) << "\n";
+    // Reorder the reference as the allocation domain of the largest fusion
+    // input
+    ref_tv->reorder(
+        scheduler_utils::getMapToReorderTensorLike(ref_tv, ref_alloc));
+  }
+
+  // Make sure the DID ID located at the outermost position
+  const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
   std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
 
@@ -440,7 +448,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_tools::scheduleLoopDomainsLike(
       fusion->allTvs(), ref_tv->getLoopDomain(), true);
 
-  if (vec_factor) {
+  if (vec_factor > 1) {
     const auto tvs_to_vectorize =
         scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
     for (auto tv_to_vectorize : tvs_to_vectorize) {
