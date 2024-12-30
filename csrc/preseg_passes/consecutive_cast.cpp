@@ -30,17 +30,19 @@ bool isMovableMeta(Expr* expr) {
 }
 
 Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
-  NVF_ERROR(expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>());
-
   // preparing new meta output.
-  Val* replayed_meta_out = ops::newValLike(
-      meta->output(0), new_in->getDataType().value());
+  Val* replayed_meta_out =
+      ops::newValLike(meta->output(0), new_in->getDataType().value());
 
-  if (expr->isA<SqueezeOp>()) {
-    IrBuilder::create<SqueezeOp>(replayed_meta_out, new_in, expr->as<SqueezeOp>()->getSqueezeDimFlags());
-  } else if (expr->isA<BroadcastOp>()) {
-    IrBuilder::create<BroadcastOp>(replayed_meta_out, new_in, expr->as<BroadcastOp>()->getBroadcastDimFlags());
-  } else if (expr->isA<ViewOp>()) {
+  if (meta->isA<SqueezeOp>()) {
+    IrBuilder::create<SqueezeOp>(
+        replayed_meta_out, new_in, meta->as<SqueezeOp>()->getSqueezeDimFlags());
+  } else if (meta->isA<BroadcastOp>()) {
+    IrBuilder::create<BroadcastOp>(
+        replayed_meta_out,
+        new_in,
+        meta->as<BroadcastOp>()->getBroadcastDimFlags());
+  } else if (meta->isA<ViewOp>()) {
     IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
   } else {
     NVF_ERROR(false, "not identified operation");
@@ -218,7 +220,7 @@ void castOptimizationPass(Fusion* fusion) {
 
     do {
       // replay [meta -> expr] with
-      //        [expr -> meta]
+      //        [replayed_expr -> replayed_meta]
       if (isMovableMeta(expr->input(0)->definition())) {
         Expr* meta = expr->input(0)->definition();
 
@@ -227,7 +229,7 @@ void castOptimizationPass(Fusion* fusion) {
             castOp(expr->output(0)->dtype(), meta->input(0));
 
         // replay meta on new inputs.
-        Val* replayed_meta_out = replayMeta(meta, replayed_expr_out);
+        Val* replayed_meta_out = replayMetaOnNewInput(meta, replayed_expr_out);
 
         // replace uses of old second output.
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
