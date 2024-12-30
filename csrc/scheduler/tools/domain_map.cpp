@@ -259,6 +259,9 @@ bool DomainMap::areAllTargetIdsCoveredBy(
     auto concrete_id_out =
         ca_map_.getConcreteMappedID(source_id_out, IdMappingMode::PERMISSIVE);
 
+    // After mapping with PERMISSIVE map, `concrete_id_out` might no longer be a
+    // source ID. We project to source ID again from concrete_id_out. See test
+    // DomainMapBroadcastIssue3653
     for (IterDomain* concrete_source_id_out :
          get_source_iter_domains({concrete_id_out})) {
       // if we find any source_id_out that's not contained, it's possible our

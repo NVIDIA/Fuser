@@ -1256,14 +1256,18 @@ TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = add(tv2, tv3);
 
+  // tv4 covers source IDs {2, 4, 8}.
   fusion.addOutput(tv4);
+  // meanwhile, tv3's broadcast ID map through permissive to `32`, which is not
+  // directly contained by tv4's source IDs. This test ensures that we project
+  // the mapped ID back to its source IDs and correctly schedule this fusion as
+  // a single kernel.
   fusion.addOutput(tv3);
 
   DomainMapUnitTest domain_map(fusion_ptr.get());
   EXPECT_TRUE(domain_map.isValidReference(tv4));
 
-  auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4, 8}, options);
   auto t1 = at::randn({2}, options);
   std::vector<c10::IValue> inputs({t0, t1});
