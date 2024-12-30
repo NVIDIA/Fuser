@@ -66,7 +66,7 @@ void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
     Expr* transform);
 
-void cancelReshapeTransforms(Fusion* fusion);
+void cancelReshapeTransforms(TensorView* from_tv);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

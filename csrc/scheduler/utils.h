@@ -736,6 +736,9 @@ int64_t reorderDevicesToOuter(TensorView* tv);
 // domain
 int64_t nLogicalDims(const TensorView* tv);
 
-void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
+std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
+    TensorView* tv,
+    const std::vector<IterDomain*>& ref);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

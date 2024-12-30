@@ -2677,7 +2677,9 @@ int64_t nLogicalDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
-void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
+std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
+    TensorView* tv,
+    const std::vector<IterDomain*>& ref) {
   IdModel id_model(tv->fusion(), /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
@@ -2744,9 +2746,6 @@ void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
-      std::cerr << "Not found: " << tv->getLoopDomain().at(i)->toString()
-                << "\n";
-      std::cerr << "Placed at: " << new_id_pos << "\n";
       old2new.emplace((int64_t)i, new_id_pos);
       ++new_id_pos;
     }
@@ -2768,8 +2767,8 @@ void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref) {
     std::cerr << old_pos << " -> " << new_pos << "\n";
   }
 
-  tv->reorder(old2new);
-  std::cerr << "Reordered: " << tv->toString() << "\n";
+  // tv->reorder(old2new);
+  return old2new;
 }
 
 } // namespace scheduler_utils

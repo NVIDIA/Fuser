@@ -140,7 +140,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto ref_tv = getReferenceTensor(fusion);
   if (ref_tv == nullptr) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "No referene found");
+        schedulerType(), "No reference found");
     return false;
   }
 
@@ -255,6 +255,16 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   std::cerr << "Largest input: " << largest_input->toString() << "\n";
   params->largest_input = index_of_largest_input;
 
+  // Vectorization based on the largest input
+  // TODO: Consider vectorizing merged IDs, not just the innermost
+  // TODO: Use the reorder map
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      largest_input,
+      data_cache,
+      (int64_t)largest_input->getLogicalDomain().size() - 2,
+      {});
+
   return params;
 }
 
@@ -338,13 +348,22 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
+  auto largest_input =
+      fusion->inputs().at(rparams->largest_input)->as<TensorView>();
+
   // Mistral bwd has a reshape at the end of the fusion that merges
   // the two innermost dimensions. To make the below vectorization to
   // work, the vectorization needs to be applied to the innermost
   // dimension only, so the merge needs to be canceled.
-  scheduler_tools::cancelReshapeTransforms(fusion);
+  scheduler_tools::cancelReshapeTransforms(largest_input);
+
+  // Should it be scheduled based on largest_input?
+  // No, that doesn't work when an expanded domain is reshaped.
 
   auto ref_tv = getReferenceTensor(fusion);
+  NVF_ERROR(ref_tv != nullptr);
+
+  std::cerr << "Scheduling referene: " << ref_tv->toString() << "\n";
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
@@ -352,13 +371,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
-  int64_t vec_factor = -1;
+  int64_t vec_factor = rparams->vectorization_factor;
   if (getenv("VEC")) {
     vec_factor = atoi(getenv("VEC"));
   }
-
-  // Skip vectorization of the first segment
-  bool vectorize = vec_factor > 1 && (fusion->inputs().size() > 1);
 
   // Use this value if not -1
   int64_t gdimx = -1;
@@ -366,77 +382,50 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     gdimx = atoi(getenv("GDIMX"));
   }
 
-  if (vectorize) {
-    std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
-    TensorView* allocation_ref_tv =
-        fusion->inputs().at(rparams->largest_input)->as<TensorView>();
-
-    std::cerr << "Allocation ref tensor: " << allocation_ref_tv->toString()
-              << ", "
-              << toDelimitedString(
-                     allocation_ref_tv->getMaybeAllocationDomain())
-              << "\n";
-
-    auto ref_alloc = allocation_ref_tv->getMaybeAllocationDomain();
-#if 0
-    std::vector<IterDomain*> ref_alloc_reordered;
-    ref_alloc_reordered.reserve(ref_alloc.size());
-
-    // Move broadcast outer
-    for (const auto i : c10::irange(ref_alloc.size())) {
-      if (ref_alloc.at(i)->isBroadcast()) {
-        ref_alloc_reordered.push_back(ref_alloc.at(i));
-      }
-    }
-    for (const auto i : c10::irange(ref_alloc.size())) {
-      if (!ref_alloc.at(i)->isBroadcast()) {
-        ref_alloc_reordered.push_back(ref_alloc.at(i));
-      }
-    }
-
-    std::cerr << "Ref alloc before: "
-              << toDelimitedString(
-                     allocation_ref_tv->getMaybeAllocationDomain())
-              << ", reordered: " << toDelimitedString(ref_alloc_reordered)
-              << "\n";
-    // Reorder the reference as the allocation domain of the largest fusion
-    // input
-    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc_reordered);
-#endif
-
-    if (getenv("REORDER")) {
-      scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
-    }
-
-    std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
-
-    int64_t bdimx = 128;
-    if (getenv("BDIMX")) {
-      bdimx = atoi(getenv("BDIMX"));
-    }
-
-    ref_tv->split(-1, vec_factor);
-    ref_tv->flatten(outermost_pos, -2);
-    ref_tv->split(outermost_pos, bdimx);
-    ref_tv->axis(-2)->parallelize(ParallelType::TIDx);
-    if (gdimx > 0) {
-      ref_tv->split(outermost_pos, gdimx);
-    } else if (rparams->split_grid_x_dim) {
-      ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
-    }
-    ref_tv->axis(-3)->parallelize(ParallelType::BIDx);
-  } else {
-    // Schedule only the remaining IDs
-    ref_tv->flatten(outermost_pos);
-    ref_tv->split(outermost_pos, 128);
-    ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
-    if (gdimx > 0) {
-      ref_tv->split(outermost_pos, gdimx);
-    } else if (rparams->split_grid_x_dim) {
-      ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
-    }
-    ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  int64_t bdimx = 128;
+  if (getenv("BDIMX")) {
+    bdimx = atoi(getenv("BDIMX"));
   }
+
+  std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
+
+  std::vector<IterDomain*> ref_alloc;
+  ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
+  std::copy_if(
+      largest_input->getMaybeAllocationDomain().begin(),
+      largest_input->getMaybeAllocationDomain().end(),
+      std::back_inserter(ref_alloc),
+      [](IterDomain* alloc_id) {
+        return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
+            !alloc_id->isDeviceDim();
+      });
+
+  std::cerr << "Ref alloc before: " << toDelimitedString(ref_alloc) << "\n";
+  // Reorder the reference as the allocation domain of the largest fusion
+  // input
+  ref_tv->reorder(
+      scheduler_utils::getMapToReorderTensorLike(ref_tv, ref_alloc));
+
+  std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
+
+  int64_t next_innermost_pos = -1;
+  if (vec_factor > 1) {
+    std::cerr << "Vectorizing by " << vec_factor << "\n";
+    ref_tv->split(-1, vec_factor);
+    --next_innermost_pos;
+  }
+
+  ref_tv->flatten(outermost_pos, next_innermost_pos);
+  ref_tv->split(next_innermost_pos, bdimx);
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::TIDx);
+  --next_innermost_pos;
+
+  if (gdimx > 0) {
+    ref_tv->split(outermost_pos, gdimx);
+  } else if (rparams->split_grid_x_dim) {
+    ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
+  }
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
 
   std::cout << "Before ref prop\n";
   fusion->print();
@@ -451,18 +440,17 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_tools::scheduleLoopDomainsLike(
       fusion->allTvs(), ref_tv->getLoopDomain(), true);
 
-  if (vectorize) {
-    for (auto inp_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-      if (inp_tv->name() == 2) {
-        continue;
+  if (vec_factor) {
+    const auto tvs_to_vectorize =
+        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
+    for (auto tv_to_vectorize : tvs_to_vectorize) {
+      if (tv_to_vectorize->isFusionInput()) {
+        for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
+          consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+      } else {
+        tv_to_vectorize->axis(-1)->parallelize(ParallelType::Vectorize);
       }
-      for (auto consumer_tv : ir_utils::consumerTvsOf(inp_tv)) {
-        consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
-    }
-    // To avoid vectorizing the outputs of the first segment
-    for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-      out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   }
 

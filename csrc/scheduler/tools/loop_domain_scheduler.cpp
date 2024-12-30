@@ -328,7 +328,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   // do. There can be legitimate broadcast transformations in the
   // reference, and if there's a matching broadcast ID in this tv, the
   // transformations should be propagated. However, when a concrete ID
-  // of a referene tv replaces a broadcast ID of this tv, there's no
+  // of a reference tv replaces a broadcast ID of this tv, there's no
   // path from the concrete ID to the broadcast ID, thus getting a
   // path would fail. I think the fundamental problem is the
   // disconnection to the broadcast ID. This could be avoided if the
@@ -341,7 +341,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   // is probably not what we would want. Perhaps, we should consider
   // expanding the broadcast ID to the concrete size and only map
   // expanded broadcast IDs with concrete IDs. And if the expand is
-  // represented with an IterDomain exprssion, we could avoid
+  // represented with an IterDomain expression, we could avoid
   // disconnected IDs.
   ValGroups tv_target_domains = graph().toGroups(TensorDomain::noBroadcasts(
       update_loop_domain_only_ ? tv->getLoopDomain()
@@ -363,6 +363,14 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                /*require_all_to_visited=*/true,
                Direction::Backward)
         .first;
+  }
+
+  if (update_loop_domain_only_) {
+    for (const auto& g : tv_target_domains) {
+      if (!all_ancestors_of_ref_.has(g)) {
+        std::cerr << "Not found: " << nvfuser::toString(g) << "\n";
+      }
+    }
   }
 
   // In the case of the update mode, the path from the reference is
@@ -520,7 +528,8 @@ void scheduleLoopDomainsBy(
   return;
 }
 
-void cancelReshapeTransforms(Fusion* fusion) {
+void cancelReshapeTransforms(TensorView* from_tv) {
+  Fusion* fusion = from_tv->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.buildExactGraph();
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
@@ -535,7 +544,9 @@ void cancelReshapeTransforms(Fusion* fusion) {
 
   std::unordered_set<Val*> canceled_tvs;
 
-  auto exprs = fusion->exprs();
+  auto exprs =
+      DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
+
   for (ViewOp* reshape : ir_utils::filterByType<ViewOp>(exprs)) {
     // Find logical IDs that do not exist in the root domain. They are
     // the new IDs that are produced by this reshape op. If a logical
