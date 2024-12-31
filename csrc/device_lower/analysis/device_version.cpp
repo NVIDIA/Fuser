@@ -31,7 +31,7 @@ void MinimumDeviceVersion::dispatch(Val* val) {
 // https://docs.nvidia.com/cuda/archive/11.8.0/parallel-thread-execution/index.html#ptx-isa-version-7-8
 #elif (CUDA_VERSION >= 11080)
     ensureVersion(
-        {8, 9},
+        {9, 0},
         "Fusion contains Float8_xxx values which was introduced in Hopper (9.0)");
 #else
     NVF_ERROR(
