@@ -57,7 +57,8 @@ class RtcKernel : public NonCopyable {
 class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  NVF_API CompiledKernel() = default;
+  CompiledKernel() = delete;
+
   NVF_API CompiledKernel(
       Fusion* fusion,
       CompileParams compile_params,
@@ -80,6 +81,11 @@ class CompiledKernel : public NonCopyable {
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
       int64_t group_id = 0);
+
+  CompiledKernel(const CompiledKernel& other) = delete;
+  CompiledKernel& operator=(const CompiledKernel& other) = delete;
+  CompiledKernel(CompiledKernel&& other) noexcept = delete;
+  CompiledKernel& operator=(CompiledKernel&& other) noexcept = delete;
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
