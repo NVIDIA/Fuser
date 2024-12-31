@@ -200,6 +200,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
@@ -576,6 +577,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scatter_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
