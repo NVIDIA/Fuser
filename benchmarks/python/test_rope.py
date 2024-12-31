@@ -74,7 +74,7 @@ def test_rope_benchmark(
         "hf_mistral_nemo_rope",
     ],
 )
-@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"])
 def test_rope_variations_fwd_benchmark(
     benchmark,
     rope_variation: str,
@@ -106,7 +106,7 @@ def test_rope_variations_fwd_benchmark(
         "hf_mistral_nemo_rope",
     ],
 )
-@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"])
 def test_rope_variations_bwd_benchmark(
     benchmark,
     rope_variation: str,
