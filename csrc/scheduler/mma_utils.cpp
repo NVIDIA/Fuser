@@ -20,6 +20,7 @@
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
+#include "options.h"
 
 namespace nvfuser {
 
@@ -187,7 +188,8 @@ TensorView* getOperandTv(
   NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
   const std::vector<TensorView*>& operands = it->second;
   NVF_ERROR(
-      operands.size() == 1,
+      isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+          operands.size() == 1,
       "Exactly one operand is expected in each A and B role");
   return operands.front();
 }
@@ -1309,19 +1311,9 @@ void scheduleStMatrixForMmaOutput(
       ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
       "We only support 16x16 and 16x16 stmatrix now");
 
-  NVF_ERROR(
-      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
-
-  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
-  auto s =
-      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
-
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    // Create tma store allocation domain with swizzle
-    mma_utils::scheduleTMAStoreForMmaOutput(tv, swizzle);
-  }
-
-  tv->setLoopDomain(s.as<IterDomain*>());
+  NVF_CHECK(
+      dataTypeSize(tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   if (tile_m == 16 && tile_n == 16) {
     // Let [M, N] be [64, 32]
@@ -1341,16 +1333,18 @@ void scheduleStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
-  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << patterns.size();
-    return ss.str();
+    if (!isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+      std::stringstream ss;
+      ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+         << patterns.size();
+      return ss.str();
+    }
+    TORCH_WARN("TODO: Update getOperandInnerDims for multiple patterns");
   }
   const MatmulPattern& pattern = patterns[0];
   IdModel id_model(fusion);

@@ -405,7 +405,7 @@ using HopperMmaRSStMatrixTestParams = std::tuple<
     PrimDataType,
     MmaLayout,
     MmaInputSmemSwizzle,
-    std::vector<int>>;
+    std::vector<int64_t>>;
 
 class HopperRSStmatrix
     : public HopperBase,
@@ -415,7 +415,7 @@ class HopperRSStmatrix
   MmaMacro macro;
   PrimDataType dtype;
   MmaInputSmemSwizzle swizzle_b;
-  std::vector<int> tile_sizes;
+  std::vector<int64_t> tile_sizes;
 
   void SetUp() override {
     HopperBase::SetUp();
@@ -434,8 +434,8 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   auto shapes = matmulAtInputShape3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout);
 
-  auto tile_m = tile_sizes.at(0);
-  auto tile_n = tile_sizes.at(1);
+  int64_t tile_m = tile_sizes.at(0);
+  int64_t tile_n = tile_sizes.at(1);
 
   if (getM(macro) % tile_m || getN(macro) % tile_n) {
     GTEST_SKIP() << "skipping test as output is not divisible by tile size";
@@ -517,12 +517,6 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3c->getLoopDomain());
-    tv3c->setLoopDomain(s.as<IterDomain*>());
-    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setAllocationDomain(s.as<IterDomain*>(), true);
 
@@ -531,8 +525,26 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+
   MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3->getLoopDomain());
+
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      mma_utils::scheduleTMAStoreForMmaOutput(tv3, swizzle);
+    }
+
+    tv3->setLoopDomain(s.as<IterDomain*>());
+  }
   mma_utils::scheduleStMatrixForMmaOutput(tv3, swizzle, tile_m, tile_n);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);
 
@@ -545,11 +557,12 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kFloat),
-      inputs.second.squeeze().to(at::kFloat),
-      layout);
+                  inputs.first.squeeze().to(at::kFloat),
+                  inputs.second.squeeze().to(at::kFloat),
+                  layout)
+                  .to(data_type_to_aten(dtype));
 
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref.to(at::kHalf), 1e-1, 1e-1));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-1, 1e-1));
 }
 
 std::string testNameHopperRS(
@@ -569,13 +582,13 @@ INSTANTIATE_TEST_SUITE_P(
     HopperRSStmatrix,
     testing::Combine(
         kAllHopperMacros,
-        testing::Values(DataType::Half),
+        testing::Values(DataType::Half, DataType::BFloat16),
         testing::Values(MmaLayout::TN, MmaLayout::TT),
         kAllSmemSwizzleModes,
         testing::Values(
             // M, N
-            std::vector<int>{16, 8},
-            std::vector<int>{16, 16})));
+            std::vector<int64_t>{16, 8},
+            std::vector<int64_t>{16, 16})));
 
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,

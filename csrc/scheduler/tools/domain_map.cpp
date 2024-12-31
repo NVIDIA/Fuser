@@ -137,6 +137,137 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
+// Note: ideally we would want to check that reference_tv contains all iter
+// domains in target_tv, so that transformation applied on reference_tv can be
+// propagated to target_tv. But we don't have an easy way to check that. Instead
+// of that, this function checks that all source iter domains involved in
+// transformation on target_tv is covered by reference_tv. Source iter domains
+// of TensorViews are IDs that doesn't have an definition and are producers of
+// any IDs on the logical domain of the given TensorView.
+//
+// ------
+//
+// e.g 0.
+//   T34 [i0, i1]
+//   T185 [i0, b2, i1]     = broadcast(T34)
+//   T192 [i0, b3(ex), i1] = expand(T185)
+//   T198 [i0, b3(ex)*i1]  = reshape(T192)
+//   output(T34)
+//   output(T198)
+//
+// if we consider taking T34 as reference_tv. T198 is the target_tv. We can't
+// replay T34's transform of merging all the dimensions to T198, since b3(ex)*i1
+// can't be reversed. The check in this function would give us T34 with source
+// i0, i1; where T198 would have source i0, b3, i1, where b3 isn't contained in
+// T34. Hence we'll reject this reference_tv.
+//
+// ------
+//
+// e.g 1.
+//   T0 [i0, i1]
+//   T1 [i2, i0, i1]
+//   T2 [i0*i1]      = reshape(T0)
+//   T3 [b3, i0, i1] = broadcast(T0)
+//   T4 [i2, i0, i1] = add(T1, T3)
+//   output(T2)
+//   output(T4)
+//
+// the example above should be able to pick T4 as reference_tv. T2's source i0,
+// i1 are both contained by the source of T4, so this example could be scheduled
+// as a single fusion.
+bool DomainMap::areAllTargetIdsCoveredBy(
+    TensorView* target_tv,
+    TensorView* reference_tv) const {
+  auto get_source_iter_domains = [this](TensorView* tv) {
+    // traverse back to collect all disjoint set producer IDs for each ID in the
+    // logical domain of tv.
+    VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+        all_producer_sets;
+    std::for_each(
+        tv->getLogicalDomain().begin(),
+        tv->getLogicalDomain().end(),
+        [&](IterDomain* tv_logical_id) {
+          all_producer_sets.pushBack(
+              ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
+        });
+    all_producer_sets.pushBack(
+        ca_map_.getAllDisjointSetProducers(all_producer_sets));
+
+    std::vector<IterDomain*> source_ids;
+    // filtering all producer IDs with empty definition to get source iter
+    // domains
+    std::for_each(
+        all_producer_sets.vector().begin(),
+        all_producer_sets.vector().end(),
+        [&source_ids,
+         this](const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
+                   producer_set_ptr) {
+          IterDomain* producer_id = producer_set_ptr->front();
+          if (ca_map_.uniqueExactDefinitions(producer_id).empty()) {
+            source_ids.push_back(producer_id);
+          }
+        });
+    return source_ids;
+  };
+
+  // this contains all source iter domain that's covered by reference_tv, so
+  // it's safe for target_tv to have them.
+  std::unordered_set<IterDomain*> covered_source_ids;
+  for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
+    covered_source_ids.insert(source_id_ref);
+  }
+  // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
+  // expecting pointwise scheduler to handle this pattern
+  for (IterDomain* id_out : target_tv->getLogicalDomain()) {
+    if (id_out->isBroadcast()) {
+      NVF_ERROR(
+          id_out->definition() == nullptr ||
+          id_out->definition()->isA<Resize>());
+
+      // Note that ideally we should also be able to handle merge/split on
+      // broadcast IDs, so we should really move this skip inside the loop below
+      // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
+      // currently we have the issue that split/merge does not preserve expanded
+      // broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
+      covered_source_ids.insert(id_out);
+    }
+  }
+  // Note: there's certain cases where it's safe to have dangling IDs,
+  // e.g
+  //   T34  [i0, i1]
+  //   T185 [i0, b2, i1]     = broadcast(T34)
+  //   T192 [i0, b3(ex), i1] = expand(T185)
+  // It's safe to propagate T34 to T192, since b3(ex) is not involved in the
+  // propagation. But this isn't generally safe. If the above example is changed
+  // to e.g
+  //   T34  [i0, i1]
+  //   T185 [i0, b2, i1]     = broadcast(T34)
+  //   T186 [i0, i4, i1]     = ones({i0, i4, i1})
+  //   T193 [i0, i4, i1]     = add(T185, T186)
+  // It's unsafe to propagate from T34 to T193, see issue
+  // https://github.com/NVIDIA/Fuser/issues/3542
+
+  // Check all source iter domain involved in producing target_tv
+  for (IterDomain* source_id_out : get_source_iter_domains(target_tv)) {
+    // NOTE: we use concrete id instead. This allows us to link indirect
+    // broadcast. So in the example below: T2[i0, i1] = T0[i0, b0] + T1[i0, i1]
+    // T3[i0, i9] = pad(T0[i0, b0])
+    // We have i9 in T3
+    //     -> source ID b0
+    //     -> concrete map to i1
+    // So T3 is contained by T2. See test `PointwiseTest.DomainMapPad1`
+    auto concrete_source_id_out =
+        ca_map_.getConcreteMappedID(source_id_out, IdMappingMode::PERMISSIVE);
+    // if we find any source_id_out that's not contained, it's possible our
+    // propagation would fail since transformation involving this iter domain
+    // can't be resolved.
+    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Reference domains must exactly match with the input domains. See
 // also PR #661
 IterDomain* DomainMap::getMappedInputConcreteID(
@@ -228,7 +359,7 @@ IterDomain* DomainMap::anyMapped(
 }
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input.
+// The reference tensor must map to all the iterDomains in each input and output
 bool DomainMap::isValidReference(TensorView* tv) const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
@@ -237,6 +368,20 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     // TODO: Same backward traversal from tv is done for all input
     // tvs. Consider doing the analysis one for all inputs
     if (!areAllInputIdsMappedTo(input_tv, tv)) {
+      return false;
+    }
+  }
+  // The check on outputs are optional, transpose scheduler might propose a
+  // secondary reference that only applies to a subset of IO tensors. Ideally we
+  // should have a more robust check and consider the IO groups instead of
+  // blindly skip outputs.
+  for (auto output_tv :
+       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    // no need to check for self.
+    if (output_tv == tv) {
+      continue;
+    }
+    if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
       return false;
     }
   }

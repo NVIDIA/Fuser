@@ -68,12 +68,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  if (!hasAtLeastTwoValidGroups(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "cannot find two mismatching inner most dimensions");
-    return false;
-  }
-
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "no support for reduction ops");
@@ -84,6 +78,12 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  if (!hasAtLeastTwoValidGroups(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "cannot find two mismatching inner most dimensions");
     return false;
   }
 
@@ -170,8 +170,16 @@ class TransposeDomainMap : public scheduler_tools::DomainMap {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
     for (auto tv : group) {
+      // since transpose scheduler have different set of reference, we skip IDs
+      // coverage check of the reference on outputs of the fusion. Note that
+      // this is not ideal, we would want to instead have reference tensor
+      // checked against all its target IO tensors.
+      // TODO: open an issue for this one. transpose scheduler is not supposed
+      // to reuse pointwise_utils::DomainMap::isValidRefrence. This function is
+      // too restrictive and doesn't align well with the scheme of transpose
+      // scheduler
       if (isValidReference(tv)) {
-        int64_t dims = (int64_t)pointwise_utils::nRootDims(tv);
+        int64_t dims = (int64_t)pointwise_utils::nLogicalDims(tv);
         if (dims > max_dims) {
           result = tv;
           max_dims = dims;
@@ -992,12 +1000,12 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "max_io_dtype_size: " << max_io_dtype_size << "\n"
             << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
             << "\n"
-            << "reference1: " << reference1 << "\n"
+            << "reference1: " << reference1->toString() << "\n"
             << "inner_most_id1 position: " << inner_most_pos1_in_ref1
             << " (in reference 1)\n"
             << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
             << "\n"
-            << "reference2: " << reference2 << "\n"
+            << "reference2: " << reference2->toString() << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
     if (hasSmallTransposeDimensions(tparams)) {
@@ -1047,11 +1055,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_dims = std::max(pointwise_utils::nLogicalDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.

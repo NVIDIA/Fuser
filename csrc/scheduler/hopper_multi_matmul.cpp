@@ -508,8 +508,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      if (std::find(mma_results_.begin(), mma_results_.end(), dc) ==
-          mma_results_.end()) {
+
+      bool dc_in_mma_results =
+          std::find(mma_results_.begin(), mma_results_.end(), dc) !=
+          mma_results_.end();
+
+      if (!dc_in_mma_results) {
         // Skip scheduling dc if it is an mma_result. This can happen if we are
         // not casting back to half-precision in the output
         tvs_to_schedule.push_back(dc);
@@ -519,34 +523,59 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       dc->setMemoryType(MemoryType::Local);
       d_smem->setMemoryType(MemoryType::Shared);
 
-      // Set LoadStoreOp
-      d_smem->definition()->as<LoadStoreOp>()->setOpType(
-          LoadStoreOpType::StMatrix);
+      auto store_with_stmatrix = dataTypeSize(dc->dtype()) == 2;
+
+      if (store_with_stmatrix) {
+        // Set LoadStoreOp
+        d_smem->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::StMatrix);
+      }
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
-      // Block Schedule and Parallelize
+      // Apply the common transforms to dc, d_smem, d
+      // After these transforms we schedule the inner two non-reduction loops
+      // (instruction tile) of dc and propagate is back till the outputs of mma.
       blockTileTensors(tvs_to_schedule);
       parallelizeBlocks(tvs_to_schedule);
-
-      // Apply mma common transformation
       for (auto tv : tvs_to_schedule) {
         transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
-      // Schedule register cache; Output from epilogue
-      {
+      // Should not propagate if the dc is a mma output as the mma output has
+      // already been scheduled.
+      if (!dc_in_mma_results) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
         dc->setAllocationDomain(s.as<IterDomain*>(), true);
+
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            dc,
+            -1,
+            propagate_to,
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType());
       }
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
-      // Schedule shared memory cache; Output from StMatrix
-      mma_utils::scheduleStMatrixForMmaOutput(
-          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+      // [M, N] -> [128(TIDx), N/8 ,  m(2) , n(2)]
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          d_smem->getLoopDomain());
+      if (swizzle != MmaInputSmemSwizzle::None) {
+        // Create tma store allocation domain with swizzle
+        mma_utils::scheduleTMAStoreForMmaOutput(d_smem, swizzle);
+      }
+      d_smem->setLoopDomain(s.as<IterDomain*>());
+
+      if (store_with_stmatrix) {
+        // Schedule shared memory cache; Output from StMatrix
+        mma_utils::scheduleStMatrixForMmaOutput(
+            d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+      }
+
+      d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
       mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
