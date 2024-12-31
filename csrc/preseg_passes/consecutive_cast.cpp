@@ -24,13 +24,19 @@ bool isCast(Expr* expr) {
   return false;
 }
 
+// don't move meta operation when the its output is a fusion output, or has
+// multiple uses. In which case, we will have to duplicate the meta operation,
+// which might not be optimal. See PresegTest.FusionTestCastOptimizationMetaOp2
 bool isMovableMeta(Expr* expr) {
+  // only move meta operation if it has a single
   return (expr != nullptr && !expr->output(0)->isFusionOutput() &&
           expr->output(0)->uses().size() == 1) &&
       (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() ||
        ir_utils::isSimpleTVSet(expr));
 }
 
+// replays meta operation on `new_in`. return the new output from replayed meta
+// operation
 Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
   // preparing new meta output.
   Val* replayed_meta_out = nullptr;
@@ -49,38 +55,36 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
         new_in,
         meta->as<BroadcastOp>()->getBroadcastDimFlags());
   } else if (meta->isA<ViewOp>()) {
-    // TODO: add a test case where meta->definition() is a reduction;
-    // TODO: add a test case cast out has allocation domain;
-
-    // NOTE: we need to replay transformation.
+    // replay transformation for ViewOp
     NVF_ERROR(meta->output(0)->isA<TensorView>());
     TensorView* meta_tv_out = meta->output(0)->as<TensorView>();
 
     const std::vector<IterDomain*>& meta_tv_out_root_domain =
         meta_tv_out->getMaybeRootDomain();
 
+    // clone root domain from the original meta output for replay
     std::vector<IterDomain*> replayed_root_domain =
         IterDomain::clone(meta_tv_out_root_domain);
 
+    // creating map from original to replayed ID
     std::unordered_map<IterDomain*, IterDomain*> id_map;
     for (const auto i : c10::irange(meta_tv_out_root_domain.size())) {
       id_map[meta_tv_out_root_domain[i]] = replayed_root_domain[i];
     }
+    // TODO only replay from root to logical. This might not be sufficient when
+    // allocation domain / loop domain is not on the path from root to logical.
     ReplayTransformations replay(meta_tv_out->getLogicalDomain(), id_map);
-
     std::vector<IterDomain*> replayed_logical_domain;
     for (auto id : meta_tv_out->getLogicalDomain()) {
       NVF_ERROR(replay.getReplay().count(id), "logical domain replay failed");
       replayed_logical_domain.push_back(replay.getReplay().at(id));
     }
-
     std::vector<IterDomain*> replayed_allocation_domain;
     for (auto id : meta_tv_out->getMaybeAllocationDomain()) {
       NVF_ERROR(
           replay.getReplay().count(id), "allocation domain replay failed");
       replayed_allocation_domain.push_back(replay.getReplay().at(id));
     }
-
     std::vector<IterDomain*> replayed_loop_domain;
     for (auto id : meta_tv_out->getLoopDomain()) {
       NVF_ERROR(replay.getReplay().count(id), "loop domain replay failed");
@@ -96,7 +100,6 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
             replayed_loop_domain,
             meta_tv_out->getContiguity()),
         new_in->getDataType().value());
-    ;
 
     // create the view op.
     IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
@@ -290,10 +293,10 @@ void castOptimizationPass(Fusion* fusion) {
         Val* replayed_expr_out =
             castOp(expr->output(0)->dtype(), meta->input(0));
 
-        // replay meta on new inputs.
+        // replay meta output from replayed cast.
         Val* replayed_meta_out = replayMetaOnNewInput(meta, replayed_expr_out);
 
-        // replace uses of old second output.
+        // replace uses of old expr with output of replayed_meta.
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
             expr->output(0), replayed_meta_out);
 
