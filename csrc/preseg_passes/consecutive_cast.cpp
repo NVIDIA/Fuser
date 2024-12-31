@@ -269,6 +269,7 @@ Expr* moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
 }
 
 void castOptimizationPass(Fusion* fusion) {
+  FusionGuard fusion_guard(fusion);
   auto exprs = fusion->exprs();
   std::unordered_set<Expr*> visited;
   for (auto iter = exprs.rbegin(); iter != exprs.rend(); ++iter) {

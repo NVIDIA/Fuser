@@ -999,7 +999,6 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp0) {
   {
     // Make sure cast no longer exists
     Fusion fusion_copy = fusion;
-    FusionGuard fg(&fusion_copy);
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_EQ(
@@ -1073,7 +1072,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp3) {
 
   auto tv1 = castOp(DataType::Double, tv0);
   auto tv2 = sum(tv1, {0});
-  auto tv3 = reshape(tv2, {2, 4}, {8});
+  auto tv3 = reshape(tv2, {4}, {2, 2});
   auto tv4 = castOp(DataType::Float, tv3);
   fusion.addOutput(tv4);
 
