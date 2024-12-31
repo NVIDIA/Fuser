@@ -45,7 +45,8 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
   } else if (meta->isA<ViewOp>()) {
     IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
   } else {
-    NVF_ERROR(false, "not identified operation");
+    NVF_ERROR(ir_utils::isSimpleTVSet(meta), "Unidentified operation for replay");
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, replayed_meta_out, new_in);
   }
 
   return replayed_meta_out;
