@@ -4652,7 +4652,9 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
   Fusion* scheduled_fusion =
-      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())->fusion();
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+          ->fusion()
+          .get();
   checkLoopDomainEquivalence(
       scheduled_fusion->outputs().at(0)->as<TensorView>());
 }

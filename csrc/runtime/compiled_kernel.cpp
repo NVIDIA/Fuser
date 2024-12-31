@@ -1386,8 +1386,9 @@ void RtcKernel::compile(
     scode = code;
   }
   CompileParams cp;
-  cp.device = c10::Device(c10::DeviceType::CUDA, device_index_);
-  compiled_kernel_ = getCudaExecutable(std::nullopt, scode, name, 0, cp);
+  cp.device =
+      c10::Device(c10::DeviceType::CUDA, (c10::DeviceIndex)device_index_);
+  compiled_kernel_ = getCudaExecutable({std::nullopt}, scode, name, 0, cp);
 }
 
 float RtcKernel::run(
@@ -1396,7 +1397,8 @@ float RtcKernel::run(
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("RtcKernel::run");
 
-  auto device = c10::Device(c10::DeviceType::CUDA, device_index_);
+  auto device =
+      c10::Device(c10::DeviceType::CUDA, (c10::DeviceIndex)device_index_);
   c10::DeviceGuard dg(device);
   auto stream = at::cuda::getCurrentCUDAStream();
 
