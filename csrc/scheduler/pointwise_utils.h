@@ -17,34 +17,6 @@
 namespace nvfuser {
 namespace pointwise_utils {
 
-// Returns number of non-reduction/non-broadcas/non-device dims in logical
-// domain
-inline int64_t nLogicalDims(const TensorView* tv) {
-  auto logical_dom = tv->getLogicalDomain();
-  int64_t tv_n_dims = 0;
-  for (auto dim : logical_dom) {
-    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
-      tv_n_dims++;
-    }
-  }
-  return tv_n_dims;
-}
-
-class PointwiseDomainMap : public scheduler_tools::DomainMap {
- public:
-  using scheduler_tools::DomainMap::DomainMap;
-
-  // The pointwise scheduler heuristics requires a minimum number of axes.
-  // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0) const;
-
- private:
-  bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
-    NVF_ERROR(tv != nullptr);
-    return (num_axes == 0 || (int64_t)tv->getLogicalDomain().size() > num_axes);
-  }
-};
-
 // Return reference tensor view.
 TensorView* getReferenceTensor(Fusion* fusion);
 
