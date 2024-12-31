@@ -1223,7 +1223,6 @@ void CompiledKernel::compile(int64_t block_size) {
     }
   }
 
-  // TODO: pass in kernel name?
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
@@ -1521,10 +1520,6 @@ void validateCooperativeLaunch(
 }
 } // namespace
 
-// Uses launch_params.nThreads
-// Uses compiled_params.maxregcount
-// Uses compiled_params.enable_ptxas_verbose
-// TODO: Change this to only use the above parameters
 void CompiledKernel::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
