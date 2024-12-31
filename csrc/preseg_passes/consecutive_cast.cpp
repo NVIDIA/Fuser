@@ -43,6 +43,30 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
         new_in,
         meta->as<BroadcastOp>()->getBroadcastDimFlags());
   } else if (meta->isA<ViewOp>()) {
+    // NOTE: we need to replay transformation.
+    NVF_ERROR(meta->output(0)->isA<TensorView>());
+    TensorView* meta_tv_out = meta->output(0)->as<TensorView>();
+    TensorView* replayed_meta_tv_out = replayed_meta_out->as<TensorView>();
+    std::unordered_map<IterDomain*, IterDomain*> id_map;
+    for (const auto i : c10::irange(meta_tv_out->nDims()) ) {
+      id_map[meta_tv_out->getMaybeRootDomain()[i]] = replayed_meta_tv_out->getMaybeRootDomain()[i];
+    }
+    ReplayTransformations replay(meta_tv_out->getMaybeRootDomain(), id_map);
+    std::vector<IterDomain*> new_logical_domain;
+    for (auto id : meta_tv_out->getLogicalDomain()) {
+      NVF_ERROR(
+          replay.getReplay().count(id), "logical domain replay failed");
+      new_logical_domain.push_back(replay.getReplay().at(id));
+    }
+    // update the logical domain with replayed transformed.
+    replayed_meta_tv_out->setDomain(IrBuilder::create<TensorDomain>(
+     replayed_meta_tv_out->getMaybeRootDomain(),
+        new_logical_domain,
+     replayed_meta_tv_out->getMaybeAllocationDomain(),
+     replayed_meta_tv_out->getMaybeLoopDomain(),
+     replayed_meta_tv_out->getContiguity());
+
+    // create the view op.
     IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
   } else {
     NVF_ERROR(ir_utils::isSimpleTVSet(meta), "Unidentified operation for replay");
