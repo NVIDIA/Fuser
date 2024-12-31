@@ -47,6 +47,26 @@ IndexingTraversal::IndexingTraversal(
     }
     resize_paths_.insert(resize);
   }
+
+  // A unique expr path should be always allowed
+  for (const auto& expr_g : graph.disjointExprSets().disjointSets()) {
+    auto resize = dynamic_cast<Resize*>(expr_g->front());
+    if (resize == nullptr) {
+      continue;
+    }
+
+    auto input_groups = graph.inputGroups(expr_g);
+    auto output_groups = graph.outputGroups(expr_g);
+    NVF_ERROR(input_groups.size() == 1);
+    NVF_ERROR(output_groups.size() == 1);
+
+    if (graph.getUses(input_groups[0]).size() != 1 ||
+        graph.getDefinitions(output_groups[0]).size() != 1) {
+      continue;
+    }
+
+    resize_paths_.insert(resize);
+  }
 }
 
 std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
