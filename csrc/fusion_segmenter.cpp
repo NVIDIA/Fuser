@@ -4016,10 +4016,11 @@ void SegmentCandidateFinder::findSegments() {
 }
 
 // Decides whether we should forward an input (or a forwarded input) of a
-// fusion. Currently, we forward an input only when its single use is a UnaryOp.
-// Therefore, this function returns `v`'s single unary use or nullptr if it
+// fusion. Currently, we forward an input only when its single use is
+// a UnaryOp or a set-like op.
+// Therefore, this function returns `v`'s single use or nullptr if it
 // decides not to forward.
-UnaryOp* shouldForward(Val* v) {
+Expr* shouldForward(Val* v) {
   const std::vector<Expr*>& uses = v->uses();
   // Just allow stripping out input with single use.
   // Stripping out multi-used inputs can lead to:
@@ -4029,23 +4030,26 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
-  if (unary_use == nullptr) {
+  // TODO: LoadStoreOp
+  auto* use_of_v = uses.front();
+  if (!use_of_v->isOneOf<UnaryOp, BroadcastOp, ExpandOp, ViewOp>()) {
     return nullptr;
   }
+
+  auto consumer_of_v = use_of_v->output(0);
 
   // Don't forward an input to an output yet. Doing that would lead to an empty
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
-  if (unary_use->out()->isFusionOutput()) {
+  if (consumer_of_v->isFusionOutput()) {
     return nullptr;
   }
 
   // prevent forward to a SegmenterSet, which could cause unary op forward to a
   // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
   if (std::any_of(
-          unary_use->out()->uses().begin(),
-          unary_use->out()->uses().end(),
+          consumer_of_v->uses().begin(),
+          consumer_of_v->uses().end(),
           [](const Expr* next_use) {
             if (const LoadStoreOp* use =
                     dynamic_cast<const LoadStoreOp*>(next_use)) {
@@ -4058,7 +4062,7 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  return unary_use;
+  return use_of_v;
 }
 
 void SegmentCandidateFinder::forwardInputs() {
@@ -4069,27 +4073,27 @@ void SegmentCandidateFinder::forwardInputs() {
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<UnaryOp*> to_visit;
+    std::deque<Expr*> to_visit;
     for (Val* inp : completeFusion()->inputs()) {
-      if (UnaryOp* unary_use = shouldForward(inp)) {
-        to_visit.push_back(unary_use);
+      if (Expr* use_of_inp = shouldForward(inp)) {
+        to_visit.push_back(use_of_inp);
       }
     }
 
     while (!to_visit.empty()) {
-      UnaryOp* uop = to_visit.front();
+      Expr* expr = to_visit.front();
       to_visit.pop_front();
 
-      if (UnaryOp* unary_use = shouldForward(uop->out())) {
-        to_visit.push_back(unary_use);
+      if (Expr* use_of_out = shouldForward(expr->output(0))) {
+        to_visit.push_back(use_of_out);
       } else {
         // We cannot extend the chain of unary ops, so we finalize this chain by
         // saving its output as a forwarded input.
-        forwarded_inputs.pushBack(uop->out());
+        forwarded_inputs.pushBack(expr->output(0));
       }
-      // Either way, `uop` is excluded from merging until
+      // Either way, `expr` is excluded from merging until
       // `resolveNonscalarForwardedInput` adds it back to one of the segments.
-      excluded_inp_unary_exprs_.pushBack(uop);
+      excluded_inp_unary_exprs_.pushBack(expr);
     }
   }
 
@@ -4346,7 +4350,14 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
   SegmentedGroup* group = segmented_fusion_->newGroup();
-  group->input_vals = IterVisitor::getInputsTo({forwarded_input});
+  auto inputs = IterVisitor::getInputsTo({forwarded_input});
+  for (auto inp : inputs) {
+    // Don't add scalars here as they are added elsewhere
+    if (inp->isScalar()) {
+      continue;
+    }
+    group->input_vals.push_back(inp);
+  }
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
   return group;
 }
