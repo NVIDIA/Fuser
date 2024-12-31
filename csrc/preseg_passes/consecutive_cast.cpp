@@ -25,8 +25,8 @@ bool isCast(Expr* expr) {
 }
 
 bool isMovableMeta(Expr* expr) {
-  // TODO: check that expr output has only a single use
-  return (expr != nullptr && !expr->output(0)->isFusionOutput()) &&
+  return (expr != nullptr && !expr->output(0)->isFusionOutput() &&
+          expr->output(0)->uses().size() == 1) &&
       (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() ||
        ir_utils::isSimpleTVSet(expr));
 }
