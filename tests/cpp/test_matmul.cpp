@@ -4276,7 +4276,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   // Regardless of the instruction, this should result in 2 warp groups i.e. 256
   // threads
   gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4289,9 +4289,12 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
-  mparams.use_smem_epilogue = true;
+  // NOTE: disabling smem use for this test since we currrently hit a bank
+  // conflict.
+  // TODO: enable smem epilogue once stmatrix is updated
+  mparams.use_smem_epilogue = false;
   mparams.cluster_dims = {2, 1, 1};
-  mparams.promote_prologue_smem_reuse = true;
+  mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
@@ -4308,8 +4311,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
 
   // Check number of launched threads matches what we expect
   EXPECT_EQ(ke.lastLaunchParams().bdimx(), 128);
-  EXPECT_EQ(ke.lastLaunchParams().bdimy(), 2)
-      << " expected 2 warp groups (BIDy == 2) but found BIDy=="
+  EXPECT_EQ(ke.lastLaunchParams().bdimy(), 4)
+      << " expected 4 warp groups (BIDy==4) but found BIDy=="
       << ke.lastLaunchParams().bdimy();
 
   // Relax tolerance for larger sum due to large K
