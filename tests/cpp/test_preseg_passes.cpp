@@ -15,6 +15,7 @@
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
+#include <preseg_passes/consecutive_cast.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
