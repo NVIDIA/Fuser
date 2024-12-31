@@ -97,11 +97,11 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& broadcast_graph = id_model.buildBroadcastGraph();
 
-  auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
   // Slicing of or to a broadcast ID is not allowed yet.
-  for (auto tensor_op : resize_based_tensor_ops) {
-    TensorView* out_tv = tensor_op->output(0)->as<TensorView>();
+  for (auto resize_tensor_op : resize_tensor_ops) {
+    TensorView* out_tv = resize_tensor_op->output(0)->as<TensorView>();
     for (auto logical_id : out_tv->getLogicalDomain()) {
       Resize* resize = dynamic_cast<Resize*>(logical_id->definition());
       if (resize == nullptr) {
