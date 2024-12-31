@@ -9272,6 +9272,60 @@ TEST_F(NVFuserTest, AllIdsMultipleDependencies) {
   }
 }
 
+// Testing the forwading of the fusion segmenter. The reshape of tv1,
+// which merges two IDs, is forwarded. Those two IDs are mapped to a
+// non-reduction ID and a reduction ID, respectively, so the reshape
+// should be fused with the reduction. This condition is enforced by
+// the reduction-related schedulers (in this case the inner
+// normalization scheduler), so the fusion should be segmented before
+// the reshape of tv4. For the remaining ops, forwarding the tv1
+// reshape should not be a problem.
+TEST_F(NVFuserTest, ForwardReshapePostReduction) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv0);
+  auto tv5 = reshape(tv4, {IrBuilder::create<Val>(-1)});
+  auto tv6 = reshape(tv1, {IrBuilder::create<Val>(-1)});
+  auto tv7 = add(tv5, tv6);
+
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::ones({10, 20}, options);
+  at::Tensor t1 = at::ones({10, 20}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // The fusion should be segmented into two kernels, one of which
+  // should have both of the two view ops.
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
+  EXPECT_EQ(num_segments, 2);
+  for (const auto i : c10::irange(num_segments)) {
+    const auto& exec = kernel_runtime->executors().at(i);
+    int64_t num_view_ops = 0;
+    for (auto expr : exec->as<KernelExecutor>()->fusion()->exprs()) {
+      if (expr->isA<ViewOp>()) {
+        ++num_view_ops;
+      }
+    }
+    EXPECT_TRUE(num_view_ops == 0 || num_view_ops == 2)
+        << "Unexpected number of ViewOp: " << num_view_ops;
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

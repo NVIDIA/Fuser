@@ -4030,15 +4030,33 @@ Expr* shouldForward(Val* v) {
     return nullptr;
   }
 
-  // TODO: LoadStoreOp
   auto* use_of_v = uses.front();
-  if (!use_of_v->isOneOf<UnaryOp, BroadcastOp, ExpandOp, ViewOp>()) {
+  if (!use_of_v
+           ->isOneOf<UnaryOp, LoadStoreOp, BroadcastOp, ExpandOp, ViewOp>()) {
     return nullptr;
   }
 
-  // Don't forward reshape with split since the fusion would not be
-  // able to see the connection between split output IDs
+  // For LoadStoreOp, only allow trivial set
+  if (auto load_store = dynamic_cast<LoadStoreOp*>(use_of_v)) {
+    if (load_store->opType() != LoadStoreOpType::Set) {
+      return nullptr;
+    }
+    // Don't allow anything with root-logical transforms or reordering
+    if (auto out_tv = dynamic_cast<TensorView*>(load_store->out());
+        out_tv != nullptr && out_tv->hasRoot()) {
+      return nullptr;
+    }
+  }
+
   if (auto reshape = dynamic_cast<ViewOp*>(use_of_v)) {
+    // Don't forward reshape with split since the fusion would not be
+    // able to see the connection between split output IDs, which
+    // might result in missing fusion opportunities. Note that
+    // merge should be fine, although merge after reduction may
+    // potentially result in an unschedulable fusion, since the
+    // condition is already enforced by all of the reduction-related
+    // schedulers. See NVFuserTest..ForwardReshapePostReduction for a
+    // concrete example.
     auto reshape_out = reshape->out();
     auto reshape_exprs = DependencyCheck::getAllExprsBetween(
         {reshape_out->getRootDomain().begin(),
