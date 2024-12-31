@@ -321,6 +321,13 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
+
+  auto deserializeEmbeddingRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::EmbeddingOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::EmbeddingOp, deserializeEmbeddingRecord);
+  
   // END OpRecord Parsers
 
   // START Reduction Parsers
