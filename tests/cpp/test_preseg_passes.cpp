@@ -999,6 +999,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp0) {
   {
     // Make sure cast no longer exists
     Fusion fusion_copy = fusion;
+    FusionGuard fg(&fusion_copy);
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_EQ(
