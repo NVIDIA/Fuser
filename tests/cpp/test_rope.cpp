@@ -722,28 +722,4 @@ TEST_F(RopeTest, HFMistralNemoBwd) {
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(RopeTest, TMP) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
-  Fusion& fusion = *fusion_ptr;
-
-  auto T0 = makeContigConcreteTensor({1, 32});
-  fusion.addInput(T0);
-
-  auto T1 = squeeze(T0, {0});
-  fusion.addOutput(T1);
-
-  fusion.printMath();
-
-  auto options_fp32 =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({1, 32}, options_fp32);
-  std::vector<c10::IValue> inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
-  testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
-}
-
 } // namespace nvfuser
