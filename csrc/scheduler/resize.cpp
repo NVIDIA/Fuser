@@ -243,7 +243,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // reference is picked by the same routine used for the pointwise
   // scheduler.
   scheduler_tools::scheduleLoopDomainsLike(
-      fusion->allTvs(), ref_tv->getLoopDomain(), true);
+      fusion->allTvs(), ref_tv->getLoopDomain(), /*update_loop_domain_only=*/true);
 
   inlineMost();
 
