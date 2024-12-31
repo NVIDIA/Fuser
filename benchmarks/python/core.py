@@ -49,7 +49,7 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
 
 
 def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
-    assert executor in ["eager", "torchcompile", "thunder"]
+    assert executor in ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
     if executor == "eager":
         return fwd_fn
     if executor == "torchcompile":
