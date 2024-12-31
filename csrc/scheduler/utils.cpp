@@ -2666,17 +2666,6 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
-int64_t nLogicalDims(const TensorView* tv) {
-  auto logical_dom = tv->getLogicalDomain();
-  int64_t tv_n_dims = 0;
-  for (auto dim : logical_dom) {
-    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
-      tv_n_dims++;
-    }
-  }
-  return tv_n_dims;
-}
-
 std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
     TensorView* tv,
     const std::vector<IterDomain*>& ref) {

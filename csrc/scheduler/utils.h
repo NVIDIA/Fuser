@@ -734,7 +734,16 @@ int64_t reorderDevicesToOuter(TensorView* tv);
 
 // Returns number of non-reduction/non-broadcas/non-device dims in logical
 // domain
-int64_t nLogicalDims(const TensorView* tv);
+inline int64_t nLogicalDims(const TensorView* tv) {
+  auto logical_dom = tv->getLogicalDomain();
+  int64_t tv_n_dims = 0;
+  for (auto dim : logical_dom) {
+    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
+      tv_n_dims++;
+    }
+  }
+  return tv_n_dims;
+}
 
 std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
     TensorView* tv,

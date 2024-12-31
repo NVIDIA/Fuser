@@ -390,6 +390,25 @@ bool DomainMap::isValidReference(TensorView* tv) const {
   return true;
 }
 
+TensorView* PointwiseDomainMap::findReferenceTensor(
+    int64_t minimum_num_axes) const {
+  TensorView* result = nullptr;
+  int64_t max_dims = -1;
+  for (auto output_tv :
+       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    if (isValidReference(output_tv) &&
+        hasMinimumSize(output_tv, minimum_num_axes) &&
+        !output_tv->isFusionInput()) {
+      int64_t n_dims = scheduler_utils::nLogicalDims(output_tv);
+      if (n_dims > max_dims) {
+        result = output_tv;
+        max_dims = n_dims;
+      }
+    }
+  }
+  return result;
+}
+
 TensorView* TransposeDomainMap::findReferenceFor(
     const std::vector<TensorView*>& group) const {
   TensorView* result = nullptr;
@@ -447,8 +466,6 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
 }
 
-// scheduler assumes inner loop dimension on tv is an exact mapping, when the
-// mapping cannot be resolved, we'll return a `-1`
 int64_t TransposeDomainMap::getInnerLeafDim(
     TensorView* tv,
     IterDomain* root_dim) const {
