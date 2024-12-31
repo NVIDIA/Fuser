@@ -10,6 +10,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <transform_iter.h>
 #include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
@@ -24,6 +25,7 @@ bool isCast(Expr* expr) {
 }
 
 bool isMovableMeta(Expr* expr) {
+  // TODO: check that expr output has only a single use
   return (expr != nullptr && !expr->output(0)->isFusionOutput()) &&
       (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() ||
        ir_utils::isSimpleTVSet(expr));
@@ -31,46 +33,79 @@ bool isMovableMeta(Expr* expr) {
 
 Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
   // preparing new meta output.
-  Val* replayed_meta_out =
-      ops::newValLike(meta->output(0), new_in->getDataType().value());
+  Val* replayed_meta_out = nullptr;
+  ops::newValLike(meta->output(0), new_in->getDataType().value());
 
   if (meta->isA<SqueezeOp>()) {
+    replayed_meta_out =
+        ops::newValLike(meta->output(0), new_in->getDataType().value());
     IrBuilder::create<SqueezeOp>(
         replayed_meta_out, new_in, meta->as<SqueezeOp>()->getSqueezeDimFlags());
   } else if (meta->isA<BroadcastOp>()) {
+    replayed_meta_out =
+        ops::newValLike(meta->output(0), new_in->getDataType().value());
     IrBuilder::create<BroadcastOp>(
         replayed_meta_out,
         new_in,
         meta->as<BroadcastOp>()->getBroadcastDimFlags());
   } else if (meta->isA<ViewOp>()) {
+    // TODO: add a test case where meta->definition() is a reduction;
+    // TODO: add a test case cast out has allocation domain;
+
     // NOTE: we need to replay transformation.
     NVF_ERROR(meta->output(0)->isA<TensorView>());
     TensorView* meta_tv_out = meta->output(0)->as<TensorView>();
-    TensorView* replayed_meta_tv_out = replayed_meta_out->as<TensorView>();
+
+    const std::vector<IterDomain*>& meta_tv_out_root_domain =
+        meta_tv_out->getMaybeRootDomain();
+
+    std::vector<IterDomain*> replayed_root_domain =
+        IterDomain::clone(meta_tv_out_root_domain);
+
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(meta_tv_out->nDims()) ) {
-      id_map[meta_tv_out->getMaybeRootDomain()[i]] = replayed_meta_tv_out->getMaybeRootDomain()[i];
+    for (const auto i : c10::irange(meta_tv_out_root_domain.size())) {
+      id_map[meta_tv_out_root_domain[i]] = replayed_root_domain[i];
     }
-    ReplayTransformations replay(meta_tv_out->getMaybeRootDomain(), id_map);
-    std::vector<IterDomain*> new_logical_domain;
+    ReplayTransformations replay(meta_tv_out->getLogicalDomain(), id_map);
+
+    std::vector<IterDomain*> replayed_logical_domain;
     for (auto id : meta_tv_out->getLogicalDomain()) {
-      NVF_ERROR(
-          replay.getReplay().count(id), "logical domain replay failed");
-      new_logical_domain.push_back(replay.getReplay().at(id));
+      NVF_ERROR(replay.getReplay().count(id), "logical domain replay failed");
+      replayed_logical_domain.push_back(replay.getReplay().at(id));
     }
+
+    std::vector<IterDomain*> replayed_allocation_domain;
+    for (auto id : meta_tv_out->getMaybeAllocationDomain()) {
+      NVF_ERROR(replay.getReplay().count(id), "logical domain replay failed");
+      replayed_allocation_domain.push_back(replay.getReplay().at(id));
+    }
+
+    std::vector<IterDomain*> replayed_loop_domain;
+    for (auto id : meta_tv_out->getLoopDomain()) {
+      NVF_ERROR(replay.getReplay().count(id), "logical domain replay failed");
+      replayed_loop_domain.push_back(replay.getReplay().at(id));
+    }
+
     // update the logical domain with replayed transformed.
-    replayed_meta_tv_out->setDomain(IrBuilder::create<TensorDomain>(
-     replayed_meta_tv_out->getMaybeRootDomain(),
-        new_logical_domain,
-     replayed_meta_tv_out->getMaybeAllocationDomain(),
-     replayed_meta_tv_out->getMaybeLoopDomain(),
-     replayed_meta_tv_out->getContiguity());
+    replayed_meta_out = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            replayed_root_domain,
+            replayed_logical_domain,
+            replayed_allocation_domain,
+            replayed_loop_domain,
+            meta_tv_out->getContiguity()),
+        new_in->getDataType().value());
+    ;
 
     // create the view op.
     IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
   } else {
-    NVF_ERROR(ir_utils::isSimpleTVSet(meta), "Unidentified operation for replay");
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, replayed_meta_out, new_in);
+    NVF_ERROR(
+        ir_utils::isSimpleTVSet(meta), "Unidentified operation for replay");
+    replayed_meta_out =
+        ops::newValLike(meta->output(0), new_in->getDataType().value());
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, replayed_meta_out, new_in);
   }
 
   return replayed_meta_out;
