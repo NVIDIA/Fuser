@@ -1317,9 +1317,6 @@ void CompiledKernel::compile(int64_t block_size) {
 
   NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
 
-  // TODO: high water mark should be computed via occupancy API after
-  // compilation.
-
   // Basically setting high water mark as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the
   // first run - not great. We should have better heuristics.
