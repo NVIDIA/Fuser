@@ -1109,12 +1109,12 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
   fusion.addInput(tv0);
 
   auto tv1 = castOp(DataType::Double, tv0);
-  auto tv3 = reshape(tv2, {4}, {2, 3, 2, 2});
-  auto tv4 = castOp(DataType::Float, tv3);
-  std::vector<IterDomain*> tv4_nhwc = {
-      tv4->axis(0), tv4->axis(2), tv4->axis(3), tv4->axis(1)};
-  tv4->setAllocationDomain(tv4_nhwc, true);
-  fusion.addOutput(tv4);
+  auto tv2 = reshape(tv1, {2, 3, 4}, {2, 3, 2, 2});
+  auto tv3 = castOp(DataType::Float, tv2);
+  std::vector<IterDomain*> tv3_nhwc = {
+      tv3->axis(0), tv3->axis(2), tv3->axis(3), tv3->axis(1)};
+  tv3->setAllocationDomain(tv3_nhwc, true);
+  fusion.addOutput(tv3);
 
   {
     // Make sure cast no longer exists
