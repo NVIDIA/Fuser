@@ -4036,6 +4036,22 @@ Expr* shouldForward(Val* v) {
     return nullptr;
   }
 
+  // Don't forward reshape with split since the fusion would not be
+  // able to see the connection between split output IDs
+  if (auto reshape = dynamic_cast<ViewOp*>(use_of_v)) {
+    auto reshape_out = reshape->out();
+    auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+        {reshape_out->getRootDomain().begin(),
+         reshape_out->getRootDomain().end()},
+        {reshape_out->getLogicalDomain().begin(),
+         reshape_out->getLogicalDomain().end()});
+    if (std::any_of(reshape_exprs.begin(), reshape_exprs.end(), [](Expr* expr) {
+          return expr->isA<Split>();
+        })) {
+      return nullptr;
+    }
+  }
+
   auto consumer_of_v = use_of_v->output(0);
 
   // Don't forward an input to an output yet. Doing that would lead to an empty
