@@ -255,7 +255,16 @@ void KernelExecutor::compile(
   // Lowered is needed to compute launch parameters as it uses the CA map. We
   // could modify that, but simply generating that part first.
   compiled_kernel_ = std::make_unique<CompiledKernel>(
-      fusion_.get(), compile_params, lowering_hooks_, post_lowering_hooks_);
+      fusion_.get(),
+      compile_params,
+      device,
+      scheduler_type,
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      group_id_,
+      lowering_hooks_,
+      post_lowering_hooks_);
 
   // TODO: pass block_size here;
   std::optional<int64_t> dynamic_smem = std::nullopt;
@@ -279,14 +288,7 @@ void KernelExecutor::compile(
   // Now that we have launch parameters we can compile the kernel. It's a bit
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.
-  compiled_kernel_->compile(
-      device,
-      launch_params.nThreads(),
-      scheduler_type,
-      fusion_id_,
-      concrete_id_,
-      runtime_id_,
-      group_id_);
+  compiled_kernel_->compile(launch_params.nThreads());
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -939,7 +941,7 @@ std::vector<at::Tensor> KernelExecutor::run(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
 
-  c10::DeviceGuard dg(compiled_kernel_->options().device);
+  c10::DeviceGuard dg(compiled_kernel_->device());
   auto stream = at::cuda::getCurrentCUDAStream();
   at::cuda::jit::initializeCudaContext();
   NVF_ERROR(compiled_kernel_->lowered());
@@ -985,7 +987,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     outputs = allocateOutputs(
         compiled_kernel_->fusion(),
         executor_entry->outputs,
-        compiled_kernel_->options().device,
+        compiled_kernel_->device(),
         expr_eval);
   }
   args.push(outputs);
@@ -1029,22 +1031,20 @@ std::vector<at::Tensor> KernelExecutor::run(
           // to reset to zero upon completion of the kernel, or if we have
           // enabled the option (unsafe)
           intermediate_buffer = contigZeroedTensor(
-              unexpanded_sizes,
-              buf_info.type,
-              compiled_kernel_->options().device);
+              unexpanded_sizes, buf_info.type, compiled_kernel_->device());
         } else {
           intermediate_buffer = at::zeros(
               unexpanded_sizes,
               at::TensorOptions()
                   .dtype(buf_info.type)
-                  .device(compiled_kernel_->options().device));
+                  .device(compiled_kernel_->device()));
         }
       } else {
         intermediate_buffer = at::native::empty_cuda(
             unexpanded_sizes,
             buf_info.type,
             c10::nullopt,
-            compiled_kernel_->options().device,
+            compiled_kernel_->device(),
             c10::nullopt);
         if (shouldFillAllocationWithNan()) {
           fillTensorWithNan(intermediate_buffer);
@@ -1109,8 +1109,8 @@ std::vector<at::Tensor> KernelExecutor::run(
           launch_params_.nThreads(),
           launch_params_.smem()));
 
-      const int64_t device_id = static_cast<unsigned char>(
-          compiled_kernel_->options().device.index());
+      const int64_t device_id =
+          static_cast<unsigned char>(compiled_kernel_->device().index());
       const auto prop =
           at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
@@ -1372,7 +1372,6 @@ void KernelExecutor::deserialize(
 
   scheduler_type_ = scheduler_type;
 
-  // Initialize CompileOptions
   auto device = c10::Device(c10::DeviceType::CUDA, device_index);
   c10::DeviceGuard dg(device);
 
@@ -1380,17 +1379,17 @@ void KernelExecutor::deserialize(
   device_smem_limit_ = buffer->device_smem_limit();
   warp_size_ = buffer->warp_size();
 
-  compiled_kernel_ = std::make_unique<CompiledKernel>(_fusion, compile_params);
-
-  compiled_kernel_->deserialize(
-      buffer,
+  compiled_kernel_ = std::make_unique<CompiledKernel>(
       _fusion,
-      device_index,
+      compile_params,
+      device,
       scheduler_type,
       fusion_id,
       concrete_id,
       runtime_id,
       group_id);
+
+  compiled_kernel_->deserialize(buffer);
 
   // GlobalBufferInfo requires lowered kernel before deserialization
   for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {

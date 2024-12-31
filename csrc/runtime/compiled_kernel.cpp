@@ -1110,10 +1110,22 @@ bool requiresDisabledParamCache(const Fusion* fusion) {
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
     CompileParams compile_params,
+    c10::Device device,
+    SchedulerType scheduler_type,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id,
     const std::vector<std::function<void(GpuLower*)>>& pre_lowering_hooks,
     const std::vector<std::function<void(kir::Kernel*)>>& post_lowering_hooks)
     : compile_params_(compile_params),
-      lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
+      scheduler_type_(scheduler_type),
+      fusion_id_(fusion_id),
+      concrete_id_(concrete_id),
+      runtime_id_(runtime_id),
+      group_id_(group_id),
+      lowered_(std::make_unique<GpuLower>(fusion, compile_params)),
+      device_(device) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
@@ -1127,24 +1139,32 @@ NVF_API CompiledKernel::CompiledKernel(
 
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
-    CompileParams compile_params)
-    : CompiledKernel(fusion, compile_params, {}, {}) {}
-
-void CompiledKernel::compile(
+    CompileParams compile_params,
     c10::Device device,
-    int64_t block_size,
     SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
-    int64_t group_id) {
+    int64_t group_id)
+    : CompiledKernel(
+          fusion,
+          compile_params,
+          device,
+          scheduler_type,
+          fusion_id,
+          concrete_id,
+          runtime_id,
+          group_id,
+          {},
+          {}) {}
+
+void CompiledKernel::compile(int64_t block_size) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
   NVF_ERROR(
       !fusion()->outputs().empty(),
       "No output found for this kernel, aborting.");
 
-  options_.device = device;
   // Parameter cache doesn't cache on input scalars, so if one is used as a
   // dynamic input size of a tensor the cache doesn't work correctly. This
   // should be enabled in the cache, but since it's not, for now we will disable
@@ -1166,17 +1186,16 @@ void CompiledKernel::compile(
         IrGraphGenerator::DetailLevel::ComputeOnly);
   }
 
-  c10::DeviceGuard dg(options_.device);
+  c10::DeviceGuard dg(device_);
 
-  NVF_ERROR(
-      options_.device.is_cuda(), "Provided device to CUDA fuser is the CPU.");
-  auto properties = at::cuda::getDeviceProperties(options_.device.index());
+  NVF_ERROR(device_.is_cuda(), "Provided device to CUDA fuser is the CPU.");
+  auto properties = at::cuda::getDeviceProperties(device_.index());
   // TODO: These properties should be set as part of the constructor so that
   // it can be const
   warp_size_ = properties->warpSize;
   kir::Kernel* kernel = lowered_->kernel();
 
-  createKernelId(scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
+  createKernelId();
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -1330,21 +1349,11 @@ std::string CompiledKernel::disassembledKernelSASS() const {
   return disassembleBinary(compiled_kernel_->cubin, "-fun 1 -c");
 }
 
-void CompiledKernel::createKernelId(
-    SchedulerType scheduler_type,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id) {
-  NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
-  NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
-  NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
-  NVF_ERROR(group_id > -1, "Invalid group_id");
-  scheduler_type_ = scheduler_type;
-  fusion_id_ = fusion_id;
-  concrete_id_ = concrete_id;
-  runtime_id_ = runtime_id;
-  group_id_ = group_id;
+void CompiledKernel::createKernelId() {
+  NVF_ERROR(fusion_id_ > -1, "Invalid fusion_id.");
+  NVF_ERROR(concrete_id_ > -1, "Invalid concrete_id.");
+  NVF_ERROR(runtime_id_ > -1, "Invalid runtime_id.");
+  NVF_ERROR(group_id_ > -1, "Invalid group_id");
   ++global_fusion_count_;
   std::stringstream ss;
   if (isOptionEnabled(EnableOption::StaticFusionCount)) {
@@ -1387,7 +1396,7 @@ float CompiledKernel::runRtc(
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("CompiledKernel::runRtc");
 
-  c10::DeviceGuard dg(options_.device);
+  c10::DeviceGuard dg(device_);
   auto stream = at::cuda::getCurrentCUDAStream();
 
   cudaEvent_t start_event = {};
@@ -1446,18 +1455,9 @@ float CompiledKernel::runRtc(
   return kernel_time_ms;
 }
 
-void CompiledKernel::deserialize(
-    const serde::KernelExecutor* buffer,
-    Fusion* fusion,
-    int8_t device_index,
-    SchedulerType heuristic,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id) {
+void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
   // Initialize CompileOptions
-  options_.device = c10::Device(c10::DeviceType::CUDA, device_index);
-  c10::DeviceGuard dg(options_.device);
+  c10::DeviceGuard dg(device_);
 
   // Initialize internal fields
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
@@ -1470,12 +1470,7 @@ void CompiledKernel::deserialize(
   compile_params_.maxrregcount = maxrregcount_high_water_mark_;
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  createKernelId(
-      heuristic,
-      buffer->fusion_id(),
-      buffer->concrete_id(),
-      buffer->runtime_id(),
-      buffer->group_id());
+  createKernelId();
   setUsedTVs();
 
   compiled_kernel_ =
@@ -1526,6 +1521,10 @@ void validateCooperativeLaunch(
 }
 } // namespace
 
+// Uses launch_params.nThreads
+// Uses compiled_params.maxregcount
+// Uses compiled_params.enable_ptxas_verbose
+// TODO: Change this to only use the above parameters
 void CompiledKernel::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
@@ -1534,6 +1533,7 @@ void CompiledKernel::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
+  // TODO: This should send in the right device!
   compiled_kernel_ = getCudaExecutable(
       kernel_code_,
       structured_code,
@@ -1548,7 +1548,7 @@ void CompiledKernel::recompileKernel(
     // So we need to do it there before calling into the validation, to avoid
     // false positives
     validateCooperativeLaunch(
-        compiled_kernel_->function, new_launch_params, options_.device.index());
+        compiled_kernel_->function, new_launch_params, device_.index());
   }
 }
 

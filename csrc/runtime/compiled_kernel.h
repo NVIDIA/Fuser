@@ -30,11 +30,6 @@
 
 namespace nvfuser {
 
-// TODO: Bury this someplace more useful.
-struct CompileOptions {
-  c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
-};
-
 class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
@@ -42,23 +37,30 @@ class CompiledKernel : public NonCopyable {
   NVF_API CompiledKernel(
       Fusion* fusion,
       CompileParams compile_params,
+      c10::Device device,
+      SchedulerType scheduler_type,
+      int64_t fusion_id,
+      int64_t concrete_id,
+      int64_t runtime_id,
+      int64_t group_id,
       const std::vector<std::function<void(GpuLower*)>>& pre_lowering_hooks,
       const std::vector<std::function<void(kir::Kernel*)>>&
           post_lowering_hooks);
 
-  NVF_API CompiledKernel(Fusion* fusion, CompileParams compile_params);
-
-  //! To compile a fusion with the 32-bit index type, CompileParams
-  //! must be passed in. There used to be an index type associated
-  //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compile(
+  NVF_API CompiledKernel(
+      Fusion* fusion,
+      CompileParams compile_params,
       c10::Device device,
-      int64_t block_size,
       SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
       int64_t group_id = 0);
+
+  //! To compile a fusion with the 32-bit index type, CompileParams
+  //! must be passed in. There used to be an index type associated
+  //! with KernelArgumentHolder, but it is no longer the case.
+  NVF_API void compile(int64_t block_size);
 
   // Function to query whether compilation was attempted for a `CompiledKernel`
   bool isCompiled() const {
@@ -128,20 +130,15 @@ class CompiledKernel : public NonCopyable {
   const int64_t& groupId() const {
     return group_id_;
   }
-  void setGroupId(int64_t gid) {
-    group_id_ = gid;
-  }
+  // void setGroupId(int64_t gid) {
+  //   group_id_ = gid;
+  // }
 
   bool validKernelId() const {
     return !kernel_id_.empty();
   }
 
-  void createKernelId(
-      SchedulerType scheduler_type = SchedulerType::None,
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0);
+  void createKernelId();
 
   std::string kernelName() const {
     NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
@@ -173,30 +170,14 @@ class CompiledKernel : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  // Temporary accessors for refactor:
-  CompileOptions& options() {
-    return options_;
-  }
-  int64_t& fusionId() {
-    return fusion_id_;
-  }
   const int64_t& fusionId() const {
     return fusion_id_;
-  }
-  int64_t& concreteId() {
-    return concrete_id_;
-  }
-  int64_t& runtimeId() {
-    return runtime_id_;
   }
   const int64_t& concreteId() const {
     return concrete_id_;
   }
   const int64_t& runtimeId() const {
     return runtime_id_;
-  }
-  int64_t& groupId() {
-    return group_id_;
   }
   static std::atomic<int64_t>& globalFusionCount() {
     return global_fusion_count_;
@@ -247,15 +228,7 @@ class CompiledKernel : public NonCopyable {
   }
 
   //! Deserialize Fusion Executor using flatbuffers
-  void deserialize(
-      const serde::KernelExecutor* buffer,
-      Fusion* fusion,
-      int8_t device_index,
-      SchedulerType scheduler_type,
-      int64_t fusion_id,
-      int64_t concrete_id,
-      int64_t runtime_id,
-      int64_t group_id);
+  void deserialize(const serde::KernelExecutor* buffer);
 
   //  private:
   void setUsedTVs();
@@ -269,9 +242,11 @@ class CompiledKernel : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+  const c10::Device& device() const {
+    return device_;
+  }
 
  private:
-  CompileOptions options_;
   CompileParams compile_params_;
   // Assuming sm70 or above:
   //  limit of statically allocated smem is 48 KB:
@@ -286,23 +261,23 @@ class CompiledKernel : public NonCopyable {
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
-  // ID of fusion in python frontend fusion cache, which maps to a single
-  // CompiledKernelCache.
-  int64_t fusion_id_ = -1;
-
-  // ID of (device, concrete_info) key in CompiledKernelCache
-  int64_t concrete_id_ = -1;
-
-  // ID of FusionKernelRuntime given (device, concrete_info) key
-  int64_t runtime_id_ = -1;
-
-  // ID of segment in FusionKernelRuntime
-  int64_t group_id_ = -1;
-
-  inline static std::atomic<int64_t> global_fusion_count_;
-
   // Scheduling Heuristic for this Fusion
   SchedulerType scheduler_type_ = SchedulerType::None;
+
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // CompiledKernelCache.
+  const int64_t fusion_id_ = -1;
+
+  // ID of (device, concrete_info) key in CompiledKernelCache
+  const int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  const int64_t runtime_id_ = -1;
+
+  // ID of segment in FusionKernelRuntime
+  const int64_t group_id_ = -1;
+
+  inline static std::atomic<int64_t> global_fusion_count_;
 
   // Kernel name for fusion executor
   std::string kernel_id_;
@@ -322,6 +297,8 @@ class CompiledKernel : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  const c10::Device device_ = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
 } // namespace nvfuser
