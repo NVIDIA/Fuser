@@ -76,7 +76,8 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
 
     std::vector<IterDomain*> replayed_allocation_domain;
     for (auto id : meta_tv_out->getMaybeAllocationDomain()) {
-      NVF_ERROR(replay.getReplay().count(id), "allocation domain replay failed");
+      NVF_ERROR(
+          replay.getReplay().count(id), "allocation domain replay failed");
       replayed_allocation_domain.push_back(replay.getReplay().at(id));
     }
 
