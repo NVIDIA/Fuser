@@ -828,7 +828,7 @@ TEST_P(LitgptRopeTest, Fwd) {
       config.seq_length,
       config.head_size};
 
-  std::vector<int64_t> input_shape = shape_before_reshape;
+  const auto& input_shape = shape_before_reshape;
 
   // qkv after permutation
   auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
@@ -902,7 +902,7 @@ TEST_P(LitgptRopeTest, Fwd) {
 
     std::vector<bool> bcast_flags(new_shape.size(), false);
     for (auto it = bcast_flags.begin();
-         it != bcast_flags.begin() + bcast_flags.size() - 2;
+         it != bcast_flags.begin() + (int64_t)bcast_flags.size() - 2;
          ++it) {
       *it = true;
     }

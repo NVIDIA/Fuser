@@ -60,7 +60,7 @@ namespace nvfuser::preseg_passes {
   // 2. after MoveSplitCat
   //    to avoid this pass moving PadOp around to break the
   // MoveSplitCat.
-  if (getenv("MOVE_PAD")) {
+  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
     OptimizationPass<MovePadPass>::runPass(fusion);
   }
   // NOTE vvv this doesn't really work, since our type promotion to higher
