@@ -1105,6 +1105,37 @@ bool requiresDisabledParamCache(const Fusion* fusion) {
   return false;
 }
 
+std::string _getStructuredCode(
+    const std::string& kernel_str,
+    PrimDataType index_type,
+    std::string kernel_name) {
+  // generating cuda code;
+  std::string code = "";
+  code += defineStdComplex();
+  code += std::string("namespace {\n") + defineTypes() +
+      defineIndexType(index_type) + kernelPreamble() + kernel_str + "}\n";
+
+  if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
+    debug() << "\n======= Codegen output for kernel: " << kernel_name
+            << " =======\n\n"
+            << kernel_str << "\n======================================\n\n";
+  } else if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
+    debug() << "\n======= Codegen output for kernel: " << kernel_name
+            << " =======\n\n"
+            << code << "\n======================================\n\n";
+  }
+  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
+    std::stringstream file_name;
+    file_name << "__tmp_" << kernel_name << ".cu";
+    debug() << "PRINTING: " << file_name.str() << std::endl;
+    std::ofstream out(file_name.str());
+    out << code << std::endl;
+    out.close();
+  }
+
+  return code;
+}
+
 } // namespace
 
 NVF_API CompiledKernel::CompiledKernel(
@@ -1310,38 +1341,9 @@ void CompiledKernel::compile(int64_t block_size) {
   }
 }
 
-std::string CompiledKernel::getStructuredCode(
-    const std::string& kernel_str,
-    PrimDataType index_type) const {
-  // generating cuda code;
-  std::string code = "";
-  code += defineStdComplex();
-  code += std::string("namespace {\n") + defineTypes() +
-      defineIndexType(index_type) + kernelPreamble() + kernel_str + "}\n";
-
-  if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
-    debug() << "\n======= Codegen output for kernel: " << kernelName()
-            << " =======\n\n"
-            << kernel_str << "\n======================================\n\n";
-  } else if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    debug() << "\n======= Codegen output for kernel: " << kernelName()
-            << " =======\n\n"
-            << code << "\n======================================\n\n";
-  }
-  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
-    std::stringstream file_name;
-    file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
-    debug() << "PRINTING: " << file_name.str() << std::endl;
-    std::ofstream out(file_name.str());
-    out << code << std::endl;
-    out.close();
-  }
-
-  return code;
-}
-
 std::string CompiledKernel::getStructuredCode() const {
-  return getStructuredCode(kernelString(), kernel()->indexType());
+  return _getStructuredCode(
+      kernelString(), kernel()->indexType(), kernelName());
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
@@ -1367,35 +1369,38 @@ void CompiledKernel::createKernelId() {
   kernel_id_ = ss.str();
 }
 
-void CompiledKernel::compileRtc(
+void RtcKernel::compile(
     const std::string& code,
     const std::string& name,
     bool structured,
-    PrimDataType index_type) {
-  FUSER_PERF_SCOPE("CompiledKernel::compileRtc");
+    PrimDataType index_type,
+    int64_t device_index) {
+  FUSER_PERF_SCOPE("RtcKernel::compile");
   NVF_ERROR(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
       index_type);
-
-  createKernelId();
+  device_index_ = device_index;
 
   std::string scode;
   if (!structured) {
-    scode = getStructuredCode(code, index_type);
+    scode = _getStructuredCode(code, index_type, name);
   } else {
     scode = code;
   }
-  compiled_kernel_ = getCudaExecutable(std::nullopt, scode, name, kernel_id_);
+  CompileParams cp;
+  cp.device = c10::Device(c10::DeviceType::CUDA, device_index_);
+  compiled_kernel_ = getCudaExecutable(std::nullopt, scode, name, 0, cp);
 }
 
-float CompiledKernel::runRtc(
+float RtcKernel::run(
     const LaunchParams& launch_params,
     const std::vector<at::Tensor>& args,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("CompiledKernel::runRtc");
+  FUSER_PERF_SCOPE("RtcKernel::run");
 
-  c10::DeviceGuard dg(device_);
+  auto device = c10::Device(c10::DeviceType::CUDA, device_index_);
+  c10::DeviceGuard dg(device);
   auto stream = at::cuda::getCurrentCUDAStream();
 
   cudaEvent_t start_event = {};

@@ -207,8 +207,7 @@ std::string FusionExecutorCache::getCode(
       }
     }
     if (first_ke != nullptr) {
-      return first_ke->compiledKernel()->getStructuredCode(
-          kernel_code, first_index_type);
+      return first_ke->compiledKernel()->getStructuredCode();
     }
     return "";
   } else {

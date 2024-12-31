@@ -1964,7 +1964,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionSimpleCompileRtc_CUDA) {
-  CompiledKernel ck;
+  RtcKernel rk;
   std::string kernel = R"(
 __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   if(threadIdx.x==0){
@@ -1974,7 +1974,7 @@ __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   }
 }
     )";
-  ck.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       256, // gdimx
       1, // gdimy
@@ -1989,7 +1989,7 @@ __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   const std::vector<int64_t> tensor_dims = {8};
   auto in0 = at::randn(tensor_dims, options);
   auto out0 = at::empty_like(in0);
-  ck.runRtc(lp, {in0, out0}, PrimDataType::Int);
+  rk.run(lp, {in0, out0}, PrimDataType::Int);
 
   auto out_ref = in0 * 2;
   NVF_CHECK(out_ref.allclose(out0));
@@ -2029,8 +2029,8 @@ __global__ void kernel1(
     }
 }
     )";
-  CompiledKernel ck;
-  ck.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2046,7 +2046,7 @@ __global__ void kernel1(
   auto in0 = at::randn(tensor_dims, options);
   auto out_var = at::empty({x}, options);
   auto out_avg = at::empty({x}, options);
-  ck.runRtc(lp, {in0, out_var, out_avg}, PrimDataType::Int);
+  rk.run(lp, {in0, out_var, out_avg}, PrimDataType::Int);
 
   NVF_CHECK(in0.var({1, 2}, false).allclose(out_var));
   NVF_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
@@ -2102,8 +2102,8 @@ __global__ void kernel1(
     }
 }
     )";
-  CompiledKernel ck;
-  ck.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2130,7 +2130,7 @@ __global__ void kernel1(
   // run kernel
   auto out_var = at::zeros({x}, options);
   auto out_avg = at::zeros({x}, options);
-  ck.runRtc(
+  rk.run(
       lp,
       {in0, out_avg, out_var, init_avg, init_var, init_N},
       PrimDataType::Int);
@@ -2184,8 +2184,8 @@ __global__ void kernel1(
     }
 }
     )";
-  CompiledKernel ck;
-  ck.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2201,7 +2201,7 @@ __global__ void kernel1(
   auto in0 = at::randn(tensor_dims, options);
   auto out_var = at::empty({x}, options);
   auto out_avg = at::empty({x}, options);
-  ck.runRtc(lp, {in0, out_avg, out_var}, PrimDataType::Int);
+  rk.run(lp, {in0, out_avg, out_var}, PrimDataType::Int);
 
   NVF_CHECK(in0.var({1, 2}, false).allclose(out_var));
   NVF_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
@@ -2261,8 +2261,8 @@ __global__ void kernel1(
     }
 }
     )";
-  CompiledKernel ck;
-  ck.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       x, // gdimx
       y, // gdimy
@@ -2286,7 +2286,7 @@ __global__ void kernel1(
   auto work_buf_var = at::empty({x * y * z}, options);
   auto work_buf_N = at::empty({x * y * z}, options_int);
   auto sync_flag = at::zeros({1}, options_int);
-  ck.runRtc(
+  rk.run(
       lp,
       {in0,
        out_avg,

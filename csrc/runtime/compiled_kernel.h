@@ -30,6 +30,30 @@
 
 namespace nvfuser {
 
+//! Internal tests only. Compiles CUDA code with NVRTC directly from
+//! string. This util provides a path to test runtime code, i.e. the resource
+//! strings.
+class RtcKernel : public NonCopyable {
+ public:
+  NVF_API void compile(
+      const std::string& code,
+      const std::string& name,
+      bool structured,
+      PrimDataType index_type,
+      int64_t device_index = 0);
+
+  //! Internal tests only. Runs the compiled CUDA kernel. Returns elapsed
+  //! milliseconds.
+  NVF_API float run(
+      const LaunchParams& launch_params,
+      const std::vector<at::Tensor>& args,
+      PrimDataType indextype);
+
+ private:
+  std::unique_ptr<executor_utils::CudaExecutable> compiled_kernel_;
+  int64_t device_index_;
+};
+
 class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
@@ -100,11 +124,6 @@ class CompiledKernel : public NonCopyable {
     return kernel_code_;
   }
 
-  // Add preamble and wrap in namespace
-  NVF_API std::string getStructuredCode(
-      const std::string& kernel,
-      PrimDataType index_type) const;
-
   NVF_API std::string getStructuredCode() const;
 
   //! Returns a const reference to the latest compiled kernel.
@@ -146,24 +165,6 @@ class CompiledKernel : public NonCopyable {
     ss << "nvfuser_" << kernel_id_;
     return ss.str();
   }
-
-  //! Internal tests only. Compiles CUDA code with NVRTC directly from
-  //! string. This util provides a path to test runtime code, i.e. the resource
-  //! strings.
-  // TODO: Consider split out compileRtc and runRtc to a different
-  //! class. Not much code is shared with the normal path.
-  NVF_API void compileRtc(
-      const std::string& code,
-      const std::string& name,
-      bool structured,
-      PrimDataType index_type);
-
-  //! Internal tests only. Runs the compiled CUDA kernel from
-  //! compileRtc. Return the elapsed milliseconds.
-  NVF_API float runRtc(
-      const LaunchParams& launch_params,
-      const std::vector<at::Tensor>& args,
-      PrimDataType indextype);
 
   //! Internal knob used for debugging/profiling only
   void disableLaunchParamCache() {
