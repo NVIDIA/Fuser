@@ -499,8 +499,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     // tile is a multiple of the macro size because stmatrix stores results from
     // wgmma to shared memory. For maximum inlining and to reduce shared memory
     // usage, the tma tile is mma_macro size.
-    const int64_t tma_m = getM(params_->mma_macro);
-    const int64_t tma_n = getN(params_->mma_macro);
+    const int64_t tma_m = params_->tile_sizes.warp_tile.m;
+    const int64_t tma_n = params_->tile_sizes.warp_tile.n;
 
     fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
     fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
