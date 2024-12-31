@@ -54,9 +54,8 @@ IndexingTraversal::IndexingTraversal(
 
     auto input_groups = graph.inputGroups(expr_g);
     auto output_groups = graph.outputGroups(expr_g);
-    if (input_groups.size() != 1 || output_groups.size() != 1) {
-      continue;
-    }
+    NVF_ERROR(input_groups.size() == 1);
+    NVF_ERROR(output_groups.size() == 1);
 
     if (graph.getUses(input_groups[0]).size() != 1 ||
         graph.getDefinitions(output_groups[0]).size() != 1) {
