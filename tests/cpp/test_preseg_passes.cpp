@@ -908,7 +908,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand4) {
   auto tv0 = makeContigConcreteTensor({4, 8});
   fusion.addInput(tv0);
 
-  // Consecutive repetitions with different IDs
+  // Consecutive repetitions with the same IDs
   auto tv1 = cat({tv0, tv0}, 1);
   auto tv2 = cat({tv0, tv0}, 1);
 
@@ -940,6 +940,46 @@ TEST_F(PresegTest, TranslateRepeatToExpand4) {
   ASSERT_EQ(heuristic_list.size(), 2);
   EXPECT_EQ(heuristic_list.at(0)->scheduler_type, SchedulerType::PointWise);
   EXPECT_EQ(heuristic_list.at(1)->scheduler_type, SchedulerType::PointWise);
+}
+
+// Repeating more than two times
+TEST_F(PresegTest, TranslateRepeatToExpand5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0, tv0, tv0}, -1);
+  fusion.addOutput(tv1);
+
+  {
+    // Make sure pad and cat no longer exist
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
 }
 
 } // namespace nvfuser::preseg_passes
