@@ -324,12 +324,6 @@ class KernelExecutor : public ExecutorAbstract {
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
 
-  void disableLaunchParamCache() {
-    if (compiledKernel()) {
-      compiledKernel()->disableLaunchParamCache();
-    }
-  }
-
  private:
   std::unique_ptr<CompiledKernel> compiled_kernel_;
 

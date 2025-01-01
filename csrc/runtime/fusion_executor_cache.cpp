@@ -321,7 +321,17 @@ void FusionExecutorCache::profile(bool to_profile) {
 void FusionExecutorCache::disableLaunchParamCache() {
   for (auto& it : kernel_runtimes_) {
     for (auto& kernel_runtime : it.second) {
-      kernel_runtime->disableLaunchParamCache();
+      NVF_CHECK(
+          kernel_runtime->isCompiled(),
+          "Tried to set parameters of executors before they were initialized.");
+      for (auto& executor : kernel_runtime->executors()) {
+        if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+          NVF_CHECK(
+              ke->compiledKernel(),
+              "Tried to disable parameter cache of uninitialized CompiledKernel.");
+          ke->compiledKernel()->disableLaunchParamCache();
+        }
+      }
     }
   }
 }

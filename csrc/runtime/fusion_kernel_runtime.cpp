@@ -416,17 +416,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 }
 
-void FusionKernelRuntime::disableLaunchParamCache() {
-  NVF_CHECK(
-      isCompiled(),
-      "Tried to set parameters of executors before they were initialized.");
-  for (auto& executor : executors_) {
-    if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
-      ke->compiledKernel()->disableLaunchParamCache();
-    }
-  }
-}
-
 void FusionKernelRuntime::disableKernelLaunch() {
   NVF_CHECK(
       isCompiled(),

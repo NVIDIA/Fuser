@@ -236,10 +236,7 @@ void KernelExecutor::compile(
   } else if (has_cp_async_bulk) {
     // TMA operations require 32-bit indexing.
     compile_params.index_type = PrimDataType::Int32;
-  }
-
-  // TODO: Is this necessary?
-  if (!compile_params.index_type.has_value()) {
+  } else {
     compile_params.index_type = arg_index_type;
   }
 
