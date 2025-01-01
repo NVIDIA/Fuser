@@ -66,7 +66,45 @@ void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
     Expr* transform);
 
-void cancelReshapeTransforms(TensorView* from_tv);
+// For each of immediate and indirect consumer tensors of from_tv,
+// schedule its loop domain such that reshape transforms appearing
+// between the tensor and from_tv are cancelled. For example, suppose
+// a fusion has:
+//
+// t0 = makeSymbolicTensor(3); // [i0, i1, i2]
+// t1 = permute(t0, {1, 0, 2}); // [i1, i0, i2]
+// t2 = reshape(t1, {i1, i0*i2}); // [i1, i0*i2]
+// t3 = sin(t2) // [i1, i0*i2]
+//
+// In this case, cancelReshapeInLoopDomains(t0) would affect t2 and t3
+// as follows:
+//
+// t2:
+//  root: [i1, i0*i2] (unchanged)
+//  logical: [i1, i0*i2] (unchanged)
+//  loop: [i1, i0, i2]
+//
+// t3:
+//  logical: [i1, i0*i2] (unchanged)
+//  loop: [i1, i0, i2]
+//
+// t1 would not be changed at all as there's no reshape between t0 and
+// t1.
+//
+// This scheduling could help optimize memory accesses to
+// fusion inputs. In the above case, we could then reorder the loop
+// domains of t1, t2 and t3 as [i0, i1, i2], i.e., the same ordering
+// as t0.
+//
+// This scheduling is not always possible. Specifically, if a reshape
+// outout iter domain is resized, the loop domain needs to keep using
+// the reshape output iter domain. Similary, if a rehape output iter
+// domain is reduced, the reshape is currently not cancelled. This is
+// because if a reshape has a split and only one of the split output
+// iter domain is reduced, the split needs to remain. If a reshape
+// only consists of merge transforms, cancellation should be possible,
+// but that is not currently supported.
+void cancelReshapeInLoopDomains(TensorView* from_tv);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

@@ -360,7 +360,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // work, the vectorization needs to be applied to the innermost
   // dimension only, so the merge needs to be canceled.
   if (largest_input != nullptr) {
-    scheduler_tools::cancelReshapeTransforms(largest_input);
+    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
   }
 
   // Should it be scheduled based on largest_input?

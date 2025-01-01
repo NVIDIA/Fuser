@@ -529,17 +529,28 @@ void scheduleLoopDomainsBy(
   return;
 }
 
-void cancelReshapeTransforms(TensorView* from_tv) {
+void cancelReshapeInLoopDomains(TensorView* from_tv) {
   Fusion* fusion = from_tv->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.buildExactGraph();
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  ExprGroups resize_expr_groups;
+  // IDs that may require reshape. If these IDs depend on a reshape,
+  // the reshape should not be cancelled.
+  ValGroups reshape_dependent_ids;
   for (const ExprGroup& expr_g :
        exact_graph.disjointExprSets().disjointSets()) {
     if (expr_g->front()->isA<Resize>()) {
-      resize_expr_groups.pushBack(expr_g);
+      reshape_dependent_ids.pushBack(exact_graph.inputGroups(expr_g));
+    }
+  }
+
+  for (const ValGroup& val_g : exact_graph.disjointValSets().disjointSets()) {
+    if (std::any_of(val_g->begin(), val_g->end(), [](Val* val) {
+          NVF_ERROR(val->isA<IterDomain>());
+          return val->as<IterDomain>()->isReduction();
+        })) {
+      reshape_dependent_ids.pushBack(val_g);
     }
   }
 
@@ -549,17 +560,17 @@ void cancelReshapeTransforms(TensorView* from_tv) {
       DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
 
   for (ViewOp* reshape : ir_utils::filterByType<ViewOp>(exprs)) {
-    // Find logical IDs that do not exist in the root domain. They are
-    // the new IDs that are produced by this reshape op. If a logical
-    // ID is already found in the root domain, there's nothing to do
-    // for it.
-
     auto reshape_out = reshape->out();
 
+    // Skip if already processed by preceding reshape ops
     if (canceled_tvs.count(reshape_out)) {
       continue;
     }
 
+    // Find logical IDs that do not exist in the root domain. They are
+    // the new IDs that are produced by this reshape op. If a logical
+    // ID is already found in the root domain, there's nothing to do
+    // for it.
     std::vector<IterDomain*> new_ids;
     for (const auto& logical_id : reshape_out->getLogicalDomain()) {
       if (!reshape_out->domain()->isRoot(logical_id)) {
@@ -572,31 +583,21 @@ void cancelReshapeTransforms(TensorView* from_tv) {
       continue;
     }
 
-    // Canceling is not possible if used by resize. It should be
-    // sufficient to check immediate uses of the new IDs. Indirect
-    // uses should have another reshape in-between. Canceling this
-    // reshape should not affect the following reshape.
-
     auto new_id_groups = exact_graph.toGroups(new_ids);
 
+    // Canceling is not possible if used by resize or reduced.
     auto reachable_resize_exprs = getReachableNodesFrom<ValGraphPermissiveBFS>(
         {new_id_groups.begin(), new_id_groups.end()},
-        {resize_expr_groups.begin(), resize_expr_groups.end()},
+        {reshape_dependent_ids.begin(), reshape_dependent_ids.end()},
         Direction::Forward,
         exact_graph);
-
     if (!reachable_resize_exprs.empty()) {
-      std::cerr << "Reachable resize found\n";
       continue;
     }
 
     const auto all_dep_vals =
         DependencyCheck::getAllValsBetween({reshape_out}, fusion->outputs());
     auto all_dep_tvs = ir_utils::filterByType<TensorView>(all_dep_vals);
-
-    std::cerr << "Reshape to cancel: " << reshape->toString();
-    std::cerr << "Affected tvs: " << toDelimitedString(all_dep_tvs.vector())
-              << "\n";
 
     scheduleLoopDomainsLike(all_dep_tvs.vector(), reshape_out->getRootDomain());
 
