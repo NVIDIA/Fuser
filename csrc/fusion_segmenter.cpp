@@ -4072,6 +4072,20 @@ Expr* shouldForward(Val* v) {
 
   auto consumer_of_v = use_of_v->output(0);
 
+  // Don't forward if the input or the output is DID parallelized
+  if (auto input_tv = dynamic_cast<TensorView*>(v); input_tv != nullptr) {
+    auto output_tv = dynamic_cast<TensorView*>(consumer_of_v);
+    NVF_ERROR(output_tv != nullptr);
+    for (auto tv : {input_tv, output_tv}) {
+      if (std::any_of(
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
+              [](auto loop_id) { return loop_id->isDeviceDim(); })) {
+        return nullptr;
+      }
+    }
+  }
+
   // Don't forward an input to an output yet. Doing that would lead to an empty
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
