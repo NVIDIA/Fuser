@@ -10,6 +10,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
@@ -106,15 +107,6 @@ class LoopDomainScheduler {
       : ref_loop_dom_(std::move(ref_loop_dom)),
         update_loop_domain_only_(update_loop_domain_only) {
     NVF_ERROR(!ref_loop_dom_.empty());
-
-    // For now, ref must not be a broadcast domain
-    NVF_ERROR(
-        std::none_of(
-            ref_loop_dom_.begin(),
-            ref_loop_dom_.end(),
-            [](IterDomain* id) { return id->isBroadcast(); }),
-        "Broadcast referene not supported: ",
-        toDelimitedString(ref_loop_dom_));
 
     Fusion* fusion = ref_loop_dom_.front()->fusion();
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
@@ -332,6 +324,26 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   //
   // In the case of the update mode, the target should be just the
   // current loop domain of the tensor.
+  //
+  // TODO: Reconsider if ignoring broadcast IDs is the right thing to
+  // do. There can be legitimate broadcast transformations in the
+  // reference, and if there's a matching broadcast ID in this tv, the
+  // transformations should be propagated. However, when a concrete ID
+  // of a reference tv replaces a broadcast ID of this tv, there's no
+  // path from the concrete ID to the broadcast ID, thus getting a
+  // path would fail. I think the fundamental problem is the
+  // disconnection to the broadcast ID. This could be avoided if the
+  // Broadcast graph was used. However, for scheduling loop domains,
+  // the Broadcast graph isn't the right choice when a corresponding
+  // concrete ID is resized. For example, if a concrete
+  // ID is resized to a broadcast ID, how should the corresponding
+  // broadcast ID be resized? If the same resize were applied, the
+  // extent of the resized broadcast ID would become negative, which
+  // is probably not what we would want. Perhaps, we should consider
+  // expanding the broadcast ID to the concrete size and only map
+  // expanded broadcast IDs with concrete IDs. And if the expand is
+  // represented with an IterDomain expression, we could avoid
+  // disconnected IDs.
   ValGroups tv_target_domains = graph().toGroups(TensorDomain::noBroadcasts(
       update_loop_domain_only_ ? tv->getLoopDomain()
                                : tv->getMaybeRootDomain()));
@@ -352,6 +364,14 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
                /*require_all_to_visited=*/true,
                Direction::Backward)
         .first;
+  }
+
+  if (update_loop_domain_only_) {
+    for (const auto& g : tv_target_domains) {
+      if (!all_ancestors_of_ref_.has(g)) {
+        std::cerr << "Not found: " << nvfuser::toString(g) << "\n";
+      }
+    }
   }
 
   // In the case of the update mode, the path from the reference is
@@ -507,6 +527,82 @@ void scheduleLoopDomainsBy(
   }
 
   return;
+}
+
+void cancelReshapeInLoopDomains(TensorView* from_tv) {
+  Fusion* fusion = from_tv->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // IDs that may require reshape. If these IDs depend on a reshape,
+  // the reshape should not be cancelled.
+  ValGroups reshape_dependent_ids;
+  for (const ExprGroup& expr_g :
+       exact_graph.disjointExprSets().disjointSets()) {
+    if (expr_g->front()->isA<Resize>()) {
+      reshape_dependent_ids.pushBack(exact_graph.inputGroups(expr_g));
+    }
+  }
+
+  for (const ValGroup& val_g : exact_graph.disjointValSets().disjointSets()) {
+    if (std::any_of(val_g->begin(), val_g->end(), [](Val* val) {
+          NVF_ERROR(val->isA<IterDomain>());
+          return val->as<IterDomain>()->isReduction();
+        })) {
+      reshape_dependent_ids.pushBack(val_g);
+    }
+  }
+
+  std::unordered_set<Val*> canceled_tvs;
+
+  auto exprs =
+      DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
+
+  for (ViewOp* reshape : ir_utils::filterByType<ViewOp>(exprs)) {
+    auto reshape_out = reshape->out();
+
+    // Skip if already processed by preceding reshape ops
+    if (canceled_tvs.count(reshape_out)) {
+      continue;
+    }
+
+    // Find logical IDs that do not exist in the root domain. They are
+    // the new IDs that are produced by this reshape op. If a logical
+    // ID is already found in the root domain, there's nothing to do
+    // for it.
+    std::vector<IterDomain*> new_ids;
+    for (const auto& logical_id : reshape_out->getLogicalDomain()) {
+      if (!reshape_out->domain()->isRoot(logical_id)) {
+        new_ids.push_back(logical_id);
+      }
+    }
+
+    if (new_ids.empty()) {
+      // Nothing to do with a no-op reshape. This may not happen.
+      continue;
+    }
+
+    auto new_id_groups = exact_graph.toGroups(new_ids);
+
+    // Canceling is not possible if used by resize or reduced.
+    auto reachable_resize_exprs = getReachableNodesFrom<ValGraphPermissiveBFS>(
+        {new_id_groups.begin(), new_id_groups.end()},
+        {reshape_dependent_ids.begin(), reshape_dependent_ids.end()},
+        Direction::Forward,
+        exact_graph);
+    if (!reachable_resize_exprs.empty()) {
+      continue;
+    }
+
+    const auto all_dep_vals =
+        DependencyCheck::getAllValsBetween({reshape_out}, fusion->outputs());
+    auto all_dep_tvs = ir_utils::filterByType<TensorView>(all_dep_vals);
+
+    scheduleLoopDomainsLike(all_dep_tvs.vector(), reshape_out->getRootDomain());
+
+    canceled_tvs.insert(all_dep_vals.begin(), all_dep_vals.end());
+  }
 }
 
 } // namespace scheduler_tools

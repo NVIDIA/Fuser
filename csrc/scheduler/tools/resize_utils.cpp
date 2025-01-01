@@ -50,7 +50,9 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
   // Before doing so, all the dependent tensors need to have the exact-mapped
   // loop domain.
   scheduler_tools::scheduleLoopDomainsLike(
-      tvs_to_schedule, producer_tv->getLoopDomain());
+      tvs_to_schedule,
+      producer_tv->getLoopDomain(),
+      /*update_loop_domain_only=*/true);
 
   // Now that all the dependent tensors have the uniform, exact-mapped
   // loop domains, we just need to propagte the specific Resize ops of

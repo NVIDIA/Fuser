@@ -216,4 +216,44 @@ class ValGraphBFS : public BFS<
   }
 };
 
+class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
+                                  ExprGroup,
+                                  ValGroup,
+                                  ValGraphDefinitions,
+                                  ValGraphUses,
+                                  ValGraphInputs,
+                                  ValGraphOutputs> {
+ public:
+  ValGraphPermissiveBFS(
+      const ValGraph& graph,
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : BFSWithPermissiveDependence(
+            ValGraphDefinitions(graph),
+            ValGraphUses(graph),
+            ValGraphInputs(graph),
+            ValGraphOutputs(graph),
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited,
+            allowed_direction) {}
+
+  // Just a shortcut to the generic getExprsBetween
+  static std::pair<ValGraphPermissiveBFS::ExprPath, bool> getExprGroupsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
+    return getExprsBetween<ValGraphPermissiveBFS>(
+        from.vector(),
+        to.vector(),
+        require_all_to_visited,
+        allowed_direction,
+        graph);
+  }
+};
+
 } // namespace nvfuser

@@ -745,5 +745,9 @@ inline int64_t nLogicalDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
+std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
+    TensorView* tv,
+    const std::vector<IterDomain*>& ref);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

@@ -261,7 +261,9 @@ bool DomainMap::areAllTargetIdsCoveredBy(
     // if we find any source_id_out that's not contained, it's possible our
     // propagation would fail since transformation involving this iter domain
     // can't be resolved.
-    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out)) {
+    // NOTE: WAR for #3653. Unsure if it's a right WAR.
+    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out) &&
+        !getMappedInputConcreteID(covered_source_ids, source_id_out)) {
       return false;
     }
   }

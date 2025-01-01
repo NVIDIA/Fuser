@@ -2198,6 +2198,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
         group2->exprs_.end());
 
     auto producer_edges = getMergedProducerEdges(group1, group2);
+
     // Connect joined group to resulting neighbors
     for (auto edge : producer_edges) {
       auto from = edge->from;
@@ -3621,13 +3622,23 @@ class PreferredMergeCandidatePicker {
   PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
       : groups_(groups) {
     for (auto& group : groups_) {
-      // Currently there's only one preference for select-like
-      // ops. Additional preferences can be added similarly.
-      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
-      if (!neighbor_to_merge.has_value()) {
+      if (all_candidates_.count(group)) {
         continue;
       }
-      candidates_.emplace_back(group, *neighbor_to_merge);
+      // Currently there's only one preference for select-like
+      // ops. Additional preferences can be added similarly.
+      if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+        all_candidates_.insert(group);
+        all_candidates_.insert(neighbor_to_merge->group);
+      } else if (auto neighbor_to_merge =
+                     mergeCastToHigherPrecisionWithConsumers(group);
+                 neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+        all_candidates_.insert(group);
+        all_candidates_.insert(neighbor_to_merge->group);
+      }
     }
   }
 
@@ -3650,8 +3661,12 @@ class PreferredMergeCandidatePicker {
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
       SegmentedGroup* group) const;
 
+  std::optional<SegmentedGroup::NeighborGroup>
+  mergeCastToHigherPrecisionWithConsumers(SegmentedGroup* group) const;
+
  private:
   const std::vector<SegmentedGroup*>& groups_;
+  std::unordered_set<SegmentedGroup*> all_candidates_;
   std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
       candidates_;
 };
@@ -3707,8 +3722,64 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
+  if (all_candidates_.count((*producer_edge_it)->from)) {
+    return std::nullopt;
+  }
+
   return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
+}
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergeCastToHigherPrecisionWithConsumers(SegmentedGroup* group) const {
+  if (!getenv("CAST_SEGMENT")) {
+    return std::nullopt;
+  }
+
+  const auto& exprs = group->exprs();
+
+  if (exprs.size() != 1) {
+    return std::nullopt;
+  }
+
+  auto uop = dynamic_cast<UnaryOp*>(exprs.at(0));
+
+  if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+    return std::nullopt;
+  }
+
+  auto inp_tv = ir_utils::getTvInput(uop);
+  auto out_tv = ir_utils::getTvOutput(uop);
+  if (inp_tv == nullptr || out_tv == nullptr) {
+    return std::nullopt;
+  }
+
+  auto inp_dtype = inp_tv->dtype().type;
+  auto out_dtype = out_tv->dtype().type;
+  auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
+  auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
+
+  if (inp_prim_type == nullptr || out_prim_type == nullptr) {
+    return std::nullopt;
+  }
+
+  if (primDataTypeSize(*inp_prim_type) >= primDataTypeSize(*out_prim_type)) {
+    return std::nullopt;
+  }
+
+  // For simplicity, limit this optimization only when there's only
+  // one consumer
+  if (group->consumer_edges.size() != 1) {
+    return std::nullopt;
+  }
+
+  auto edge = group->consumer_edges.front();
+
+  if (all_candidates_.count(edge->to)) {
+    return std::nullopt;
+  }
+
+  return SegmentedGroup::NeighborGroup(edge->to, edge);
 }
 
 } // namespace
@@ -4019,7 +4090,7 @@ void SegmentCandidateFinder::findSegments() {
 // fusion. Currently, we forward an input only when its single use is a UnaryOp.
 // Therefore, this function returns `v`'s single unary use or nullptr if it
 // decides not to forward.
-UnaryOp* shouldForward(Val* v) {
+Expr* shouldForward(Val* v) {
   const std::vector<Expr*>& uses = v->uses();
   // Just allow stripping out input with single use.
   // Stripping out multi-used inputs can lead to:
@@ -4029,23 +4100,25 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
-  if (unary_use == nullptr) {
+  auto* unary_use = uses.front();
+  if (!unary_use->isOneOf<UnaryOp, BroadcastOp, ExpandOp>()) {
     return nullptr;
   }
+
+  auto unary_use_out = unary_use->output(0);
 
   // Don't forward an input to an output yet. Doing that would lead to an empty
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
-  if (unary_use->out()->isFusionOutput()) {
+  if (unary_use_out->isFusionOutput()) {
     return nullptr;
   }
 
   // prevent forward to a SegmenterSet, which could cause unary op forward to a
   // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
   if (std::any_of(
-          unary_use->out()->uses().begin(),
-          unary_use->out()->uses().end(),
+          unary_use_out->uses().begin(),
+          unary_use_out->uses().end(),
           [](const Expr* next_use) {
             if (const LoadStoreOp* use =
                     dynamic_cast<const LoadStoreOp*>(next_use)) {
@@ -4069,23 +4142,23 @@ void SegmentCandidateFinder::forwardInputs() {
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<UnaryOp*> to_visit;
+    std::deque<Expr*> to_visit;
     for (Val* inp : completeFusion()->inputs()) {
-      if (UnaryOp* unary_use = shouldForward(inp)) {
+      if (Expr* unary_use = shouldForward(inp)) {
         to_visit.push_back(unary_use);
       }
     }
 
     while (!to_visit.empty()) {
-      UnaryOp* uop = to_visit.front();
+      Expr* uop = to_visit.front();
       to_visit.pop_front();
 
-      if (UnaryOp* unary_use = shouldForward(uop->out())) {
+      if (Expr* unary_use = shouldForward(uop->output(0))) {
         to_visit.push_back(unary_use);
       } else {
         // We cannot extend the chain of unary ops, so we finalize this chain by
         // saving its output as a forwarded input.
-        forwarded_inputs.pushBack(uop->out());
+        forwarded_inputs.pushBack(uop->output(0));
       }
       // Either way, `uop` is excluded from merging until
       // `resolveNonscalarForwardedInput` adds it back to one of the segments.
@@ -4346,7 +4419,14 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
   SegmentedGroup* group = segmented_fusion_->newGroup();
-  group->input_vals = IterVisitor::getInputsTo({forwarded_input});
+  // group->input_vals = IterVisitor::getInputsTo({forwarded_input});
+  auto inputs = IterVisitor::getInputsTo({forwarded_input});
+  for (auto inp : inputs) {
+    if (inp->isScalar()) {
+      continue;
+    }
+    group->input_vals.push_back(inp);
+  }
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
   return group;
 }

@@ -8,6 +8,7 @@
 
 #include <debug.h>
 #include <instrumentation.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -15,6 +16,7 @@
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/resize.h>
+#include <scheduler/resize_heuristic.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
@@ -28,6 +30,30 @@ namespace {
 // Just use the pointwise version for now
 TensorView* getReferenceTensor(Fusion* fusion) {
   return pointwise_utils::getReferenceTensor(fusion);
+}
+
+std::pair<TensorView*, int64_t> getLargestTensor(
+    const std::vector<Val*>& vals,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t max_num_elms = -1;
+  TensorView* largest_tv = nullptr;
+  for (auto tv : ir_utils::filterByType<TensorView>(vals)) {
+    int64_t num_elms = 1;
+    for (auto logical_id : tv->getLogicalDomain()) {
+      auto inferred_val =
+          runtime_info.expressionEvaluator().evaluate(logical_id->extent());
+      NVF_ERROR(
+          inferred_val.hasValue(),
+          "Error inferring extent of: ",
+          logical_id->toString());
+      num_elms *= inferred_val.as<int64_t>();
+    }
+    if (num_elms > max_num_elms) {
+      largest_tv = tv;
+      max_num_elms = num_elms;
+    }
+  }
+  return std::make_pair(largest_tv, max_num_elms);
 }
 
 } // namespace
@@ -111,13 +137,25 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  // This doesn't work yet due to issue #3571
   auto ref_tv = getReferenceTensor(fusion);
-  if (std::any_of(
-          ref_tv->getLogicalDomain().begin(),
-          ref_tv->getLogicalDomain().end(),
-          [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+  if (ref_tv == nullptr) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "No reference found");
     return false;
+  }
+
+  // This doesn't work yet due to issue #3571
+  if (getenv("BROADCAST_CHECK")) {
+    if (std::any_of(
+            ref_tv->getLogicalDomain().begin(),
+            ref_tv->getLogicalDomain().end(),
+            [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Reference with broadcast ID not supported yet: ",
+          ref_tv->toString());
+      return false;
+    }
   }
 
   // Having different resizes between outputs is not allowed at this
@@ -161,7 +199,25 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Disable the scheduler if there's a squeeze op. The loop option
   // may also need to be enabled in that case, but that option is not
   // turned on automatically yet.
+#if 0
   if (ir_utils::hasOpsOfType<SqueezeOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "SqueezeOp not supported.");
+    return false;
+  }
+#endif
+
+  if (hasAtLeastTwoValidGroups(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Transpose pattern not supported.");
+    return false;
+  }
+
+  scheduler_tools::TransposeDomainMap domain_map(fusion);
+  auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
+  if (grouped_inputs_outputs.size() >= 2) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Multiple transpose groups not supported.");
     return false;
   }
 
@@ -173,8 +229,47 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ResizeScheduler::computeHeuristics");
-  auto params = std::make_unique<HeuristicParams>(SchedulerType::Resize);
+  auto params = std::make_unique<ResizeParams>(SchedulerType::Resize);
+  params->tag = "Resize heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
+
+  const int64_t bdimx = 128;
+
+  const auto& [largest_output, max_num_elms] =
+      getLargestTensor(fusion->outputs(), runtime_info);
+
+  if (ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx) {
+    params->split_grid_x_dim = true;
+  } else {
+    params->split_grid_x_dim = false;
+  }
+
+  const auto largest_input =
+      getLargestTensor(fusion->inputs(), runtime_info).first;
+  if (largest_input != nullptr) {
+    int64_t index_of_largest_input = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), largest_input));
+
+    params->largest_input = index_of_largest_input;
+  } else {
+    params->largest_input = -1;
+  }
+
+  // Vectorization based on the largest input if there's any input
+  // tv. Or the largest output otherwise.
+  auto ref_tv_for_vectorization =
+      largest_input != nullptr ? largest_input : largest_output;
+  // TODO: Consider vectorizing merged IDs, not just the innermost
+  // TODO: Use the reorder map
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      ref_tv_for_vectorization,
+      data_cache,
+      (int64_t)ref_tv_for_vectorization->getLogicalDomain().size() - 1,
+      {});
+
   return params;
 }
 
@@ -182,10 +277,29 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
   FusionGuard fg(fusion);
+  const auto rparams = dynamic_cast<const ResizeParams*>(params);
+  NVF_ERROR(rparams != nullptr);
 
   scheduler_utils::clearMemorySpace(fusion);
 
+  {
+    std::cout << std::endl;
+    std::cout << "Resize scheduling\n";
+    fusion->printMath();
+    std::cout << std::endl;
+  }
+
+  {
+    std::stringstream file_name;
+    file_name << "pre_scheduling.dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
+  }
+
   scheduler_utils::cacheInputs(fusion, true);
+
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
@@ -213,6 +327,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
+  {
+    std::cout << std::endl;
+    std::cout << "After recomputation\n";
+    fusion->printMath();
+    std::cout << std::endl;
+
+    std::stringstream file_name;
+    file_name << "after_recomputation.dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
+  }
+
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
@@ -221,20 +349,95 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
+  TensorView* largest_input = nullptr;
+  if (rparams->largest_input >= 0) {
+    largest_input =
+        fusion->inputs().at(rparams->largest_input)->as<TensorView>();
+  }
+
+  // Mistral bwd has a reshape at the end of the fusion that merges
+  // the two innermost dimensions. To make the below vectorization to
+  // work, the vectorization needs to be applied to the innermost
+  // dimension only, so the merge needs to be canceled.
+  if (largest_input != nullptr) {
+    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+  }
+
+  // Should it be scheduled based on largest_input?
+  // No, that doesn't work when an expanded domain is reshaped.
+
   auto ref_tv = getReferenceTensor(fusion);
+  NVF_ERROR(ref_tv != nullptr);
+
+  std::cerr << "Scheduling reference: " << ref_tv->toString() << "\n";
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
+  int64_t vec_factor = rparams->vectorization_factor;
+  if (getenv("VEC")) {
+    vec_factor = atoi(getenv("VEC"));
+  }
+
+  // Use this value if not -1
+  int64_t gdimx = -1;
+  if (getenv("GDIMX")) {
+    gdimx = atoi(getenv("GDIMX"));
+  }
+
+  int64_t bdimx = 128;
+  if (getenv("BDIMX")) {
+    bdimx = atoi(getenv("BDIMX"));
+  }
+
+  std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
+
+  if (largest_input != nullptr) {
+    std::vector<IterDomain*> ref_alloc;
+    ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
+    std::copy_if(
+        largest_input->getMaybeAllocationDomain().begin(),
+        largest_input->getMaybeAllocationDomain().end(),
+        std::back_inserter(ref_alloc),
+        [](IterDomain* alloc_id) {
+          return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
+              !alloc_id->isDeviceDim();
+        });
+
+    std::cerr << "Ref alloc before: " << toDelimitedString(ref_alloc) << "\n";
+    // Reorder the reference as the allocation domain of the largest fusion
+    // input
+    ref_tv->reorder(
+        scheduler_utils::getMapToReorderTensorLike(ref_tv, ref_alloc));
+  }
+
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
-  // Schedule only the remaining IDs
-  ref_tv->flatten(outermost_pos);
-  ref_tv->split(outermost_pos, 128);
-  ref_tv->split(outermost_pos, 1 << 14);
-  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
-  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
+
+  int64_t next_innermost_pos = -1;
+  if (vec_factor > 1) {
+    std::cerr << "Vectorizing by " << vec_factor << "\n";
+    ref_tv->split(-1, vec_factor);
+    --next_innermost_pos;
+  }
+
+  ref_tv->flatten(outermost_pos, next_innermost_pos);
+  ref_tv->split(next_innermost_pos, bdimx);
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::TIDx);
+  --next_innermost_pos;
+
+  if (gdimx > 0) {
+    ref_tv->split(outermost_pos, gdimx);
+  } else if (rparams->split_grid_x_dim) {
+    ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
+  }
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
+
+  std::cout << "Before ref prop\n";
+  fusion->print();
+  std::cout << std::endl;
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
@@ -246,6 +449,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       fusion->allTvs(),
       ref_tv->getLoopDomain(),
       /*update_loop_domain_only=*/true);
+
+  if (vec_factor > 1) {
+    const auto tvs_to_vectorize =
+        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
+    for (auto tv_to_vectorize : tvs_to_vectorize) {
+      if (tv_to_vectorize->isFusionInput()) {
+        for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
+          consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+      } else {
+        tv_to_vectorize->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+    }
+  }
 
   inlineMost();
 
