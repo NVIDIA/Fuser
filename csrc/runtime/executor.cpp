@@ -176,7 +176,6 @@ void KernelExecutor::compile(
   NVF_ERROR(
       supported(fusion_.get()),
       "KernelExecutor does not support the Fusion provided.");
-  scheduler_type_ = scheduler_type;
 
   NVF_ERROR(
       !fusion_->outputs().empty(),
@@ -914,7 +913,7 @@ std::vector<at::Tensor> KernelExecutor::run(
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(computeBytes(args));
-    sprof.scheduler(toString(scheduler_type_));
+    sprof.scheduler(toString(compiledKernel()->schedulerType()));
     FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
     sprof.startKernel();
   }
@@ -1197,7 +1196,7 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
       compiledKernel()->blockSizeHighWaterMark(),
       compiledKernel()->maxrregcountHighWaterMark(),
       warp_size_,
-      toUnderlying(scheduler_type_),
+      toUnderlying(compiledKernel()->schedulerType()),
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1366,8 +1365,6 @@ void KernelExecutor::deserialize(
       toUnderlying(scheduler_type),
       " vs ",
       buffer->heuristic());
-
-  scheduler_type_ = scheduler_type;
 
   auto device = c10::Device(c10::DeviceType::CUDA, device_index);
   c10::DeviceGuard dg(device);

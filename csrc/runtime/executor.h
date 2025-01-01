@@ -374,9 +374,6 @@ class KernelExecutor : public ExecutorAbstract {
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
-
-  // TODO: Should this be removed?
-  SchedulerType scheduler_type_ = SchedulerType::None;
 };
 
 } // namespace nvfuser
