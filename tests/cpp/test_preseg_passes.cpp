@@ -1044,7 +1044,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp1) {
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   bool is_segmented =
       executor_cache.getMostRecentKernelRuntime()->isSegmented();
-  NVF_CHECK(is_segmented, "Fusion should not be segmented");
+  NVF_CHECK(!is_segmented, "Fusion should not be segmented");
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
@@ -1073,7 +1073,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp2) {
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   bool is_segmented =
       executor_cache.getMostRecentKernelRuntime()->isSegmented();
-  NVF_CHECK(is_segmented, "Fusion should not be segmented");
+  NVF_CHECK(!is_segmented, "Fusion should not be segmented");
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }

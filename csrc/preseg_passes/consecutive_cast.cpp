@@ -83,7 +83,7 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in, const std::vector<int64_t>& a
     if (allocation_permutation.empty()) {
       replayed_allocation_domain = replayed_logical_domain;
     } else {
-      replayed_allocation_domain = applyPermutation(replayed_logical_domain, allocation_permutation);
+      replayed_allocation_domain = ir_utils::applyPermutation(replayed_logical_domain, allocation_permutation);
     }
 
     // update the logical domain with replayed transformed.
@@ -286,7 +286,7 @@ void castOptimizationPass(Fusion* fusion) {
         std::optional<std::vector<int64_t>> expr_out_allocation_permutation = {};
         if (expr_out->isA<TensorView>()) {
           TensorView* expr_out_tv = expr_out->as<TensorView>();
-          expr_out_allocation_permutation = computePermutation(expr_out_tv->getLogicalDomain(), expr_out_tv->getMaybeAllocationDomain());
+          expr_out_allocation_permutation = ir_utils::computePermutation(expr_out_tv->getLogicalDomain(), expr_out_tv->getMaybeAllocationDomain());
         }
 
         if (expr_out_allocation_permutation.has_value()) {
