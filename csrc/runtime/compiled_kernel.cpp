@@ -1388,7 +1388,7 @@ void RtcKernel::compile(
   CompileParams cp;
   cp.device =
       c10::Device(c10::DeviceType::CUDA, (c10::DeviceIndex)device_index_);
-  compiled_kernel_ = getCudaExecutable({std::nullopt}, scode, name, 0, cp);
+  compiled_kernel_ = getCudaExecutable(std::nullopt, scode, name, "0", cp);
 }
 
 float RtcKernel::run(
