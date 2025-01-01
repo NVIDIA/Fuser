@@ -1107,7 +1107,6 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
 
   auto tv0 = makeContigConcreteTensor({2, 3, 4});
   fusion.addInput(tv0);
-
   auto tv1 = castOp(DataType::Double, tv0);
   auto tv2 = reshape(tv1, {2, 3, 4}, {2, 3, 2, 2});
   auto tv3 = castOp(DataType::Float, tv2);
@@ -1134,7 +1133,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
   }
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto t0 = at::randn({2, 4}, options);
+  auto t0 = at::randn({2, 3, 4}, options);
   std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);

@@ -37,7 +37,7 @@ bool isMovableMeta(Expr* expr) {
 
 // replays meta operation on `new_in`. return the new output from replayed meta
 // operation
-Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
+Val* replayMetaOnNewInput(Expr* meta, Val* new_in, const std::vector<int64_t>& allocation_permutation) {
   // preparing new meta output.
   Val* replayed_meta_out = nullptr;
   ops::newValLike(meta->output(0), new_in->getDataType().value());
@@ -80,15 +80,10 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
       replayed_logical_domain.push_back(replay.getReplay().at(id));
     }
     std::vector<IterDomain*> replayed_allocation_domain;
-    for (auto id : meta_tv_out->getMaybeAllocationDomain()) {
-      NVF_ERROR(
-          replay.getReplay().count(id), "allocation domain replay failed");
-      replayed_allocation_domain.push_back(replay.getReplay().at(id));
-    }
-    std::vector<IterDomain*> replayed_loop_domain;
-    for (auto id : meta_tv_out->getLoopDomain()) {
-      NVF_ERROR(replay.getReplay().count(id), "loop domain replay failed");
-      replayed_loop_domain.push_back(replay.getReplay().at(id));
+    if (allocation_permutation.empty()) {
+      replayed_allocation_domain = replayed_logical_domain;
+    } else {
+      replayed_allocation_domain = applyPermutation(replayed_logical_domain, allocation_permutation);
     }
 
     // update the logical domain with replayed transformed.
@@ -97,7 +92,7 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in) {
             replayed_root_domain,
             replayed_logical_domain,
             replayed_allocation_domain,
-            replayed_loop_domain,
+            replayed_logical_domain,
             meta_tv_out->getContiguity()),
         new_in->getDataType().value());
 
@@ -287,21 +282,30 @@ void castOptimizationPass(Fusion* fusion) {
       // replay [meta -> expr] with
       //        [replayed_expr -> replayed_meta]
       if (isMovableMeta(expr->input(0)->definition())) {
-        Expr* meta = expr->input(0)->definition();
+        Val* expr_out = expr->output(0);
+        std::optional<std::vector<int64_t>> expr_out_allocation_permutation = {};
+        if (expr_out->isA<TensorView>()) {
+          TensorView* expr_out_tv = expr_out->as<TensorView>();
+          expr_out_allocation_permutation = computePermutation(expr_out_tv->getLogicalDomain(), expr_out_tv->getMaybeAllocationDomain());
+        }
 
-        // replayed cast.
-        Val* replayed_expr_out =
-            castOp(expr->output(0)->dtype(), meta->input(0));
+        if (expr_out_allocation_permutation.has_value()) {
+          Expr* meta = expr->input(0)->definition();
 
-        // replay meta output from replayed cast.
-        Val* replayed_meta_out = replayMetaOnNewInput(meta, replayed_expr_out);
+          // replayed cast.
+          Val* replayed_expr_out =
+              castOp(expr_out->dtype(), meta->input(0));
 
-        // replace uses of old expr with output of replayed_meta.
-        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-            expr->output(0), replayed_meta_out);
+          // replay meta output from replayed cast.
+          Val* replayed_meta_out = replayMetaOnNewInput(meta, replayed_expr_out, expr_out_allocation_permutation.value());
 
-        // swap expr
-        expr = replayed_expr_out->definition();
+          // replace uses of old expr with output of replayed_meta.
+          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+              expr_out, replayed_meta_out);
+
+          // swap expr
+          expr = replayed_expr_out->definition();
+        }
       }
       expr = moveChainedCasts(expr, visited);
     } while (isMovableMeta(expr->input(0)->definition()));
