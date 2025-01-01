@@ -37,7 +37,10 @@ bool isMovableMeta(Expr* expr) {
 
 // replays meta operation on `new_in`. return the new output from replayed meta
 // operation
-Val* replayMetaOnNewInput(Expr* meta, Val* new_in, const std::vector<int64_t>& allocation_permutation) {
+Val* replayMetaOnNewInput(
+    Expr* meta,
+    Val* new_in,
+    const std::vector<int64_t>& allocation_permutation) {
   // preparing new meta output.
   Val* replayed_meta_out = nullptr;
   ops::newValLike(meta->output(0), new_in->getDataType().value());
@@ -83,7 +86,8 @@ Val* replayMetaOnNewInput(Expr* meta, Val* new_in, const std::vector<int64_t>& a
     if (allocation_permutation.empty()) {
       replayed_allocation_domain = replayed_logical_domain;
     } else {
-      replayed_allocation_domain = ir_utils::applyPermutation(replayed_logical_domain, allocation_permutation);
+      replayed_allocation_domain = ir_utils::applyPermutation(
+          replayed_logical_domain, allocation_permutation);
     }
 
     // update the logical domain with replayed transformed.
@@ -283,21 +287,24 @@ void castOptimizationPass(Fusion* fusion) {
       //        [replayed_expr -> replayed_meta]
       if (isMovableMeta(expr->input(0)->definition())) {
         Val* expr_out = expr->output(0);
-        std::optional<std::vector<int64_t>> expr_out_allocation_permutation = {};
+        std::optional<std::vector<int64_t>> expr_out_allocation_permutation =
+            {};
         if (expr_out->isA<TensorView>()) {
           TensorView* expr_out_tv = expr_out->as<TensorView>();
-          expr_out_allocation_permutation = ir_utils::computePermutation(expr_out_tv->getLogicalDomain(), expr_out_tv->getMaybeAllocationDomain());
+          expr_out_allocation_permutation = ir_utils::computePermutation(
+              expr_out_tv->getLogicalDomain(),
+              expr_out_tv->getMaybeAllocationDomain());
         }
 
         if (expr_out_allocation_permutation.has_value()) {
           Expr* meta = expr->input(0)->definition();
 
           // replayed cast.
-          Val* replayed_expr_out =
-              castOp(expr_out->dtype(), meta->input(0));
+          Val* replayed_expr_out = castOp(expr_out->dtype(), meta->input(0));
 
           // replay meta output from replayed cast.
-          Val* replayed_meta_out = replayMetaOnNewInput(meta, replayed_expr_out, expr_out_allocation_permutation.value());
+          Val* replayed_meta_out = replayMetaOnNewInput(
+              meta, replayed_expr_out, expr_out_allocation_permutation.value());
 
           // replace uses of old expr with output of replayed_meta.
           ir_utils::replaceValInAllExprInputsAndFusionOutputs(
