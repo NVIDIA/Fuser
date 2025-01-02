@@ -75,14 +75,16 @@ Val* replayMetaOnNewInput(
     for (const auto i : c10::irange(meta_tv_out_root_domain.size())) {
       id_map[meta_tv_out_root_domain[i]] = replayed_root_domain[i];
     }
-    // TODO only replay from root to logical. This might not be sufficient when
-    // allocation domain / loop domain is not on the path from root to logical.
+
+    // replay from root to logical.
     ReplayTransformations replay(meta_tv_out->getLogicalDomain(), id_map);
     std::vector<IterDomain*> replayed_logical_domain;
     for (auto id : meta_tv_out->getLogicalDomain()) {
       NVF_ERROR(replay.getReplay().count(id), "logical domain replay failed");
       replayed_logical_domain.push_back(replay.getReplay().at(id));
     }
+
+    // preserving alloc_dom permutation on logical domain
     std::vector<IterDomain*> replayed_allocation_domain;
     if (allocation_permutation.empty()) {
       replayed_allocation_domain = replayed_logical_domain;
