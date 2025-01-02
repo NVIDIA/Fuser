@@ -34,29 +34,53 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
     bool is_mma_result) {
   // TODO Add constraints
 
-  auto apply_k_dim_offset = [is_mma_result](int64_t idx) constexpr {
-    return (is_mma_result) ? idx - 1 : idx;
-  };
-
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
   // Original: [..., M, N(, K)]
   // We split this into warp tiles then instruction tiles
-  tv->split(apply_k_dim_offset(-2), params_->tile_sizes.warp_tile.m);
-  tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
-  tv->split(apply_k_dim_offset(-1), params_->tile_sizes.warp_tile.n);
-  tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
-  // After Split: [..., Mo, Mw, Mi, No, Nw, Nwi]
-  tv->reorder({
-      {apply_k_dim_offset(-3), apply_k_dim_offset(-5)},
-      {apply_k_dim_offset(-2), apply_k_dim_offset(-3)},
-  });
-  // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
-
-  tv->merge(apply_k_dim_offset(-6));
-  // After Merge: [..., Mo * No, Mio, Nio, Mii, Nii]
-  tv->axis(apply_k_dim_offset(-5))->parallelize(ParallelType::TIDy);
-  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
+  if (is_mma_result) {
+    // Original: [..., M, N, K]
+    tv->split(-3, params_->tile_sizes.warp_tile.m);
+    tv->split(-3, getM(params_->mma_macro));
+    tv->split(-2, params_->tile_sizes.warp_tile.n);
+    tv->split(-2, getN(params_->mma_macro));
+    // K dimension is present for mma_result
+    tv->split(-1, params_->tile_sizes.warp_tile.k);
+    tv->split(-1, getK(params_->mma_macro));
+    // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Ko, Kw, Ki]
+    tv->reorder({
+        {-9, -9}, // Mo
+        {-8, -6}, // Mw
+        {-7, -3}, // Mi
+        {-6, -8}, // No
+        {-5, -5}, // Nw
+        {-4, -2}, // Ni
+        {-3, -7}, // Ko
+        {-2, -4}, // Kw
+        {-1, -1}, // Ki
+    });
+    // After Reorder: [..., Mo, No, Ko, Mw, Nw, Kw, Mi, Ni, Ki]
+    tv->merge(-9);
+    // After Merge: [..., Mo * No, Ko, Mw, Nw, Kw, Mi, Ni]
+    tv->axis(-8)->parallelize(ParallelType::TIDy);
+    // After Parallelize: [..., Mo * No (TIDy), Ko, Mw, Nw, Kw, Mi, Ni, Ki]
+  } else {
+    // Original: [..., M, N]
+    tv->split(-2, params_->tile_sizes.warp_tile.m);
+    tv->split(-2, getM(params_->mma_macro));
+    tv->split(-1, params_->tile_sizes.warp_tile.n);
+    tv->split(-1, getN(params_->mma_macro));
+    // After Split: [..., Mo, Mw, Mi, No, Nw, Ni]
+    tv->reorder({
+        {-3, -5},
+        {-2, -3},
+    });
+    // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
+    tv->merge(-6);
+    // After Merge: [..., Mo * No, Mw, Nw, Mi, Ni]
+    tv->axis(-5)->parallelize(ParallelType::TIDy);
+    // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
+  }
 }
 
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
