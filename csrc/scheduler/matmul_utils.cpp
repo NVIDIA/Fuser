@@ -291,23 +291,16 @@ bool fillDefaultHopperHeuristic(
 
   // stages and async mem copy
   {
-    constexpr int stages = 3;
-
     mparams->circular_buffer_options.circular_buffer_smem_write = true;
     mparams->circular_buffer_options.circular_buffer_smem_read = true;
-    mparams->circular_buffer_options.smem_circular_buffer_stage = stages;
+    mparams->circular_buffer_options.smem_circular_buffer_stage = 6;
   }
+
+  mparams->cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
 
   // Always use TMA on Hopper
   mparams->async_gmem_load_operands = true;
 
-  if (!mparams->async_gmem_load_operands) {
-    // Circular buffering requires async load. If we cannot use async load due
-    // to unsupported vectorization width, then we can only circular buffer at
-    // most.
-    mparams->circular_buffer_options.smem_circular_buffer_stage = std::min(
-        2, mparams->circular_buffer_options.smem_circular_buffer_stage);
-  }
   return true;
 }
 
