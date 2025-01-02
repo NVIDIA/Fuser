@@ -14,6 +14,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1001,7 +1002,7 @@ TEST_F(PresegTest, FusionRemoveBroadcastSqueeze0) {
   {
     // Make sure squeeze/broadcast no longer exists
     Fusion fusion_copy = fusion;
-    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    OptimizationPass<RemoveBcastSqueeze>::runPass(&fusion_copy);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_EQ(
         std::find_if(
@@ -1039,7 +1040,7 @@ TEST_F(PresegTest, FusionRemoveBroadcastSqueeze1) {
   {
     // broadcast shouldn't be removed
     Fusion fusion_copy = fusion;
-    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    OptimizationPass<RemoveBcastSqueeze>::runPass(&fusion_copy);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_NE(
         std::find_if(
@@ -1075,7 +1076,7 @@ TEST_F(PresegTest, FusionRemoveBroadcastSqueeze2) {
   {
     // Make sure squeeze/broadcast is not removed from fusion.
     Fusion fusion_copy = fusion;
-    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    OptimizationPass<RemoveBcastSqueeze>::runPass(&fusion_copy);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_NE(
         std::find_if(
@@ -1112,7 +1113,7 @@ TEST_F(PresegTest, FusionRemoveBroadcastSqueeze3) {
   {
     // Make sure squeeze/broadcast is not removed from fusion.
     Fusion fusion_copy = fusion;
-    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    OptimizationPass<RemoveBcastSqueeze>::runPass(&fusion_copy);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_NE(
         std::find_if(
