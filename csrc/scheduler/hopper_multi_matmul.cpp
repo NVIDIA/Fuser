@@ -29,58 +29,26 @@
 
 namespace nvfuser {
 
-void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
-    TensorView* tv,
-    bool is_mma_result) {
+void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
   // TODO Add constraints
 
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
-  // Original: [..., M, N(, K)]
-  // We split this into warp tiles then instruction tiles
-  if (is_mma_result) {
-    // Original: [..., M, N, K]
-    tv->split(-3, params_->tile_sizes.warp_tile.m);
-    tv->split(-3, getM(params_->mma_macro));
-    tv->split(-2, params_->tile_sizes.warp_tile.n);
-    tv->split(-2, getN(params_->mma_macro));
-    // K dimension is present for mma_result
-    tv->split(-1, params_->tile_sizes.warp_tile.k);
-    tv->split(-1, getK(params_->mma_macro));
-    // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Ko, Kw, Ki]
-    tv->reorder({
-        {-9, -9}, // Mo
-        {-8, -6}, // Mw
-        {-7, -3}, // Mi
-        {-6, -8}, // No
-        {-5, -5}, // Nw
-        {-4, -2}, // Ni
-        {-3, -7}, // Ko
-        {-2, -4}, // Kw
-        {-1, -1}, // Ki
-    });
-    // After Reorder: [..., Mo, No, Ko, Mw, Nw, Kw, Mi, Ni, Ki]
-    tv->merge(-9);
-    // After Merge: [..., Mo * No, Ko, Mw, Nw, Kw, Mi, Ni]
-    tv->axis(-8)->parallelize(ParallelType::TIDy);
-    // After Parallelize: [..., Mo * No (TIDy), Ko, Mw, Nw, Kw, Mi, Ni, Ki]
-  } else {
-    // Original: [..., M, N]
-    tv->split(-2, params_->tile_sizes.warp_tile.m);
-    tv->split(-2, getM(params_->mma_macro));
-    tv->split(-1, params_->tile_sizes.warp_tile.n);
-    tv->split(-1, getN(params_->mma_macro));
-    // After Split: [..., Mo, Mw, Mi, No, Nw, Ni]
-    tv->reorder({
-        {-3, -5},
-        {-2, -3},
-    });
-    // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
-    tv->merge(-6);
-    // After Merge: [..., Mo * No, Mw, Nw, Mi, Ni]
-    tv->axis(-5)->parallelize(ParallelType::TIDy);
-    // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
-  }
+  // Original: [..., M, N]
+  tv->split(-2, params_->tile_sizes.warp_tile.m);
+  tv->split(-2, getM(params_->mma_macro));
+  tv->split(-1, params_->tile_sizes.warp_tile.n);
+  tv->split(-1, getN(params_->mma_macro));
+  // After Split: [..., Mo, Mw, Mi, No, Nw, Ni]
+  tv->reorder({
+      {-3, -5},
+      {-2, -3},
+  });
+  // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
+  tv->merge(-6);
+  // After Merge: [..., Mo * No, Mw, Nw, Mi, Ni]
+  tv->axis(-5)->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
@@ -457,7 +425,32 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       splitk_sums_.push_back(splitk_sum);
     }
 
-    transformLikeMmaOutput(mma_result, /*is_mma_result=*/true);
+    // Original: [..., M, N, K]
+    mma_result->split(-3, params_->tile_sizes.warp_tile.m);
+    mma_result->split(-3, getM(params_->mma_macro));
+    mma_result->split(-2, params_->tile_sizes.warp_tile.n);
+    mma_result->split(-2, getN(params_->mma_macro));
+    // K dimension is present for mma_result
+    mma_result->split(-1, params_->tile_sizes.warp_tile.k);
+    mma_result->split(-1, getK(params_->mma_macro));
+    // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Ko, Kw, Ki]
+    mma_result->reorder({
+        {-9, -9}, // Mo
+        {-8, -6}, // Mw
+        {-7, -3}, // Mi
+        {-6, -8}, // No
+        {-5, -5}, // Nw
+        {-4, -2}, // Ni
+        {-3, -7}, // Ko
+        {-2, -4}, // Kw
+        {-1, -1}, // Ki
+    });
+    // After Reorder: [..., Mo, No, Ko, Mw, Nw, Kw, Mi, Ni, Ki]
+    mma_result->merge(-9);
+    // After Merge: [..., Mo * No, Ko, Mw, Nw, Kw, Mi, Ni]
+    mma_result->axis(-8)->parallelize(ParallelType::TIDy);
+    // After Parallelize: [..., Mo * No (TIDy), Ko, Mw, Nw, Kw, Mi, Ni, Ki]
+
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -492,7 +485,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // op.
       blockTileTensors({d});
       parallelizeBlocks({d});
-      transformLikeMmaOutput(d, /*is_mma_result=*/false);
+      transformLikeMmaOutput(d);
 
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           d->getLoopDomain());
@@ -572,7 +565,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       blockTileTensors(tvs_to_schedule);
       parallelizeBlocks(tvs_to_schedule);
       for (auto tv : tvs_to_schedule) {
-        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
+        transformLikeMmaOutput(tv);
       }
 
       // Should not propagate if the dc is a mma output as the mma output has
@@ -623,7 +616,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-    transformLikeMmaOutput(splitk_sum, /*is_mma_result=*/false);
+    transformLikeMmaOutput(splitk_sum);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         splitk_sum->getLoopDomain());
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
