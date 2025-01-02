@@ -244,9 +244,15 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
     auto input_offset = IrBuilder::create<Val>(DataType::Int);
     auto out = triu(tv_to_triu_on, input_offset);
 
+<<<<<<< HEAD
     fusion->addInput(tv_to_triu_on);
     fusion->addInput(input_offset);
     fusion->addOutput(out);
+=======
+      auto out =
+          triu(tv_to_triu_on, IrBuilder::create<Val>(offset, DataType::Index));
+      fusion->addOutput(out);
+>>>>>>> ad6021cf (fixes based on reviewer comments)
 
     FusionExecutorCache executor_cache(std::move(fusion));
 
