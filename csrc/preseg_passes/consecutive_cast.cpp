@@ -28,11 +28,12 @@ bool isCast(Expr* expr) {
 // multiple uses. In which case, we will have to duplicate the meta operation,
 // which might not be optimal. See PresegTest.FusionTestCastOptimizationMetaOp2
 bool isMovableMeta(Expr* expr) {
-  // only move meta operation if it has a single
+  // TODO BroadcastOp is a moveable meta operation. We should enable it after
+  // matmul scheduler is updated to support the new pattern with matmul. See
+  // issue: https://github.com/NVIDIA/Fuser/issues/3665.
   return (expr != nullptr && !expr->output(0)->isFusionOutput() &&
           expr->output(0)->uses().size() == 1) &&
-      (expr->isOneOf<SqueezeOp, BroadcastOp, ViewOp>() ||
-       ir_utils::isSimpleTVSet(expr));
+      (expr->isOneOf<SqueezeOp, ViewOp>() || ir_utils::isSimpleTVSet(expr));
 }
 
 // replays meta operation on `new_in`. return the new output from replayed meta
@@ -283,12 +284,28 @@ void castOptimizationPass(Fusion* fusion) {
     }
 
     do {
-      // replay [meta -> expr] with
-      //        [replayed_expr -> replayed_meta]
+      // when cast op expr is following a meta operation that's safe to be
+      // swapped, we do so hoping it would place the cast op to another cast op
+      // that can be optimized away. e.g. for a trivial reduction on reduced
+      // precision, the pattern will be
+      //    T1 = castOp(T0, fp32)
+      //    T2 = squeeze(T1)
+      //    T3 = castOp(T2, fp16)
+      // by swapping the last two op, we get
+      //    T1 = castOp(T0, fp32)
+      //    T2 = castOp(T1, fp16)
+      //    T3 = squeeze(T2)
+      // and we can further cancel out the two cast ops.
       if (isMovableMeta(expr->input(0)->definition())) {
+        // replay [meta -> expr] with
+        //        [replayed_expr -> replayed_meta]
         Val* expr_out = expr->output(0);
+
+        // initializing alloc_domain permutation as empty
         std::optional<std::vector<int64_t>> expr_out_allocation_permutation =
             {};
+
+        // compute logical_dom to alloc_dom permutation
         if (expr_out->isA<TensorView>()) {
           TensorView* expr_out_tv = expr_out->as<TensorView>();
           expr_out_allocation_permutation = ir_utils::computePermutation(
@@ -296,24 +313,28 @@ void castOptimizationPass(Fusion* fusion) {
               expr_out_tv->getMaybeAllocationDomain());
         }
 
+        // We do not support the replay if expr out has non-trivial transforms
+        // between its logical_dom to alloc_dom.
         if (expr_out_allocation_permutation.has_value()) {
           Expr* meta = expr->input(0)->definition();
 
-          // replayed cast.
+          // replayed expr(cast).
           Val* replayed_expr_out = castOp(expr_out->dtype(), meta->input(0));
 
-          // replay meta output from replayed cast.
+          // replay meta operation on replayed expr output.
           Val* replayed_meta_out = replayMetaOnNewInput(
               meta, replayed_expr_out, expr_out_allocation_permutation.value());
 
-          // replace uses of old expr with output of replayed_meta.
+          // replace uses of expr output with output of replayed_meta.
           ir_utils::replaceValInAllExprInputsAndFusionOutputs(
               expr_out, replayed_meta_out);
 
-          // swap expr
+          // update expr to point to the replayed_expr
           expr = replayed_expr_out->definition();
         }
       }
+
+      // optimize chained cast operations ending at expr
       expr = moveChainedCasts(expr, visited);
     } while (isMovableMeta(expr->input(0)->definition()));
   }
