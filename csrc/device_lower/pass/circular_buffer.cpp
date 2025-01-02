@@ -376,6 +376,13 @@ class CloneTmaCircularBufferLoopAndInsertSync
           ++it;
           continue;
         }
+        // Add block sync for pipelined matmul to avoid incorrect results.
+        // It is not necessary for warp specialization and it causes a deadlock.
+        if (loop_type_ != CircularBufferLoopStage::LoadWarp &&
+            loop_type_ != CircularBufferLoopStage::ComputeWarp) {
+          auto sync = IrBuilder::create<kir::BlockSync>(true);
+          for_loop_stack_.back()->body().push_back(sync);
+        }
         for_loop_stack_.back()->body().push_back(wait);
         it = raw_mbarriers_to_wait_.erase(it);
       }
