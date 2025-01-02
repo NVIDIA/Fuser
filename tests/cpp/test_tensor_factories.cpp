@@ -245,7 +245,7 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
       fusion->addInput(tv_to_triu_on);
 
       auto out =
-          triu(tv_to_triu_on, IrBuilder::create<Val>(offset, DataType::Int));
+          triu(tv_to_triu_on, IrBuilder::create<Val>(offset, DataType::Index));
       fusion->addOutput(out);
 
       auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);

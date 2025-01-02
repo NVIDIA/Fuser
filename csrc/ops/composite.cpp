@@ -58,7 +58,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 TensorView* triu(TensorView* tv, Val* offset) {
   NVF_CHECK(
-      offset->getDataType() == DataType::Int, "offset must have type Int");
+      offset->getDataType() == DataType::Index, "offset must have type Index");
 
   NVF_CHECK(
       tv->nDims() >= 2,
@@ -81,19 +81,19 @@ TensorView* triu(TensorView* tv, Val* offset) {
   //[0, 1, 1, 1]
   // If triu has an offset of k, we shift/subtract the iota of the columns by k
   // before broadcasting and comparing with the iota of the rows.
-  auto dims = tv->domain()->logical().size();
+  auto dims = TensorDomain::noReductions(tv->getLogicalDomain()).size();
   auto tv_rows = iota(
       tv->domain()->logical()[dims - 2]->extent(),
       IrBuilder::create<Val>(0, DataType::Index),
       IrBuilder::create<Val>(1, DataType::Index),
-      DataType::Int);
+      DataType::Index);
 
   auto tv_columns = iota(
       tv->domain()->logical()[dims - 1]->extent(),
       SimplifyingIrBuilder::mulExpr(
           offset, IrBuilder::create<Val>(-1, DataType::Index)),
       IrBuilder::create<Val>(1, DataType::Index),
-      DataType::Int);
+      DataType::Index);
 
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
