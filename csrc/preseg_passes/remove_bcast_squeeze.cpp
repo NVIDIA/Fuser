@@ -172,6 +172,8 @@ TensorView* replayAxisOp(
       return broadcast(tv, nonPreservedDims(axis_ops));
       break;
   }
+  NVF_ERROR(false, "unrecognized AxisOp type in replayAxisOp");
+  return nullptr;
 }
 
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
@@ -341,10 +343,12 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
   Expr* first = second->input(0)->definition();
   if (!isReplaceableExpr(first)) {
-    // replace [unary-op -> second] with:
-    //         [second -> unary-op]
+    // when second is an axis op, while first is not. We try to swap first and
+    // second. This allows us to opportunistically put two axis ops.
     if (auto uop = dynamic_cast<UnaryOp*>(first)) {
-      // skip if we cannot transform the pattern
+      // replace [unary-op -> second] with:
+      //         [second -> unary-op]
+      // skip if we need to preserve the output from unary-op.
       if (uop->out()->isFusionOutput() || uop->out()->uses().size() > 1) {
         return orig;
       }
@@ -352,9 +356,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
       // TODO adding test with permutation
       // TODO adding test with views (RF on logical of uop input)
-
-      // exclude rfactor ids, this is breaking mistral rope test. TODO open an
-      // issue on that.
+      // exclude rfactor ids, this is breaking mistral rope test.
+      // TODO open an issue on that.
       if (std::any_of(
               uop->in()->as<TensorView>()->getLogicalDomain().begin(),
               uop->in()->as<TensorView>()->getLogicalDomain().end(),
@@ -362,25 +365,26 @@ TensorView* maybeDoReplacement(TensorView* orig) {
         return orig;
       }
 
-      // replay second  on unary-op input
+      // replay second on unary-op input
       std::optional<AxisOp> second_op_type_opt =
           getSimplifiedOpType(second_ops);
-
       TensorView* replayed_second_out =
           replayAxisOp(second_op_type_opt.value(), second_ops, uop_in_tv);
 
-      // replay uop
+      // replay uop on the replayed second's output
       Val* replayed_uop_out = ops::newValLike(
           replayed_second_out, uop->out()->getDataType().value());
       IrBuilder::create<UnaryOp>(
           uop->getUnaryOpType(), replayed_uop_out, replayed_second_out);
 
-      // replace uses of old second output
+      // replace uses of second output with replayed unary-op out
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           second->output(0), replayed_uop_out);
+
+      // return replayed_second_out to indicate replacement.
       return replayed_second_out;
     }
-
+    // return orig to indicate no replacement.
     return orig;
   }
   AxisOps first_ops = exprToAxisOps(first);
