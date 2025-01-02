@@ -166,7 +166,7 @@ TensorView* replayAxisOp(
       return tv;
       break;
     case AxisOp::SQUEEZE:
-      return squeeze(tv, nonPreservedDims(axis_ops));
+      return squeeze(tv, nonPreservedDims(axis_ops), true);
       break;
     case AxisOp::BROADCAST:
       return broadcast(tv, nonPreservedDims(axis_ops));
