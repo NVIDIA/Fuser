@@ -1072,7 +1072,14 @@ std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
-  // TODO: add proper set of checks
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+
+  if (device_prop->major >= 9 &&
+      runtime_info.getIndexType() != DataType::Int32) {
+    // See https://github.com/NVIDIA/Fuser/issues/3595
+    return "Hopper matmul is not yet supported with problem sizes requiring 64-bit indexing";
+  }
+
   return "";
 }
 
