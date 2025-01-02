@@ -982,4 +982,154 @@ TEST_F(PresegTest, TranslateRepeatToExpand5) {
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
 }
 
+TEST_F(PresegTest, FusionRemoveBroadcastSqueeze0) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4, 5});
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {true, false, false, false, false});
+  auto tv2 = relu(tv1);
+  auto tv3 = squeeze(tv2, {0});
+  // specify output permutation;
+  std::vector<IterDomain*> tv3_nhwc = {
+      tv3->axis(0), tv3->axis(2), tv3->axis(3), tv3->axis(1)};
+  tv3->setAllocationDomain(tv3_nhwc, true);
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure squeeze/broadcast no longer exists
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isOneOf<BroadcastOp, SqueezeOp>();
+            }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 4, 5}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  // validate output permutation is preserved
+  ASSERT_TRUE(outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionRemoveBroadcastSqueeze1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1, 3, 4, 5});
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {1, 3, 4, 5}, {1, 3, 4 * 5});
+  // replay tv1 have rfactor product in IDs.
+  auto tv2 = relu(tv1);
+  auto tv3 = broadcast(tv2, {true, false, false, false});
+  fusion.addOutput(tv3);
+
+  {
+    // broadcast shouldn't be removed
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_NE(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isA<BroadcastOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 3, 4, 5}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionRemoveBroadcastSqueeze2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4, 5});
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {true, false, false, false, false});
+  auto tv2 = relu(tv1);
+  // tv2 is also an output, remove broadcast squeeze pass will not replay the
+  // broadcast
+  fusion.addOutput(tv2);
+  auto tv3 = squeeze(tv2, {0});
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure squeeze/broadcast is not removed from fusion.
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_NE(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isOneOf<BroadcastOp, SqueezeOp>();
+            }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 4, 5}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionRemoveBroadcastSqueeze3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4, 5});
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {true, false, false, false, false});
+  // tv2 is permuted, we currently do not support swapping permute with axis
+  // ops.
+  auto tv2 = permute(tv1, {{0, 4}});
+  auto tv3 = squeeze(tv2, {4});
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure squeeze/broadcast is not removed from fusion.
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_NE(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isOneOf<BroadcastOp, SqueezeOp>();
+            }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 4, 5}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes
