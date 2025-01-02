@@ -234,6 +234,9 @@ bool fillDefaultHopperHeuristic(
     DimType cta_n = warp_tile.n * n_ratio;
     DimType num_warp_groups = m_ratio * n_ratio;
     return cta_n * cta_m * num_problems < max_registers_per_sm
+        // box dimensions must be less than or equal to 256
+        && cta_m <= 256 &&
+        cta_n <= 256
         // Each warp group is 128 threads. We can only have a maximum of 1024
         // threads per SM, or 8 warp groups.
         && num_warp_groups <= 8 &&
