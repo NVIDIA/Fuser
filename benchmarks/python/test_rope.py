@@ -2,125 +2,11 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from .core import run_benchmark
+from nvfuser import FusionDefinition
+from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 import torch
 
-
-# Mimic the Hugging Face implementation:
-# https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L216
-def rope_with_cat_fusion(
-    fd: FusionDefinition,
-    batch_size: int,
-    seq_len: int,
-    num_heads: int,
-    features_per_head: int,
-) -> None:
-    q = fd.define_tensor(
-        shape=[batch_size, seq_len, num_heads, features_per_head],
-        dtype=DataType.BFloat16,
-    )
-    cos = fd.define_tensor(
-        shape=[seq_len, features_per_head],
-        dtype=DataType.BFloat16,
-    )
-    sin = fd.define_tensor(
-        shape=[seq_len, features_per_head],
-        dtype=DataType.BFloat16,
-    )
-
-    q = fd.ops.permute(q, dims=[0, 2, 1, 3])
-    q_real = fd.ops.slice(
-        q,
-        start_indices=[0, 0, 0, 0],
-        end_indices=[batch_size, num_heads, seq_len, features_per_head // 2],
-        strides=[1, 1, 1, 1],
-    )
-    q_image = fd.ops.slice(
-        q,
-        start_indices=[0, 0, 0, features_per_head // 2],
-        end_indices=[batch_size, num_heads, seq_len, features_per_head],
-        strides=[1, 1, 1, 1],
-    )
-
-    # nvFuser has problems generating negation for bfloat.
-    q_image = fd.ops.cast(q_image, dtype=DataType.Float)
-    q_image = -q_image
-    q_image = fd.ops.cast(q_image, dtype=DataType.BFloat16)
-
-    q_rotated = fd.ops.cat([q_image, q_real], dim=-1)
-
-    cos = fd.ops.broadcast_in_dim(
-        cos, shape=[1, 1, seq_len, features_per_head], broadcast_dims=[2, 3]
-    )
-    sin = fd.ops.broadcast_in_dim(
-        sin, shape=[1, 1, seq_len, features_per_head], broadcast_dims=[2, 3]
-    )
-
-    out = q * cos + q_rotated * sin
-    out = fd.ops.cast(out, DataType.BFloat16)
-    fd.add_output(out)
-
-
-# Idea from @nikitaved: we split and concatenate the embeddings instead of `q`.
-# The embeddings are constant that can be precomputed. So we pay the overhead
-# of split and concatenation only once. The actual forward pass is merely
-# elementwise+reduction surrounded by some meta ops.
-def rope_without_cat_fusion(
-    fd: FusionDefinition,
-    batch_size: int,  # B
-    seq_len: int,  # S
-    num_heads: int,  # H
-    features_per_head: int,  # F
-) -> None:
-    q = fd.define_tensor(
-        shape=[batch_size, seq_len, num_heads, features_per_head],
-        dtype=DataType.BFloat16,
-    )
-    # `cos_sin_matrix` is essentially a batch (of size S*F/2) of 2x2 matrices
-    # laid out in a special way to keep computation simple.
-    #
-    # Using the notations in Figure 1 in https://arxiv.org/pdf/2104.09864.pdf,
-    # cos_sin_matrix[0] contains the following:
-    #
-    #   cos(θ_1),   -sin(θ1)
-    #   cos(θ_2),   -sin(θ2)
-    #   ...
-    #   cos(θ_F/2), -sin(θ_F/2)
-    #   ------------------------
-    #   sin(θ_1),   cos(θ_1)
-    #   sin(θ_2),   cos(θ_2)
-    #   ...
-    #   sin(θ_F/2), cos(θ_F/2)
-    #
-    # cos_sin_matrix[i] is similar but each θ is multiplied by `i+1`.
-    cos_sin_matrix = fd.define_tensor(
-        shape=[seq_len, 2, features_per_head // 2, 2],
-        dtype=DataType.BFloat16,
-    )
-
-    q = fd.ops.reshape(
-        q, new_shape=[batch_size, seq_len, num_heads, 2, features_per_head // 2]
-    )
-    q = fd.ops.permute(q, dims=[0, 2, 1, 4, 3])
-    q = fd.ops.broadcast_in_dim(
-        q,
-        shape=[batch_size, num_heads, seq_len, 1, features_per_head // 2, 2],
-        broadcast_dims=[0, 1, 2, 4, 5],
-    )
-
-    cos_sin_matrix = fd.ops.broadcast_in_dim(
-        cos_sin_matrix,
-        shape=[batch_size, num_heads, seq_len, 2, features_per_head // 2, 2],
-        broadcast_dims=[2, 3, 4, 5],
-    )
-
-    out = fd.ops.sum(q * cos_sin_matrix, [-1])
-    out = fd.ops.cast(out, DataType.BFloat16)
-    out = fd.ops.reshape(
-        out, new_shape=[batch_size, num_heads, seq_len, features_per_head]
-    )
-    fd.add_output(out)
+from .rope_ops import rope_with_cat_fusion, rope_without_cat_fusion, rope_setup
 
 
 @pytest.mark.parametrize("use_cat", [True, False], ids=["with_cat", "without_cat"])
@@ -176,3 +62,80 @@ def test_rope_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
+
+@pytest.mark.parametrize(
+    "rope_variation",
+    [
+        "llama_2_7b_hf_rope",
+        "llama_3_8B_rope",
+        "hf_qwen2_rope",
+        "hf_phi3_rope",
+        "hf_mistral_nemo_rope",
+    ],
+)
+@pytest.mark.parametrize(
+    "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
+)
+def test_rope_variations_fwd_benchmark(
+    benchmark,
+    rope_variation: str,
+    executor: str,
+):
+    kwargs = {}
+    if executor == "thunder":
+        kwargs["nv_enable_matmul"] = True
+    elif executor == "torchcompile":
+        clear_dynamo_cache()
+
+    model, inputs, _, _ = rope_setup[rope_variation]()
+
+    def fwd_call(inp):
+        return model(*inp)
+
+    # Compile the fwd fn for torchcompile
+    benchmark_fn = with_executor(executor, fwd_call, **kwargs)
+    run_benchmark(benchmark, benchmark_fn, inputs())
+
+
+@pytest.mark.parametrize(
+    "rope_variation",
+    [
+        "llama_2_7b_hf_rope",
+        "llama_3_8B_rope",
+        "hf_qwen2_rope",
+        "hf_phi3_rope",
+        "hf_mistral_nemo_rope",
+    ],
+)
+@pytest.mark.parametrize(
+    "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
+)
+def test_rope_variations_bwd_benchmark(
+    benchmark,
+    rope_variation: str,
+    executor: str,
+):
+    kwargs = {}
+    if executor == "thunder":
+        kwargs["nv_enable_matmul"] = True
+    elif executor == "torchcompile":
+        clear_dynamo_cache()
+
+    model, fwd_inputs, grad, iobytes = rope_setup[rope_variation]()
+
+    def fwd_call(inp):
+        return model(*inp)
+
+    # execute the compiled fwd fn
+    fwd_fn = with_executor(executor, fwd_call, **kwargs)
+    outputs = fwd_fn(fwd_inputs())
+
+    # accumulate all output, so we can feed a single grad and use the unary bwd function
+    output = outputs[0]
+    for i in range(1, len(outputs)):
+        output += outputs[i]
+
+    # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
+    # a reference point for torchcompile and eager executor for comparison.
+    run_benchmark(benchmark, unary_bwd_torch, [output, grad()], iobytes=iobytes())
