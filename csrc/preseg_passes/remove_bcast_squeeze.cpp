@@ -354,17 +354,6 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       }
       TensorView* uop_in_tv = uop->in()->as<TensorView>();
 
-      // TODO adding test with permutation
-      // TODO adding test with views (RF on logical of uop input)
-      // exclude rfactor ids, this is breaking mistral rope test.
-      // TODO open an issue on that.
-      if (std::any_of(
-              uop->in()->as<TensorView>()->getLogicalDomain().begin(),
-              uop->in()->as<TensorView>()->getLogicalDomain().end(),
-              [](IterDomain* id) { return id->isRFactorProduct(); })) {
-        return orig;
-      }
-
       // replay second on unary-op input
       std::optional<AxisOp> second_op_type_opt =
           getSimplifiedOpType(second_ops);
