@@ -393,11 +393,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
+        auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
+        registerInsertBefore(expr, wgmma_fence, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
           // Makes sure that writes to operands in the generic proxy are visible
           // to the async proxy
-          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
-          registerInsertBefore(expr, wgmma_fence, scope);
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
@@ -782,7 +782,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 };
 
-// Insert wait expressions for WAR harzard for async operations such as wgmma
+// Insert wait expressions for WAR hazard for async operations such as wgmma
 // and tma store. To do so, we find the structure like the following example:
 //   for 1
 //     for 2

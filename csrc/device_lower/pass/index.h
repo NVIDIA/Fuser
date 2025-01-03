@@ -75,6 +75,8 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::GridSync*) final;
   void handle(const kir::FenceAsyncProxy*) final;
   void handle(const kir::WgMmaFence*) final;
+  void handle(const kir::SetMaxNReg*) final;
+  void handle(const kir::Return*) final;
   void handle(const kir::MBarrierInit*) final;
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::MBarrierArrive*) final;

@@ -274,6 +274,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
     code_ << "__global__ void ";
+    // TODO Fix hardcoded values
+    code_ << "__launch_bounds__(384, 1) ";
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
           kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
@@ -3330,10 +3332,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Use a custom synchronization method if enabled
     if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
-    } else if (isAligned()) {
-      indent() << "__syncthreads();\n";
     } else {
-      indent() << "__barrier_sync(0);\n";
+      ArgumentBuilder sync_call_template_parms;
+      sync_call_template_parms.arg(isAligned());
+
+      ArgumentBuilder sync_call_args;
+      sync_call_args.arg(genComputeBlockDim());
+
+      auto sync_call =
+          genCall("block_sync::sync", sync_call_template_parms, sync_call_args);
+      indent() << sync_call << ";\n";
     }
   }
 
@@ -3508,6 +3516,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::UpdateMagicZero*) final {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
+  }
+
+  void handle(const kir::Return* ret) final {
+    indent() << "return;\n";
   }
 
  private:
