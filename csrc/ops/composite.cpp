@@ -107,6 +107,10 @@ TensorView* triu(TensorView* tv, Val* offset) {
   return where(mask, tv, IrBuilder::create<Val>(0, tv->dtype()));
 }
 
+TensorView* triu(TensorView* tv) {
+  return triu(tv, IrBuilder::create<Val>(0));
+}
+
 namespace {
 
 TensorView* newForLinear(

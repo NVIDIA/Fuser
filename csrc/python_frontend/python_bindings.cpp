@@ -1693,6 +1693,38 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
 
+  nvf_ops.def(
+      "triu",
+      [](FusionDefinition::Operators& self,
+         Tensor input,
+         std::optional<Scalar> offset) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.triu");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(input.dims);
+        if (offset.has_value()) {
+          fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(
+              {fd->recordingState(input()),
+               fd->recordingState(offset.value()())},
+              {fd->recordingState(output())},
+              ("ops.triu"),
+              serde::RecordType::Binary_TV_VAL,
+              static_cast<TensorView* (*)(TensorView*, Val*)>(triu)));
+        } else {
+          fd->defineRecord(new OpRecord<TensorView*, TensorView*>(
+              {fd->recordingState(input())},
+              {fd->recordingState(output())},
+              ("ops.triu"),
+              serde::RecordType::Unary_TV,
+              static_cast<TensorView* (*)(TensorView*)>(triu)));
+        }
+        return output;
+      },
+      py::arg("input"),
+      py::arg("offset") = std::nullopt,
+      py::return_value_policy::reference);
+
   // overload to
   nvf_ops.def(
       "stride_order",
