@@ -953,14 +953,13 @@ CompareDomainWithReferenceResult compareDomainWithReference(
     //  the reference domain. If it's connected even with missing
     //  dependencies, it should be considered redundant. For this
     //  reason, a variant of IRBFS with a relaxed dependency condition
-    //  is used. IRBFSWithPermissiveDependence can traverse as long as one of
+    //  is used. IRPermissiveBFS can traverse as long as one of
     //  the inputs or outputs is visited.
-    const auto from_remaining_ids =
-        getExprsBetween<IRBFSWithPermissiveDependence>(
-            {unused_ids.begin(), unused_ids.end()},
-            {reference.begin(), reference.end()},
-            /*require_all_to_visited=*/false)
-            .first;
+    const auto from_remaining_ids = getExprsBetween<IRPermissiveBFS>(
+                                        {unused_ids.begin(), unused_ids.end()},
+                                        {reference.begin(), reference.end()},
+                                        /*require_all_to_visited=*/false)
+                                        .first;
     // Nothing is reachable, which means all of the unused IDs are not redundant
     if (from_remaining_ids.empty()) {
       additional_ids = unused_ids;
