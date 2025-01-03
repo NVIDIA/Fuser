@@ -79,19 +79,25 @@ TensorView* triu(TensorView* tv, Val* offset) {
   // Gives:
   //[1, 1, 1, 1]
   //[0, 1, 1, 1]
-  // If triu has an offset of k, we shift/subtract the iota of the columns by k
-  // before broadcasting and comparing with the iota of the rows.
-  auto dims = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+  auto tv_logical_no_reductions =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto dims = tv_logical_no_reductions.size();
+
   auto tv_rows = iota(
-      tv->domain()->logical()[dims - 2]->extent(),
+      tv_logical_no_reductions[dims - 2]->extent(),
       IrBuilder::create<Val>(0, DataType::Index),
       IrBuilder::create<Val>(1, DataType::Index),
       DataType::Index);
 
+  // If triu has an offset of k, we shift/subtract the iota of the columns by k
+  // before broadcasting and comparing with the iota of the rows.
+  // So when building an iota op, instead of starting from 0 with a step of 1
+  // we start from -offset (== -k) with a step of 1.
+  auto start_shifted_by_offset = SimplifyingIrBuilder::mulExpr(
+      offset, IrBuilder::create<Val>(-1, DataType::Index));
   auto tv_columns = iota(
-      tv->domain()->logical()[dims - 1]->extent(),
-      SimplifyingIrBuilder::mulExpr(
-          offset, IrBuilder::create<Val>(-1, DataType::Index)),
+      tv_logical_no_reductions[dims - 1]->extent(),
+      start_shifted_by_offset,
       IrBuilder::create<Val>(1, DataType::Index),
       DataType::Index);
 

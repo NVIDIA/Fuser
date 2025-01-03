@@ -231,30 +231,41 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
 }
 
 TEST_F(TensorFactoryTest, SimpleTriu) {
-  std::vector<std::vector<int64_t>> input_sizes = {
-      {64, 64}, {4, 16}, {16, 4}, {16, 8, 32}};
+  std::vector<std::vector<int64_t>> input_sizes_2d = {
+      {64, 64}, {4, 16}, {16, 4}};
+  std::vector<std::vector<int64_t>> input_sizes_3d = {{16, 8, 32}};
   auto offsets = {0, 1, 2, -1, -2, 200, -200};
 
-  for (auto input_size : input_sizes) {
-    for (auto offset : offsets) {
-      auto fusion = std::make_unique<Fusion>();
-      FusionGuard fg(fusion.get());
+  for (auto in : {input_sizes_2d, input_sizes_3d}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
 
-      auto tv_to_triu_on =
-          makeSymbolicTensor(input_size.size(), DataType::Half);
-      fusion->addInput(tv_to_triu_on);
+    auto tv_to_triu_on = makeSymbolicTensor(in.at(0).size(), DataType::Half);
+    auto input_offset = IrBuilder::create<Val>(DataType::Index);
+    auto out = triu(tv_to_triu_on, input_offset);
 
-      auto out =
-          triu(tv_to_triu_on, IrBuilder::create<Val>(offset, DataType::Index));
-      fusion->addOutput(out);
+    fusion->addInput(tv_to_triu_on);
+    fusion->addInput(input_offset);
+    fusion->addOutput(out);
 
-      auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-      auto in_tensor = at::randn(input_size, options);
+    FusionExecutorCache executor_cache(std::move(fusion));
 
-      FusionExecutorCache executor_cache(std::move(fusion));
-      auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
+    for (auto input_size : in) {
+      for (auto offset : offsets) {
+        auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+        auto in_tensor = at::randn(input_size, options);
 
-      EXPECT_TRUE(at::equal(cg_outputs[0], at::triu(in_tensor, offset)));
+        auto cg_outputs =
+            executor_cache.runFusionWithInputs({in_tensor, offset});
+
+        testValidate(
+            executor_cache.fusion(),
+            cg_outputs,
+            {in_tensor, offset},
+            {at::triu(in_tensor, offset)},
+            __LINE__,
+            __FILE__);
+      }
     }
   }
 }
