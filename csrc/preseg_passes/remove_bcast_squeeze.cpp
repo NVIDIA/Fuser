@@ -352,6 +352,20 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       if (uop->out()->isFusionOutput() || uop->out()->uses().size() > 1) {
         return orig;
       }
+
+      // make sure we preserve the allcoation domain on second->output(0)
+      // initializing alloc_domain permutation of second output.
+      auto second_out_tv = second->output(0)->as<TensorView>();
+      std::optional<std::vector<int64_t>> second_out_allocation_permutation =
+          ir_utils::computePermutation(
+              second_out_tv->getLogicalDomain(),
+              second_out_tv->getMaybeAllocationDomain());
+      // We only support simple permutation, any complex transformation is not
+      // allowed
+      if (!second_out_allocation_permutation.has_value()) {
+        return orig;
+      }
+
       TensorView* uop_in_tv = uop->in()->as<TensorView>();
 
       // replay second on unary-op input
@@ -363,6 +377,15 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       // replay uop on the replayed second's output
       Val* replayed_uop_out = ops::newValLike(
           replayed_second_out, uop->out()->getDataType().value());
+
+      // restore allocation domain on replayed_uop_out
+      auto replayed_uop_out_tv = replayed_uop_out->as<TensorView>();
+      replayed_uop_out_tv->setAllocationDomain(
+          ir_utils::applyPermutation(
+              replayed_uop_out_tv->getLogicalDomain(),
+              second_out_allocation_permutation.value()),
+          true);
+
       IrBuilder::create<UnaryOp>(
           uop->getUnaryOpType(), replayed_uop_out, replayed_second_out);
 
@@ -449,6 +472,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 void removeBcastSqueeze(Fusion* fusion) {
+  FusionGuard(fusion);
   // Iterate from outputs toward producers using a depth-first search for
   // replaceable patterns
   std::vector<TensorView*> stack;
