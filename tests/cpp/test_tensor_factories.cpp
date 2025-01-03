@@ -242,6 +242,7 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
 
     auto tv_to_triu_on = makeSymbolicTensor(in.at(0).size(), DataType::Half);
 <<<<<<< HEAD
+<<<<<<< HEAD
     auto input_offset = IrBuilder::create<Val>(DataType::Int);
     auto out = triu(tv_to_triu_on, input_offset);
 
@@ -256,6 +257,9 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
 >>>>>>> ad6021cf (fixes based on reviewer comments)
 =======
     auto input_offset = IrBuilder::create<Val>(DataType::Index);
+=======
+    auto input_offset = IrBuilder::create<Val>(DataType::Int);
+>>>>>>> e40db84f (offset should be dtype int)
     auto out = triu(tv_to_triu_on, input_offset);
 
     fusion->addInput(tv_to_triu_on);
