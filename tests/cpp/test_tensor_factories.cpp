@@ -241,6 +241,7 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
     FusionGuard fg(fusion.get());
 
     auto tv_to_triu_on = makeSymbolicTensor(in.at(0).size(), DataType::Half);
+<<<<<<< HEAD
     auto input_offset = IrBuilder::create<Val>(DataType::Int);
     auto out = triu(tv_to_triu_on, input_offset);
 
@@ -253,6 +254,14 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
           triu(tv_to_triu_on, IrBuilder::create<Val>(offset, DataType::Index));
       fusion->addOutput(out);
 >>>>>>> ad6021cf (fixes based on reviewer comments)
+=======
+    auto input_offset = IrBuilder::create<Val>(DataType::Index);
+    auto out = triu(tv_to_triu_on, input_offset);
+
+    fusion->addInput(tv_to_triu_on);
+    fusion->addInput(input_offset);
+    fusion->addOutput(out);
+>>>>>>> c90b21cd (reviewer comments)
 
     FusionExecutorCache executor_cache(std::move(fusion));
 
