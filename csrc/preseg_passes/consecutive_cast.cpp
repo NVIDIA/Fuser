@@ -29,19 +29,19 @@ bool isCast(Expr* expr) {
 bool swapMetaCast(Expr* cast) {
   // If cast is promoting dtype size, stop pushing cast along inputs to avoid
   // increase in intermediate buffer size.
-  if (dataTypeSize(cast->inputs(0)->getDataType()) <
-      dataTypeSize(cast->outputs(0)->getDataType())) {
+  if (dataTypeSize(cast->input(0)->getDataType()) <
+      dataTypeSize(cast->output(0)->getDataType())) {
     return false;
   }
 
-  // TODO BroadcastOp is a moveable meta operation. We should enable it after
-  // matmul scheduler is updated to support the new pattern with matmul. See
-  // issue: https://github.com/NVIDIA/Fuser/issues/3665.
-  expr = cast->input(0)->definition();
+  Expr* expr = cast->input(0)->definition();
   // don't move meta operation when the its output is a fusion output, or has
   // multiple uses. In which case, we will have to duplicate the meta operation,
   // which might not be optimal. See
   // PresegTest.FusionTestCastOptimizationMetaOp2
+  // TODO BroadcastOp is a moveable meta operation. We should enable it after
+  // matmul scheduler is updated to support the new pattern with matmul. See
+  // issue: https://github.com/NVIDIA/Fuser/issues/3665.
   return (expr != nullptr && !expr->output(0)->isFusionOutput() &&
           expr->output(0)->uses().size() == 1) &&
       (expr->isOneOf<SqueezeOp, ViewOp>() || ir_utils::isSimpleTVSet(expr));
