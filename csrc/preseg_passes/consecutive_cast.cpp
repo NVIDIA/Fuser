@@ -189,7 +189,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
-Expr* moveChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
+Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
   std::list<Val*> chain_cast_vals;
   auto prev_expr = expr->input(0)->definition();
   while (isCast(prev_expr)) {
@@ -337,7 +337,7 @@ void castOptimizationPass(Fusion* fusion) {
       }
 
       // optimize chained cast operations ending at expr
-      expr = moveChainedCasts(expr, visited);
+      expr = removeChainedCasts(expr, visited);
     } while (isMovableMeta(expr->input(0)->definition()));
   }
 }
