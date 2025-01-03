@@ -1394,7 +1394,7 @@ class CircularBufferInserter : private kir::ExprMutator {
                     warp_specialize_on),
                 circular_buffer_loop->fusion()->oneVal()))));
 
-    kir::MaxNReg* dec_reg_load_warp = IrBuilder::create<kir::MaxNReg>(
+    kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
         IrBuilder::create<Val>(24, DataType::Index),
         /*increase_registers=*/false);
     warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
@@ -1407,7 +1407,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     kir::Return* ret = IrBuilder::create<kir::Return>();
     warp_dispatch_ite->thenBody().push_back(ret);
 
-    kir::MaxNReg* inc_reg_load_warp = IrBuilder::create<kir::MaxNReg>(
+    kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
         IrBuilder::create<Val>(240, DataType::Index),
         /*increase_registers*/ true);
     warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
