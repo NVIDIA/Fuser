@@ -25,7 +25,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (!isResharding(expr)) {
+    if (HostIrLower::canLower(expr)) {
       continue;
     }
     NVF_ERROR(
