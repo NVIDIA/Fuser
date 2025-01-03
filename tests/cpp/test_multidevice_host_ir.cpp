@@ -377,6 +377,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   c->setDeviceMesh(mesh);
 
   a->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 

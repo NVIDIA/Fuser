@@ -345,7 +345,8 @@ bool HostIrLower::canLower(Expr* expr) {
     auto* matmul = expr->as<MatmulOp>();
     return !isSharded(matmul->inB()) && !isSharded(matmul->out()) &&
         matmul->inA()->axis(0)->getParallelType() == ParallelType::Serial &&
-        getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1;
+        getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1 &&
+        matmul->out()->axis(0)->getParallelType() == ParallelType::Stream;
   }
   return false;
 }
