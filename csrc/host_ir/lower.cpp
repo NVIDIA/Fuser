@@ -315,7 +315,7 @@ bool HostIrLower::canLower(Expr* expr) {
     return false;
   }
   if (expr->isA<ReductionOp>()) {
-    if (!isInnerResharding(expr)) {
+    if (isInnerResharding(expr)) {
       return false;
     }
     auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
@@ -337,7 +337,7 @@ bool HostIrLower::canLower(Expr* expr) {
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else if (expr->isA<LoadStoreOp>()) {
-    return isInnerResharding(expr) &&
+    return !isInnerResharding(expr) &&
         expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
   } else if (expr->as<MatmulOp>()) {
     // For now we only support c = matmul(a,b) when b,c are fully replicated and
