@@ -485,7 +485,7 @@ std::string WgMmaFence::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WgMmaFence)
 
-MaxNReg::MaxNReg(
+SetMaxNReg::SetMaxNReg(
     IrBuilderPasskey passkey,
     Val* number_of_registers,
     bool increase_registers)
@@ -498,16 +498,16 @@ MaxNReg::MaxNReg(
   addDataAttribute(increase_registers);
 }
 
-std::string MaxNReg::toString(int indent_size) const {
+std::string SetMaxNReg::toString(int indent_size) const {
   return (increaseRegisters()) ? "setmaxnreg.inc.sync.aligned.u32"
                                : "setmaxnreg.dec.sync.aligned.u32";
 }
 
-std::string MaxNReg::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "MaxNReg can not be printed inline");
+std::string SetMaxNReg::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "SetMaxNReg can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(MaxNReg)
+NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
 
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

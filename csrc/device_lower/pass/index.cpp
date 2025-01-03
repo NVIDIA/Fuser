@@ -2583,9 +2583,9 @@ void IndexLowering::handle(const kir::WgMmaFence* fence) {
   pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::MaxNReg* maxnreg) {
+void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::MaxNReg*>(maxnreg)); // NOLINT
+  pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::Return* ret) {

@@ -41,7 +41,7 @@ class BlockSync;
 class GridSync;
 class FenceAsyncProxy;
 class WgMmaFence;
-class MaxNReg;
+class SetMaxNReg;
 class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
@@ -472,11 +472,11 @@ class WgMmaFence final : public Expr {
 };
 
 // PTX: setmaxnreg.inc.sync.aligned.u32 and setmaxnreg.dec.sync.aligned.u32
-class MaxNReg final : public Expr {
+class SetMaxNReg final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit MaxNReg(
+  explicit SetMaxNReg(
       IrBuilderPasskey passkey,
       Val* number_of_registers,
       bool increase_registers);
@@ -484,7 +484,7 @@ class MaxNReg final : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return (increaseRegisters()) ? "IncMaxNReg" : "DecMaxNReg";
+    return (increaseRegisters()) ? "IncSetMaxNReg" : "DecSetMaxNReg";
   }
 
   std::string toString(int indent_size = 0) const override;

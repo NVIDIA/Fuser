@@ -273,7 +273,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{/*volatile=*/true}));
   }
 
-  void handle(kir::MaxNReg* maxnreg) final {
+  void handle(kir::SetMaxNReg* maxnreg) final {
     std::string ptx = (maxnreg->increaseRegisters())
         ? "setmaxnreg.inc.sync.aligned.u32"
         : "setmaxnreg.dec.sync.aligned.u32";
