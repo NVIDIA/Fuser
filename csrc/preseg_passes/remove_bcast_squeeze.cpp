@@ -345,6 +345,17 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   if (!isReplaceableExpr(first)) {
     // when second is an axis op, while first is not. We try to swap first and
     // second. This allows us to opportunistically put two axis ops.
+    // e.g.
+    //   T1 = broadcast(T0)
+    //   T2 = relu(T1)
+    //   T3 = squeeze(T2)
+    // In the iteration where squeeze is `second` and relu is `first`, if we
+    // swap the two operations, we'll ended up with
+    //   T1 = broadcast(T0)
+    //   replayed_T2 = replayed_squeeze(T1)
+    //   replayed_T3 = replayed_relu(replayed_T2)
+    // The following iteration will have an opportunity to merge the broacast
+    // and the replayed_squeeze together.
     if (auto uop = dynamic_cast<UnaryOp*>(first)) {
       // replace [unary-op -> second] with:
       //         [second -> unary-op]
