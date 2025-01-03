@@ -550,7 +550,7 @@ class BFS {
 };
 
 // Unlike the default BFS behavior, Expr is considered ready to
-// visit as long as one of the inputs or outputs has its dependency met
+// visit as long as one of the inputs or outputs has any of its dependencies met
 template <
     typename ExprT,
     typename ValT,
