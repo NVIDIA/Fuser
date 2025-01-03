@@ -975,18 +975,22 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
   // This fusion currently cannot be scheduled as a single kernel. It is
-  // expected to be segmented as: g{(pointwise)
-  //   inputs: tv0, tv1
-  //   outputs: tv2, tv3
+  // expected to be segmented as:
+  //
+  // g{(pointwise)
+  //   inputs: tv0
+  //   outputs: tv6
   //   tv2 = broadcast(tv0)
-  //   tv3 = add (tv2, broadcast(tv1))
+  //   tv5 = full({4, 1, i0})
+  //   tv6 = add (tv2, tv5)
   // }
   //
   // g{(pointwise)
-  //   inputs: tv2
-  //   outputs: tv5
-  //   tv4 = full({4, 1, i0})
-  //   tv5 = mul(tv2, tv4)
+  //   inputs: tv0, tv1
+  //   outputs: tv4
+  //   tv3 = broadcast(tv1)
+  //   tv2 = broadcast(tv0)
+  //   tv4 = add(tv2, tv3)
   // }
   EXPECT_EQ(segmented_fusion->groups().size(), 2);
 
@@ -998,7 +1002,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
     });
     if (num_full != 0) {
       // this is the segment contains the factory op.
-      EXPECT_EQ(exprs.size(), 2);
+      EXPECT_EQ(exprs.size(), 3);
       EXPECT_EQ(num_full, 1);
       auto binary_op_iter =
           std::find_if(exprs.begin(), exprs.end(), [](Expr* expr) {
