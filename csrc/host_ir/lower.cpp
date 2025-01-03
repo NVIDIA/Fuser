@@ -314,12 +314,12 @@ bool HostIrLower::canLower(Expr* expr) {
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }
-  if (expr->isA<ReductionOp>()) {
+  if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
     if (isInnerResharding(expr)) {
       return false;
     }
-    auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
-    auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
+    auto in = reduction->in()->as<TensorView>();
+    auto out = reduction->out()->as<TensorView>();
     // get the reduced axis
     std::vector<IterDomain*> reduction_axis;
     std::copy_if(
@@ -336,13 +336,12 @@ bool HostIrLower::canLower(Expr* expr) {
         PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
-  } else if (expr->isA<LoadStoreOp>()) {
-    return !isInnerResharding(expr) &&
-        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
-  } else if (expr->as<MatmulOp>()) {
+  } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+    return !isInnerResharding(ldst) &&
+        ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
+  } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
     // For now we only support c = matmul(a,b) when b,c are fully replicated and
     // a is sharded on axis 1
-    auto* matmul = expr->as<MatmulOp>();
     return !isSharded(matmul->inB()) && !isSharded(matmul->out()) &&
         matmul->inA()->axis(0)->getParallelType() == ParallelType::Serial &&
         getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1 &&

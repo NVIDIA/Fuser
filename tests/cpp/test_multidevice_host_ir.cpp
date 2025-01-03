@@ -358,7 +358,10 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   constexpr int64_t N = 1024;
   constexpr int64_t S = 8;
   const int64_t D = communicator_->size();
-  ASSERT_EQ(M % (D * S), 0);
+  if (M % (D * S) != 0) {
+    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
+                 << ", D = " << D << ", S = " << S;
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
