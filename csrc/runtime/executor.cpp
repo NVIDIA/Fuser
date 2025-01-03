@@ -461,7 +461,19 @@ void KernelExecutor::compile(
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
+  // TODO: pass block_size here;
+  std::optional<int64_t> dynamic_smem = std::nullopt;
+  std::optional<int64_t> block_size = std::nullopt;
+  if (!args.empty()) {
+    auto expr_eval = executor_utils::bindInputs(args, kernel);
+    auto launch_params = computeLaunchParams(
+        launch_constraints, expr_eval, warp_size_, kernel->indexType());
+    block_size = launch_params.nThreads();
+    dynamic_smem = launch_params.smem();
+    NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
+  }
+
+  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
   // If the loaded external source code is empty, revert to the default codegen.
@@ -523,18 +535,6 @@ void KernelExecutor::compile(
     }
     ss << " have dynamic allocations but are placed in local memory.";
     NVF_THROW(ss.str());
-  }
-
-  // TODO: pass block_size here;
-  std::optional<int64_t> dynamic_smem = std::nullopt;
-  std::optional<int64_t> block_size = std::nullopt;
-  if (!args.empty()) {
-    auto expr_eval = executor_utils::bindInputs(args, kernel);
-    auto launch_params = computeLaunchParams(
-        launch_constraints, expr_eval, warp_size_, kernel->indexType());
-    block_size = launch_params.nThreads();
-    dynamic_smem = launch_params.smem();
-    NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
   // TODO: high water mark should be computed via occupancy API after
