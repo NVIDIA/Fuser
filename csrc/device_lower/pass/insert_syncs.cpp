@@ -1007,21 +1007,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // Process the expressions in the for loop
     kir::ExprMutator::handle(for_loop);
 
-    // NOTE Warp Specialization require WAR wgmma sync before launching next tma
-    // load
-    if (for_loop->circularBufferLoopStage() ==
-        CircularBufferLoopStage::ComputeWarp) {
-      for (Expr* expr : for_loop->body().exprs()) {
-        if (expr->isA<kir::MBarrierArrive>()) {
-          auto sync_exprs = lower_utils::getSyncExprs(AsyncOpType::WgMma, 0);
-          while (!sync_exprs.empty()) {
-            registerInsertBefore(expr, sync_exprs.back(), &for_loop->body());
-            sync_exprs.pop_back();
-          }
-        }
-      }
-    }
-
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
       std::unordered_map<AsyncOpType, int64_t> types_and_pending_ops_to_protect;
