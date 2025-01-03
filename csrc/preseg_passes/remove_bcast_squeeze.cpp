@@ -472,7 +472,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 void removeBcastSqueeze(Fusion* fusion) {
-  FusionGuard(fusion);
+  FusionGuard fg(fusion);
   // Iterate from outputs toward producers using a depth-first search for
   // replaceable patterns
   std::vector<TensorView*> stack;
