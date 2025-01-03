@@ -11,6 +11,7 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <ops/utils.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 
@@ -153,6 +154,26 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
     flags.push_back(ops[i] != AxisOp::PRESERVE);
   }
   return flags;
+}
+
+TensorView* replayAxisOp(
+    AxisOp simple_op_type,
+    const AxisOps& axis_ops,
+    TensorView* tv) {
+  switch (simple_op_type) {
+    case AxisOp::PRESERVE:
+      // This is equivalent to a set Op
+      return tv;
+      break;
+    case AxisOp::SQUEEZE:
+      return squeeze(tv, nonPreservedDims(axis_ops), true);
+      break;
+    case AxisOp::BROADCAST:
+      return broadcast(tv, nonPreservedDims(axis_ops));
+      break;
+  }
+  NVF_ERROR(false, "unrecognized AxisOp type in replayAxisOp");
+  return nullptr;
 }
 
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
@@ -318,13 +339,79 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   if (!isReplaceableExpr(second)) {
     return orig;
   }
+  AxisOps second_ops = exprToAxisOps(second);
+
   Expr* first = second->input(0)->definition();
   if (!isReplaceableExpr(first)) {
+    // when second is an axis op, while first is not. We try to swap first and
+    // second. This allows us to opportunistically put two axis ops.
+    // e.g.
+    //   T1 = broadcast(T0)
+    //   T2 = relu(T1)
+    //   T3 = squeeze(T2)
+    // In the iteration where squeeze is `second` and relu is `first`, if we
+    // swap the two operations, we'll ended up with
+    //   T1 = broadcast(T0)
+    //   replayed_T2 = replayed_squeeze(T1)
+    //   replayed_T3 = replayed_relu(replayed_T2)
+    // The following iteration will have an opportunity to merge the broacast
+    // and the replayed_squeeze together.
+    if (auto uop = dynamic_cast<UnaryOp*>(first)) {
+      // replace [unary-op -> second] with:
+      //         [second -> unary-op]
+      // skip if we need to preserve the output from unary-op.
+      if (uop->out()->isFusionOutput() || uop->out()->uses().size() > 1) {
+        return orig;
+      }
+
+      // make sure we preserve the allcoation domain on second->output(0)
+      // initializing alloc_domain permutation of second output.
+      auto second_out_tv = second->output(0)->as<TensorView>();
+      std::optional<std::vector<int64_t>> second_out_allocation_permutation =
+          ir_utils::computePermutation(
+              second_out_tv->getLogicalDomain(),
+              second_out_tv->getMaybeAllocationDomain());
+      // We only support simple permutation, any complex transformation is not
+      // allowed
+      if (!second_out_allocation_permutation.has_value()) {
+        return orig;
+      }
+
+      TensorView* uop_in_tv = uop->in()->as<TensorView>();
+
+      // replay second on unary-op input
+      std::optional<AxisOp> second_op_type_opt =
+          getSimplifiedOpType(second_ops);
+      TensorView* replayed_second_out =
+          replayAxisOp(second_op_type_opt.value(), second_ops, uop_in_tv);
+
+      // replay uop on the replayed second's output
+      Val* replayed_uop_out = ops::newValLike(
+          replayed_second_out, uop->out()->getDataType().value());
+
+      // restore allocation domain on replayed_uop_out
+      auto replayed_uop_out_tv = replayed_uop_out->as<TensorView>();
+      replayed_uop_out_tv->setAllocationDomain(
+          ir_utils::applyPermutation(
+              replayed_uop_out_tv->getLogicalDomain(),
+              second_out_allocation_permutation.value()),
+          true);
+
+      IrBuilder::create<UnaryOp>(
+          uop->getUnaryOpType(), replayed_uop_out, replayed_second_out);
+
+      // replace uses of second output with replayed unary-op out
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+          second->output(0), replayed_uop_out);
+
+      // return replayed_second_out to indicate replacement.
+      return replayed_second_out;
+    }
+    // return orig to indicate no replacement.
     return orig;
   }
-
   AxisOps first_ops = exprToAxisOps(first);
-  AxisOps second_ops = exprToAxisOps(second);
+
   AxisOps simplified_ops = composeOps(first_ops, second_ops);
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
@@ -337,18 +424,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     replacement = first->output(0)->as<TensorView>();
   } else {
     TensorView* input_tv = first->input(0)->as<TensorView>();
-    switch (simple_op_type_opt.value()) {
-      case AxisOp::PRESERVE:
-        // This is equivalent to a set Op
-        replacement = input_tv;
-        break;
-      case AxisOp::SQUEEZE:
-        replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
-        break;
-      case AxisOp::BROADCAST:
-        replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
-        break;
-    }
+    replacement =
+        replayAxisOp(simple_op_type_opt.value(), simplified_ops, input_tv);
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
 
@@ -406,6 +483,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 void removeBcastSqueeze(Fusion* fusion) {
+  FusionGuard fg(fusion);
   // Iterate from outputs toward producers using a depth-first search for
   // replaceable patterns
   std::vector<TensorView*> stack;
