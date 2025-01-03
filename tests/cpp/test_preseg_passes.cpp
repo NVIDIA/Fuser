@@ -1141,4 +1141,46 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4});
+  fusion.addInput(tv0);
+  // multiple segements with cast should be merged
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = reshape(tv1, {2, 3, 4}, {2, 3, 2, 2});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = reshape(tv3, {2, 3, 2, 2}, {6, 2, 2});
+  auto tv5 = castOp(DataType::Half, tv4);
+  fusion.addOutput(tv5);
+
+  {
+    // Make sure we merge all cast together
+    Fusion fusion_copy = fusion;
+    fusion_copy.printMath(1);
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    fusion_copy.printMath(1);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::count_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isA<UnaryOp>() &&
+                  new_expr->as<UnaryOp>()->getUnaryOpType() ==
+                  UnaryOpType::Cast;
+            }),
+        1);
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes
