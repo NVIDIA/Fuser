@@ -178,18 +178,15 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 bool DomainMap::areAllTargetIdsCoveredBy(
     TensorView* target_tv,
     TensorView* reference_tv) const {
-  auto get_source_iter_domains = [this](TensorView* tv) {
+  auto get_source_iter_domains = [this](const std::vector<IterDomain*>& ids) {
     // traverse back to collect all disjoint set producer IDs for each ID in the
     // logical domain of tv.
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
-    std::for_each(
-        tv->getLogicalDomain().begin(),
-        tv->getLogicalDomain().end(),
-        [&](IterDomain* tv_logical_id) {
-          all_producer_sets.pushBack(
-              ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
-        });
+    std::for_each(ids.begin(), ids.end(), [&](IterDomain* tv_logical_id) {
+      all_producer_sets.pushBack(
+          ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
+    });
     all_producer_sets.pushBack(
         ca_map_.getAllDisjointSetProducers(all_producer_sets));
 
@@ -213,7 +210,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // this contains all source iter domain that's covered by reference_tv, so
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
-  for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
+  for (IterDomain* source_id_ref :
+       get_source_iter_domains(reference_tv->getLogicalDomain())) {
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
@@ -226,9 +224,10 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 
       // Note that ideally we should also be able to handle merge/split on
       // broadcast IDs, so we should really move this skip inside the loop below
-      // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
-      // currently we have the issue that split/merge does not preserve expanded
-      // broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
+      // `get_source_iter_domains(target_tv->getLogicalDomain())` and skip
+      // broadcast source IDs. currently we have the issue that split/merge does
+      // not preserve expanded broadcasts, see issue:
+      // https://github.com/NVIDIA/Fuser/issues/1126
       covered_source_ids.insert(id_out);
     }
   }
@@ -248,21 +247,37 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // https://github.com/NVIDIA/Fuser/issues/3542
 
   // Check all source iter domain involved in producing target_tv
-  for (IterDomain* source_id_out : get_source_iter_domains(target_tv)) {
+  for (IterDomain* source_id_out :
+       get_source_iter_domains(target_tv->getLogicalDomain())) {
     // NOTE: we use concrete id instead. This allows us to link indirect
-    // broadcast. So in the example below: T2[i0, i1] = T0[i0, b0] + T1[i0, i1]
-    // T3[i0, i9] = pad(T0[i0, b0])
+    // broadcast. So in the example below:
+    //   input T0[
+    //   T2[i0, i2*i3] = T0[i0, i2, i3]
+    //   T3[i0, i2*i3] = T1[i0, b0] + T2[i0, i2*i3]
+    //   T4[i0, i9] = pad(T1[i0, b0])
     // We have i9 in T3
     //     -> source ID b0
-    //     -> concrete map to i1
+    //     -> concrete map to i2*i3
+    //     -> source ID from i2*i3 to [i2, i3]
     // So T3 is contained by T2. See test `PointwiseTest.DomainMapPad1`
-    auto concrete_source_id_out =
+    auto concrete_id_out =
         ca_map_.getConcreteMappedID(source_id_out, IdMappingMode::PERMISSIVE);
-    // if we find any source_id_out that's not contained, it's possible our
-    // propagation would fail since transformation involving this iter domain
-    // can't be resolved.
-    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out)) {
-      return false;
+
+    // After mapping with PERMISSIVE map, `concrete_id_out` might no longer be a
+    // source ID. We project to source ID again from concrete_id_out. See test
+    // DomainMapBroadcastIssue3653
+    // In the example above. `i2*i3` is not a source ID. Hence we needed to go
+    // through another projection to source IDs in order to map it to
+    // covered_source_ids.
+    for (IterDomain* concrete_source_id_out :
+         get_source_iter_domains({concrete_id_out})) {
+      // if we find any source_id_out that's not contained, it's possible our
+      // propagation would fail since transformation involving this iter
+      // domain can't be resolved.
+      if (!getMappedInputConcreteID(
+              covered_source_ids, concrete_source_id_out)) {
+        return false;
+      }
     }
   }
   return true;
@@ -359,7 +374,8 @@ IterDomain* DomainMap::anyMapped(
 }
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input and output
+// The reference tensor must map to all the iterDomains in each input and
+// output
 bool DomainMap::isValidReference(TensorView* tv) const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
@@ -372,8 +388,8 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     }
   }
   // The check on outputs are optional, transpose scheduler might propose a
-  // secondary reference that only applies to a subset of IO tensors. Ideally we
-  // should have a more robust check and consider the IO groups instead of
+  // secondary reference that only applies to a subset of IO tensors. Ideally
+  // we should have a more robust check and consider the IO groups instead of
   // blindly skip outputs.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(fusion_->outputs())) {
@@ -386,6 +402,210 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     }
   }
   return true;
+}
+
+TensorView* PointwiseDomainMap::findReferenceTensor(
+    int64_t minimum_num_axes) const {
+  TensorView* result = nullptr;
+  int64_t max_dims = -1;
+  for (auto output_tv :
+       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+    if (isValidReference(output_tv) &&
+        hasMinimumSize(output_tv, minimum_num_axes) &&
+        !output_tv->isFusionInput()) {
+      int64_t n_dims = scheduler_utils::nLogicalDims(output_tv);
+      if (n_dims > max_dims) {
+        result = output_tv;
+        max_dims = n_dims;
+      }
+    }
+  }
+  return result;
+}
+
+TensorView* TransposeDomainMap::findReferenceFor(
+    const std::vector<TensorView*>& group) const {
+  TensorView* result = nullptr;
+  int64_t max_dims = -1;
+  for (auto tv : group) {
+    // since transpose scheduler have different set of reference, we skip IDs
+    // coverage check of the reference on outputs of the fusion. Note that
+    // this is not ideal, we would want to instead have reference tensor
+    // checked against all its target IO tensors.
+    // TODO: open an issue for this one. transpose scheduler is not supposed
+    // to reuse pointwise_utils::DomainMap::isValidRefrence. This function is
+    // too restrictive and doesn't align well with the scheme of transpose
+    // scheduler
+    if (isValidReference(tv)) {
+      int64_t dims = scheduler_utils::nLogicalDims(tv);
+      if (dims > max_dims) {
+        result = tv;
+        max_dims = dims;
+      }
+    }
+  }
+  return result;
+}
+
+IterDomain* TransposeDomainMap::getMappedAllocDimIn(
+    TensorView* tv,
+    IterDomain* root_dim) const {
+  // Find the id mapped to `Allocation Domain`
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
+  IterDomain* mapped_id = nullptr;
+  for (auto i : c10::irange(alloc_dom.size())) {
+    if (ca_map_.areMapped(alloc_dom[i], root_dim, IdMappingMode::INNERMOST)) {
+      mapped_id = alloc_dom[i];
+      break;
+    }
+  }
+  return mapped_id;
+}
+
+bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
+  FusionGuard fg(fusion);
+  TransposeDomainMap domain_map(fusion);
+  auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
+  if (grouped_inputs_outputs.size() < 2) {
+    return false;
+  }
+  auto ref1 = domain_map.findReferenceFor(grouped_inputs_outputs[0]);
+  auto ref2 = domain_map.findReferenceFor(grouped_inputs_outputs[1]);
+  if (ref1 == nullptr || ref2 == nullptr) {
+    return false;
+  }
+  // reference 1 is the global reference, so it must have dim mapped the
+  // innermost dim of both groups
+  auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);
+  return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
+}
+
+int64_t TransposeDomainMap::getInnerLeafDim(
+    TensorView* tv,
+    IterDomain* root_dim) const {
+  // TODO: ideally we should be mapping to loop domain directly here.
+  // However, our current compute at map is constructed before loop domain is
+  // transformed. So the mapping here would require a new compute at map to be
+  // constructed from the updated fusion. We'll revisit this once our id graph
+  // refactor is done.
+  auto mapped_id = getMappedAllocDimIn(tv, root_dim);
+  NVF_ERROR(
+      mapped_id != nullptr,
+      "Can not find ID mapped to ",
+      root_dim,
+      " in tensor ",
+      tv);
+  std::vector<Expr*> replay_exprs = StmtSort::getExprsBetween(
+      {mapped_id}, {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  // Project the root id to loop id. Similar to projectIdToRFactor.
+  for (auto* expr : replay_exprs) {
+    if (auto* split = dynamic_cast<Split*>(expr)) {
+      if (split->in() == mapped_id) {
+        if (split->inner()->extent()->isOneInt() &&
+            !split->outer()->extent()->isOneInt()) {
+          mapped_id = split->outer();
+        } else {
+          mapped_id = split->inner();
+        }
+      }
+    } else if (auto* merge = dynamic_cast<Merge*>(expr)) {
+      // Merge with size-1 dimension is not supposed to be here, reshape would
+      // map this to a squeeze. This is a conservative assert, we can relaxed
+      // it and support with mapping it to out.
+      NVF_ERROR(
+          !merge->inner()->extent()->isOneInt(),
+          "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+      if (merge->inner() == mapped_id) {
+        mapped_id = merge->out();
+      }
+    } else if (auto* resize = dynamic_cast<Resize*>(expr)) {
+      if (resize->in() == mapped_id) {
+        mapped_id = resize->out();
+      }
+    }
+  }
+
+  // Find the position of the loop id
+  const auto& dom = tv->getLoopDomain();
+  for (auto i : c10::irange(dom.size())) {
+    if (dom[i] == mapped_id) {
+      return static_cast<int64_t>(i);
+    }
+  }
+  return -1;
+}
+
+std::vector<std::vector<TensorView*>> TransposeDomainMap::
+    groupInputsOutputsByInnerDim() const {
+  std::vector<std::vector<TensorView*>> groups;
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion_->outputs());
+  auto input_tvs = ir_utils::filterByType<TensorView>(fusion_->inputs());
+  std::unordered_set<TensorView*> grouped;
+  std::array<decltype(input_tvs)*, 2> tv_filtered_groups = {
+      &output_tvs, &input_tvs};
+  for (auto tv_filtered_group : tv_filtered_groups) {
+    for (auto tv : *tv_filtered_group) {
+      if (tv->isFusionInput() && tv->uses().empty()) {
+        continue;
+      }
+      if (grouped.count(tv) > 0) {
+        continue;
+      }
+      groups.emplace_back(std::vector<TensorView*>{tv});
+      grouped.emplace(tv);
+      // We only want to grab the inner-most dimension, because we don't want
+      // tensors with different inner-most dimension to be put in the same
+      // group. For example, if we have:
+      //   T2[i1, i3*i2] = relu(view(transpose(T1[i1, i2, i3])))
+      // then we don't want T1 and T2 to be in the same group.
+      //
+      // But we don't want to check contiguity. For example, if we have:
+      //   T1[i1, i2, i3] (contiguous) + T2[i1, i2, i3] (discontiguous)
+      // Then we still want to T1 and T2 to be grouped together.
+      auto group =
+          scheduler_utils::getInputsOutputsWithInnerDim(tv, true, false);
+      if (group.empty()) {
+        // In case that the inner most dim of tv is not found (for example, tv
+        // is a fusion input with only reductions), we just return a null
+        // result which will tell the scheduler to reject the fusion
+        return {};
+      }
+      for (auto member_tv : group) {
+        if (grouped.count(member_tv) == 0) {
+          grouped.emplace(member_tv);
+          groups.back().emplace_back(member_tv);
+        } else if (member_tv != tv) {
+          // Ambiguous grouping. This should only happen at `canSchedule`, so
+          // we just return a null result which will tell the scheduler to
+          // reject the fusion
+          return {};
+        }
+      }
+    }
+  }
+  std::stable_sort(
+      groups.begin(),
+      groups.end(),
+      [](const std::vector<TensorView*>& v1,
+         const std::vector<TensorView*>& v2) { return v1.size() > v2.size(); });
+  return groups;
+}
+
+IterDomain* TransposeDomainMap::getMappedInputConcreteID(
+    const std::unordered_set<IterDomain*>& in_concrete_ids,
+    IterDomain* out_id) const {
+  auto in_concrete_id_iter = std::find_if(
+      in_concrete_ids.begin(),
+      in_concrete_ids.end(),
+      [&](IterDomain* in_concrete_id) {
+        return ca_map_.areMapped(
+            in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
+      });
+  if (in_concrete_id_iter != in_concrete_ids.end()) {
+    return *in_concrete_id_iter;
+  } else {
+    return nullptr;
+  }
 }
 
 } // namespace scheduler_tools
