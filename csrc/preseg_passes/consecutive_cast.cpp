@@ -12,6 +12,7 @@
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <type.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -29,8 +30,8 @@ bool isCast(Expr* expr) {
 bool swapMetaCast(Expr* cast) {
   // If cast is promoting dtype size, stop pushing cast along inputs to avoid
   // increase in intermediate buffer size.
-  if (dataTypeSize(cast->input(0)->getDataType()) <
-      dataTypeSize(cast->output(0)->getDataType())) {
+  if (dataTypeSize(*cast->input(0)->getDataType()) <
+      dataTypeSize(*cast->output(0)->getDataType())) {
     return false;
   }
 

@@ -1214,13 +1214,13 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
                   UnaryOpType::Cast;
             }),
         2);
-    Expr *view = std::find_if(
-             new_exprs.begin(),
-             new_exprs.end(),
-             [](Expr* new_expr) { return new_expr->isA<ViewOp>(); }),
-         EXPECT_TRUE(
-             view != new_exprs.end() &&
-             (*view->input(0)->getDataType() == DataType::Float));
+    auto expr_iter =
+        std::find_if(new_exprs.begin(), new_exprs.end(), [](Expr* new_expr) {
+          return new_expr->isA<ViewOp>();
+        });
+    EXPECT_TRUE(
+        expr_iter != new_exprs.end() &&
+        (*(*expr_iter)->input(0)->getDataType() == DataType::Float));
   }
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kHalf);
