@@ -1394,9 +1394,29 @@ class CircularBufferInserter : private kir::ExprMutator {
                     warp_specialize_on),
                 circular_buffer_loop->fusion()->oneVal()))));
 
+    // Get register configuration for warp specialized circular buffering
+    std::pair<int64_t, int64_t> warp_specialized_num_registers = {24, 240};
+    if (GpuLower::current()->kernel()->hasManaged(
+            "warp_specialized_num_registers")) {
+      warp_specialized_num_registers =
+          GpuLower::current()
+              ->kernel()
+              ->getManaged<std::pair<int64_t, int64_t>>(
+                  "warp_specialized_num_registers");
+    } else {
+      // Set default value
+      GpuLower::current()->kernel()->manage(
+          "warp_specialized_num_registers", warp_specialized_num_registers);
+    }
+    auto&& [decrease_num_registers, increase_num_registers] =
+        warp_specialized_num_registers;
+    NVF_ERROR(
+        decrease_num_registers < increase_num_registers,
+        "Expected the number of registers for decrease setmaxnreg to be lower than increase setmaxnreg");
+
     // Decrease registers in load warp group
     kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
-        IrBuilder::create<Val>(24, DataType::Index),
+        IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
         /*increase_registers=*/false);
     warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
 
@@ -1412,7 +1432,7 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Increase registers in load warp group
     kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
-        IrBuilder::create<Val>(240, DataType::Index),
+        IrBuilder::create<Val>(increase_num_registers, DataType::Index),
         /*increase_registers*/ true);
     warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
 
