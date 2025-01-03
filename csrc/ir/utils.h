@@ -53,6 +53,10 @@ void replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr);
+
 template <typename FilterType, typename Iterator>
 class FilterIterator {
  public:
