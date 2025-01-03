@@ -1394,10 +1394,27 @@ class CircularBufferInserter : private kir::ExprMutator {
                     warp_specialize_on),
                 circular_buffer_loop->fusion()->oneVal()))));
 
+    // Decrease registers in load warp group
+    kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+        IrBuilder::create<Val>(24, DataType::Index),
+        /*increase_registers=*/false);
+    warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
+
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
     warp_dispatch_ite->thenBody().push_back(load_loop);
+
+    // Terminate the warp group handling Load loop immediately after
+    // finishing its work.
+    kir::Return* ret = IrBuilder::create<kir::Return>();
+    warp_dispatch_ite->thenBody().push_back(ret);
+
+    // Increase registers in load warp group
+    kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+        IrBuilder::create<Val>(240, DataType::Index),
+        /*increase_registers*/ true);
+    warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
