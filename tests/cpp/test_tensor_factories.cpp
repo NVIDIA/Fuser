@@ -241,7 +241,7 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
     FusionGuard fg(fusion.get());
 
     auto tv_to_triu_on = makeSymbolicTensor(in.at(0).size(), DataType::Half);
-    auto input_offset = IrBuilder::create<Val>(DataType::Index);
+    auto input_offset = IrBuilder::create<Val>(DataType::Int);
     auto out = triu(tv_to_triu_on, input_offset);
 
     fusion->addInput(tv_to_triu_on);

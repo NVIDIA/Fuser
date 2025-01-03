@@ -58,7 +58,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 TensorView* triu(TensorView* tv, Val* offset) {
   NVF_CHECK(
-      offset->getDataType() == DataType::Index, "offset must have type Index");
+      offset->getDataType() == DataType::Int, "offset must have type Int");
 
   NVF_CHECK(
       tv->nDims() >= 2,
