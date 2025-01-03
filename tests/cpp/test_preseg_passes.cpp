@@ -1183,4 +1183,52 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4}, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, {2, 3, 4}, {6, 4});
+  // casting to higher precision dtype, we shouldn't propagate this cast to
+  // producer, since it would result in increase in intermediate buffer size.
+  auto tv3 = castOp(DataType::Double, tv2);
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure we merge all cast together
+    Fusion fusion_copy = fusion;
+    fusion_copy.printMath(1);
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    fusion_copy.printMath(1);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::count_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isA<UnaryOp>() &&
+                  new_expr->as<UnaryOp>()->getUnaryOpType() ==
+                  UnaryOpType::Cast;
+            }),
+        2);
+    Expr *view = std::find_if(
+             new_exprs.begin(),
+             new_exprs.end(),
+             [](Expr* new_expr) { return new_expr->isA<ViewOp>(); }),
+         EXPECT_TRUE(
+             view != new_exprs.end() &&
+             (*view->input(0)->getDataType() == DataType::Float));
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kHalf);
+  auto t0 = at::randn({2, 3, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes

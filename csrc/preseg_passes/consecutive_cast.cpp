@@ -24,13 +24,24 @@ bool isCast(Expr* expr) {
   return false;
 }
 
-// don't move meta operation when the its output is a fusion output, or has
-// multiple uses. In which case, we will have to duplicate the meta operation,
-// which might not be optimal. See PresegTest.FusionTestCastOptimizationMetaOp2
-bool isMovableMeta(Expr* expr) {
+// for pattern `expr -> cast`, this function returns whether to replace it with
+// `cast -> expr`
+bool swapMetaCast(Expr* cast) {
+  // If cast is promoting dtype size, stop pushing cast along inputs to avoid
+  // increase in intermediate buffer size.
+  if (dataTypeSize(cast->inputs(0)->getDataType()) <
+      dataTypeSize(cast->outputs(0)->getDataType())) {
+    return false;
+  }
+
   // TODO BroadcastOp is a moveable meta operation. We should enable it after
   // matmul scheduler is updated to support the new pattern with matmul. See
   // issue: https://github.com/NVIDIA/Fuser/issues/3665.
+  expr = cast->input(0)->definition();
+  // don't move meta operation when the its output is a fusion output, or has
+  // multiple uses. In which case, we will have to duplicate the meta operation,
+  // which might not be optimal. See
+  // PresegTest.FusionTestCastOptimizationMetaOp2
   return (expr != nullptr && !expr->output(0)->isFusionOutput() &&
           expr->output(0)->uses().size() == 1) &&
       (expr->isOneOf<SqueezeOp, ViewOp>() || ir_utils::isSimpleTVSet(expr));
@@ -292,13 +303,13 @@ void castOptimizationPass(Fusion* fusion) {
       // precision, the pattern will be
       //    T1 = castOp(T0, fp32)
       //    T2 = squeeze(T1)
-      //    T3 = castOp(T2, fp16)
+      //    T3 = castOp(T2, fp16) // downCast
       // by swapping the last two op, we get
       //    T1 = castOp(T0, fp32)
       //    T2 = castOp(T1, fp16)
-      //    T3 = squeeze(T2)
+      //    T3 = squeeze(T2)      // operation in reduced precision
       // and we can further cancel out the two cast ops.
-      if (isMovableMeta(expr->input(0)->definition())) {
+      if (swapMetaCast(expr)) {
         // replay [meta -> expr] with
         //        [replayed_expr -> replayed_meta]
         Val* expr_out = expr->output(0);
@@ -338,7 +349,7 @@ void castOptimizationPass(Fusion* fusion) {
 
       // optimize chained cast operations ending at expr
       expr = removeChainedCasts(expr, visited);
-    } while (isMovableMeta(expr->input(0)->definition()));
+    } while (swapMetaCast(expr));
   }
 }
 
