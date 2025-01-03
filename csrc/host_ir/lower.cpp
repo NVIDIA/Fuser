@@ -518,7 +518,6 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
           "Communication segments must contain only one Expr");
       for (auto* expr :
            HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
-        hic->pushBackTopLevelExprs(expr);
         // Allocate the recv buffers of communications
         if (expr->isA<Communication>()) {
           auto* communication = expr->as<Communication>();
@@ -528,7 +527,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
                 IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
             hic->pushBackTopLevelExprs(allocate);
           }
-          auto wait = IrBuilder::create<hir::Wait>(communication);
+        }
+        hic->pushBackTopLevelExprs(expr);
+        if (expr->isA<Communication>()) {
+          auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
           hic->pushBackTopLevelExprs(wait);
         }
       }
