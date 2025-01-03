@@ -28,6 +28,9 @@ bool isCast(Expr* expr) {
 // for pattern `expr -> cast`, this function returns whether to replace it with
 // `cast -> expr`
 bool swapMetaCast(Expr* cast) {
+  if (!cast->output(0)->isA<TensorView>()) {
+    return false;
+  }
   // If cast is promoting dtype size, stop pushing cast along inputs to avoid
   // increase in intermediate buffer size.
   if (dataTypeSize(*cast->input(0)->getDataType()) <
