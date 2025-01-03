@@ -1159,9 +1159,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
   {
     // Make sure we merge all cast together
     Fusion fusion_copy = fusion;
-    fusion_copy.printMath(1);
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
-    fusion_copy.printMath(1);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_EQ(
         std::count_if(
@@ -1200,9 +1198,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
   {
     // Make sure we merge all cast together
     Fusion fusion_copy = fusion;
-    fusion_copy.printMath(1);
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
-    fusion_copy.printMath(1);
     auto new_exprs = fusion_copy.exprs();
     EXPECT_EQ(
         std::count_if(
