@@ -58,13 +58,8 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 TensorView* triu(TensorView* tv, Val* offset) {
   NVF_CHECK(
-      offset->getDataType() == DataType::Int, "offset must have type Int");
-
-  NVF_CHECK(
-      tv->nDims() >= 2,
-      "triu is only supported for 2+D tensors, but got ",
-      tv->nDims(),
-      "D tensor");
+      isIntegralType(offset->getDataType().value()),
+      "offset must have integral type");
 
   // Let's say we want a triu of a 2D tensor of shape [2, 4]
   // We broadcast the iota of the outer dim
@@ -82,6 +77,12 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_logical_no_reductions =
       TensorDomain::noReductions(tv->getLogicalDomain());
   auto dims = tv_logical_no_reductions.size();
+
+  NVF_CHECK(
+      dims >= 2,
+      "triu is only supported for 2+D tensors, but got ",
+      dims,
+      "D tensor");
 
   auto tv_rows = iota(
       tv_logical_no_reductions[dims - 2]->extent(),
