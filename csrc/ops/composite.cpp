@@ -56,6 +56,57 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
+TensorView* triu(TensorView* tv, Val* offset) {
+  NVF_CHECK(
+      offset->getDataType() == DataType::Int, "offset must have type Int");
+
+  NVF_CHECK(
+      tv->nDims() >= 2,
+      "triu is only supported for 2+D tensors, but got ",
+      tv->nDims(),
+      "D tensor");
+
+  // Let's say we want a triu of a 2D tensor of shape [2, 4]
+  // We broadcast the iota of the outer dim
+  // [0    [0, 0, 0, 0]
+  // 1] -> [1, 1, 1, 1]
+  // We broadcast the iota of the inner dim
+  // [0, 1, 2, 3] -> [0, 1, 2, 3]
+  //                 [0, 1, 2, 3]
+  // Using LE on the bcast tensors we get the mask
+  //[0, 0, 0, 0]  LE [0, 1, 2, 3]
+  //[1, 1, 1, 1]     [0, 1, 2, 3]
+  // Gives:
+  //[1, 1, 1, 1]
+  //[0, 1, 1, 1]
+  auto tv_logical_no_reductions =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto dims = tv_logical_no_reductions.size();
+
+  auto tv_rows = iota(
+      tv_logical_no_reductions[dims - 2]->extent(),
+      IrBuilder::create<Val>(0, DataType::Index),
+      IrBuilder::create<Val>(1, DataType::Index),
+      DataType::Index);
+
+  // If triu has an offset of k, we shift/subtract the iota of the columns by k
+  // before broadcasting and comparing with the iota of the rows.
+  // So when building an iota op, instead of starting from 0 with a step of 1
+  // we start from -offset (== -k) with a step of 1.
+  auto start_shifted_by_offset = SimplifyingIrBuilder::mulExpr(
+      offset, IrBuilder::create<Val>(-1, DataType::Index));
+  auto tv_columns = iota(
+      tv_logical_no_reductions[dims - 1]->extent(),
+      start_shifted_by_offset,
+      IrBuilder::create<Val>(1, DataType::Index),
+      DataType::Index);
+
+  auto tv_rows_b = broadcast(tv_rows, {false, true});
+  auto tv_cols_b = broadcast(tv_columns, {true, false});
+  auto mask = le(tv_rows_b, tv_cols_b);
+  return where(mask, tv, IrBuilder::create<Val>(0, tv->dtype()));
+}
+
 namespace {
 
 TensorView* newForLinear(

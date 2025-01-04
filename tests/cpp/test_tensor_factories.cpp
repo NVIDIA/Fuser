@@ -230,6 +230,46 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
   }
 }
 
+TEST_F(TensorFactoryTest, SimpleTriu) {
+  std::vector<std::vector<int64_t>> input_sizes_2d = {
+      {64, 64}, {4, 16}, {16, 4}};
+  std::vector<std::vector<int64_t>> input_sizes_3d = {{16, 8, 32}};
+  auto offsets = {0, 1, 2, -1, -2, 200, -200};
+
+  for (auto in : {input_sizes_2d, input_sizes_3d}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv_to_triu_on = makeSymbolicTensor(in.at(0).size(), DataType::Half);
+    auto input_offset = IrBuilder::create<Val>(DataType::Int);
+    auto out = triu(tv_to_triu_on, input_offset);
+
+    fusion->addInput(tv_to_triu_on);
+    fusion->addInput(input_offset);
+    fusion->addOutput(out);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    for (auto input_size : in) {
+      for (auto offset : offsets) {
+        auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+        auto in_tensor = at::randn(input_size, options);
+
+        auto cg_outputs =
+            executor_cache.runFusionWithInputs({in_tensor, offset});
+
+        testValidate(
+            executor_cache.fusion(),
+            cg_outputs,
+            {in_tensor, offset},
+            {at::triu(in_tensor, offset)},
+            __LINE__,
+            __FILE__);
+      }
+    }
+  }
+}
+
 TEST_F(TensorFactoryTest, StandaloneARange) {
   auto starts_ends = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
