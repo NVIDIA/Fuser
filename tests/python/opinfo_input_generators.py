@@ -638,8 +638,6 @@ def elementwise_unary_generator(
 
     # Typical inputs
     for shape in shapes:
-        if op.name == "triu" and len(shape) < 2:
-            continue
         yield SampleInput(make_arg(shape))
         yield SampleInput(make_arg(shape, noncontiguous=True))
 
@@ -1606,6 +1604,8 @@ def triu_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = F
         enable_large_value_testing=False,
         enable_small_value_testing=False,
     ):
+        if element.args[0].ndim < 2:
+            continue
         yield element
         for offset in offsets:
             yield SampleInput(*element.args, offset)
