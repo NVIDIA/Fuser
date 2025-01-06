@@ -84,28 +84,29 @@ TensorView* triu(TensorView* tv, Val* offset) {
       dims,
       "D tensor");
 
+  auto fusion = tv->fusion();
+
   auto tv_rows = iota(
       tv_logical_no_reductions[dims - 2]->extent(),
-      IrBuilder::create<Val>(0, DataType::Index),
-      IrBuilder::create<Val>(1, DataType::Index),
+      fusion->zeroVal(DataType::Index),
+      fusion->oneVal(DataType::Index),
       DataType::Index);
 
   // If triu has an offset of k, we shift/subtract the iota of the columns by k
   // before broadcasting and comparing with the iota of the rows.
   // So when building an iota op, instead of starting from 0 with a step of 1
   // we start from -offset (== -k) with a step of 1.
-  auto start_shifted_by_offset = SimplifyingIrBuilder::mulExpr(
-      offset, IrBuilder::create<Val>(-1, DataType::Index));
+  auto start_shifted_by_offset = SimplifyingIrBuilder::negExpr(offset);
   auto tv_columns = iota(
       tv_logical_no_reductions[dims - 1]->extent(),
       start_shifted_by_offset,
-      IrBuilder::create<Val>(1, DataType::Index),
+      fusion->oneVal(DataType::Index),
       DataType::Index);
 
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
-  return where(mask, tv, IrBuilder::create<Val>(0, tv->dtype()));
+  return where(mask, tv, fusion->zeroVal(DataType::Index));
 }
 
 namespace {
