@@ -11,18 +11,26 @@
 
 namespace Hopper {
 
+// The optional .relaxed qualifier on barrier.cluster.arrive specifies that
+// there are no memory ordering and visibility guarantees provided for the
+// memory accesses performed prior to barrier.cluster.arrive.
 void cluster_arrive_relaxed() {
   asm volatile("barrier.cluster.arrive.relaxed.aligned;\n" : : );
 }
 
+// A thread arrives at barrier but it does not have to wait for threads in other
+// participating warps.
 void cluster_arrive() {
   asm volatile("barrier.cluster.arrive.aligned;\n" : : );
 }
 
+// A thread waits for all non-exited threads of the cluster to perform
+// cluster_arrive.
 void cluster_wait() {
   asm volatile("barrier.cluster.wait.aligned;\n" : : );
 }
 
+// Synchronize threads in cluster
 void cluster_sync() {
   cluster_arrive();
   cluster_wait();
