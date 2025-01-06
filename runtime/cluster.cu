@@ -72,22 +72,12 @@ uint32_t block_rank_in_cluster() {
 }
 
 // Set the destination block-ID in cluster for a given SMEM Address
-uint32_t set_block_rank(uint32_t smemAddr, uint32_t rank) {
+uint32_t map_shared_rank(uint32_t smemAddr, uint32_t rank) {
   uint32_t result;
   asm volatile("mapa.shared::cluster.u32  %0, %1, %2;\n"
               : "=r"(result)
               : "r"(smemAddr), "r"(rank));
   return result;
-}
-
-// Store value to remote shared memory in the cluster
-void
-store_shared_remote(uint32_t value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank)
-{
-  uint32_t dsmem_addr = set_block_rank(smem_addr, dst_cta_rank);
-  uint32_t remote_barrier_addr = set_block_rank(mbarrier_addr, dst_cta_rank);
-  asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.u32 [%0], %1, [%2];"
-               : : "r"(dsmem_addr), "r"(value), "r"(remote_barrier_addr));
 }
 
 } // namespace Hopper
