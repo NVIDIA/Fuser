@@ -196,23 +196,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  // Disable the scheduler if there's a squeeze op. The loop option
-  // may also need to be enabled in that case, but that option is not
-  // turned on automatically yet.
-#if 0
-  if (ir_utils::hasOpsOfType<SqueezeOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "SqueezeOp not supported.");
-    return false;
-  }
-#endif
-
-  if (hasAtLeastTwoValidGroups(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Transpose pattern not supported.");
-    return false;
-  }
-
+  // Skip transpose-like patterns for now
   scheduler_tools::TransposeDomainMap domain_map(fusion);
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
   if (grouped_inputs_outputs.size() >= 2) {
@@ -277,8 +261,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
   FusionGuard fg(fusion);
-  const auto rparams = dynamic_cast<const ResizeParams*>(params);
-  NVF_ERROR(rparams != nullptr);
+  const auto resize_params = dynamic_cast<const ResizeParams*>(params);
+  NVF_ERROR(resize_params != nullptr);
 
   scheduler_utils::clearMemorySpace(fusion);
 
@@ -299,7 +283,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   scheduler_utils::cacheInputs(fusion, true);
-
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
@@ -350,9 +333,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   TensorView* largest_input = nullptr;
-  if (rparams->largest_input >= 0) {
+  if (resize_params->largest_input >= 0) {
     largest_input =
-        fusion->inputs().at(rparams->largest_input)->as<TensorView>();
+        fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
   }
 
   // Mistral bwd has a reshape at the end of the fusion that merges
@@ -374,7 +357,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
-  int64_t vec_factor = rparams->vectorization_factor;
+  int64_t vec_factor = resize_params->vectorization_factor;
   if (getenv("VEC")) {
     vec_factor = atoi(getenv("VEC"));
   }
@@ -430,7 +413,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   if (gdimx > 0) {
     ref_tv->split(outermost_pos, gdimx);
-  } else if (rparams->split_grid_x_dim) {
+  } else if (resize_params->split_grid_x_dim) {
     ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
   }
   ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
