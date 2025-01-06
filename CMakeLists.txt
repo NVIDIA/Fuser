@@ -297,14 +297,18 @@ endif()
 add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
 if(NOT MSVC)
-  target_compile_options(codegen_internal PRIVATE
-      -Wall -Wno-unused-function -Werror
-      # These warnings are not treated as errors because of gcc 12.2 used in
-      # manylinux image. consider enable this when we upgrade.
-      # linking comment:
-      # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-      -Wno-error=restrict -Wno-error=stringop-overflow
-  )
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+      target_compile_options(codegen_internal PRIVATE
+          -Wall -Wno-unused-function -Werror
+          # These warnings are not treated as errors because of gcc 12.2 used in
+          # manylinux image. consider enable this when we upgrade.
+          # linking comment:
+          # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
+          -Wno-error=restrict -Wno-error=stringop-overflow)
+  else()
+      target_compile_options(codegen_internal PRIVATE
+          -Wall -Wno-unused-function -Werror)
+  endif()
 endif()
 
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
