@@ -443,6 +443,7 @@ if(BUILD_PYTHON)
   list(APPEND NVFUSER_PYTHON_SRCS
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/schedule_bindings.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})

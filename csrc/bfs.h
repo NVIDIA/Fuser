@@ -549,6 +549,8 @@ class BFS {
   Direction allowed_direction_ = Direction::Undefined;
 };
 
+// Unlike the default BFS behavior, Expr is considered ready to
+// visit as long as one of the inputs or outputs has any of its dependencies met
 template <
     typename ExprT,
     typename ValT,
