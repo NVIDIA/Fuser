@@ -366,7 +366,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*d), K]
+  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
   TensorView* b = makeContigTensor(2); //[K, N]
   TensorView* c = matmul(a, b); //[S, D, M/(S*D), N]
 
