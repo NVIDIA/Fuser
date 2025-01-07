@@ -487,4 +487,59 @@ TEST_F(LoopDomainSchedulingTest, UpdateLoopDomainOnlyWithExistingExpr) {
   EXPECT_NE(reshape_merge, propagated_merge);
 }
 
+// Testing propagating with broadcast IDs
+TEST_F(LoopDomainSchedulingTest, BroadcastRefereceIDs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = broadcast(tv2, {false, false, true});
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 32);
+
+  // Using tv3 as a reference. tv3 has two broadcast logical IDs,
+  // which are merged and split. By using tv3 as a reference, tv1 and
+  // tv2 shoud also be scheduled in the same way. tv1 should get two
+  // new broadcast IDs, while tv2 should get one.
+  scheduler_tools::scheduleLoopDomainsLike({tv1, tv2}, tv3->getLoopDomain());
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  for (auto tv : {tv1, tv2}) {
+    // There must be broadcast IDs that are exact mapped with the two
+    // logical broadcast IDs of tv3
+    const auto all_ids = tv->domain()->allIDs();
+    for (auto ref_logical_broadcast : tv3->getLogicalDomain()) {
+      if (!ref_logical_broadcast->isBroadcast()) {
+        continue;
+      }
+      auto it =
+          std::find_if(all_ids.begin(), all_ids.end(), [&](IterDomain* id) {
+            return id->isBroadcast() &&
+                exact_graph.disjointValSets().strictAreMapped(
+                    id, ref_logical_broadcast);
+          });
+      EXPECT_NE(it, all_ids.end())
+          << "No matching broadcast ID found in " << tv->toString()
+          << ". Missing ref broadcast: " << ref_logical_broadcast->toString();
+    }
+
+    // The loop domain should be exact mapped with tv3
+    ASSERT_EQ(tv->getLoopDomain().size(), tv3->getLoopDomain().size());
+    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+      auto tv_loop_id = tv->getLoopDomain().at(i);
+      auto ref_loop_id = tv3->getLoopDomain().at(i);
+      EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+          tv_loop_id, ref_loop_id));
+    }
+  }
+}
+
 } // namespace nvfuser
