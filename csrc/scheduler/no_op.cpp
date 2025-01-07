@@ -49,7 +49,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
   if (exprs.size() == 1 && isResharding(exprs[0]) &&
       HostIrLower::canLower(exprs[0])) {
-    return true; // b?
+    return true;
   }
 
   if (allOutputsArePointerArithmetics(fusion)) {
