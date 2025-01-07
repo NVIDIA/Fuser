@@ -107,15 +107,6 @@ class LoopDomainScheduler {
         update_loop_domain_only_(update_loop_domain_only) {
     NVF_ERROR(!ref_loop_dom_.empty());
 
-    // For now, ref must not be a broadcast domain
-    NVF_ERROR(
-        std::none_of(
-            ref_loop_dom_.begin(),
-            ref_loop_dom_.end(),
-            [](IterDomain* id) { return id->isBroadcast(); }),
-        "Broadcast referene not supported: ",
-        toDelimitedString(ref_loop_dom_));
-
     Fusion* fusion = ref_loop_dom_.front()->fusion();
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
     id_model_->buildExactGraph();
