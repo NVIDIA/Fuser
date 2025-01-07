@@ -241,10 +241,13 @@ bool fillDefaultHopperHeuristic(
                                               const DimType n_ratio) {
     DimType cta_m = warp_tile.m * m_ratio;
     DimType cta_n = warp_tile.n * n_ratio;
-    DimType num_warp_groups = m_ratio * n_ratio;
+    DimType num_compute_warp_groups = m_ratio * n_ratio;
 
-    // tma warp group + num_warp_groups * compute warp groups
-    const int64_t threads_per_sm = (1 + num_warp_groups) * 128;
+    // This assumes warp specialization:
+    // tma warp group + compute warp groups
+    DimType num_warp_groups = num_compute_warp_groups + 1;
+
+    const int64_t threads_per_sm = num_warp_groups * 128;
     const size_t max_registers_per_sm =
         getRegPerThreadGivenThreadsPerSM(threads_per_sm) * threads_per_sm;
     return
