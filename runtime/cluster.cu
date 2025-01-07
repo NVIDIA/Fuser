@@ -9,8 +9,6 @@
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
-namespace Hopper {
-
 // The optional .relaxed qualifier on barrier.cluster.arrive specifies that
 // there are no memory ordering and visibility guarantees provided for the
 // memory accesses performed prior to barrier.cluster.arrive.
@@ -87,7 +85,5 @@ uint32_t mapSharedRank(uint32_t smemAddr, uint32_t rank) {
                : "r"(smemAddr), "r"(rank));
   return result;
 }
-
-} // namespace Hopper
 
 #endif // Arch 90
