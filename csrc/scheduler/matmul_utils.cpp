@@ -975,7 +975,15 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           mparams->tile_sizes,
           mparams->circular_buffer_options.smem_circular_buffer_stage,
-          tensor_roles);
+          tensor_roles,
+          /*ignore_occupancy_drop=*/true);
+  if (isHopper(mparams->mma_macro)) {
+    // Always promote smem reuse for Hopper. This is needed because we use TMA
+    // which has higher alignment requirements, so it's important that we place
+    // our TMA buffers at an offset that's a multiple of 64 (like 0) if
+    // possible.
+    mparams->promote_prologue_smem_reuse = true;
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << mparams->toString() << std::endl;
