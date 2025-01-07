@@ -653,11 +653,9 @@ void RecordFunctorFactory::setupFunctionMaps() {
       ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
   unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
 
-#define NVFUSER_UNARY_TV_ALPHA_OP(op_str, op_name)                          \
-  unary_tv.emplace(                                                         \
-      ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
-  binary_tv_val.emplace(                                                    \
-      ("ops." op_str),                                                      \
+#define NVFUSER_UNARY_TV_ALPHA_OP(op_str, op_name) \
+  binary_tv_val.emplace(                           \
+      ("ops." op_str),                             \
       static_cast<TensorView* (*)(TensorView*, Val*)>(op_name));
 
 #define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \

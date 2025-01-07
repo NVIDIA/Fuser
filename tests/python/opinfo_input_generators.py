@@ -1606,7 +1606,9 @@ def triu_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = F
     ):
         if element.args[0].ndim < 2:
             continue
+        # to test cases where offset is not passed as an argument
         yield element
+        # to test cases where offset is passed as an argument
         for offset in offsets:
             yield SampleInput(*element.args, offset)
 
@@ -1615,10 +1617,6 @@ def triu_error_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = F
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
-
-    yield SampleInput(
-        make_arg((4, 16)), 5.6
-    ), RuntimeError, "offset must have integral type"
 
     invalid_shapes = (
         (),

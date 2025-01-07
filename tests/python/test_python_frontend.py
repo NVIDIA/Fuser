@@ -1211,8 +1211,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
-            tt = fd.define_scalar(-1, dtype=DataType.Int)
-            t1 = fd.ops.triu(t0, tt)
+            t1 = fd.ops.triu(t0, -1)
             fd.add_output(t1)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)

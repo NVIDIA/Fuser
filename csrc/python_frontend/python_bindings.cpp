@@ -1697,32 +1697,28 @@ void initNvFuserPythonBindings(PyObject* module) {
       "triu",
       [](FusionDefinition::Operators& self,
          Tensor input,
-         std::optional<Scalar> offset) -> Tensor {
+         int64_t diagonal) -> Tensor {
         FUSER_PERF_SCOPE("Operators.triu");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(input.dims);
-        if (offset.has_value()) {
-          fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(
-              {fd->recordingState(input()),
-               fd->recordingState(offset.value()())},
-              {fd->recordingState(output())},
-              ("ops.triu"),
-              serde::RecordType::Binary_TV_VAL,
-              static_cast<TensorView* (*)(TensorView*, Val*)>(triu)));
-        } else {
-          fd->defineRecord(new OpRecord<TensorView*, TensorView*>(
-              {fd->recordingState(input())},
-              {fd->recordingState(output())},
-              ("ops.triu"),
-              serde::RecordType::Unary_TV,
-              static_cast<TensorView* (*)(TensorView*)>(triu)));
-        }
+
+        auto diagonal_ = fd->defineScalar();
+        fd->defineRecord(new ScalarRecord(
+            {fd->recordingState(diagonal_())}, diagonal, DataType::Int, true));
+
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(
+            {fd->recordingState(input()), fd->recordingState(diagonal_())},
+            {fd->recordingState(output())},
+            ("ops.triu"),
+            serde::RecordType::Binary_TV_VAL,
+            static_cast<TensorView* (*)(TensorView*, Val*)>(triu)));
+
         return output;
       },
       py::arg("input"),
-      py::arg("offset") = std::nullopt,
+      py::arg("diagonal") = 0,
       py::return_value_policy::reference);
 
   // overload to
