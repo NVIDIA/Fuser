@@ -415,8 +415,8 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   // x is of shape [2, 3] and replicated.
   // w is of shape [3, D*5] and column-wise sharded.
   // y is expected to have shape [2, D*5] and to be also column-wise sharded.
-  auto x_tensor = at::randn({2, 3}, tensor_options);
-  auto w_tensor = at::randn({mesh.size(), 3, 5}, tensor_options);
+  auto x_tensor = at::randn({64, 32}, tensor_options);
+  auto w_tensor = at::randn({mesh.size(), 32, 128}, tensor_options);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
