@@ -4306,53 +4306,6 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
   constexpr int64_t M = 4096, N = 14336, K = 5120;
   const auto dtype = DataType::BFloat16;
 
-  /*
-group id: 2
-inputs:
-  T0_g___bfloat[iS0{4096}, iS1{5120}] __bfloat
-  T1_g___bfloat[iS2{14336}, iS3{5120}] __bfloat
-  T11_g___bfloat[iS23{4096}, iS24{14336}, rS25{5120}] __bfloat
-outputs:
-  T4_g___bfloat[iS8{4096}, iS9{14336}, rS10{5120}] __bfloat
-  T14_g___bfloat[iS30{4096}, iS31{14336}] __bfloat
-
-
-T4_g___bfloat[iS8{4096}, iS9{14336}, rS10{5120}]
-   = linear(T0_g___bfloat[iS0{4096}, iS1{5120}],
-            T1_g___bfloat[iS2{14336}, iS3{5120}]  )
-(0)
-T5_g_float[iS11{4096}, iS12{14336}]
-   = __bfloat2float(T4_g___bfloat[iS8{4096}, iS9{14336}, rS10{5120}]);
-(1)
-T6_g_float[iS13{4096}, iS14{14336}]
-   = -T5_g_float[iS11{4096}, iS12{14336}];
-(2)
-T7_g_float[iS15{4096}, iS16{14336}]
-   = expf(T6_g_float[iS13{4096}, iS14{14336}]);
-(3)
-T8_l_float[iS17{4096}, iS18{14336}]
-   = double(1)
-   + T7_g_float[iS15{4096}, iS16{14336}];
-(4)
-T9_g_float[iS19{4096}, iS20{14336}]
-   = reciprocal(T8_l_float[iS17{4096}, iS18{14336}]);
-(5)
-T12_g_float[iS26{4096}, iS27{14336}]
-   = __bfloat2float(T11_g___bfloat[iS23{4096}, iS24{14336}, rS25{5120}]);
-(8)
-T10_g_float[iS21{4096}, iS22{14336}]
-   = T5_g_float[iS11{4096}, iS12{14336}]
-   * T9_g_float[iS19{4096}, iS20{14336}];
-(6)
-T13_l_float[iS28{4096}, iS29{14336}]
-   = T10_g_float[iS21{4096}, iS22{14336}]
-   * T12_g_float[iS26{4096}, iS27{14336}];
-(9)
-T14_g___bfloat[iS30{4096}, iS31{14336}]
-   = __float2bfloat(T13_l_float[iS28{4096}, iS29{14336}]);
-(10)
-}
-*/
   auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
   auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // N, K
   auto tv2 = makeContigConcreteTensor({-1, -1}, dtype); // M, N
