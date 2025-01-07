@@ -232,11 +232,15 @@ bool fillDefaultHopperHeuristic(
   // The Hopper register file is 256KiB. We reduce this by a factor of 1/2 to
   // account for overhead, since not all of the registers will hold MMA
   // outputs.
-  const size_t max_registers_per_sm = device_prop->regsPerMultiprocessor / 2L;
+  // tma warp group + 2 * compute warp groups
+  constexpr int64_t threads_per_sm = 384;
+  const size_t max_registers_per_sm = getRegPerThreadGivenThreadsPerSM(threads_per_sm) * threads_per_sm;
 
-  const size_t regs_per_warp_group = warp_tile.m * warp_tile.n * num_problems;
+  // total accumulator registers for warp group
+  const size_t accum_regs_per_warp_group = warp_tile.m * warp_tile.n * num_problems;
 
-  const auto ratiosValid = [&](const DimType m_ratio, const DimType n_ratio) {
+  // The cta tile is a multiple of the warp tile. This lambda checks that cta tile given by warp_tile and multiple fits on the SM.
+  const auto validate_cta_tile_multiple = [&](const DimType m_ratio, const DimType n_ratio) {
     DimType cta_m = warp_tile.m * m_ratio;
     DimType cta_n = warp_tile.n * n_ratio;
     DimType num_warp_groups = m_ratio * n_ratio;
@@ -264,14 +268,14 @@ bool fillDefaultHopperHeuristic(
     DimType cta_n = warp_tile.n * n_ratio;
     increased = false;
 
-    const auto tryIncreaseM = [&]() {
+    const auto try_increaseM = [&]() {
       if (ratiosValid(m_ratio * 2, n_ratio)) {
         m_ratio *= 2;
         increased = true;
       }
       return increased;
     };
-    const auto tryIncreaseN = [&]() {
+    const auto try_increaseN = [&]() {
       if (ratiosValid(m_ratio, n_ratio * 2)) {
         n_ratio *= 2;
         increased = true;
