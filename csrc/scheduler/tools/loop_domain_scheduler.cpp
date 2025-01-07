@@ -366,14 +366,6 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
         .first;
   }
 
-  if (update_loop_domain_only_) {
-    for (const auto& g : tv_target_domains) {
-      if (!all_ancestors_of_ref_.has(g)) {
-        std::cerr << "Not found: " << nvfuser::toString(g) << "\n";
-      }
-    }
-  }
-
   // In the case of the update mode, the path from the reference is
   // assumed to just a backward traversal path.
   NVF_ERROR(
