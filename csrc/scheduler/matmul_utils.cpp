@@ -211,6 +211,8 @@ bool fillDefaultHopperHeuristic(
     const ProblemShape& problem_shape,
     const mma_utils::TensorRolesMap& tensor_roles,
     const size_t num_problems) {
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+
   const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -227,23 +229,30 @@ bool fillDefaultHopperHeuristic(
 
   // The MmaOp output is a 32-bit float which requires one register per value
 
-  const DimType max_registers_per_sm = 512L * 100L;
+  // The Hopper register file is 256KiB. We reduce this by a factor of 1/2 to
+  // account for overhead, since not all of the registers will hold MMA
+  // outputs.
+  const size_t max_registers_per_sm = device_prop->regsPerMultiprocessor / 2L;
+
+  const size_t regs_per_warp_group = warp_tile.m * warp_tile.n * num_problems;
 
   const auto ratiosValid = [&](const DimType m_ratio, const DimType n_ratio) {
     DimType cta_m = warp_tile.m * m_ratio;
     DimType cta_n = warp_tile.n * n_ratio;
     DimType num_warp_groups = m_ratio * n_ratio;
-    return cta_n * cta_m * num_problems < max_registers_per_sm
-        // box dimensions must be less than or equal to 256
+    return
+        // We store one float per CTA tile element for each matmul problem we
+        // compute
+        num_warp_groups * regs_per_warp_group < max_registers_per_sm
+        // TMA box dimensions must be less than or equal to 256
         && cta_m <= 256 &&
         cta_n <= 256
         // Each warp group is 128 threads. We can only have a maximum of 1024
         // threads per SM, or 8 warp groups.
         && num_warp_groups <= 8 &&
         // Don't extend the CTA tile beyond the problem size
-        warp_tile.m * (m_ratio + 1) <=
-        problem_shape[(size_t)MatmulDimRole::M] &&
-        warp_tile.n * (n_ratio + 1) <= problem_shape[(size_t)MatmulDimRole::N];
+        cta_m <= problem_shape[(size_t)MatmulDimRole::M] &&
+        cta_n <= problem_shape[(size_t)MatmulDimRole::N];
   };
 
   DimType m_ratio = 1;
@@ -256,15 +265,15 @@ bool fillDefaultHopperHeuristic(
     increased = false;
 
     const auto tryIncreaseM = [&]() {
-      if (ratiosValid(m_ratio + 1, n_ratio)) {
-        m_ratio++;
+      if (ratiosValid(m_ratio * 2, n_ratio)) {
+        m_ratio *= 2;
         increased = true;
       }
       return increased;
     };
     const auto tryIncreaseN = [&]() {
-      if (ratiosValid(m_ratio, n_ratio + 1)) {
-        n_ratio++;
+      if (ratiosValid(m_ratio, n_ratio * 2)) {
+        n_ratio *= 2;
         increased = true;
       }
       return increased;
