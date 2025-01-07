@@ -20,9 +20,14 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <mma_type.h>
 #include <options.h>
 #include <runtime/executor_utils.h>
+#include <scheduler/mma_utils.h>
+#include <type.h>
+#include <utils.h>
 #include <val_graph.h>
+
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -32,11 +37,8 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include "ATen/cuda/CUDAContext.h"
-#include "mma_type.h"
-#include "mma_utils.h"
-#include "type.h"
-#include "utils.h"
+
+#include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
 namespace matmul_utils {
@@ -229,25 +231,26 @@ bool fillDefaultHopperHeuristic(
 
   // The MmaOp output is a 32-bit float which requires one register per value
 
-  // The Hopper register file is 256KiB. We reduce this by a factor of 1/2 to
-  // account for overhead, since not all of the registers will hold MMA
-  // outputs.
-  // tma warp group + 2 * compute warp groups
-  constexpr int64_t threads_per_sm = 384;
-  const size_t max_registers_per_sm = getRegPerThreadGivenThreadsPerSM(threads_per_sm) * threads_per_sm;
-
   // total accumulator registers for warp group
-  const size_t accum_regs_per_warp_group = warp_tile.m * warp_tile.n * num_problems;
+  const size_t accum_regs_per_warp_group =
+      warp_tile.m * warp_tile.n * num_problems;
 
-  // The cta tile is a multiple of the warp tile. This lambda checks that cta tile given by warp_tile and multiple fits on the SM.
-  const auto validate_cta_tile_multiple = [&](const DimType m_ratio, const DimType n_ratio) {
+  // The cta tile is a multiple of the warp tile. This lambda checks that cta
+  // tile given by warp_tile and multiple fits on the SM.
+  const auto validate_cta_tile_multiple = [&](const DimType m_ratio,
+                                              const DimType n_ratio) {
     DimType cta_m = warp_tile.m * m_ratio;
     DimType cta_n = warp_tile.n * n_ratio;
     DimType num_warp_groups = m_ratio * n_ratio;
+
+    // tma warp group + num_warp_groups * compute warp groups
+    const int64_t threads_per_sm = (1 + num_warp_groups) * 128;
+    const size_t max_registers_per_sm =
+        getRegPerThreadGivenThreadsPerSM(threads_per_sm) * threads_per_sm;
     return
         // We store one float per CTA tile element for each matmul problem we
         // compute
-        num_warp_groups * regs_per_warp_group < max_registers_per_sm
+        num_warp_groups * accum_regs_per_warp_group < max_registers_per_sm
         // TMA box dimensions must be less than or equal to 256
         && cta_m <= 256 &&
         cta_n <= 256
@@ -269,14 +272,14 @@ bool fillDefaultHopperHeuristic(
     increased = false;
 
     const auto try_increaseM = [&]() {
-      if (ratiosValid(m_ratio * 2, n_ratio)) {
+      if (validate_cta_tile_multiple(m_ratio * 2, n_ratio)) {
         m_ratio *= 2;
         increased = true;
       }
       return increased;
     };
     const auto try_increaseN = [&]() {
-      if (ratiosValid(m_ratio, n_ratio * 2)) {
+      if (validate_cta_tile_multiple(m_ratio, n_ratio * 2)) {
         n_ratio *= 2;
         increased = true;
       }
@@ -286,15 +289,15 @@ bool fillDefaultHopperHeuristic(
     if (cta_m < cta_n) {
       // Try to increase smaller tile dimension first since square tiles are
       // optimal for reducing operand load redundancy
-      if (tryIncreaseM()) {
+      if (try_increaseM()) {
         continue;
       }
-      tryIncreaseN();
+      try_increaseN();
     } else {
-      if (tryIncreaseN()) {
+      if (try_increaseN()) {
         continue;
       }
-      tryIncreaseM();
+      try_increaseM();
     }
   }
 
