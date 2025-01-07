@@ -1366,6 +1366,10 @@ void TensorView::circularBuffer(
   circular_buffer_options_.stage = number_of_stages;
   circular_buffer_options_.prefetch = prefetch_distance;
   circular_buffer_options_.type = type;
+
+  if (std::holds_alternative<WarpSpecialized>(type)) {
+    circular_buffer_options_.warp_specialized_num_registers = {24, 240};
+  }
 }
 
 bool TensorView::isEmptyTensor() const {

@@ -272,6 +272,9 @@ struct CircularBufferOptions {
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
+  // The number of registers for load and compute warps respectively.
+  // Register sharing is disabled when both values are -1.
+  std::pair<int64_t, int64_t> warp_specialized_num_registers = {-1, -1};
 
   bool isEnable() const {
     return stage > 1;
@@ -293,9 +296,12 @@ struct CircularBufferOptions {
 inline std::ostream& operator<<(
     std::ostream& os,
     const CircularBufferOptions& options) {
+  auto&& [decrease_num_registers, increase_num_registers] =
+      options.warp_specialized_num_registers;
   return os << "CircularBufferOptions{ stage=" << options.stage
             << ", prefetch=" << options.prefetch << ", type=" << options.type
-            << " }";
+            << ", decrease_num_registers=" << decrease_num_registers
+            << ", increate_num_registers=" << increase_num_registers << " }";
 }
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
