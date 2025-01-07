@@ -448,4 +448,43 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy2) {
   checkGetAllStmts(&fusion);
 }
 
+// Make sure existing exprs should not be reused if
+// update_loop_domain_only is true
+TEST_F(LoopDomainSchedulingTest, UpdateLoopDomainOnlyWithExistingExpr) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({2, 3});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {IrBuilder::create<Val>(-1L)});
+  fusion.addOutput(tv2);
+
+  auto reshape_merge =
+      dynamic_cast<Merge*>(tv2->getLogicalDomain().at(0)->definition());
+  ASSERT_NE(reshape_merge, nullptr);
+
+  // Cancel the tv2 reshape
+  scheduler_tools::scheduleLoopDomainsLike({tv2}, tv1->getLoopDomain());
+
+  // Schedule tv1
+  tv1->flatten();
+
+  // Propagate the tv1 schedule to tv2
+  scheduler_tools::scheduleLoopDomainsLike(
+      {tv2},
+      tv1->getLoopDomain(),
+      /*update_loop_domain_only=*/true);
+
+  // The merge of tv1, which is propagated to tv2, is exact mapped
+  // with the merge for the tv2 reshape. It should not be reused as
+  // the update_loop_domain_only flag is true.
+  auto propagated_merge =
+      dynamic_cast<Merge*>(tv2->getLoopDomain().at(0)->definition());
+  ASSERT_NE(propagated_merge, nullptr);
+
+  EXPECT_NE(reshape_merge, propagated_merge);
+}
+
 } // namespace nvfuser
