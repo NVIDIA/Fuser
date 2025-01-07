@@ -73,7 +73,7 @@ inline std::optional<MmaMacro> getMmaOp(
       macro_encode.m = 64;
       // Find the largest instruction tile that divides the problem size and is
       // a power of two
-      macro_encode.n = 256;
+      macro_encode.n = 64;
       // TODO: enable instructions smaller than 64_64_16
       while (macro_encode.n > 64) {
         if (n_extent % macro_encode.n != 0) {
