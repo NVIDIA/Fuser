@@ -557,6 +557,12 @@ std::string UnaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string UnaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getUnaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(UnaryOp)
 
 BinaryOp::BinaryOp(
@@ -724,6 +730,12 @@ std::string BinaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string BinaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getBinaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BinaryOp)
 
 TernaryOp::TernaryOp(
@@ -822,6 +834,12 @@ std::string TernaryOp::toInlineString(int indent_size) const {
       in1()->toInlineString(),
       in2()->toInlineString(),
       in3()->toInlineString());
+  return ss.str();
+}
+
+std::string TernaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getTernaryOpType() << ")";
   return ss.str();
 }
 
@@ -1250,7 +1268,17 @@ BroadcastOp::BroadcastOp(
 std::string BroadcastOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = broadcast( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = broadcast( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getBroadcastDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
@@ -2966,6 +2994,59 @@ void validateContiguity(
   }
 }
 
+// Check if loop_domain is a valid domain with no
+// redundancy. The logical domain is used as a reference to find if
+// there's any ID that's not covered by the new loop domain.
+void validateLoopDomain(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<IterDomain*>& loop_domain,
+    const std::vector<IterDomain*>& additional_ids) {
+  // Skip if there's any symbolic ID
+  if (std::any_of(
+          logical_domain.begin(),
+          logical_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          loop_domain.begin(),
+          loop_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          additional_ids.begin(), additional_ids.end(), [](IterDomain* id) {
+            return id->isSymbolic();
+          })) {
+    return;
+  }
+
+  std::vector<IterDomain*> reference;
+  reference.reserve(logical_domain.size() + additional_ids.size());
+  reference.insert(
+      reference.end(), logical_domain.begin(), logical_domain.end());
+  // additional_ids are also considered part of the refernece domain
+  reference.insert(
+      reference.end(), additional_ids.begin(), additional_ids.end());
+
+  auto [redundant_ids, _, unreachable_reference_ids] =
+      ir_utils::compareDomainWithReference(loop_domain, reference);
+
+  auto empty_or_broadcast = [](const auto& ids) {
+    return std::all_of(ids.begin(), ids.end(), [](IterDomain* id) {
+      return id->isBroadcast();
+    });
+  };
+
+  NVF_ERROR(
+      empty_or_broadcast(redundant_ids),
+      "Trying to set a loop domain with non-broadcast redundant IDs: ",
+      toDelimitedString(redundant_ids));
+
+  NVF_ERROR(
+      empty_or_broadcast(unreachable_reference_ids),
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(loop_domain),
+      ". Unreachable logical IDs: ",
+      toDelimitedString(unreachable_reference_ids));
+}
+
 } // namespace
 
 TensorDomain::TensorDomain(
@@ -3036,8 +3117,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3061,8 +3141,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3095,8 +3174,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3670,33 +3748,7 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  // Check if new_loop_domain is a valid domain with no
-  // redundancy. The logical domain is used as a reference to find if
-  // there's any ID that's not covered by the new loop domain.
-  std::vector<IterDomain*> reference;
-  reference.reserve(logical_domain_.size() + additional_ids_.size());
-  reference.insert(
-      reference.end(), logical_domain_.begin(), logical_domain_.end());
-  // additional_ids_ are also considered part of the refernece domain
-  reference.insert(
-      reference.end(), additional_ids_.begin(), additional_ids_.end());
-  auto [redundant_ids, additional_ids, unreachable_reference_ids] =
-      ir_utils::compareDomainWithReference(new_loop_domain, reference);
-  NVF_ERROR(
-      redundant_ids.empty(),
-      "Trying to set a loop domain with redundant IDs: ",
-      toDelimitedString(redundant_ids));
-  if (!unreachable_reference_ids.empty()) {
-    NVF_ERROR(
-        std::all_of(
-            unreachable_reference_ids.begin(),
-            unreachable_reference_ids.end(),
-            [](const auto id) { return id->isBroadcast(); }),
-        "Not all logical IDs are covered by loop domain. Loop: ",
-        toDelimitedString(new_loop_domain),
-        ". Unreachable logical IDs: ",
-        toDelimitedString(unreachable_reference_ids));
-  }
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
@@ -3716,10 +3768,10 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 6> all_domains = {
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &initial_loop_domain_,
-      &loop_domain_,
       &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
@@ -4375,6 +4427,39 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   return {at::cat(unpadded_inputs, concat_dim)};
 }
 
+namespace {
+
+// Given a tensorview, compute the strides according to the allocation domain
+// for re-striding the corresponding ATen tensor.
+std::vector<int64_t> computeStrides(
+    TensorView* tv,
+    const c10::IntArrayRef sizes) {
+  const auto& logical_domain = tv->getLogicalDomain();
+  const auto& allocation_domain = tv->getMaybeAllocationDomain();
+
+  std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
+      TensorDomain::noReductions(logical_domain),
+      TensorDomain::noReductions(allocation_domain));
+  NVF_CHECK(
+      out_order.has_value(),
+      "Valid permute from logical to allocation domain was not found.");
+
+  auto rank = sizes.size();
+  std::vector<int64_t> sorted_strides(rank);
+  auto permuted_sizes = ir_utils::applyPermutation(sizes.vec(), *out_order);
+  sorted_strides[rank - 1] = 1;
+  for (int64_t idx = (int64_t)rank - 2; idx >= 0; idx--) {
+    sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];
+  }
+  // Rearrange the strides in correct order of allocation
+  std::vector<int64_t> strides(rank);
+  for (auto idx : c10::irange(rank)) {
+    strides[out_order.value()[idx]] = sorted_strides[idx];
+  }
+  return strides;
+}
+} // namespace
+
 MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
     : Expr(passkey) {
   addOutput(out);
@@ -4401,7 +4486,17 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
-  return {at::matmul(a, b)};
+
+  auto matmul_out = at::matmul(a, b);
+  if (ir_utils::hasTrivialAllocationDomain(out())) {
+    return {matmul_out};
+  }
+  auto matmul_sizes = matmul_out.sizes();
+  auto strides = computeStrides(out(), matmul_sizes);
+  auto strided_matmul_out =
+      at::empty_strided(matmul_sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
 }
 
 LinearOp::LinearOp(

@@ -120,6 +120,8 @@ class Val;
   f(GridSync);                        \
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
+  f(SetMaxNReg);                      \
+  f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
@@ -146,6 +148,7 @@ class Val;
   f(HostUnit);                        \
   f(PostOnStream);                    \
   f(SetCurrentStream);                \
+  f(GetCurrentStream);                \
   f(Wait);                            \
   f(Synchronize);                     \
   f(StartCoalescing);                 \

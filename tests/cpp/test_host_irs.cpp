@@ -11,9 +11,9 @@
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
@@ -511,6 +511,26 @@ TEST_F(StreamTest, HostIrDefaultStream) {
   change_stream(/*use_default_stream=*/true);
   EXPECT_EQ(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
+TEST_F(StreamTest, HostIrGetCurrentStream) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  auto get_stream = IrBuilder::create<GetCurrentStream>();
+  auto current_stream = get_stream->stream();
+  auto other_stream = IrBuilder::create<Stream>();
+  hic->pushBackTopLevelExprs(get_stream);
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(other_stream));
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<SetCurrentStream>(current_stream));
+
+  auto cuda_stream = c10::cuda::getStreamFromPool();
+  setCurrentCUDAStream(cuda_stream);
+
+  HostIrEvaluator hie(std::move(hic));
+  hie.runWithInput({});
+
+  EXPECT_EQ(cuda_stream, c10::cuda::getCurrentCUDAStream(0));
 }
 
 TEST_F(StreamTest, ByIndex) {

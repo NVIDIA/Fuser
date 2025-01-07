@@ -1198,9 +1198,9 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp>(tv)) {
-      // Right now, tensors that are input to the slice, select, and pad ops
-      // can't be cached as they must be in global memory.
+        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+      // Right now, tensors that are input to the select, gather and
+      // index_select ops can't be cached as they must be in global memory.
       continue;
     }
 
@@ -1214,7 +1214,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // caching load instructions.
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isA<PadOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp>()) {
         cached_uses.push_back(use);
       }
     }
@@ -1574,14 +1574,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
-      continue;
-    }
-
-    // Slice op is explicitly not enabled for vectorized load.
-    if (std::all_of(
-            input_tv->uses().begin(),
-            input_tv->uses().end(),
-            [](Expr* e) -> bool { return e->isA<SliceOp>(); })) {
       continue;
     }
 
@@ -2659,6 +2651,19 @@ void moveNonConcretizedBroadcastInnermost(
 
     tv->reorder(old2new);
   }
+}
+
+int64_t reorderDevicesToOuter(TensorView* tv) {
+  int64_t reorder_pos = 0;
+  std::unordered_map<int64_t, int64_t> old2new;
+  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    if (tv->axis((int64_t)i)->isDeviceDim()) {
+      old2new.emplace((int64_t)i, reorder_pos);
+      ++reorder_pos;
+    }
+  }
+  tv->reorder(old2new);
+  return (int64_t)old2new.size();
 }
 
 } // namespace scheduler_utils

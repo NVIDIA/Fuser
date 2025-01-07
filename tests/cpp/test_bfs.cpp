@@ -474,7 +474,7 @@ TEST_F(BFSTest, TraversalDirection) {
   EXPECT_TRUE(backward_path.empty()) << "Actual: " << backward_path;
 }
 
-// A simple test for IRBFSWithPermissiveDependence
+// A simple test for BFSWithPermissiveDependence
 TEST_F(BFSTest, IRBFSPermissiveTraversal) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -508,7 +508,7 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal) {
   // to: [i4]
   // -> forward merge, forward split
   {
-    auto path = getExprsBetween<IRBFSWithPermissiveDependence>(
+    auto path = getExprsBetween<IRPermissiveBFS>(
                     {i0, i2}, {i4}, /*require_all_to_visited=*/false)
                     .first;
     EXPECT_EQ(path.size(), 2);
@@ -524,7 +524,7 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal) {
   // to: [i1]
   // -> bwd split, bwd merge
   {
-    auto path = getExprsBetween<IRBFSWithPermissiveDependence>(
+    auto path = getExprsBetween<IRPermissiveBFS>(
                     {i4, i5}, {i1}, /*require_all_to_visited=*/false)
                     .first;
     EXPECT_EQ(path.size(), 2);
