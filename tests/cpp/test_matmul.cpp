@@ -4243,4 +4243,179 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
+TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // N, K
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = linear(tv0, tv1);
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto a_ref = at::randn({M, K}, options);
+  auto b_ref = at::randn({N, K}, options);
+  auto out_ref = at::linear(a_ref, b_ref);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 16);
+  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  std::vector<c10::IValue> inputs = {a_ref, b_ref};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+}
+
+TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  /*
+group id: 2
+inputs:
+  T0_g___bfloat[iS0{4096}, iS1{5120}] __bfloat
+  T1_g___bfloat[iS2{14336}, iS3{5120}] __bfloat
+  T11_g___bfloat[iS23{4096}, iS24{14336}, rS25{5120}] __bfloat
+outputs:
+  T4_g___bfloat[iS8{4096}, iS9{14336}, rS10{5120}] __bfloat
+  T14_g___bfloat[iS30{4096}, iS31{14336}] __bfloat
+
+
+T4_g___bfloat[iS8{4096}, iS9{14336}, rS10{5120}]
+   = linear(T0_g___bfloat[iS0{4096}, iS1{5120}],
+            T1_g___bfloat[iS2{14336}, iS3{5120}]  )
+(0)
+T5_g_float[iS11{4096}, iS12{14336}]
+   = __bfloat2float(T4_g___bfloat[iS8{4096}, iS9{14336}, rS10{5120}]);
+(1)
+T6_g_float[iS13{4096}, iS14{14336}]
+   = -T5_g_float[iS11{4096}, iS12{14336}];
+(2)
+T7_g_float[iS15{4096}, iS16{14336}]
+   = expf(T6_g_float[iS13{4096}, iS14{14336}]);
+(3)
+T8_l_float[iS17{4096}, iS18{14336}]
+   = double(1)
+   + T7_g_float[iS15{4096}, iS16{14336}];
+(4)
+T9_g_float[iS19{4096}, iS20{14336}]
+   = reciprocal(T8_l_float[iS17{4096}, iS18{14336}]);
+(5)
+T12_g_float[iS26{4096}, iS27{14336}]
+   = __bfloat2float(T11_g___bfloat[iS23{4096}, iS24{14336}, rS25{5120}]);
+(8)
+T10_g_float[iS21{4096}, iS22{14336}]
+   = T5_g_float[iS11{4096}, iS12{14336}]
+   * T9_g_float[iS19{4096}, iS20{14336}];
+(6)
+T13_l_float[iS28{4096}, iS29{14336}]
+   = T10_g_float[iS21{4096}, iS22{14336}]
+   * T12_g_float[iS26{4096}, iS27{14336}];
+(9)
+T14_g___bfloat[iS30{4096}, iS31{14336}]
+   = __float2bfloat(T13_l_float[iS28{4096}, iS29{14336}]);
+(10)
+}
+*/
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // N, K
+  auto tv2 = makeContigConcreteTensor({-1, -1}, dtype); // M, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3 = linear(tv0, tv1);
+  fusion.addOutput(tv3);
+
+  auto tv4 = castOp(DataType::Float, tv3);
+  auto tv5 = neg(tv4);
+  auto tv6 = exp(tv5);
+  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
+  auto tv8 = reciprocal(tv7);
+  auto tv9 = mul(tv4, tv8);
+  auto tv10 = mul(tv9, tv2);
+  auto tv11 = castOp(DataType::BFloat16, tv10);
+  fusion.addOutput(tv11);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto a_ref = at::randn({M, K}, options);
+  auto b_ref = at::randn({N, K}, options);
+  auto c_ref = at::randn({M, N}, options);
+
+  auto tv3_ref = at::linear(a_ref, b_ref);
+  auto tv4_ref = tv3_ref.to(at::kFloat);
+  auto tv11_ref =
+      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * c_ref).to(at::kBFloat16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 16);
+  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 5;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
+}
+
 } // namespace nvfuser
