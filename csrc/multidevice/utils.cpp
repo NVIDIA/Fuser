@@ -100,7 +100,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
   for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (!alloc_id->isDeviceDim()) {
+    if (!alloc_id->isDeviceDim() || alloc_id->isReduction()) {
       continue;
     }
 
@@ -160,7 +160,7 @@ int64_t getShardedLogicalAxis(
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
       mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr) {
+  if (alloc_id == nullptr || alloc_id->isReduction()) {
     return -1;
   }
 
@@ -417,7 +417,9 @@ bool haveDifferentShardings(
           .strictAreMapped(a, b);
     };
 
-    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
+    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model) 
+          || (p_loop_id != nullptr && c_loop_id != nullptr && p_loop_id->isReduction() != c_loop_id->isReduction())
+        ) {
       return true;
     }
   }
