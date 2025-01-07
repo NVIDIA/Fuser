@@ -417,9 +417,9 @@ bool haveDifferentShardings(
           .strictAreMapped(a, b);
     };
 
-    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model) 
-          || (p_loop_id != nullptr && c_loop_id != nullptr && p_loop_id->isReduction() != c_loop_id->isReduction())
-        ) {
+    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model) ||
+        (p_loop_id != nullptr && c_loop_id != nullptr &&
+         p_loop_id->isReduction() != c_loop_id->isReduction())) {
       return true;
     }
   }
