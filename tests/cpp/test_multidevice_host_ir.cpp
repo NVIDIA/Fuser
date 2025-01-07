@@ -395,10 +395,10 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   std::vector<c10::IValue> inputs = {ta, tb};
   at::Tensor tc;
 
-  constexpr int64_t number_of_iterations = 20;
-  constexpr int64_t number_of_warmup_iterations = 5;
-  for (const auto& i : c10::irange(number_of_iterations)) {
-    if (i == number_of_warmup_iterations) {
+  constexpr int64_t kNumberOfIterations = 20;
+  constexpr int64_t kNumberOfWarmupIterations = 5;
+  for (auto i : c10::irange(kNumberOfIterations)) {
+    if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }
     tc = executor.runWithInput(inputs).at(0);
