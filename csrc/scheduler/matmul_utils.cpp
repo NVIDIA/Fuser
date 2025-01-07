@@ -299,16 +299,54 @@ bool fillDefaultHopperHeuristic(
   mparams->tile_sizes = {cta_tile, warp_tile};
 
   // stages and async mem copy
-  {
-    mparams->circular_buffer_options.circular_buffer_smem_write = true;
-    mparams->circular_buffer_options.circular_buffer_smem_read = true;
-    mparams->circular_buffer_options.smem_circular_buffer_stage = 6;
+  mparams->circular_buffer_options.smem_circular_buffer_stage = 8;
+
+  // TODO: We should take the main loop structure into account here to get a
+  // more accurate estimate in case of horizontal fusion
+  int64_t operand_smem_per_stage =
+      num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
+  // We leave a bit of space for semaphores
+  int64_t max_operand_smem = device_prop->sharedMemPerBlock - (1L << 7);
+
+  while (mparams->circular_buffer_options.smem_circular_buffer_stage *
+             operand_smem_per_stage >
+         max_operand_smem) {
+    mparams->circular_buffer_options.smem_circular_buffer_stage--;
   }
 
-  mparams->cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams->circular_buffer_options.circular_buffer_smem_write =
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
 
   // Always use TMA on Hopper
   mparams->async_gmem_load_operands = true;
+
+  // See here for more information:
+  // https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/
+
+  // We count the number of tiles in each dimension to determine the
+  // rasterization order. The fast rasterization axis is the shortest axis, to
+  // encourage L2 hits by looping over the same rows or cols more frequently.
+  int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
+  int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
+
+  mparams->cta_order = Ntiles >= Mtiles
+      ? MatmulParams::TileRasterizationOrder::ColumnMajor
+      : MatmulParams::TileRasterizationOrder::RowMajor;
+
+  // We also swizzle the tiles as much as possible up to 4 tiles. Like choosing
+  // the rasterization order, this is used to increase L2 locality
+  mparams->grid_swizzle_factor = 4L;
+  while (Mtiles % mparams->grid_swizzle_factor != 0 ||
+         Ntiles % mparams->grid_swizzle_factor != 0) {
+    // Decrease the swizzle factor if it would result in nondivisible splits,
+    // since this would unnecessarily increase the grid size.
+    mparams->grid_swizzle_factor /= 2L;
+  }
+  // TODO: grid swizzling is currently disabled on Hopper since we cannot
+  // properly inline when we swizzle unmapped loop broadcasts
+  mparams->grid_swizzle_factor = 1L;
+
+  // TODO: Finally, we set the CGA size
 
   return true;
 }
