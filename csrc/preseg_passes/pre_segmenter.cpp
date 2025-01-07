@@ -58,8 +58,19 @@ namespace nvfuser::preseg_passes {
   //    avoid moving pad operatoins around, which could disturb the analysis
   //    from MarkAliasPrepare
   // 2. after MoveSplitCat
-  //    to avoid this pass moving PadOp around to break the MoveSplitCat.
-  OptimizationPass<MovePadPass>::runPass(fusion);
+  //    to avoid this pass moving PadOp around to break the
+  // MoveSplitCat.
+  //
+  // Moving a pad backward means all preceding operations would be
+  // executed for the whole padded region too. Since the resize
+  // scheduler does not have the issue, let it take care of padding
+  // whenever enabled. Note that even when it is enabled, it is
+  // currently only limited to pointwise patterns and does not
+  // support, for example, reductions, etc, so this preseg pass still
+  // may be preferable in some cases.
+  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
+    OptimizationPass<MovePadPass>::runPass(fusion);
+  }
   // NOTE vvv this doesn't really work, since our type promotion to higher
   // precision for Add cannot be canceled out with previous cast to lower
   // precision. Since it's not an no-op and it has a quantization effect. I'll
