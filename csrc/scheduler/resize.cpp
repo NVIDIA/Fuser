@@ -223,11 +223,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   const auto& [largest_output, max_num_elms] =
       getLargestTensor(fusion->outputs(), runtime_info);
 
-  if (ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx) {
-    params->split_grid_x_dim = true;
-  } else {
-    params->split_grid_x_dim = false;
-  }
+  params->split_grid_x_dim =
+      ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx;
 
   return params;
 }
