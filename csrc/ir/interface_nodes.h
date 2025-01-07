@@ -637,7 +637,9 @@ class NVF_API TensorView : public Val {
   void circularBuffer(
       int64_t number_of_stages,
       int64_t prefetch_distance = -1,
-      CircularBufferType type = Pipelined(false));
+      CircularBufferType type = Pipelined(false),
+      std::optional<std::pair<int64_t, int64_t>>
+          warp_specialized_num_registers = std::nullopt);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {

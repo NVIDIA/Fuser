@@ -1351,7 +1351,8 @@ void TensorView::clearReductionIterDomains() {
 void TensorView::circularBuffer(
     int64_t number_of_stages,
     int64_t prefetch_distance,
-    CircularBufferType type) {
+    CircularBufferType type,
+    std::optional<std::pair<int64_t, int64_t>> warp_specialized_num_registers) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
@@ -1368,7 +1369,27 @@ void TensorView::circularBuffer(
   circular_buffer_options_.type = type;
 
   if (std::holds_alternative<WarpSpecialized>(type)) {
-    circular_buffer_options_.warp_specialized_num_registers = {24, 240};
+    bool has_outer_for_loop = false;
+    // short-circuit
+    if (has_outer_for_loop) {
+      NVF_ERROR(
+          warp_specialized_num_registers.has_value(),
+          "Only support register sharing if warp specialized loops are not nested.");
+      return;
+    }
+
+    if (warp_specialized_num_registers.has_value()) {
+      NVF_ERROR(warp_specialized_num_registers.value().first != -1);
+      NVF_ERROR(warp_specialized_num_registers.value().second != -1);
+      NVF_ERROR(
+          warp_specialized_num_registers.value().first <
+          warp_specialized_num_registers.value().second);
+      circular_buffer_options_.warp_specialized_num_registers =
+          warp_specialized_num_registers.value();
+    } else {
+      // Use default setting
+      circular_buffer_options_.warp_specialized_num_registers = {24, 240};
+    }
   }
 }
 
