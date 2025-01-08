@@ -1395,11 +1395,14 @@ class CircularBufferInserter : private kir::ExprMutator {
                 circular_buffer_loop->fusion()->oneVal()))));
 
     // Set default value
-    GpuLower::current()->kernel()->manage("enable_register_sharing", true);
     auto& circular_buffer_options =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
     NVF_ERROR(
+        circular_buffer_options.warp_specialized_num_registers.has_value(),
+        "Register sharing is enabled by default for warp-specialized circular buffering.");
+    GpuLower::current()->kernel()->manage(
+        "enable_register_sharing",
         circular_buffer_options.warp_specialized_num_registers.has_value());
 
     auto&& [decrease_num_registers, increase_num_registers] =

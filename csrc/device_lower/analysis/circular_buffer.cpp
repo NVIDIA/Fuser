@@ -155,7 +155,10 @@ void validateCircularBufferedTensor(const TensorView* tv) {
         break;
       }
       NVF_ERROR(
-          tv->getLoopDomain().at(axis)->isParallelized(),
+          tv->getLoopDomain().at(axis)->isThread() ||
+              tv->getLoopDomain().at(axis)->isDeviceDim() ||
+              tv->getLoopDomain().at(axis)->isBroadcast() ||
+              tv->getLoopDomain().at(axis)->isOneInt(),
           "When using register sharing with warp-specialized circular "
           "buffering, the circular buffer loop must be the outer-most "
           "for-loop.");
