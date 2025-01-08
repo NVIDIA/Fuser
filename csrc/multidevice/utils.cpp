@@ -99,17 +99,23 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
+  bool is_reduction_sharded = false;
   for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (!alloc_id->isDeviceDim() || alloc_id->isReduction()) {
+    if (!alloc_id->isDeviceDim()) {
       continue;
     }
 
     // Only one axis can be sharded on DIDx.
     NVF_ERROR(
-        !is_sharded,
+        !is_sharded && !is_reduction_sharded,
         "Multiple IterDomains parallelized on DIDx in TensorView ",
         tv);
-    is_sharded = true;
+
+    if (alloc_id->isReduction()) {
+      is_reduction_sharded = true;
+    } else {
+      is_sharded = true;
+    }
   }
   return is_sharded;
 }
