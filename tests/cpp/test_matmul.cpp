@@ -4265,8 +4265,8 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
   auto out_ref = at::linear(a_ref, b_ref);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(128, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
