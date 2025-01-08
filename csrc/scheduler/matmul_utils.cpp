@@ -314,9 +314,10 @@ bool fillDefaultHopperHeuristic(
   // TODO: We should take the main loop structure into account here to get a
   // more accurate estimate in case of horizontal fusion
   int64_t operand_smem_per_stage =
-      num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
+      (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
   // We leave a bit of space for semaphores
-  int64_t max_operand_smem = device_prop->sharedMemPerBlock - (1L << 7);
+  int64_t max_operand_smem =
+      (int64_t)device_prop->sharedMemPerBlock - (1L << 7);
 
   while (mparams->circular_buffer_options.smem_circular_buffer_stage *
              operand_smem_per_stage >
