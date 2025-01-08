@@ -272,6 +272,10 @@ struct CircularBufferOptions {
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
+  // The number of registers for load and compute warps respectively.
+  // Register sharing is disabled when both values are -1.
+  std::optional<std::pair<int64_t, int64_t>> warp_specialized_num_registers =
+      std::nullopt;
 
   bool isEnable() const {
     return stage > 1;
@@ -286,16 +290,26 @@ struct CircularBufferOptions {
 
   bool operator==(const CircularBufferOptions& other) const {
     return type == other.type && stage == other.stage &&
-        prefetch == other.prefetch;
+        prefetch == other.prefetch &&
+        warp_specialized_num_registers == other.warp_specialized_num_registers;
   }
 };
 
 inline std::ostream& operator<<(
     std::ostream& os,
     const CircularBufferOptions& options) {
+  int64_t decrease_num_registers = -1;
+  int64_t increase_num_registers = -1;
+  if (options.warp_specialized_num_registers.has_value()) {
+    decrease_num_registers =
+        options.warp_specialized_num_registers.value().first;
+    increase_num_registers =
+        options.warp_specialized_num_registers.value().second;
+  }
   return os << "CircularBufferOptions{ stage=" << options.stage
             << ", prefetch=" << options.prefetch << ", type=" << options.type
-            << " }";
+            << ", decrease_num_registers=" << decrease_num_registers
+            << ", increate_num_registers=" << increase_num_registers << " }";
 }
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
@@ -631,7 +645,9 @@ class NVF_API TensorView : public Val {
   void circularBuffer(
       int64_t number_of_stages,
       int64_t prefetch_distance = -1,
-      CircularBufferType type = Pipelined(false));
+      CircularBufferType type = Pipelined(false),
+      std::optional<std::pair<int64_t, int64_t>>
+          warp_specialized_num_registers = std::nullopt);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
