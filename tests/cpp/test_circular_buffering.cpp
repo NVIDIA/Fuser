@@ -91,6 +91,85 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t number_of_stages = 4;
+  int64_t prefetch_distance = 1;
+  int64_t tensor_outer_dim = 128;
+  int64_t tensor_inner_dim = 128;
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // Use TMA to load TV0 into shared memory
+  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  TensorView* tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv2;
+
+  // Constants
+  constexpr int64_t bulk_inner_dim = 32;
+
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Set computeAt position
+  inlineAllAt(tv2, /*pos=*/2);
+
+  // Circular Buffer with TMA loads
+  // tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(2)->parallelize(ParallelType::Bulk);
+  tv3->circularBuffer(
+      number_of_stages,
+      prefetch_distance,
+      circular_buffer_type,
+      std::make_pair(160L, 160L));
+
+  // Load TV1 into shared memory
+  // tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+  tv4->circularBuffer(
+      number_of_stages,
+      prefetch_distance,
+      circular_buffer_type,
+      std::make_pair(160L, 160L));
+
+  // Split reference to parallelize TMA tile
+  reference->split(-1, 32);
+  // reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = t0 + t1;
+
+  KernelExecutor ke;
+  try {
+    ke.compile(fusion.get(), {t0, t1});
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(When using register sharing with warp-specialized circular buffering, the circular buffer loop must be the outer-most for-loop.)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    ASSERT_TRUE(str_match_pointer != nullptr);
+  }
+}
+
 using StageAndPrefetch = std::pair<int64_t, int64_t>;
 
 class CircularBufferingTest : public NVFuserFixtureParamTest<StageAndPrefetch> {
