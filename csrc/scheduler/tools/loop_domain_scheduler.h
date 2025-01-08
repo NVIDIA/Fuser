@@ -64,7 +64,8 @@ void scheduleLoopDomainsLike(
 // LoopDomainSchedulingTest.ScheduleLoopDomainsBy1 for more examples.
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
-    Expr* transform);
+    Expr* transform,
+    Direction dir = Direction::Undefined);
 
 // For each of immediate and indirect consumer tensors of from_tv,
 // schedule its loop domain such that reshape transforms appearing

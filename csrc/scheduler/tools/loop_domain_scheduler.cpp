@@ -366,6 +366,17 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
         .first;
   }
 
+  if (update_loop_domain_only_) {
+    std::cerr << "TV: " << tv->toString() << "\n";
+    std::cerr << "All ancestors: " << nvfuser::toString(all_ancestors_of_ref_)
+              << "\n";
+    for (const auto& tv_target_id : tv_target_domains) {
+      if (!all_ancestors_of_ref_.has(tv_target_id)) {
+        std::cerr << "Not found: " << nvfuser::toString(tv_target_id) << "\n";
+      }
+    }
+  }
+
   // In the case of the update mode, the path from the reference is
   // assumed to just a backward traversal path.
   NVF_ERROR(
@@ -428,7 +439,8 @@ void scheduleLoopDomainsLike(
 
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
-    Expr* transform) {
+    Expr* transform,
+    Direction replay_dir) {
   Fusion* fusion = transform->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   const ValGraph& exact_graph = id_model.buildExactGraph();
@@ -460,15 +472,16 @@ void scheduleLoopDomainsBy(
       }
     }
 
-    Direction replay_dir = Direction::Undefined;
-
     // It should be either: all of the inputs found and none of the
     // outputs found, or none of the inputs found and all of the
     // outputs found.
-    if (input_ids.size() == transform->inputs().size()) {
+    if (replay_dir != Direction::Backward &&
+        input_ids.size() == transform->inputs().size()) {
       NVF_ERROR(output_ids.empty());
       replay_dir = Direction::Forward;
-    } else if (output_ids.size() == transform->outputs().size()) {
+    } else if (
+        replay_dir != Direction::Forward &&
+        output_ids.size() == transform->outputs().size()) {
       NVF_ERROR(input_ids.empty());
       replay_dir = Direction::Backward;
     } else {
@@ -527,8 +540,9 @@ void cancelReshapeInLoopDomains(TensorView* from_tv) {
   id_model.buildExactGraph();
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  // IDs that may require reshape. If these IDs depend on a reshape,
-  // the reshape should not be cancelled.
+  std::cerr << "Canceling reshape from " << from_tv->toString() << "\n";
+
+  // IDs that may depend on a reshape. The reshape should not be cancelled.
   ValGroups reshape_dependent_ids;
   for (const ExprGroup& expr_g :
        exact_graph.disjointExprSets().disjointSets()) {
@@ -551,49 +565,112 @@ void cancelReshapeInLoopDomains(TensorView* from_tv) {
   auto exprs =
       DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
 
-  for (ViewOp* reshape : ir_utils::filterByType<ViewOp>(exprs)) {
-    auto reshape_out = reshape->out();
-
-    // Skip if already processed by preceding reshape ops
-    if (canceled_tvs.count(reshape_out)) {
+  // for (ViewOp* reshape : ir_utils::filterByType<ViewOp>(exprs)) {
+  for (auto exprs_it = exprs.rbegin(); exprs_it != exprs.rend(); ++exprs_it) {
+    auto reshape = dynamic_cast<ViewOp*>(*exprs_it);
+    if (reshape == nullptr) {
       continue;
     }
+
+    auto reshape_out = reshape->out();
+
+    std::cerr << "Reshape out: " << reshape_out->toString() << "\n";
+
+    auto all_dep_vals =
+        DependencyCheck::getAllValsBetween({reshape_out}, fusion->outputs());
+    // Exclude reshape_out
+    all_dep_vals.erase(all_dep_vals.begin());
+    auto all_dep_tvs = ir_utils::filterByType<TensorView>(all_dep_vals);
+
+    std::cerr << "Updating loop domains of: "
+              << toDelimitedString(all_dep_tvs.vector()) << "\n";
 
     // Find logical IDs that do not exist in the root domain. They are
     // the new IDs that are produced by this reshape op. If a logical
     // ID is already found in the root domain, there's nothing to do
     // for it.
-    std::vector<IterDomain*> new_ids;
+    std::vector<IterDomain*> new_logical_ids;
     for (const auto& logical_id : reshape_out->getLogicalDomain()) {
       if (!reshape_out->domain()->isRoot(logical_id)) {
-        new_ids.push_back(logical_id);
+        new_logical_ids.push_back(logical_id);
       }
     }
 
-    if (new_ids.empty()) {
+    if (new_logical_ids.empty()) {
       // Nothing to do with a no-op reshape. This may not happen.
       continue;
     }
 
-    auto new_id_groups = exact_graph.toGroups(new_ids);
+    std::unordered_set<Val*> cancellable_ids;
+    for (const auto new_logical_id : new_logical_ids) {
+      auto new_id_group = exact_graph.toGroup(new_logical_id);
+      // Not Cancellable if used by resize or reduced.
+      auto reachable_resize_exprs =
+          getReachableNodesFrom<ValGraphPermissiveBFS>(
+              {new_id_group},
+              {reshape_dependent_ids.begin(), reshape_dependent_ids.end()},
+              Direction::Forward,
+              exact_graph);
+      if (!reachable_resize_exprs.empty()) {
+        continue;
+      }
 
-    // Canceling is not possible if used by resize or reduced.
-    auto reachable_resize_exprs = getReachableNodesFrom<ValGraphPermissiveBFS>(
-        {new_id_groups.begin(), new_id_groups.end()},
-        {reshape_dependent_ids.begin(), reshape_dependent_ids.end()},
-        Direction::Forward,
-        exact_graph);
-    if (!reachable_resize_exprs.empty()) {
-      continue;
+      cancellable_ids.insert(new_logical_id);
     }
 
-    const auto all_dep_vals =
-        DependencyCheck::getAllValsBetween({reshape_out}, fusion->outputs());
-    auto all_dep_tvs = ir_utils::filterByType<TensorView>(all_dep_vals);
+    auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+        {reshape_out->getRootDomain().begin(),
+         reshape_out->getRootDomain().end()},
+        {reshape_out->getLogicalDomain().begin(),
+         reshape_out->getLogicalDomain().end()});
 
-    scheduleLoopDomainsLike(all_dep_tvs.vector(), reshape_out->getRootDomain());
+    auto reshape_out_loop_domain = reshape_out->getLoopDomain();
 
-    canceled_tvs.insert(all_dep_vals.begin(), all_dep_vals.end());
+    for (auto reshape_exprs_it = reshape_exprs.rbegin();
+         reshape_exprs_it != reshape_exprs.rend();
+         ++reshape_exprs_it) {
+      auto reshape_expr = *reshape_exprs_it;
+      std::cerr << "Reshape Expr: " << reshape_expr->toString();
+
+      if (std::all_of(
+              reshape_expr->outputs().begin(),
+              reshape_expr->outputs().end(),
+              [&](Val* reshape_expr_out) -> bool {
+                return cancellable_ids.count(reshape_expr_out);
+              })) {
+        scheduleLoopDomainsBy(
+            all_dep_tvs.vector(), reshape_expr, Direction::Backward);
+        cancellable_ids.insert(
+            reshape_expr->inputs().begin(), reshape_expr->inputs().end());
+
+        auto insert_pos = std::find(
+            reshape_out_loop_domain.begin(),
+            reshape_out_loop_domain.end(),
+            reshape_expr->outputs().front());
+        NVF_ERROR(insert_pos != reshape_out_loop_domain.end());
+        for (auto inp : reshape_expr->inputs()) {
+          insert_pos =
+              reshape_out_loop_domain.insert(insert_pos, inp->as<IterDomain>());
+          ++insert_pos;
+        }
+
+        reshape_out_loop_domain.erase(
+            std::remove_if(
+                reshape_out_loop_domain.begin(),
+                reshape_out_loop_domain.end(),
+                [&](IterDomain* cur_loop_id) {
+                  return std::find(
+                             reshape_expr->outputs().begin(),
+                             reshape_expr->outputs().end(),
+                             cur_loop_id) != reshape_expr->outputs().end();
+                }),
+            reshape_out_loop_domain.end());
+      }
+    }
+
+    std::cerr << "Reshaep out looop domain: "
+              << toDelimitedString(reshape_out_loop_domain) << "\n";
+    reshape_out->setLoopDomain(reshape_out_loop_domain);
   }
 }
 

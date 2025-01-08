@@ -296,6 +296,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
+  TensorView* largest_input = nullptr;
+  if (resize_params->largest_input >= 0) {
+    largest_input =
+        fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
+  }
+
+  // Mistral bwd has a reshape at the end of the fusion that merges
+  // the two innermost dimensions. To make the below vectorization to
+  // work, the vectorization needs to be applied to the innermost
+  // dimension only, so the merge needs to be canceled.
+  if (largest_input != nullptr) {
+    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+  }
+
   {
     std::cout << std::endl;
     std::cout << "After recomputation\n";
@@ -315,21 +329,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       continue;
     }
 
+    std::cerr << "propagateResize: " << expr->toString();
+
     scheduler_tools::propagateResizeToInputs(expr);
-  }
-
-  TensorView* largest_input = nullptr;
-  if (resize_params->largest_input >= 0) {
-    largest_input =
-        fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
-  }
-
-  // Mistral bwd has a reshape at the end of the fusion that merges
-  // the two innermost dimensions. To make the below vectorization to
-  // work, the vectorization needs to be applied to the innermost
-  // dimension only, so the merge needs to be canceled.
-  if (largest_input != nullptr) {
-    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
   }
 
   // Should it be scheduled based on largest_input?
