@@ -193,7 +193,7 @@ class MatmulParams : public HeuristicParams {
 
   //! This is the CGA size on Hopper+ devices. This parameter is ignored on
   //! Ampere and Turing.
-  std::tuple<int64_t, int64_t, int64_t> cluster_dims = {2, 1, 1};
+  std::tuple<int64_t, int64_t, int64_t> cluster_dims = {1, 1, 1};
 
   std::string toString() const override {
     std::stringstream ss;
@@ -216,6 +216,8 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "Cluster dimensions: " << std::get<0>(cluster_dims) << " "
+       << std::get<1>(cluster_dims) << " " << std::get<2>(cluster_dims) << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"

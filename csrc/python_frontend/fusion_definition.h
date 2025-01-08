@@ -6,14 +6,15 @@
  */
 // clang-format on
 #pragma once
+
 #include <exceptions.h>
 #include <functional>
 #include <iostream>
+#include <unordered_map>
 
 #include <python_frontend/fusion_state.h>
 #include <python_frontend/segmentation.h>
 #include <visibility.h>
-#include <unordered_map>
 
 namespace nvfuser::python_frontend {
 

@@ -50,7 +50,9 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
   // Before doing so, all the dependent tensors need to have the exact-mapped
   // loop domain.
   scheduler_tools::scheduleLoopDomainsLike(
-      tvs_to_schedule, producer_tv->getLoopDomain());
+      tvs_to_schedule,
+      producer_tv->getLoopDomain(),
+      /*update_loop_domain_only=*/true);
 
   // Now that all the dependent tensors have the uniform, exact-mapped
   // loop domains, we just need to propagte the specific Resize ops of
@@ -66,13 +68,13 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
   }
 }
 
-std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
+std::unordered_map<TensorView*, ResizeExclusivityInfo> getNonExclusiveResizeInfo(
     const std::vector<Expr*>& ordered_resize_tensor_ops,
     const ValGraph& exact_graph) {
   NVF_ERROR(!ordered_resize_tensor_ops.empty());
   Fusion* fusion = ordered_resize_tensor_ops[0]->fusion();
 
-  std::unordered_map<TensorView*, ValGroups> non_exclusive_resizes;
+  std::unordered_map<TensorView*, ResizeExclusivityInfo> non_exclusive_resizes;
 
   std::unordered_set<Val*> inputs{
       fusion->inputs().begin(), fusion->inputs().end()};
@@ -97,6 +99,8 @@ std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
   for (Expr* resize_tensor_op : ordered_resize_tensor_ops) {
     auto inp_tv = dynamic_cast<TensorView*>(resize_tensor_op->inputs().at(0));
     auto out_tv = dynamic_cast<TensorView*>(resize_tensor_op->outputs().at(0));
+
+    ResizeExclusivityInfo info;
 
     ValGroups resize_inp_ids = get_root_to_logical_resizes(out_tv);
     NVF_ERROR(!resize_inp_ids.empty());
@@ -159,8 +163,13 @@ std::unordered_map<TensorView*, ValGroups> getNonExclusiveResizeInfo(
         }
 
         // This resize input ID is not exclusively used
-        non_exclusive_resizes[inp_tv].pushBack(resize_inp_id);
+        info.non_exclusive_dep_tvs.push_back(dep_tv);
+        info.resized_ids.pushBack(resize_inp_id);
       }
+    }
+
+    if (!info.non_exclusive_dep_tvs.empty()) {
+      NVF_ERROR(non_exclusive_resizes.emplace(out_tv, info).second);
     }
 
     // Analysis of exclusiveness until in_tv is done. Following

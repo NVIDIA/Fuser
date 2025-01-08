@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
@@ -2660,7 +2661,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
+TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
@@ -2671,12 +2672,20 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   // A - tv0, B - tv1
   auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+  TensorView* tv2 = makeContigConcreteTensor({-1}, DataType::Half);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+  // We add these computations to test
+  // scheduling (with epilogue) when the ouptut of mma is not
+  // cast to half.
+  auto tv4 = maybeCastOp(DataType::Float, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
+  auto tv6 = neg(tv5);
 
-  fusion->addOutput(tv2);
+  fusion->addOutput(tv6);
 
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
@@ -2689,10 +2698,14 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
+  auto c = at::randn({M}, options);
   auto t0 = a.unsqueeze(1);
   auto t1 = b.unsqueeze(0);
-  auto tref = at::matmul(a.to(at::kFloat), b.to(at::kFloat).t());
-  std::vector<c10::IValue> inputs{t0, t1};
+  auto tref =
+      atBiasEpilogue(
+          at::matmul(a.to(at::kFloat), b.to(at::kFloat).t()), c.to(at::kFloat))
+          .neg_();
+  std::vector<c10::IValue> inputs{t0, t1, c};
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2705,9 +2718,7 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
-  // TODO: Currently we use stmatrix whenever this is true. We cannot do that
-  // when the dtype is not 16 bits.
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true;
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -2718,6 +2729,58 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   auto outputs = ke.run(inputs);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+}
+
+// Test automatically scheduling a fusion that requires 64-bit indexing
+TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+  auto tv3 = maybeCastOp(DataType::Float, tv2);
+  auto tv4 = neg(tv3);
+  auto tv5 = castOp(DataType::Half, tv4);
+
+  fusion->addOutput(tv5);
+
+  // We use an input size large enough to require 64-bit indexing to index some
+  // elements of the inputs.
+  // NOTE: This size requires 64-bit indexing in the epilogue only.
+  const int M = 1 << 16, N = 1 << 15, K = 1 << 8;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  at::Tensor a = at::randn({M, K}, options);
+  at::Tensor b = at::randn({K, N}, options);
+  std::vector<c10::IValue> inputs{a, b};
+
+  at::Tensor tref = -at::matmul(a, b);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(
+      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+
+  if (!cudaArchGuardShouldSkip(9, 0)) {
+    // The Hopper matmul scheduler should reject this fusion since it requires
+    // 64-bit indexing.
+    // See https://github.com/NVIDIA/Fuser/issues/3595
+    // TODO: Lift this temporary restriction and remove this check
+    for (const auto& heur : executor_cache.getMostRecentKernelRuntime()
+                                ->schedulerHeuristics()
+                                ->heuristicsList()) {
+      EXPECT_NE(heur->scheduler_type, SchedulerType::Matmul);
+    }
+  }
 }
 
 class MatmulFusionTest

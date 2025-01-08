@@ -1686,8 +1686,8 @@ Val* hardCodedIndexGenerationForStMatrix(
   Val* out_index = nullptr;
 
   NVF_ERROR(
-      ldst->out()->dtype() == DataType::Half,
-      "we only support half type in stmatrix");
+      dataTypeSize(ldst->out()->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
@@ -1959,8 +1959,8 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
       "size not currently supported for stmatrix");
 
   NVF_ERROR(
-      ldst->out()->dtype() == DataType::Half,
-      "we only support half type in stmatrix");
+      dataTypeSize(ldst->out()->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();

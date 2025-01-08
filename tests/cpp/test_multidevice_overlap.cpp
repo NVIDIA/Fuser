@@ -760,14 +760,8 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
 TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
-  std::vector<c10::cuda::CUDAStream> streams;
-  std::generate_n(
-      std::back_inserter(streams),
-      params.number_of_streams,
-      [my_device_index = my_device_index_]() {
-        return c10::cuda::getStreamFromPool(
-            /*isHighPriority=*/false, my_device_index);
-      });
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1060,9 +1054,9 @@ TEST_F(
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
+    c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
 
     for (auto i : c10::irange(number_of_rings_)) {
-      c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
       for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
@@ -1076,9 +1070,8 @@ TEST_F(
         auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
         auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
 
-        if (comms_req != nullptr) {
+        if (j != 0) {
           comms_req->wait();
-          comms_req = nullptr;
         }
 
         // send & matmul current index
@@ -1094,6 +1087,183 @@ TEST_F(
       }
     }
     synchronizeStreams(streams);
+    validate();
+  }
+}
+
+TEST_F(
+    RingAllgatherOverlapTest,
+    RingAllgatherBasedPipeliningHostIRImplementation) {
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tvb_unsharded = makeSymbolicTensor(tb_unsharded_.dim());
+  TensorView* tvc_unsharded = makeSymbolicTensor(tc_unsharded_.dim());
+  hic->addInput(tva);
+  hic->addInput(tvb_unsharded);
+  hic->addInput(tvc_unsharded);
+
+  auto* i = IrBuilder::create<Val>(DataType::Index); // for-loop running index
+  auto* start_i = hic->zeroVal();
+  auto* stop_i = tva->axis(1)->extent();
+  auto* step_i = hic->oneVal();
+  auto* for_loop_i = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(1),
+      /*index=*/i,
+      start_i,
+      stop_i,
+      step_i,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* j = IrBuilder::create<Val>(DataType::Index);
+  auto* start_j = hic->zeroVal();
+  auto* stop_j = tva->axis(0)->extent();
+  auto* step_j = hic->oneVal();
+  auto* for_loop_j = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(0),
+      /*index=*/j,
+      start_j,
+      stop_j,
+      step_j,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* stream_index =
+      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
+  auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
+  auto* number_of_steps_per_ring_val =
+      IrBuilder::create<Val>(number_of_steps_per_ring_);
+
+  auto* send_rank = mod(
+      add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
+  auto* recv_rank =
+      mod(add(number_of_steps_per_ring_val,
+              sub(my_device_index_val, hic->oneVal())),
+          number_of_steps_per_ring_val);
+
+  auto* slice_index =
+      mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val),
+          number_of_steps_per_ring_val);
+  auto* next_slice_index =
+      mod(add(sub(sub(my_device_index_val, j), hic->oneVal()),
+              number_of_steps_per_ring_val),
+          number_of_steps_per_ring_val);
+
+  TensorView* tmp1 = select(tva, 0, slice_index);
+  TensorView* tmp2 = select(tva, 0, next_slice_index);
+  TensorView* tmp3 = select(tvc_unsharded, 0, slice_index);
+  TensorView* tva_j_curr_slice = select(tmp1, 0, i);
+  TensorView* tva_j_next_slice = select(tmp2, 0, i);
+  TensorView* tvc_j = select(tmp3, 0, i);
+
+  auto* mm =
+      IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+
+  // Setting the DeviceMesh of the communication's I/O is artificial but
+  // required at this point
+  DeviceMesh full_mesh(all_devices_);
+  tva_j_curr_slice->setDeviceMesh(full_mesh);
+  tva_j_next_slice->setDeviceMesh(full_mesh);
+
+  auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+  auto* send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND, tva_j_curr_slice, send_rank);
+  auto* recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV, tva_j_next_slice, recv_rank);
+  auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+  auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+  auto* cond = ne(j, hic->zeroVal());
+  auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
+  auto* if_not_first_ring_step_wait =
+      IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  if_not_first_ring_step_wait->thenBody().push_back(wait);
+
+  auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
+  auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
+  auto* if_not_last_ring_step_post_comms =
+      IrBuilder::create<kir::IfThenElse>(comm_predicate);
+  if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
+  if_not_last_ring_step_post_comms->thenBody().push_back(send);
+  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
+  if_not_last_ring_step_post_comms->thenBody().push_back(end_coalescing);
+
+  std::vector<Expr*> loop_j_body = {
+      set_stream,
+      tmp1->definition(),
+      tmp2->definition(),
+      tmp3->definition(),
+      tva_j_curr_slice->definition(),
+      tva_j_next_slice->definition(),
+      tvc_j->definition(),
+      if_not_first_ring_step_wait,
+      if_not_last_ring_step_post_comms,
+      mm};
+  for (Expr* expr : loop_j_body) {
+    for_loop_j->body().push_back(expr);
+  }
+  for_loop_i->body().push_back(for_loop_j);
+
+  hic->pushBackTopLevelExprs(for_loop_i);
+
+  // Synchronize all streams
+  auto* i_stream =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_stream = hic->zeroVal();
+  auto* stop_stream =
+      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
+  auto* step_stream = hic->oneVal();
+  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
+          ->axis(0),
+      /*index=*/i_stream,
+      start_stream,
+      stop_stream,
+      step_stream,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
+      IrBuilder::create<hir::Stream>(i_stream));
+  for_loop_stream->body().push_back(sync_stream);
+  hic->pushBackTopLevelExprs(for_loop_stream);
+
+  hic->addOutput(tmp1);
+  hic->addOutput(tmp2);
+  hic->addOutput(tmp3);
+  hic->addOutput(tva_j_curr_slice);
+  hic->addOutput(tva_j_next_slice);
+  hic->addOutput(tvc_j);
+
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    // I don't know why but this seems necessary...
+    at::manual_seed(getATenRandomSeed());
+
+    initializeIO();
+
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva, ta_},
+        {tvb_unsharded, tb_unsharded_},
+        {tvc_unsharded, tc_unsharded_}};
+
+    hie.runWithInput(std::move(inputs));
+
     validate();
   }
 }

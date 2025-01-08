@@ -91,12 +91,10 @@ std::string rolesToPrecisionString(
   std::string precision = "   ";
   const std::vector<TensorView*>& a_operands =
       tensor_roles.at(MatmulTensorRole::OPERAND_A);
-  NVF_ERROR(
-      a_operands.size() == 1, "We currently require exactly one A operand");
+  NVF_ERROR(!a_operands.empty(), "We currently require at least one A operand");
   const std::vector<TensorView*>& b_operands =
       tensor_roles.at(MatmulTensorRole::OPERAND_B);
-  NVF_ERROR(
-      b_operands.size() == 1, "We currently require exactly one B operand");
+  NVF_ERROR(!b_operands.empty(), "We currently require at least one B operand");
   TensorView* a = a_operands.front();
   TensorView* b = b_operands.front();
   NVF_CHECK(
@@ -141,6 +139,9 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
   setConfigTile(config->instruction_tile, getMmaOpShape(mparams->mma_macro));
+  config->cluster_dims[0] = std::get<0>(mparams->cluster_dims);
+  config->cluster_dims[1] = std::get<1>(mparams->cluster_dims);
+  config->cluster_dims[2] = std::get<2>(mparams->cluster_dims);
   config->splitk_factor = mparams->splitk_factor;
   config->grid_swizzle_factor = mparams->grid_swizzle_factor;
   config->cta_order =
@@ -163,6 +164,9 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   };
   setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
+  std::get<0>(mparams->cluster_dims) = config->cluster_dims[0];
+  std::get<1>(mparams->cluster_dims) = config->cluster_dims[1];
+  std::get<2>(mparams->cluster_dims) = config->cluster_dims[2];
   mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
   mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap =
