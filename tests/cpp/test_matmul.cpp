@@ -4084,8 +4084,8 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 32);
+  gemm_tile.warp_tile = GemmTile(64, 256, 32);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4338,16 +4338,16 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 16);
-  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(128, 256, 64);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 5;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
