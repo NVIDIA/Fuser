@@ -69,6 +69,7 @@ void addGPUBenchmarkContext() {
 
 // Copied from BENCHMARK_MAIN with extra custom settings
 int main(int argc, char** argv) {
+  Communicator* communicator_ = &Communicator::getInstance();
   ::benchmark::Initialize(&argc, argv);
   if (::benchmark::ReportUnrecognizedArguments(argc, argv)) {
     return 1;
@@ -90,6 +91,13 @@ int main(int argc, char** argv) {
 
   ::benchmark::RunSpecifiedBenchmarks();
 
+  printf("calling comm cleanup, size=%ld, did=%ld\n", communicator_->size(), communicator_->deviceId());
+  Communicator::getInstance().cleanup();
+  printf("done calling comm cleanup, size=%ld, did=%ld\n", communicator_->size(), communicator_->deviceId());
+
   ::benchmark::Shutdown();
+
+
+
   return 0;
 }

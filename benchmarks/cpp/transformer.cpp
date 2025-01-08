@@ -116,6 +116,10 @@ static void NvFuserScheduler_TransformerFwd(
   Communicator* communicator_ = &Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
   const int64_t D = communicator_->size(); // number of devices
 
+  printf("did=%ld in fwd before barrier\n", communicator_->deviceId());fflush(0);
+  communicator_->barrier();
+  printf("did=%ld in fwd after barrier\n", communicator_->deviceId());fflush(0);
+
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   const auto mesh = DeviceMesh::createForNumDevices(D);
   constexpr float kEps = 1e-5;
