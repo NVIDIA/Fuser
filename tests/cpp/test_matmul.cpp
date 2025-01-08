@@ -4265,8 +4265,8 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
   auto out_ref = at::linear(a_ref, b_ref);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4340,8 +4340,8 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_64_16;
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 16);
-  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+  gemm_tile.cta_tile = GemmTile(128, 128, 64);
+  gemm_tile.warp_tile = GemmTile(64, 64, 64);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;
@@ -4421,8 +4421,8 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_64_16;
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 16);
-  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+  gemm_tile.cta_tile = GemmTile(128, 128, 64);
+  gemm_tile.warp_tile = GemmTile(64, 64, 64);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;
