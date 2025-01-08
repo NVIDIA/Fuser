@@ -160,7 +160,7 @@ class RepeatToExpandTranslator {
           std::find(inp_domain.begin(), inp_domain.end(), info.repeated_id));
       bcast_flags.at(repeated_id_offset) = true;
       auto broadcast_tv = broadcast(info.input_tv, bcast_flags);
-      NVF_ERROR(broadcast_tv->nDims() == inp_domain.size() + 1);
+      NVF_ERROR((size_t)broadcast_tv->nDims() == inp_domain.size() + 1);
 
       // Step 2
       std::vector<Val*> expanded_sizes(
