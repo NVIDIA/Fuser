@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <bfs.h>
+
 #include <vector>
 
 namespace nvfuser {
@@ -32,14 +34,14 @@ void scheduleLoopDomainsLike(
     bool update_loop_domain_only = false);
 
 // Replay a transform expr on the loop domain of each of the given
-// tensors. If the input of the transform is exact mapped with the loop
-// domain, the transform is replayed as a forward op. If the output
-// is exact mapped with the loop domain, it's replayed as a backward
-// op. The loop domain of each tensor is updated with the replayed
-// transform expr. If it's replayed as a forward op, the outputs
-// replace the inputs in the loop domain. If it's replayed as a
-// backward op, the inputs replace the outputs in the loop domain. The
-// new IDs are inserted at the outermost position of the input IDs.
+// tensors. If the replay direction is specified, the expr is replayed
+// as specified. Otherwise, if the input of the transform is exact mapped with
+// the loop domain, the transform is replayed as a forward op. If the output is
+// exact mapped with the loop domain, it's replayed as a backward op. The loop
+// domain of each tensor is updated with the replayed transform expr. If it's
+// replayed as a forward op, the outputs replace the inputs in the loop domain.
+// If it's replayed as a backward op, the inputs replace the outputs in the loop
+// domain. The new IDs are inserted at the outermost position of the input IDs.
 //
 // For example, suppose a fusion has:
 //
@@ -65,7 +67,7 @@ void scheduleLoopDomainsLike(
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
     Expr* transform,
-    Direction dir = Direction::Undefined);
+    Direction replay_dir = Direction::Undefined);
 
 // For each of immediate and indirect consumer tensors of from_tv,
 // schedule its loop domain such that reshape transforms appearing
@@ -95,9 +97,9 @@ void scheduleLoopDomainsBy(
 // This scheduling could help optimize memory accesses to
 // fusion inputs. In the above case, we could then reorder the loop
 // domains of t1, t2 and t3 as [i0, i1, i2], i.e., the same ordering
-// as t0.
+// as t0, which could minimize strided accesses.
 //
-// This scheduling is not always possible. Specifically, if a reshape
+// This scheduling is not always feasible. Specifically, if a reshape
 // outout iter domain is resized, the loop domain needs to keep using
 // the reshape output iter domain. Similary, if a rehape output iter
 // domain is reduced, the reshape is currently not cancelled. This is
