@@ -1388,9 +1388,10 @@ void TensorView::circularBuffer(
           warp_specialized_num_registers.value().first <=
           warp_specialized_num_registers.value().second);
       circular_buffer_options_.warp_specialized_num_registers =
-          warp_specialized_num_registers.value();
+          warp_specialized_num_registers;
     } else {
-      circular_buffer_options_.warp_specialized_num_registers = {24, 240};
+      circular_buffer_options_.warp_specialized_num_registers =
+          std::make_pair(24L, 240L);
     }
   }
 }

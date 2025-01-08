@@ -274,7 +274,8 @@ struct CircularBufferOptions {
                         // prefetch, can only be < stage.
   // The number of registers for load and compute warps respectively.
   // Register sharing is disabled when both values are -1.
-  std::pair<int64_t, int64_t> warp_specialized_num_registers = {-1, -1};
+  std::optional<std::pair<int64_t, int64_t>> warp_specialized_num_registers =
+      std::nullopt;
 
   bool isEnable() const {
     return stage > 1;
@@ -297,8 +298,14 @@ struct CircularBufferOptions {
 inline std::ostream& operator<<(
     std::ostream& os,
     const CircularBufferOptions& options) {
-  auto&& [decrease_num_registers, increase_num_registers] =
-      options.warp_specialized_num_registers;
+  int64_t decrease_num_registers = -1;
+  int64_t increase_num_registers = -1;
+  if (options.warp_specialized_num_registers.has_value()) {
+    decrease_num_registers =
+        options.warp_specialized_num_registers.value().first;
+    increase_num_registers =
+        options.warp_specialized_num_registers.value().second;
+  }
   return os << "CircularBufferOptions{ stage=" << options.stage
             << ", prefetch=" << options.prefetch << ", type=" << options.type
             << ", decrease_num_registers=" << decrease_num_registers
