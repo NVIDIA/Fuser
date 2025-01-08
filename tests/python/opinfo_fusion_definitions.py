@@ -32,9 +32,6 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
         args
     ), f"{num_symbolic_parameters} vs {len(args)}"
 
-    if num_symbolic_parameters > len(args):
-        symbolic_parameter_list = symbolic_parameter_list[: len(args)]
-
     for arg_type, a in zip(symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
             if isinstance(a, torch.Tensor):

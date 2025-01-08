@@ -1719,7 +1719,25 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("input"),
       py::arg("diagonal") = 0,
-      py::return_value_policy::reference);
+      py::return_value_policy::reference,
+      R"doc(
+    Returns the upper triangular part of a 2+D tensor.
+
+    Parameters
+    ----------
+    input : Tensor
+        The input tensor.
+    diagonal : int, optional
+        The diagonal to consider. Default is 0.
+
+    Returns
+    -------
+    Tensor
+        The upper triangular part of the input tensor.
+
+    >>> a = torch.randn(3, 3)
+    >>> fd.ops.triu(a)
+    )doc");
 
   // overload to
   nvf_ops.def(

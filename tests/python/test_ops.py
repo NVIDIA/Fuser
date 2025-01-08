@@ -64,8 +64,6 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     )
 
     assert len(symbolic_parameter_list) >= len(args)
-    if len(symbolic_parameter_list) > len(args):
-        symbolic_parameter_list = symbolic_parameter_list[: len(args)]
 
     result = []
     for arg_type, a in zip(symbolic_parameter_list, args):
