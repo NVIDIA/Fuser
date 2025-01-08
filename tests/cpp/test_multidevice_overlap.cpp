@@ -73,10 +73,11 @@ class DummyOverlapBenchmark : public MultiDeviceTest, public testing::WithParamI
 std::map<std::string, float> DummyOverlapBenchmark::times = {};
 
 TEST_P(DummyOverlapBenchmark, PipelinedAGMatmulBenchmark) {
-  constexpr int64_t number_of_warmups = 50;
-  constexpr int64_t number_of_iterations = 100;
-  constexpr int64_t iteration_profiler_start = 10;
-  constexpr int64_t iteration_profiler_end = 15;
+  constexpr int64_t number_of_warmups = 20;
+  constexpr int64_t number_of_iterations = 80;
+  constexpr int64_t total_number_of_iterations = number_of_warmups + number_of_iterations;
+  constexpr int64_t iteration_profiler_start = 5;
+  constexpr int64_t iteration_profiler_end = 10;
 
 
   auto [backend,
@@ -90,27 +91,36 @@ TEST_P(DummyOverlapBenchmark, PipelinedAGMatmulBenchmark) {
   std::vector<RankType> all_ranks(communicator_->size());
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
   auto world = communicator_->getBackendForTeam(all_ranks, backend);
+  auto nccl_world = communicator_->getBackendForTeam(all_ranks, CommunicatorBackend::kNccl);
 
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(2, communicator_->deviceId());
   auto& compute_stream = streams.at(0);
   auto& communication_stream = streams.at(1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  auto ta = at::randn({M, K}, options);
-  auto tb = at::randn({K, N}, options);
-  auto tc = at::empty({M, N}, options);
-  auto src = at::randn({L}, options);
-  auto dst = at::empty({L * communicator_->size()}, options);
+  auto options_matmul = at::TensorOptions().dtype(torch::kFloat16).device(communicator_->device());
+  auto ta = at::randn({M, K}, options_matmul);
+  auto tb = at::randn({K, N}, options_matmul);
+  auto tc = at::empty({M, N}, options_matmul);
+
+  auto options_comms = at::TensorOptions().dtype(torch::kFloat32).device(communicator_->device());
+  auto src = at::randn({L}, options_comms);
+  auto dst = at::empty({L * communicator_->size()},  options_comms);
+  std::vector<at::Tensor> barrier_scratch_buffer = {at::randn({1}, options_comms)};
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
+  nccl_world->allreduce(barrier_scratch_buffer)->wait();
+
   for (const auto& iteration :
-       c10::irange(number_of_warmups + number_of_iterations)) {
+       c10::irange(total_number_of_iterations)) {
+    if (iteration % 10 == 0 && communicator_->deviceId() == 0) {
+      std::cout << "iteration " << iteration <<"/" << total_number_of_iterations << std::endl;
+    }
     if (iteration == iteration_profiler_start) {
-      cudaProfilerStart();;
+      cudaProfilerStart();
     }
     if (iteration == number_of_warmups) {
       cudaEventRecord(start);
@@ -133,7 +143,13 @@ TEST_P(DummyOverlapBenchmark, PipelinedAGMatmulBenchmark) {
     if (iteration == iteration_profiler_end) {
       cudaProfilerStop();;
     }
+    if (!pre_comm & !post_comm) {
+      nccl_world->allreduce(barrier_scratch_buffer)->wait();
+    }
     synchronizeStreams(streams);
+  }
+  if (pre_comm || post_comm) {
+    nccl_world->allreduce(barrier_scratch_buffer)->wait();
   }
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -154,7 +170,7 @@ INSTANTIATE_TEST_SUITE_P(
     /*M=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
     /*K=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
     /*N=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
-    /*L=*/testing::Values(pow(2,10), pow(2,15), pow(2,17)),
+    /*L=*/testing::Values(1, pow(2,10), pow(2,15), pow(2,17), pow(2,20), pow(2,24), pow(2,26), pow(2,28)),
     /*pre-comm=*/testing::Bool(),
     /*post-comm=*/testing::Bool()),
     [](const testing::TestParamInfo<DummyOverlapBenchmarkParams>& info)

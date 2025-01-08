@@ -43,11 +43,11 @@ std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
 // Returns whether a IterDomain in a TensorView is the outermost
 // allocated IterDomain in the TensorView.
 bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
-  for (auto i : tv->getLoopDomain()) {
-    if (i == id) {
+  for (auto* loop_id : tv->getLoopDomain()) {
+    if (loop_id == id) {
       return true;
     }
-    if (!i->isDeviceDim() && !i->isReduction() && !i->isBroadcast()) {
+    if (!loop_id->isDeviceDim() && !loop_id->isReduction() && !loop_id->isBroadcast()) {
       return false;
     }
   }
