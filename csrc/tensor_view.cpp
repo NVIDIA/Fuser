@@ -1368,16 +1368,13 @@ void TensorView::circularBuffer(
   circular_buffer_options_.prefetch = prefetch_distance;
   circular_buffer_options_.type = type;
 
+  NVF_ERROR(
+      !warp_specialized_num_registers.has_value() ||
+          std::holds_alternative<WarpSpecialized>(type),
+      "Setting the number of register for load and compute warp groups is only ",
+      "allowed for WarpSpecialized Circular Buffering");
   if (std::holds_alternative<WarpSpecialized>(type)) {
-    bool has_outer_for_loop = false;
-    // short-circuit
-    if (has_outer_for_loop) {
-      NVF_ERROR(
-          warp_specialized_num_registers.has_value(),
-          "Only support register sharing if warp specialized loops are not nested.");
-      return;
-    }
-
+    // Use default setting or specified value
     if (warp_specialized_num_registers.has_value()) {
       NVF_ERROR(warp_specialized_num_registers.value().first != -1);
       NVF_ERROR(warp_specialized_num_registers.value().second != -1);
@@ -1387,7 +1384,6 @@ void TensorView::circularBuffer(
       circular_buffer_options_.warp_specialized_num_registers =
           warp_specialized_num_registers.value();
     } else {
-      // Use default setting
       circular_buffer_options_.warp_specialized_num_registers = {24, 240};
     }
   }
