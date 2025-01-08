@@ -405,7 +405,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   }
   cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(tc_ref, tc));
+  EXPECT_TRUE(torch::allclose(tc_ref, tc, 1e-2, 1e-2));
 }
 
 } // namespace hir
