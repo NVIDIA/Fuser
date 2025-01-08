@@ -145,13 +145,15 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // This doesn't work yet due to issue #3571
-  if (std::any_of(
-          ref_tv->getLogicalDomain().begin(),
-          ref_tv->getLogicalDomain().end(),
-          [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Broadcast iter domain in reference not supported");
-    return false;
+  if (getenv("BROADCAST_CHECK")) {
+    if (std::any_of(
+            ref_tv->getLogicalDomain().begin(),
+            ref_tv->getLogicalDomain().end(),
+            [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Broadcast iter domain in reference not supported: ", ref_tv->toString());
+      return false;
+    }
   }
 
   // Having different resizes between outputs is not allowed at this
