@@ -2666,34 +2666,33 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
-std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
-    TensorView* tv,
+void reorderTensorLike(
+    TensorView* target_tv,
     const std::vector<IterDomain*>& ref) {
-  IdModel id_model(tv->fusion(), /*build_graphs=*/false);
+  const auto& tv_loop_domain = target_tv->getLoopDomain();
+
+  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
-  ValGroups target_groups = graph.toGroups(tv->getLoopDomain());
+  ValGroups target_groups = graph.toGroups(tv_loop_domain);
 
   ValGroups ref_groups = graph.toGroups(ref);
 
-  // Traverse from the reference to the target tv.
-
+  // Traverse from the reference to the target tv. The reference is
+  // not guaranteed to cover all loop IDs of target, so
+  // require_all_to_visited needs to be false
   auto path = ValGraphBFS::getExprGroupsBetween(
                   graph,
                   ref_groups,
                   target_groups,
                   /*require_all_to_visited=*/false)
                   .first;
-  // path = reverse(path);
 
+  // Traverse the expr path to create an ordered ID groups
   std::deque<ValGroup> ordered_domain{
       ref_groups.vector().begin(), ref_groups.vector().end()};
 
-  std::cerr << "Ref: " << toDelimitedString(ref) << "\n";
-
-  std::cerr << "Ref to target:\n";
   for (const auto& [expr_g, dir] : path) {
-    std::cerr << dir << ", " << expr_g->front()->toString();
     auto inputs = getInputsOfExpr(
         expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
     auto outputs = getOutputsOfExpr(
@@ -2704,11 +2703,6 @@ std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
     for (auto it = inputs.rbegin(); it != inputs.rend(); ++it) {
       innermost_it =
           std::find(ordered_domain.begin(), ordered_domain.end(), *it);
-      if (innermost_it == ordered_domain.end()) {
-        std::cerr << "Inputs: " << nvfuser::toString(inputs) << "\n";
-        std::cerr << "Ordered domain: " << nvfuser::toString(ordered_domain)
-                  << "\n";
-      }
       NVF_ERROR(innermost_it != ordered_domain.end());
       break;
     }
@@ -2722,16 +2716,12 @@ std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
     }
   }
 
-  std::cerr << "Result:\n";
-  for (const auto& vg : ordered_domain) {
-    std::cerr << nvfuser::toString(vg) << "\n";
-  }
-
   std::unordered_map<int64_t, int64_t> old2new;
-  // Move all new IDs to outermost
+
+  // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
-    const auto& loop_id_group = graph.toGroup(tv->getLoopDomain().at(i));
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
@@ -2739,25 +2729,18 @@ std::unordered_map<int64_t, int64_t> getMapToReorderTensorLike(
       ++new_id_pos;
     }
   }
-  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
-    const auto& loop_id_group = graph.toGroup(tv->getLoopDomain().at(i));
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it != ordered_domain.end()) {
-      std::cerr << "Found: " << tv->getLoopDomain().at(i)->toString() << "\n";
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
-      std::cerr << "Placed at: " << new_pos << "\n";
       old2new.emplace((int64_t)i, new_pos);
     }
   }
 
-  for (const auto& [old_pos, new_pos] : old2new) {
-    std::cerr << old_pos << " -> " << new_pos << "\n";
-  }
-
-  // tv->reorder(old2new);
-  return old2new;
+  target_tv->reorder(old2new);
 }
 
 } // namespace scheduler_utils

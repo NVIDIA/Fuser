@@ -378,8 +378,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     std::cerr << "Ref alloc before: " << toDelimitedString(ref_alloc) << "\n";
     // Reorder the reference as the allocation domain of the largest fusion
     // input
-    ref_tv->reorder(
-        scheduler_utils::getMapToReorderTensorLike(ref_tv, ref_alloc));
+    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
   }
 
   // Make sure the DID ID located at the outermost position
