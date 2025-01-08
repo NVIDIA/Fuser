@@ -468,9 +468,6 @@ bool isInnerResharding(Expr* expr) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto [shard_additions, shard_deletions] =
           getShardingChanges(input, output);
-      NVF_ERROR(
-          shard_additions.size() + shard_deletions.size() <= 1,
-          "Resharding expr can only support one axis")
       if ((!shard_deletions.empty() &&
            allocationIndex(input, shard_deletions.at(0)) > 0) ||
           (!shard_additions.empty() &&
