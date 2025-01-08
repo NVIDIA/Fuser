@@ -289,7 +289,8 @@ struct CircularBufferOptions {
 
   bool operator==(const CircularBufferOptions& other) const {
     return type == other.type && stage == other.stage &&
-        prefetch == other.prefetch;
+        prefetch == other.prefetch &&
+        warp_specialized_num_registers == other.warp_specialized_num_registers;
   }
 };
 

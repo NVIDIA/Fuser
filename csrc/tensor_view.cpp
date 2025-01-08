@@ -1385,7 +1385,7 @@ void TensorView::circularBuffer(
       validate_num_registers(warp_specialized_num_registers.value().first);
       validate_num_registers(warp_specialized_num_registers.value().second);
       NVF_ERROR(
-          warp_specialized_num_registers.value().first <
+          warp_specialized_num_registers.value().first <=
           warp_specialized_num_registers.value().second);
       circular_buffer_options_.warp_specialized_num_registers =
           warp_specialized_num_registers.value();

@@ -1396,15 +1396,11 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Set default value
     GpuLower::current()->kernel()->manage("enable_register_sharing", true);
-
     auto&& [decrease_num_registers, increase_num_registers] =
         GpuLower::current()
             ->circularBufferInfo()
             .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
             .warp_specialized_num_registers;
-    NVF_ERROR(
-        decrease_num_registers < increase_num_registers,
-        "Expected the number of registers for decrease setmaxnreg to be lower than increase setmaxnreg");
 
     // Decrease registers in load warp group
     kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
