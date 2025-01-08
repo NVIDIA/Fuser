@@ -393,11 +393,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
+        // Makes sure that writes to operands in the generic proxy are visible
+        // to the async proxy
+        auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
+        registerInsertBefore(expr, wgmma_fence, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
-          // Makes sure that writes to operands in the generic proxy are visible
-          // to the async proxy
-          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
-          registerInsertBefore(expr, wgmma_fence, scope);
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
