@@ -71,45 +71,11 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& broadcast_graph = id_model.buildBroadcastGraph();
 
-  // For now, only a single resize op is allowed to exist.
-  auto resize_based_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
-  if (resize_based_tensor_ops.size() != 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Only a single resize op is allowed.");
-    return false;
-  }
-
-  auto resize_out_tv =
-      resize_based_tensor_ops.at(0)->output(0)->as<TensorView>();
-
-  auto all_dep_vals = DependencyCheck::getAllValsBetween(
-      {fusion->inputs().begin(), fusion->inputs().end()}, {resize_out_tv});
-  for (auto tv : ir_utils::filterByType<TensorView>(all_dep_vals)) {
-    if (tv == resize_out_tv) {
-      continue;
-    }
-    if (tv->isFusionOutput()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(),
-          "Dependency to fusion output not allowed: ",
-          tv->toString());
-      return false;
-    }
-    for (auto consumer_of_tv : ir_utils::consumerTvsOf(tv)) {
-      if (std::find(all_dep_vals.begin(), all_dep_vals.end(), consumer_of_tv) ==
-          all_dep_vals.end()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedulerType(),
-            "Resize inputs must be exclusively consumed by resize: ",
-            consumer_of_tv->toString());
-        return false;
-      }
-    }
-  }
+  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
   // Slicing of or to a broadcast ID is not allowed yet.
-  for (auto tensor_op : resize_based_tensor_ops) {
-    TensorView* out_tv = tensor_op->output(0)->as<TensorView>();
+  for (auto resize_tensor_op : resize_tensor_ops) {
+    TensorView* out_tv = resize_tensor_op->output(0)->as<TensorView>();
     for (auto logical_id : out_tv->getLogicalDomain()) {
       Resize* resize = dynamic_cast<Resize*>(logical_id->definition());
       if (resize == nullptr) {
@@ -154,6 +120,44 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  // Having different resizes between outputs is not allowed at this
+  // moment. For example, consider a fusion like:
+  //
+  // t0 = [i0]
+  // fusion.addInput(t0)
+  // t1 = t0[:i0/2]
+  // t2 = t0[i0/2:]
+  // fusion.addOutput(t1)
+  // fusion.addOutput(t2)
+  //
+  // For now, this is not going to be fused since t1 and t2 have
+  // different resize ops, although in this case, since the extents of t1 and
+  // t2 are the same, it should be relatively straightforward to fuse them
+  // together.
+  for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (out_tv == ref_tv) {
+      continue;
+    }
+    auto exprs = ValGraphBFS::getExprGroupsBetween(
+                     broadcast_graph,
+                     broadcast_graph.toGroups(ref_tv->getLogicalDomain()),
+                     broadcast_graph.toGroups(out_tv->getLogicalDomain()),
+                     /*require_all_to_visited=*/false)
+                     .first;
+    for (const auto& [expr_g, dir] : exprs) {
+      if (expr_g->front()->isA<Resize>()) {
+        std::stringstream msg;
+        msg << "Resize between reference and output not allowed.";
+        msg << " Reference: " << ref_tv->toString()
+            << ". Output: " << out_tv->toString()
+            << ". Resize: " << expr_g->front()->toString();
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedulerType(), msg.str());
+        return false;
+      }
+    }
+  }
+
   // Disable the scheduler if there's a squeeze op. The loop option
   // may also need to be enabled in that case, but that option is not
   // turned on automatically yet.
@@ -184,6 +188,31 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_utils::cacheInputs(fusion, true);
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
+  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  // Replicate resize inputs if necessary to avoid conflicting
+  // propagations
+  const auto exclusivity_info_map = scheduler_tools::getNonExclusiveResizeInfo(
+      resize_tensor_ops, exact_graph);
+  for (auto resize_tensor_op : resize_tensor_ops) {
+    auto out_tv = resize_tensor_op->output(0)->as<TensorView>();
+    if (exclusivity_info_map.count(out_tv) == 0) {
+      continue;
+    }
+    auto inp_tv = resize_tensor_op->input(0)->as<TensorView>();
+    // Since cacheInput may skip caching if an input is used by
+    // slice/pad, inp_tv may be a fusion input, in which case it is
+    // not necessary to recompute the tensor.
+    if (inp_tv->isFusionInput()) {
+      continue;
+    }
+    auto inp_tv_copy = RecomputeTv::recompute(inp_tv);
+    ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
+  }
+
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
@@ -207,9 +236,16 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
   ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
-  // Propagate the reference to the other tensors
+  // Propagate the reference to the other tensors. Note that the
+  // update flag is enabled so to workaround the resize propagation
+  // issue. This may not work if there's a tensor that is reshaped
+  // from the reference tensor, but that should not be the case as the
+  // reference is picked by the same routine used for the pointwise
+  // scheduler.
   scheduler_tools::scheduleLoopDomainsLike(
-      fusion->allTvs(), ref_tv->getLoopDomain());
+      fusion->allTvs(),
+      ref_tv->getLoopDomain(),
+      /*update_loop_domain_only=*/true);
 
   inlineMost();
 

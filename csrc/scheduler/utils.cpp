@@ -1201,9 +1201,9 @@ std::vector<TensorView*> cacheInputs(
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp>(tv)) {
-      // Right now, tensors that are input to the slice, select, and pad ops
-      // can't be cached as they must be in global memory.
+        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+      // Right now, tensors that are input to the select, gather and
+      // index_select ops can't be cached as they must be in global memory.
       continue;
     }
 
@@ -1217,7 +1217,7 @@ std::vector<TensorView*> cacheInputs(
     // caching load instructions.
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isA<PadOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp>()) {
         cached_uses.push_back(use);
       }
     }
@@ -1577,14 +1577,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
-      continue;
-    }
-
-    // Slice op is explicitly not enabled for vectorized load.
-    if (std::all_of(
-            input_tv->uses().begin(),
-            input_tv->uses().end(),
-            [](Expr* e) -> bool { return e->isA<SliceOp>(); })) {
       continue;
     }
 

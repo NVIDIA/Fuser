@@ -993,9 +993,6 @@ void AmpereMultipleMatmulScheduler::schedulePrologues() {
                                     std::vector<TensorView*>& mma_inputs,
                                     MmaOperand operand_type) {
     NVF_ERROR(smem_stores.size() == smem_loads.size());
-    // TODO: we should not assume that each operand is used in only a single
-    // mma op
-    NVF_ERROR(mma_results_.size() >= smem_loads.size());
     // We will save abs_ and bbs_ here for later use
     // TODO: save all register prologue tensors instead to a new vector called
     // prologue_register_tensors_

@@ -2811,7 +2811,7 @@ TEST_P(LdMatrixTest, Regular) {
 
 // We get shapes M and N from MmaMacrao. The vector of ints are
 // the tile_m and tile_n factors (8x8, 16x8 and 16x16).
-using StMatrixTestParams = std::tuple<MmaMacro, std::vector<int>>;
+using StMatrixTestParams = std::tuple<MmaMacro, std::vector<int>, DataType>;
 
 class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
  protected:
@@ -2829,6 +2829,7 @@ TEST_P(StMatrixTest, Regular) {
 
   auto macro = std::get<0>(GetParam());
   auto tile_sizes = std::get<1>(GetParam());
+  auto dtype = std::get<2>(GetParam());
   auto sizeM = getM(macro);
   auto sizeN = getN(macro);
   int64_t tile_m = tile_sizes.at(0);
@@ -2843,7 +2844,7 @@ TEST_P(StMatrixTest, Regular) {
   fusion.manage("st_matrix_m", sizeM);
   fusion.manage("st_matrix_n", sizeN);
 
-  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
+  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, dtype);
   fusion.addInput(tv0);
   // tv0 (global) -> tv1 (registers)
   auto tv1 = set(tv0);
@@ -2859,19 +2860,24 @@ TEST_P(StMatrixTest, Regular) {
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  auto s =
-      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv1->getLoopDomain());
-  tv1->setLoopDomain(s.as<IterDomain*>());
-  tv1->setAllocationDomain(s.as<IterDomain*>(), true);
+  for (auto tv : {tv1, tv2}) {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
+  }
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   mma_utils::scheduleStMatrixForMmaOutput(
       tv2, /*swizzle=*/MmaInputSmemSwizzle::None, tile_m, tile_n);
+
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
   tv3->merge(0);
   tv3->split(0, 32);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
 
   KernelExecutor ke;
@@ -2886,13 +2892,14 @@ std::string testNameStMatrixTest(
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto tile_sizes = std::get<1>(info.param);
+  auto dtype = std::get<2>(info.param);
   auto sizeM = getM(macro);
   auto sizeN = getN(macro);
   auto tile_m = tile_sizes.at(0);
   auto tile_n = tile_sizes.at(1);
 
   os << "m_" << sizeM << "_n_" << sizeN << "_tile_m_" << tile_m << "_tile_n_"
-     << tile_n;
+     << tile_n << "_" << mma_utils::dtypeToChar(dtype);
   return os.str();
 }
 
@@ -2904,7 +2911,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             // tile_m, tile_n
             std::vector<int>{16, 8},
-            std::vector<int>{16, 16})),
+            std::vector<int>{16, 16}),
+        testing::Values(DataType::Half, DataType::BFloat16)),
     testNameStMatrixTest);
 
 TEST_P(LdMatrixTest, Transpose) {

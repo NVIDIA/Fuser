@@ -20,6 +20,7 @@
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
+#include "options.h"
 
 namespace nvfuser {
 
@@ -187,7 +188,8 @@ TensorView* getOperandTv(
   NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
   const std::vector<TensorView*>& operands = it->second;
   NVF_ERROR(
-      operands.size() == 1,
+      isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+          operands.size() == 1,
       "Exactly one operand is expected in each A and B role");
   return operands.front();
 }
@@ -1309,19 +1311,9 @@ void scheduleStMatrixForMmaOutput(
       ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
       "We only support 16x16 and 16x16 stmatrix now");
 
-  NVF_ERROR(
-      tv->dtype() == DataType::Half, "we only support half type in stmatrix");
-
-  // [M, N] -> [128(TIDx), N/8 ,  2 , 2]
-  auto s =
-      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
-
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    // Create tma store allocation domain with swizzle
-    mma_utils::scheduleTMAStoreForMmaOutput(tv, swizzle);
-  }
-
-  tv->setLoopDomain(s.as<IterDomain*>());
+  NVF_CHECK(
+      dataTypeSize(tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   if (tile_m == 16 && tile_n == 16) {
     // Let [M, N] be [64, 32]
@@ -1341,16 +1333,18 @@ void scheduleStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
-  tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << patterns.size();
-    return ss.str();
+    if (!isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+      std::stringstream ss;
+      ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+         << patterns.size();
+      return ss.str();
+    }
+    TORCH_WARN("TODO: Update getOperandInnerDims for multiple patterns");
   }
   const MatmulPattern& pattern = patterns[0];
   IdModel id_model(fusion);
@@ -1854,40 +1848,43 @@ class MatmulTranslator : public OptInDispatch {
     // logical domains in input and weight already). Then we form an MmaOp and
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
+    int64_t a_dims = (int64_t)pattern_.A->getLogicalDomain().size();
+    int64_t b_dims = (int64_t)pattern_.B->getLogicalDomain().size();
     NVF_ERROR(
-        pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
-        "Cannot translate LinearOp with 1D input");
+        a_dims > 1 && b_dims > 1, "Cannot translate LinearOp with 1D input");
     NVF_ERROR(
-        pattern_.B->nDims() == 2,
-        "Cannot translate LinearOp without 2D weight tensor");
+        b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
       MmaOp::AxisMapping axis_mapping;
-      int64_t out_dim = pattern_.A->nDims() + 1L;
+      int64_t out_dim = a_dims + 1L;
       axis_mapping.a_axes.reserve(out_dim);
       for (int64_t d : c10::irange(out_dim - 2L)) {
-        axis_mapping.a_axes.push_back(d);
-      }
-      axis_mapping.a_axes.reserve(out_dim);
-      for (size_t d : c10::irange(out_dim - 2)) {
         axis_mapping.a_axes.push_back((int64_t)d);
       }
       axis_mapping.a_axes.push_back(-1); // missing N dimension
-      axis_mapping.a_axes.push_back(pattern_.A->nDims() - 1); // K dimension
+      axis_mapping.a_axes.push_back(a_dims - 1L); // K dimension
 
       axis_mapping.b_axes.reserve(out_dim);
       axis_mapping.b_axes.resize(out_dim, -1);
       axis_mapping.b_axes[out_dim - 2] = 0; // N
       axis_mapping.b_axes[out_dim - 1] = 1; // K
 
-      int64_t num_M_dims = 1 + pattern_.A->nDims() - pattern_.B->nDims();
+      int64_t num_M_dims = 1 + a_dims - b_dims;
 
       // Add loop broadcasts to A and B to mimic logical broadcasts for
       // simpler scheduling
-      pattern_.A->broadcast(-2); // There's always a single N dimension
+      // Note that since operands can be shared among multiple patterns, we
+      // should avoid modifying the operand twice. This is why we first check
+      // for loop broadcasts.
+      if (pattern_.A->domain()->additionalIDs().empty()) {
+        pattern_.A->broadcast(-2); // There's always a single N dimension
+      }
 
-      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-        // Broadcast B for every M dimension in A
-        pattern_.B->broadcast(0);
+      if (pattern_.B->domain()->additionalIDs().empty()) {
+        for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+          // Broadcast B for every M dimension in A
+          pattern_.B->broadcast(0);
+        }
       }
 
       fms = fusedMultiplySum(
