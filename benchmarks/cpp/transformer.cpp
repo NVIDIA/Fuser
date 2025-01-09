@@ -53,15 +53,15 @@ void setupTransformerForward(Fusion* fusion, DataType dtype) {
 }
 
 namespace {
-  at::Tensor shardTensor(
-      at::Tensor tensor,
-      const int64_t axis,
-      const DeviceMesh& mesh,
-      Communicator* communicator) {
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    const int64_t axis,
+    const DeviceMesh& mesh,
+    Communicator* communicator) {
   const auto device_id = communicator->deviceId();
   return nvfuser::shardTensor(tensor, axis, mesh, device_id);
 }
-}
+} // namespace
 
 void transformerFwd(
     benchmark::State& benchmark_state,
@@ -96,8 +96,7 @@ void transformerFwd(
       x_,
       ln0_w_,
       ln0_b_,
-      shardTensor(
-          mha_w0_.view({3, E, E}), 1, mesh, communicator)
+      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator)
           .view({1, 3 * E / D, E}),
       shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator)
           .view({1, 3 * E / D}),
