@@ -1527,6 +1527,34 @@ class ExpandOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+class RepeatOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  RepeatOp(IrBuilderPasskey, TensorView* out, TensorView* in);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "RepeatOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 class ViewAsScalar : public Expr {
  public:
   using Expr::Expr;

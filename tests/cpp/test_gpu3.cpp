@@ -9272,6 +9272,83 @@ TEST_F(NVFuserTest, AllIdsMultipleDependencies) {
   }
 }
 
+// Repeating a broadcast ID. RepeatOp should be used.
+TEST_F(NVFuserTest, Repeat1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = repeat(tv1, {1L, 2L});
+  fusion.addOutput(tv2);
+
+  EXPECT_TRUE(tv2->definition()->isA<RepeatOp>());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repeating a non-broadcast ID. Should be translated to broadcast +
+// expand + reshape.
+TEST_F(NVFuserTest, Repeat2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2L});
+  fusion.addOutput(tv1);
+
+  ASSERT_TRUE(tv1->definition()->isA<ViewOp>());
+  ASSERT_TRUE(tv1->definition()->input(0)->definition()->isA<ExpandOp>());
+  ASSERT_TRUE(tv1->definition()
+                  ->input(0)
+                  ->definition()
+                  ->input(0)
+                  ->definition()
+                  ->isA<BroadcastOp>());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repeating a mix of broadcast and non-broadcast IDs
+TEST_F(NVFuserTest, Repeat3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape{2, 1, 3, 1};
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2L, 2L, 2L, 2L});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

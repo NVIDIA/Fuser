@@ -2135,6 +2135,74 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
 
+RepeatOp::RepeatOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
+    : Expr(passkey) {
+  auto in_domain = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto& out_domain = out->getLogicalDomain();
+
+  NVF_ERROR(in_domain.size() == out_domain.size());
+
+  bool repetition_found = false;
+  for (const auto i : c10::irange(in_domain.size())) {
+    if (in_domain.at(i)->isBroadcast() && !out_domain.at(i)->isBroadcast()) {
+      NVF_ERROR(!in_domain.at(i)->hasExpandedExtent());
+      NVF_ERROR(in_domain.at(i)->extent()->isOneInt());
+      repetition_found = true;
+    }
+  }
+
+  NVF_ERROR(
+      repetition_found,
+      "No repetition dim found: ",
+      out->toString(),
+      ", ",
+      in->toString());
+
+  addOutput(out);
+  addInput(in);
+}
+
+std::string RepeatOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = repeat( " << in()
+                          << " )\n";
+  return ss.str();
+}
+
+std::string RepeatOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> RepeatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "ConcretizeOp expects exactly 1 input, but received ",
+      inputs.size());
+  auto tensor = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> sizes;
+  sizes.reserve(out()->getLogicalDomain().size());
+  const auto c2p =
+      PairwiseLogicalDomainMap(in(), out()).mapConsumerToProducer();
+  for (const auto i : c10::irange(out()->getLogicalDomain().size())) {
+    auto out_id = out()->getLogicalDomain().at(i);
+    auto inp_id = c2p.at(out_id);
+    auto out_extent = ee.evaluate(out_id->extent()).as<int64_t>();
+    auto inp_extent = ee.evaluate(inp_id->extent()).as<int64_t>();
+    NVF_ERROR(
+        out_extent == inp_extent || out_extent % inp_extent == 0,
+        "Invalid input and output extents: ",
+        inp_extent,
+        ", ",
+        out_extent);
+    sizes.push_back(out_extent / inp_extent);
+  }
+  return {tensor.repeat(sizes)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(RepeatOp)
+
 ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
