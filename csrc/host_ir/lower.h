@@ -16,7 +16,7 @@ namespace nvfuser {
 
 class HostIrLower {
  public:
-  static bool canLower(Expr* expr);
+  static bool canLower(Expr* expr, bool ignore_inner_resharding = false);
 
   // Lower a sharded Expr into a series of Communication.
   static std::vector<Expr*> lower(Expr* c);

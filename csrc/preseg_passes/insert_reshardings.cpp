@@ -33,7 +33,7 @@ void insertReshardingsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
-    if (HostIrLower::canLower(expr) || shouldReshardAfter(expr)) {
+    if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) || shouldReshardAfter(expr)) {
       continue;
     }
 
@@ -85,7 +85,7 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (HostIrLower::canLower(expr) || !shouldReshardAfter(expr)) {
+    if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) || !shouldReshardAfter(expr)) {
       continue;
     }
 

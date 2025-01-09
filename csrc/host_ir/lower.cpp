@@ -307,7 +307,7 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
   return comms;
 }
 
-bool HostIrLower::canLower(Expr* expr) {
+bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
   if (!isResharding(expr)) {
     return true;
   }
@@ -315,7 +315,7 @@ bool HostIrLower::canLower(Expr* expr) {
     return false;
   }
   if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
-    if (isInnerResharding(expr)) {
+    if (isInnerResharding(expr) && !ignore_inner_resharding) {
       return false;
     }
     auto in = reduction->in()->as<TensorView>();
@@ -337,7 +337,7 @@ bool HostIrLower::canLower(Expr* expr) {
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-    return !isInnerResharding(ldst) &&
+    return (!isInnerResharding(ldst) || ignore_inner_resharding) &&
         ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
   } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
     // For now we only support c = matmul(a,b) when b,c are fully replicated and
