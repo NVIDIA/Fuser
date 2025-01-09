@@ -54,7 +54,7 @@ void setupTransformerForward(Fusion* fusion, DataType dtype) {
   model->setupForward(fusion, dtype, /*sequence_parallel=*/false);
 }
 
-static at::Tensor transformerShardTensor_Mesh(
+at::Tensor transformerShardTensor_Mesh(
     at::Tensor tensor,
     const int64_t axis,
     const DeviceMesh& mesh,
@@ -63,7 +63,7 @@ static at::Tensor transformerShardTensor_Mesh(
   return nvfuser::shardTensor(tensor, axis, mesh, device_id);
 }
 
-static void transformerFwd(
+void transformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
     DataType dtype) {
@@ -119,7 +119,7 @@ static void transformerFwd(
 NVFUSER_BENCHMARK_DEFINE(
     TransformerForward,
     setupTransformerForward,
-    NvFuserScheduler_TransformerFwd,
+    transformerFwd,
     DataType::BFloat16);
 
 NVFUSER_BENCHMARK_RUN(TransformerForward)
