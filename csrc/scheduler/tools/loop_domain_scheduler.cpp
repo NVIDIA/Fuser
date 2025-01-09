@@ -444,15 +444,16 @@ void scheduleLoopDomainsBy(
     // It should be either: all of the inputs found and none of the
     // outputs found, or none of the inputs found and all of the
     // outputs found.
+    Direction replay_dir_tv = Direction::Undefined;
     if (replay_dir != Direction::Backward &&
         input_ids.size() == transform->inputs().size()) {
       NVF_ERROR(output_ids.empty());
-      replay_dir = Direction::Forward;
+      replay_dir_tv = Direction::Forward;
     } else if (
         replay_dir != Direction::Forward &&
         output_ids.size() == transform->outputs().size()) {
       NVF_ERROR(input_ids.empty());
-      replay_dir = Direction::Backward;
+      replay_dir_tv = Direction::Backward;
     } else {
       // Replay not possible since none of inputs nor outputs are connected with
       // the transform
@@ -460,11 +461,12 @@ void scheduleLoopDomainsBy(
     }
 
     const auto& existing_ids =
-        replay_dir == Direction::Forward ? input_ids : output_ids;
+        replay_dir_tv == Direction::Forward ? input_ids : output_ids;
 
     // Clone inputs or outputs
-    auto& new_ids = replay_dir == Direction::Forward ? output_ids : input_ids;
-    const auto& ref_of_ids_to_generate = replay_dir == Direction::Forward
+    auto& new_ids =
+        replay_dir_tv == Direction::Forward ? output_ids : input_ids;
+    const auto& ref_of_ids_to_generate = replay_dir_tv == Direction::Forward
         ? transform->outputs()
         : transform->inputs();
 
