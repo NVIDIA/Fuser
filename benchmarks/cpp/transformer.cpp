@@ -31,20 +31,20 @@ using namespace nvfuser;
 namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
-static constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+  constexpr int64_t B = 2, E = 768, H = 16, S = 128;
 // Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
 // it throws off the seed offset between the sharded nvFuser program and the
 // unsharded reference.
-static constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+  constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-static constexpr double kParamScale = 0.02;
+  constexpr double kParamScale = 0.02;
 } // namespace
 
 // Return reduction tensor view and output of reduction
-static void setupTransformerForward(Fusion* fusion, DataType dtype) {
-  Communicator* communicator_ = &Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
+void setupTransformerForward(Fusion* fusion, DataType dtype) {
+  Communicator* communicator_ = &Communicator::getInstance();
 
   const int64_t D = communicator_->size(); // number of devices
 
@@ -61,17 +61,6 @@ static at::Tensor transformerShardTensor_Mesh(
     Communicator* communicator_) {
   const auto device_id = communicator_->deviceId();
   return nvfuser::shardTensor(tensor, axis, mesh, device_id);
-}
-
-static at::Tensor transformerShardTensor(at::Tensor tensor, TensorView* tv, Communicator* communicator_) {
-  if (!isSharded(tv)) {
-    return tensor;
-  }
-  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
-  return transformerShardTensor_Mesh(
-      tensor,
-      getShardedLogicalAxis(tv, ParallelType::DIDx),
-      tv->getDeviceMesh(), communicator_);
 }
 
 static void transformerFwd(
