@@ -545,7 +545,13 @@ void cancelReshapeInLoopDomains(TensorView* from_tv) {
 
     auto all_dep_vals =
         DependencyCheck::getAllValsBetween({reshape_out}, fusion->outputs());
-    // Exclude reshape_out
+    // Exclude reshape_out. These tensors are going to be updated by
+    // replaying the reshape transform exprs using
+    // scheduleLoopDomainsBy. Since the reshape output
+    // tensor already has the exprs, replaying with
+    // scheduleLoopDomainsBy would complain if not excluded. For the
+    // reshape output tensor, setLoopDomain is done with the existing
+    // IDs without replaying.
     all_dep_vals.erase(all_dep_vals.begin());
     auto all_dep_tvs = ir_utils::filterByType<TensorView>(all_dep_vals);
 
