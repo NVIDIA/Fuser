@@ -464,9 +464,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
-      preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
       preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
       preseg_passes::MakeReshardingContiguousPass>::runPass(fusion.get());
 
