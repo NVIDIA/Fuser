@@ -51,7 +51,7 @@ static void setupTransformerForward(Fusion* fusion, DataType dtype) {
   std::unique_ptr<DistributedTransformer> model = std::make_unique<DistributedTransformer>(
         D, B, E, H, S, kDropoutProb, kSdpaProb);
 
-  model->setupForward(fusion, dtype, /*sequence_parallel*/false);
+  model->setupForward(fusion, dtype, /*sequence_parallel=*/false);
 }
 
 static std::vector<at::Tensor> reference_mlp(
