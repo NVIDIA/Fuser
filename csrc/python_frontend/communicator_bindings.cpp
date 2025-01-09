@@ -19,11 +19,24 @@ void bindCommunicator(py::module& nvfuser) {
   communicator.def(
       "instance",
       &Communicator::getInstance,
+      "Returns the singleton communicator instance.",
       py::return_value_policy::reference);
-  communicator.def("size", &Communicator::size);
-  communicator.def("rank", &Communicator::deviceId);
-  communicator.def("local_size", &Communicator::local_size);
-  communicator.def("local_rank", &Communicator::local_rank);
+  communicator.def(
+      "size",
+      &Communicator::size,
+      "Returns the number of processes in the communicator.");
+  communicator.def(
+      "rank",
+      &Communicator::deviceId,
+      "Returns the device ID associated with the current process.");
+  communicator.def(
+      "local_size",
+      &Communicator::local_size,
+      "Returns the number of processes within the node.");
+  communicator.def(
+      "local_rank",
+      &Communicator::local_rank,
+      "Returns the in-node rank associated with the current process.");
 }
 
 } // namespace nvfuser::python_frontend
