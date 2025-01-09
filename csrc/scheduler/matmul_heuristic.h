@@ -193,7 +193,7 @@ class MatmulParams : public HeuristicParams {
 
   //! This is the CGA size on Hopper+ devices. This parameter is ignored on
   //! Ampere and Turing.
-  std::tuple<int64_t, int64_t, int64_t> cluster_dims = {2, 1, 1};
+  std::tuple<int64_t, int64_t, int64_t> cluster_dims = {1, 1, 1};
 
   std::string toString() const override {
     std::stringstream ss;
