@@ -160,7 +160,7 @@ int64_t getShardedLogicalAxis(
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
       mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr || alloc_id->isReduction()) {
+  if (alloc_id == nullptr) {
     return -1;
   }
 
@@ -417,9 +417,7 @@ bool haveDifferentShardings(
           .strictAreMapped(a, b);
     };
 
-    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model) ||
-        (p_loop_id != nullptr && c_loop_id != nullptr &&
-         p_loop_id->isReduction() != c_loop_id->isReduction())) {
+    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
       return true;
     }
   }
@@ -462,6 +460,9 @@ bool isInnerResharding(Expr* expr) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto [shard_additions, shard_deletions] =
           getShardingChanges(input, output);
+      NVF_ERROR(
+          shard_additions.size() + shard_deletions.size() <= 1,
+          "Resharding expr can only support one axis")
       if ((!shard_deletions.empty() &&
            allocationIndex(input, shard_deletions.at(0)) > 0) ||
           (!shard_additions.empty() &&
