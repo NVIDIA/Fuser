@@ -28,7 +28,6 @@
 
 using namespace nvfuser;
 
-namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
 constexpr int64_t B = 2, E = 768, H = 16, S = 128;
@@ -40,13 +39,12 @@ constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
 constexpr double kParamScale = 0.02;
-} // namespace
 
 // Return reduction tensor view and output of reduction
 void setupTransformerForward(Fusion* fusion, DataType dtype) {
-  Communicator* communicator_ = &Communicator::getInstance();
+  Communicator* communicator = &Communicator::getInstance();
 
-  const int64_t D = communicator_->size(); // number of devices
+  const int64_t D = communicator->size(); // number of devices
 
   auto model = std::make_unique<DistributedTransformer>(
       D, B, E, H, S, kDropoutProb, kSdpaProb);
@@ -54,28 +52,30 @@ void setupTransformerForward(Fusion* fusion, DataType dtype) {
   model->setupForward(fusion, dtype, /*sequence_parallel=*/false);
 }
 
-at::Tensor transformerShardTensor_Mesh(
-    at::Tensor tensor,
-    const int64_t axis,
-    const DeviceMesh& mesh,
-    Communicator* communicator_) {
-  const auto device_id = communicator_->deviceId();
+namespace {
+  at::Tensor shardTensor(
+      at::Tensor tensor,
+      const int64_t axis,
+      const DeviceMesh& mesh,
+      Communicator* communicator) {
+  const auto device_id = communicator->deviceId();
   return nvfuser::shardTensor(tensor, axis, mesh, device_id);
+}
 }
 
 void transformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
     DataType dtype) {
-  Communicator* communicator_ = &Communicator::getInstance();
-  const int64_t D = communicator_->size(); // number of devices
+  Communicator* communicator = &Communicator::getInstance();
+  const int64_t D = communicator->size(); // number of devices
 
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   const auto mesh = DeviceMesh::createForNumDevices(D);
   std::vector<int64_t> norm_shape{E};
 
   const auto options =
-      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+      at::TensorOptions().dtype(at_dtype).device(communicator->device());
   auto x_ = at::randn({B * S, E}, options);
   auto ln0_w_ = at::randn(E, options).to(at::kFloat);
   auto ln0_b_ = at::randn(E, options).to(at::kFloat);
@@ -96,18 +96,18 @@ void transformerFwd(
       x_,
       ln0_w_,
       ln0_b_,
-      transformerShardTensor_Mesh(
-          mha_w0_.view({3, E, E}), 1, mesh, communicator_)
+      shardTensor(
+          mha_w0_.view({3, E, E}), 1, mesh, communicator)
           .view({1, 3 * E / D, E}),
-      transformerShardTensor_Mesh(mha_b0_.view({3, E}), 1, mesh, communicator_)
+      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator)
           .view({1, 3 * E / D}),
-      transformerShardTensor_Mesh(mha_w1_, 1, mesh, communicator_).unsqueeze(0),
+      shardTensor(mha_w1_, 1, mesh, communicator).unsqueeze(0),
       mha_b1_,
       ln1_w_,
       ln1_b_,
-      transformerShardTensor_Mesh(mlp_w0_, 0, mesh, communicator_).unsqueeze(0),
-      transformerShardTensor_Mesh(mlp_b0_, 0, mesh, communicator_).unsqueeze(0),
-      transformerShardTensor_Mesh(mlp_w1_, 1, mesh, communicator_).unsqueeze(0),
+      shardTensor(mlp_w0_, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_b0_, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_w1_, 1, mesh, communicator).unsqueeze(0),
       mlp_b1_};
 
   auto bytes =
