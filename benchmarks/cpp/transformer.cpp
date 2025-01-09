@@ -23,23 +23,23 @@
 
 #include <benchmarks/cpp/utils.h>
 #include <csrc/multidevice/utils.h>
-#include <tests/cpp/utils.h>
 #include <tests/cpp/multidevice_transformer.h>
+#include <tests/cpp/utils.h>
 
 using namespace nvfuser;
 
 namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
-  constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+constexpr int64_t B = 2, E = 768, H = 16, S = 128;
 // Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
 // it throws off the seed offset between the sharded nvFuser program and the
 // unsharded reference.
-  constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-  constexpr double kParamScale = 0.02;
+constexpr double kParamScale = 0.02;
 } // namespace
 
 // Return reduction tensor view and output of reduction
@@ -49,7 +49,7 @@ void setupTransformerForward(Fusion* fusion, DataType dtype) {
   const int64_t D = communicator_->size(); // number of devices
 
   auto model = std::make_unique<DistributedTransformer>(
-        D, B, E, H, S, kDropoutProb, kSdpaProb);
+      D, B, E, H, S, kDropoutProb, kSdpaProb);
 
   model->setupForward(fusion, dtype, /*sequence_parallel=*/false);
 }
@@ -96,8 +96,11 @@ void transformerFwd(
       x_,
       ln0_w_,
       ln0_b_,
-      transformerShardTensor_Mesh(mha_w0_.view({3, E, E}), 1, mesh, communicator_).view({1, 3 * E / D, E}),
-      transformerShardTensor_Mesh(mha_b0_.view({3, E}), 1, mesh, communicator_).view({1, 3 * E / D}),
+      transformerShardTensor_Mesh(
+          mha_w0_.view({3, E, E}), 1, mesh, communicator_)
+          .view({1, 3 * E / D, E}),
+      transformerShardTensor_Mesh(mha_b0_.view({3, E}), 1, mesh, communicator_)
+          .view({1, 3 * E / D}),
       transformerShardTensor_Mesh(mha_w1_, 1, mesh, communicator_).unsqueeze(0),
       mha_b1_,
       ln1_w_,

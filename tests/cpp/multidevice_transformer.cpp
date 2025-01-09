@@ -395,7 +395,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
 /* NVFuser benchmark manages the unique_ptr for Fusion and FusionExecutorCache,
    so update the raw pointer with this setupForward function */
 void DistributedTransformer::setupForward(
-    Fusion *fusion,
+    Fusion* fusion,
     DataType dtype,
     bool sequence_parallel) {
   FusionGuard fg(fusion);

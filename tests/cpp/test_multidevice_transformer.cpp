@@ -11,8 +11,8 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <ops/all_ops.h>
 #include <multidevice/communicator.h>
+#include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_transformer.h>
 #include <tests/cpp/validator.h>
