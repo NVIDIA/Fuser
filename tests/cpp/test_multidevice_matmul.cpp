@@ -418,7 +418,8 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   constexpr int64_t kLowerBound = 0;
   constexpr int64_t kUpperBound = 10;
   auto x_tensor = at::randint(kLowerBound, kUpperBound, {2, 3}, tensor_options);
-  auto w_tensor = at::randint(kLowerBound, kUpperBound, {mesh.size(), 3, 5}, tensor_options);
+  auto w_tensor = at::randint(
+      kLowerBound, kUpperBound, {mesh.size(), 3, 5}, tensor_options);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
