@@ -28,12 +28,17 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     if (HostIrLower::canLower(expr)) {
       continue;
     }
-    if (expr->outputs().size() > 1 || expr->inputs().size() > 1) {
-      continue;
-    }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported: ",
+        expr->toString());
+    NVF_ERROR(
+        expr->outputs().size() == 1,
+        "Resharding operations can only have one output: ",
+        expr->toString());
+    NVF_ERROR(
+        expr->inputs().size() == 1,
+        "Resharding operations can have only one input: ",
         expr->toString());
     auto* output = expr->outputs().at(0)->as<TensorView>();
     auto* input = expr->inputs().at(0)->as<TensorView>();
