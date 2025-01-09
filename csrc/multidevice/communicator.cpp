@@ -193,8 +193,6 @@ Communicator::Communicator(
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
 
-  printf("rank=%ld, size=%ld, local_rank_=%ld, local_size_=%ld\n", rank_, size_, local_rank_, local_size_);
-
   if (!is_available_) {
     return;
   }
@@ -234,15 +232,11 @@ void Communicator::cleanup() {
       "likely because Communicator::cleanup was called more than once");
   cleaned_up = true;
 
-  printf("entered cleanup on rank %ld\n", rank_);
-
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
   if (is_available()) {
-    printf("calling barrier on rank %ld\n", rank_);
     barrier();
-    printf("done calling barrier on rank %ld\n", rank_);
   }
 
   store_ = nullptr;
@@ -257,9 +251,7 @@ void Communicator::cleanup() {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
     // https://github.com/pytorch/pytorch/blob/e62073d7997c9e63896cb5289ffd0874a8cc1838/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L1164-L1170.
     if (auto* pg_nccl = dynamic_cast<c10d::ProcessGroupNCCL*>(backend.get())) {
-      printf("pg shutdown on rank %ld\n", rank_);
       pg_nccl->shutdown();
-      printf("done calling pg shutdown on rank %ld\n", rank_);
     }
   }
 #endif

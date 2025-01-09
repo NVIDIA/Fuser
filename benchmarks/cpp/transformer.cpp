@@ -31,7 +31,7 @@ using namespace nvfuser;
 namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
-static constexpr int64_t B = 2, E = 32/*768*/, H = 2/*16*/, S = 32/*128*/;
+static constexpr int64_t B = 2, E = 768, H = 16, S = 128;
 // Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
 // it throws off the seed offset between the sharded nvFuser program and the
 // unsharded reference.
@@ -78,13 +78,8 @@ static void NvFuserScheduler_TransformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
     DataType dtype) {
-  Communicator* communicator_ = &Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
+  Communicator* communicator_ = &Communicator::getInstance();
   const int64_t D = communicator_->size(); // number of devices
-
-  // printf("did=%ld in fwd before barrier\n", communicator_->deviceId());fflush(0);
-  // communicator_->barrier();
-  // printf("did=%ld in fwd after barrier\n", communicator_->deviceId());fflush(0);
-  printf("did=%ld in fwd\n", communicator_->deviceId());fflush(0);
 
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   const auto mesh = DeviceMesh::createForNumDevices(D);
@@ -139,8 +134,6 @@ NVFUSER_BENCHMARK_DEFINE(
     DataType::BFloat16);
 
 NVFUSER_BENCHMARK_RUN(TransformerForward)
-    // ->RangeMultiplier(2)
-    ->Ranges({{8, 8}})
-    ->Iterations(1)
+    ->Iterations(10)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
