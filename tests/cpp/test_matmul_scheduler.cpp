@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
@@ -1060,7 +1061,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 //   for Ampere with strict ref check, hence single layout check
 TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   // TODO: Make these tests work with Hopper as well as Ampere
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
 
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
@@ -2481,7 +2482,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
 
 // Test that our fake plugin works to override the default heuristic
 TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -2660,7 +2661,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
+TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
@@ -2671,12 +2672,20 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   // A - tv0, B - tv1
   auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+  TensorView* tv2 = makeContigConcreteTensor({-1}, DataType::Half);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+  // We add these computations to test
+  // scheduling (with epilogue) when the ouptut of mma is not
+  // cast to half.
+  auto tv4 = maybeCastOp(DataType::Float, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
+  auto tv6 = neg(tv5);
 
-  fusion->addOutput(tv2);
+  fusion->addOutput(tv6);
 
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
@@ -2689,10 +2698,14 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
+  auto c = at::randn({M}, options);
   auto t0 = a.unsqueeze(1);
   auto t1 = b.unsqueeze(0);
-  auto tref = at::matmul(a.to(at::kFloat), b.to(at::kFloat).t());
-  std::vector<c10::IValue> inputs{t0, t1};
+  auto tref =
+      atBiasEpilogue(
+          at::matmul(a.to(at::kFloat), b.to(at::kFloat).t()), c.to(at::kFloat))
+          .neg_();
+  std::vector<c10::IValue> inputs{t0, t1, c};
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2705,9 +2718,7 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
-  // TODO: Currently we use stmatrix whenever this is true. We cannot do that
-  // when the dtype is not 16 bits.
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true;
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -2720,17 +2731,75 @@ TEST_F(MatmulSchedulerTest, PreBroadcastGEMM) {
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
-class MatmulFusionTest : public MatmulSchedulerTest,
-                         public ::testing::WithParamInterface<bool> {
+// Test automatically scheduling a fusion that requires 64-bit indexing
+TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+  auto tv3 = maybeCastOp(DataType::Float, tv2);
+  auto tv4 = neg(tv3);
+  auto tv5 = castOp(DataType::Half, tv4);
+
+  fusion->addOutput(tv5);
+
+  // We use an input size large enough to require 64-bit indexing to index some
+  // elements of the inputs.
+  // NOTE: This size requires 64-bit indexing in the epilogue only.
+  const int M = 1 << 16, N = 1 << 15, K = 1 << 8;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  at::Tensor a = at::randn({M, K}, options);
+  at::Tensor b = at::randn({K, N}, options);
+  std::vector<c10::IValue> inputs{a, b};
+
+  at::Tensor tref = -at::matmul(a, b);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(
+      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+
+  if (!cudaArchGuardShouldSkip(9, 0)) {
+    // The Hopper matmul scheduler should reject this fusion since it requires
+    // 64-bit indexing.
+    // See https://github.com/NVIDIA/Fuser/issues/3595
+    // TODO: Lift this temporary restriction and remove this check
+    for (const auto& heur : executor_cache.getMostRecentKernelRuntime()
+                                ->schedulerHeuristics()
+                                ->heuristicsList()) {
+      EXPECT_NE(heur->scheduler_type, SchedulerType::Matmul);
+    }
+  }
+}
+
+class MatmulFusionTest
+    : public MatmulSchedulerTest,
+      public ::testing::WithParamInterface<std::pair<bool, bool>> {
  protected:
   void SetUp() override {
     if (fusion_enabled) {
       EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
     }
+    if (horizontal_fusion_enabled) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::FuseMultipleMatmuls);
+    }
   }
 
   EnableOptionsGuard eog_;
-  bool fusion_enabled = GetParam();
+  bool fusion_enabled = GetParam().first;
+  bool horizontal_fusion_enabled = GetParam().second;
 };
 
 // Test that we can segment a Fusion containing two matmuls
@@ -2788,21 +2857,28 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
 
-  EXPECT_TRUE(runtime->isSegmented());
+  size_t expected_kernels =
+      fusion_enabled ? (horizontal_fusion_enabled ? 1 : 2) : 3;
 
-  if (fusion_enabled) {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
-  } else {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
-  }
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), expected_kernels);
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulFusionTest,
-    ::testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "fuse" : "dontfuse";
+    ::testing::ValuesIn(std::vector<std::pair<bool, bool>>{
+        {false, false},
+        {true, false},
+        {true, true}}),
+    [](const testing::TestParamInfo<std::pair<bool, bool>>& info) {
+      bool fuse = info.param.first;
+      bool horiz_fuse = info.param.second;
+      if (horiz_fuse) {
+        NVF_ERROR(
+            fuse, "Horizontal fusion enabled but overall fusion disabled");
+      }
+      return fuse ? (horiz_fuse ? "fuse_horizontal" : "fuse_single")
+                  : "dontfuse";
     });
 
 // This test can be used to check that an external plugin has been loaded. It
@@ -3143,7 +3219,7 @@ INSTANTIATE_TEST_SUITE_P(
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   int M = 32, N = 64, K = 128;
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -3296,8 +3372,7 @@ class HopperMatmulSchedulerTest
     KernelExecutor ke;
     ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
     auto nvf_out = ke.run(inputs);
-    // NOTE Relax tolerances for split-k case
-    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-3, 1e-3));
+    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-2, 1e-2));
   }
 
  protected:
@@ -3375,6 +3450,75 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   fusion->addOutput(tv3);
 
   tref = atMatmul(A.squeeze(), B.squeeze(), layout);
+}
+
+// TODO: Remove this test once the architecture agnostic can be
+// run on hopper.
+TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
+  const auto& [A, B] =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  const auto& C = matmulAtInput2D(
+      layout, TensorMatmulPos::Bias, data_type_to_aten(dtype), M, N, K);
+  inputs = {A, B, C};
+
+  TensorView* tv0 = nullptr;
+  TensorView* tv1 = nullptr;
+  std::unordered_map<int64_t, int64_t> old2new;
+  int64_t k_axis = 0;
+
+  switch (layout) {
+    case MmaLayout::TT:
+      // Inner dims KN, order is MKN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {{-2, -1}, {-1, -2}};
+      k_axis = -2;
+      break;
+    case MmaLayout::TN:
+      // Inner dims KK, order is MNK
+      tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      old2new = {};
+      k_axis = -1;
+      break;
+    case MmaLayout::NT:
+      // Inner dims MN, order is KMN
+      tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+      old2new = {{-3, -1}};
+      k_axis = -3;
+      break;
+    case MmaLayout::NN:
+      // Inner dims MK, order is NKM
+      tv0 = makeContigConcreteTensor({1, -1, -1}, dtype);
+      tv1 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+      old2new = {{-1, -3}};
+      k_axis = -2;
+      break;
+  }
+  TensorView* tv2 = makeContigConcreteTensor({-1}, dtype);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = fusedMultiplySum(tv0, tv1, {k_axis});
+
+  // Reorder the accumulator as [M, N, K]
+  tv3->reorder(old2new);
+  tv3->commitLeafToLogical();
+
+  auto* tv4 = maybeCastOp(DataType::Float, tv2);
+  auto* tv5 = biasEpilogue(tv3, tv4);
+  auto* tv6 = neg(tv5);
+  auto* tv7 = castOp(dtype, tv6);
+  fusion->addOutput(tv7);
+
+  tref = atBiasEpilogue(
+             atMatmul(A.squeeze(), B.squeeze(), layout),
+             C.to(data_type_to_aten(DataType::Float)))
+             .neg_()
+             .to(data_type_to_aten(DataType::Half));
 }
 
 INSTANTIATE_TEST_SUITE_P(

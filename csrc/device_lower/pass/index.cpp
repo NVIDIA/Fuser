@@ -1686,8 +1686,8 @@ Val* hardCodedIndexGenerationForStMatrix(
   Val* out_index = nullptr;
 
   NVF_ERROR(
-      ldst->out()->dtype() == DataType::Half,
-      "we only support half type in stmatrix");
+      dataTypeSize(ldst->out()->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
@@ -1959,8 +1959,8 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
       "size not currently supported for stmatrix");
 
   NVF_ERROR(
-      ldst->out()->dtype() == DataType::Half,
-      "we only support half type in stmatrix");
+      dataTypeSize(ldst->out()->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
@@ -2581,6 +2581,16 @@ void IndexLowering::handle(const kir::FenceAsyncProxy* fence) {
 void IndexLowering::handle(const kir::WgMmaFence* fence) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Return* ret) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Return*>(ret)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::AsyncCommit* commit) {

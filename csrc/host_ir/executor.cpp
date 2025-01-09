@@ -6,13 +6,15 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -34,14 +36,14 @@ bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && isLowerableToCommunication(e);
+        return isResharding(e) && HostIrLower::canLower(e);
       })) {
     NVF_ERROR(
         std::all_of(
             exprs.begin(),
             exprs.end(),
             [](Expr* e) {
-              return isResharding(e) && isLowerableToCommunication(e);
+              return isResharding(e) && HostIrLower::canLower(e);
             }),
         "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
     return true;
@@ -67,8 +69,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
-      std::vector<Communication*> communications =
-          lowerCommunication(cloner.clone(e));
+      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -187,7 +188,8 @@ HostIrEvaluator::HostIrEvaluator(
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params) {
+      params_(params),
+      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -218,6 +220,36 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
+std::string HostIrEvaluator::canRun() const {
+  const int64_t requested_n_gpus = requestedNumberOfDevices(container_.get());
+
+  if (requested_n_gpus == 1) {
+    return "";
+  }
+
+  if (communicator_ == nullptr) {
+    return "A communicator must be provided";
+  }
+
+  if (!communicator_->is_available()) {
+    return "distributed configuration required";
+  }
+
+  if (requested_n_gpus > communicator_->size()) {
+    return "the fusion requests " + std::to_string(requested_n_gpus) +
+        " GPUs to run, but there are only " +
+        std::to_string(communicator_->size()) + " ranks in the communicator";
+  }
+
+  if (communicator_->local_size() > at::cuda::getNumGPUs()) {
+    return std::to_string(communicator_->local_size()) +
+        " processes are spawn on the node but only " +
+        std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";
+  }
+
+  return "";
+}
+
 c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
   StreamKey stream_key = stream;
   // if stream points to an index, it represents the dynamic value of that index
@@ -242,8 +274,27 @@ void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
   setCurrentCUDAStream(getCUDAStream(set_current_stream->stream()));
 }
 
+void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
+  streams_.insert(
+      {get_current_stream->stream(),
+       c10::cuda::getCurrentCUDAStream(
+           static_cast<c10::DeviceIndex>(my_device_index_))});
+}
+
 void HostIrEvaluator::handle(Synchronize* synchronize) {
-  getCUDAStream(synchronize->stream()).synchronize();
+  cudaStream_t current_stream =
+      c10::cuda::getCurrentCUDAStream(
+          static_cast<c10::DeviceIndex>(my_device_index_))
+          .stream();
+  cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
+
+  cudaEvent_t event = {};
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream_to_sync));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {

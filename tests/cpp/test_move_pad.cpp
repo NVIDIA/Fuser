@@ -448,4 +448,36 @@ TEST_F(MovePadTest, BooleanCat) {
       __FILE__);
 }
 
+TEST_F(MovePadTest, Issue3597Repro) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{fusion.oneVal(), tv0->axis(0)->extent()},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  auto tv3 = segment_set(tv2);
+
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = pad(tv4, {fusion.zeroVal(), fusion.oneVal()});
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5, 10}, options);
+  auto t1 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
