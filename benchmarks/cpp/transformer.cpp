@@ -48,8 +48,6 @@ static void setupTransformerForward(Fusion* fusion, DataType dtype) {
 
   const int64_t D = communicator_->size(); // number of devices
 
-  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::EnableNocupti);
-
   std::unique_ptr<DistributedTransformer> model = std::make_unique<DistributedTransformer>(
         D, B, E, H, S, kDropoutProb, kSdpaProb);
 
