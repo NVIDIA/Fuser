@@ -227,9 +227,9 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 }
 
 struct WarpSpecialized {
-  ParallelType on;
+  ParallelType on = ParallelType::Serial;
   // The number of registers for load and compute warps respectively.
-  std::optional<std::pair<int64_t, int64_t>> num_registers;
+  std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
 
   explicit WarpSpecialized(
       ParallelType on,
