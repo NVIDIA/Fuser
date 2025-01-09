@@ -939,9 +939,23 @@ IndexingInfo TensorIndexer::computeIndex(
     const std::vector<ForLoop*>& for_loops) const {
   const auto loop_domains = getLoopIds(expr, id_model_);
 
+  // Set aside broadcast IDs as their indices should always be zero
+  // and there may not be reachable from the loop domain
+  std::vector<IterDomain*> broadcast_index_ids;
+  broadcast_index_ids.reserve(index_ids.size());
+  std::vector<IterDomain*> non_broadcast_index_ids;
+  non_broadcast_index_ids.reserve(index_ids.size());
+  for (const auto index_id : index_ids) {
+    if (index_id->isBroadcast()) {
+      broadcast_index_ids.push_back(index_id);
+    } else {
+      non_broadcast_index_ids.push_back(index_id);
+    }
+  }
+
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
-      expr, traversalGraph(), loop_domains, index_ids);
+      expr, traversalGraph(), loop_domains, non_broadcast_index_ids);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains, for_loops);
@@ -980,11 +994,15 @@ IndexingInfo TensorIndexer::computeIndex(
     }
   }
 
+  // Fill in broadcast index groups by zero
+  auto index_map = index_compute.indexMap();
+  for (const auto broadcast_index_id : broadcast_index_ids) {
+    index_map[traversalGraph().toGroup(broadcast_index_id)] =
+        broadcast_index_id->fusion()->zeroVal();
+  }
+
   IndexingInfo info{
-      loop_domains,
-      traversal_path,
-      index_compute.indexMap(),
-      loop_group_dependencies};
+      loop_domains, traversal_path, index_map, loop_group_dependencies};
   return info;
 }
 
