@@ -31,7 +31,7 @@ using namespace nvfuser;
 namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
-static constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+static constexpr int64_t B = 2, E = 32/*768*/, H = 2/*16*/, S = 32/*128*/;
 // Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
 // it throws off the seed offset between the sharded nvFuser program and the
 // unsharded reference.
@@ -48,45 +48,12 @@ static void setupTransformerForward(Fusion* fusion, DataType dtype) {
 
   const int64_t D = communicator_->size(); // number of devices
 
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::EnableNocupti);
+
   std::unique_ptr<DistributedTransformer> model = std::make_unique<DistributedTransformer>(
         D, B, E, H, S, kDropoutProb, kSdpaProb);
 
   model->setupForward(fusion, dtype, /*sequence_parallel=*/false);
-}
-
-static std::vector<at::Tensor> reference_mlp(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1) {
-  auto at_dtype = w0.dtype();
-  auto linear0 = at::linear(x, w0, b0);
-  auto gelu = at::gelu(linear0.to(at::kFloat), "tanh").to(at_dtype);
-  auto linear1 = at::linear(gelu, w1, b1).to(at::kFloat);
-  auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
-  return {linear0, gelu, linear1, dropout, mask};
-}
-
-static std::vector<at::Tensor> reference_mha(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1) {
-  auto linear0 = at::linear(x, w0, b0);
-  auto qkv = linear0.view({B, S, 3 * E}).split(E, 2);
-  for (auto i = 0; i < 3; i++) {
-    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2);
-  }
-  auto sdpa_out = at::_scaled_dot_product_flash_attention(
-      qkv[0], qkv[1], qkv[2], kSdpaProb, true, false, kSdpaScale);
-  auto sdpa = std::get<0>(sdpa_out);
-  // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
-  auto y = sdpa.transpose(1, 2).reshape({B * S, E});
-  auto linear1 = at::linear(y, w1, b1).to(at::kFloat);
-  auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
-  return {linear0, sdpa, linear1, dropout, mask};
 }
 
 static at::Tensor transformerShardTensor_Mesh(
@@ -116,13 +83,13 @@ static void NvFuserScheduler_TransformerFwd(
   Communicator* communicator_ = &Communicator::getInstance(); // nick TODO call Communicator::getInstance().cleanup() somewhere before program exit
   const int64_t D = communicator_->size(); // number of devices
 
-  printf("did=%ld in fwd before barrier\n", communicator_->deviceId());fflush(0);
-  communicator_->barrier();
-  printf("did=%ld in fwd after barrier\n", communicator_->deviceId());fflush(0);
+  // printf("did=%ld in fwd before barrier\n", communicator_->deviceId());fflush(0);
+  // communicator_->barrier();
+  // printf("did=%ld in fwd after barrier\n", communicator_->deviceId());fflush(0);
+  printf("did=%ld in fwd\n", communicator_->deviceId());fflush(0);
 
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   const auto mesh = DeviceMesh::createForNumDevices(D);
-  constexpr float kEps = 1e-5;
   std::vector<int64_t> norm_shape{E};
 
   const auto options =
@@ -142,20 +109,6 @@ static void NvFuserScheduler_TransformerFwd(
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
   at::manual_seed(getATenRandomSeed());
-  auto x_float_ = x_.to(at::kFloat);
-  auto ln0_ = at::native_layer_norm(x_float_, norm_shape, ln0_w_, ln0_b_, kEps);
-  auto ln0_out_ = std::get<0>(ln0_);
-
-  auto mha_out_ = reference_mha(
-      ln0_out_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
-
-  auto resid0_ = mha_out_ + x_float_;
-  auto ln1_ = at::native_layer_norm(resid0_, norm_shape, ln1_w_, ln1_b_, kEps);
-  auto ln1_out_ = std::get<0>(ln1_);
-
-  auto mlp_out_ = reference_mlp(
-      ln1_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
-  auto at_out = (resid0_ + mlp_out_).to(at_dtype);
 
   std::vector<c10::IValue> at_inputs = {
       x_,
@@ -189,6 +142,7 @@ NVFUSER_BENCHMARK_DEFINE(
 
 NVFUSER_BENCHMARK_RUN(TransformerForward)
     // ->RangeMultiplier(2)
-    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+    ->Ranges({{8, 8}})
+    ->Iterations(1)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
