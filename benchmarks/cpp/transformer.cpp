@@ -74,7 +74,7 @@ static at::Tensor transformerShardTensor(at::Tensor tensor, TensorView* tv, Comm
       tv->getDeviceMesh(), communicator_);
 }
 
-static void NvFuserScheduler_TransformerFwd(
+static void transformerFwd(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
     DataType dtype) {
