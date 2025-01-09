@@ -940,11 +940,9 @@ IndexingInfo TensorIndexer::computeIndex(
   const auto loop_domains = getLoopIds(expr, id_model_);
 
   // Set aside broadcast IDs as their indices should always be zero
-  // and there may not be reachable from the loop domain
+  // and they may not be reachable from the loop domain
   std::vector<IterDomain*> broadcast_index_ids;
-  broadcast_index_ids.reserve(index_ids.size());
   std::vector<IterDomain*> non_broadcast_index_ids;
-  non_broadcast_index_ids.reserve(index_ids.size());
   for (const auto index_id : index_ids) {
     if (index_id->isBroadcast()) {
       broadcast_index_ids.push_back(index_id);
