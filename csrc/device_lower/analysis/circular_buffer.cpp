@@ -145,12 +145,13 @@ void validateCircularBufferedTensor(const TensorView* tv) {
 
   // Ensure that the warp-specialized circular buffer loop is the outer-most
   // for-loop if register sharing is enabled.
-  bool is_warp_specialized_with_register_sharing =
-      std::holds_alternative<WarpSpecialized>(
-          tv->circularBufferOptions().type) &&
-      tv->circularBufferOptions().warp_specialized_num_registers.has_value();
-  if (is_warp_specialized_with_register_sharing) {
+  if (std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type)) {
+    // short-circuit: register sharing is not used.
+    if (!std::get<WarpSpecialized>(tv->circularBufferOptions().type).num_registers.has_value()) {
+      break;
+    }
     for (int64_t axis : c10::irange((int64_t)tv->getLoopDomain().size())) {
+      // short-circuit: only check IterDomains to the left of the circular buffer position
       if (axis >= circular_buffer_pos) {
         break;
       }

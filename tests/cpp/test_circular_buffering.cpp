@@ -25,7 +25,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
   int64_t tensor_inner_dim = 128;
-  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -62,8 +62,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   tv3->circularBuffer(
       number_of_stages,
       prefetch_distance,
-      circular_buffer_type,
-      std::make_pair(160L, 160L));
+      circular_buffer_type);
 
   // Load TV1 into shared memory
   tv4->axis(0)->parallelize(ParallelType::BIDx);
@@ -71,8 +70,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   tv4->circularBuffer(
       number_of_stages,
       prefetch_distance,
-      circular_buffer_type,
-      std::make_pair(160L, 160L));
+      circular_buffer_type);
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
@@ -100,7 +98,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
   int64_t tensor_inner_dim = 128;
-  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -137,8 +135,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   tv3->circularBuffer(
       number_of_stages,
       prefetch_distance,
-      circular_buffer_type,
-      std::make_pair(160L, 160L));
+      circular_buffer_type);
 
   // Load TV1 into shared memory
   // tv4->axis(0)->parallelize(ParallelType::BIDx);
@@ -146,8 +143,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   tv4->circularBuffer(
       number_of_stages,
       prefetch_distance,
-      circular_buffer_type,
-      std::make_pair(160L, 160L));
+      circular_buffer_type);
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
@@ -2010,7 +2006,9 @@ auto tmaCircularBufferingParams() {
       Pipelined(false),
       Pipelined(true),
       WarpSpecialized(ParallelType::TIDx),
-      WarpSpecialized(ParallelType::TIDy)};
+      WarpSpecialized(ParallelType::TIDy),
+      WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 240)),
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 240))};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {

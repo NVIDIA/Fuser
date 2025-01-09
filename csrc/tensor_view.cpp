@@ -1351,8 +1351,7 @@ void TensorView::clearReductionIterDomains() {
 void TensorView::circularBuffer(
     int64_t number_of_stages,
     int64_t prefetch_distance,
-    CircularBufferType type,
-    std::optional<std::pair<int64_t, int64_t>> warp_specialized_num_registers) {
+    CircularBufferType type) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
@@ -1367,33 +1366,6 @@ void TensorView::circularBuffer(
   circular_buffer_options_.stage = number_of_stages;
   circular_buffer_options_.prefetch = prefetch_distance;
   circular_buffer_options_.type = type;
-
-  NVF_ERROR(
-      !warp_specialized_num_registers.has_value() ||
-          std::holds_alternative<WarpSpecialized>(type),
-      "Setting the number of register for load and compute warp groups is only ",
-      "allowed for warp specialized circular buffering.");
-  if (std::holds_alternative<WarpSpecialized>(type)) {
-    // Use default setting or check and set specified value
-    if (warp_specialized_num_registers.has_value()) {
-      auto validate_num_registers = [](int64_t a) {
-        NVF_ERROR(
-            a >= 24 && a <= 256 && a % 8 == 0,
-            "The number of registers for setmaxnreg must be between 24 and",
-            " 256 (inclusive) and be a multiple of 8.");
-      };
-      validate_num_registers(warp_specialized_num_registers.value().first);
-      validate_num_registers(warp_specialized_num_registers.value().second);
-      NVF_ERROR(
-          warp_specialized_num_registers.value().first <=
-          warp_specialized_num_registers.value().second);
-      circular_buffer_options_.warp_specialized_num_registers =
-          warp_specialized_num_registers;
-    } else {
-      circular_buffer_options_.warp_specialized_num_registers =
-          std::make_pair(24L, 240L);
-    }
-  }
 }
 
 bool TensorView::isEmptyTensor() const {

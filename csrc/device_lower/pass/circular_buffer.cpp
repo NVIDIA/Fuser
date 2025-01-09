@@ -1398,37 +1398,37 @@ class CircularBufferInserter : private kir::ExprMutator {
     auto& circular_buffer_options =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
-    NVF_ERROR(
-        circular_buffer_options.warp_specialized_num_registers.has_value(),
-        "Register sharing is enabled by default for warp-specialized circular buffering.");
-    GpuLower::current()->kernel()->manage(
-        "enable_register_sharing",
-        circular_buffer_options.warp_specialized_num_registers.has_value());
+    bool enable_register_sharing = std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) && std::get<WarpSpecialized>(circular_buffer_options.type).num_registers.has_value();
 
-    auto&& [decrease_num_registers, increase_num_registers] =
-        circular_buffer_options.warp_specialized_num_registers.value();
+    GpuLower::current()->kernel()->manage("enable_register_sharing", enable_register_sharing);
 
-    // Decrease registers in load warp group
-    kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
-        IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
-        /*increase_registers=*/false);
-    warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
+    if (enable_register_sharing) {
+      auto&& [decrease_num_registers, increase_num_registers] = std::get<WarpSpecialized>(circular_buffer_options.type).num_registers.value();
+
+      // Decrease registers in load warp group
+      kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+          IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
+          /*increase_registers=*/false);
+      warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
+
+      // Increase registers in compute warp group
+      kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+          IrBuilder::create<Val>(increase_num_registers, DataType::Index),
+          /*increase_registers*/true);
+      warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
+    }
 
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
-    // Terminate the warp group handling Load loop immediately after
-    // finishing its work.
-    kir::Return* ret = IrBuilder::create<kir::Return>();
-    warp_dispatch_ite->thenBody().push_back(ret);
-
-    // Increase registers in load warp group
-    kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
-        IrBuilder::create<Val>(increase_num_registers, DataType::Index),
-        /*increase_registers*/ true);
-    warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
+    if (enable_register_sharing) {
+      // Terminate the warp group handling Load loop immediately after
+      // finishing its work.
+      kir::Return* ret = IrBuilder::create<kir::Return>();
+      warp_dispatch_ite->thenBody().push_back(ret);
+    }
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);

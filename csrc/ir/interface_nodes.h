@@ -228,10 +228,40 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 
 struct WarpSpecialized {
   ParallelType on;
-  explicit WarpSpecialized(ParallelType on) : on(on) {}
+  // The number of registers for load and compute warps respectively.
+  std::optional<std::pair<int64_t, int64_t>> num_registers;
+
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers)
+      : on(on), num_registers(num_registers) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on)
+      : on(on), num_registers(std::nullopt) {}
   WarpSpecialized() = default;
+
+  void validateRegisterSharing() {
+    // short-circuit: register sharing is not used. 
+    if (!num_registers.has_value()) {
+      return;
+    }
+    auto validate_num_registers = [](int64_t a) {
+      NVF_ERROR(
+          a >= 24 && a <= 256 && a % 8 == 0,
+          "The number of registers for setmaxnreg must be between 24 and",
+          " 256 (inclusive) and be a multiple of 8.");
+    };
+    validate_num_registers(num_registers.value().first);
+    validate_num_registers(num_registers.value().second);
+    NVF_ERROR(
+        num_registers.value().first <= num_registers.value().second,
+        "The number of registers for load warp group must be <= to the number",
+        " of registers for the compute warp groups.");
+  }
+
   bool operator==(const WarpSpecialized& other) const {
-    return on == other.on;
+    return on == other.on && num_registers == other.num_registers;
   }
 };
 
@@ -252,7 +282,14 @@ inline std::ostream& operator<<(
     default:
       NVF_THROW("Invalid parallel type");
   }
-  return os << "WarpSpecializedOn" << parallel_type_str;
+  std::string num_registers = "RegisterSharing_None";
+  if (warp_specialized.num_registers.has_value()) {
+    auto&& [decrease_num_reg, increase_num_reg] =
+        warp_specialized.num_registers.value();
+    num_registers =
+        "RegisterSharing_" + decrease_num_reg + "_" + increase_num_reg;
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str << num_registers;
 }
 
 using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
@@ -272,10 +309,6 @@ struct CircularBufferOptions {
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
-  // The number of registers for load and compute warps respectively.
-  // Register sharing is disabled when both values are -1.
-  std::optional<std::pair<int64_t, int64_t>> warp_specialized_num_registers =
-      std::nullopt;
 
   bool isEnable() const {
     return stage > 1;
@@ -290,26 +323,16 @@ struct CircularBufferOptions {
 
   bool operator==(const CircularBufferOptions& other) const {
     return type == other.type && stage == other.stage &&
-        prefetch == other.prefetch &&
-        warp_specialized_num_registers == other.warp_specialized_num_registers;
+        prefetch == other.prefetch;
   }
 };
 
 inline std::ostream& operator<<(
     std::ostream& os,
     const CircularBufferOptions& options) {
-  int64_t decrease_num_registers = -1;
-  int64_t increase_num_registers = -1;
-  if (options.warp_specialized_num_registers.has_value()) {
-    decrease_num_registers =
-        options.warp_specialized_num_registers.value().first;
-    increase_num_registers =
-        options.warp_specialized_num_registers.value().second;
-  }
   return os << "CircularBufferOptions{ stage=" << options.stage
             << ", prefetch=" << options.prefetch << ", type=" << options.type
-            << ", decrease_num_registers=" << decrease_num_registers
-            << ", increate_num_registers=" << increase_num_registers << " }";
+            << " }";
 }
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
@@ -645,9 +668,7 @@ class NVF_API TensorView : public Val {
   void circularBuffer(
       int64_t number_of_stages,
       int64_t prefetch_distance = -1,
-      CircularBufferType type = Pipelined(false),
-      std::optional<std::pair<int64_t, int64_t>>
-          warp_specialized_num_registers = std::nullopt);
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
