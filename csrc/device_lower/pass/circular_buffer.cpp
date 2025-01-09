@@ -1398,12 +1398,18 @@ class CircularBufferInserter : private kir::ExprMutator {
     auto& circular_buffer_options =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
-    bool enable_register_sharing = std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) && std::get<WarpSpecialized>(circular_buffer_options.type).num_registers.has_value();
+    bool enable_register_sharing =
+        std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) &&
+        std::get<WarpSpecialized>(circular_buffer_options.type)
+            .num_registers.has_value();
 
-    GpuLower::current()->kernel()->manage("enable_register_sharing", enable_register_sharing);
+    GpuLower::current()->kernel()->manage(
+        "enable_register_sharing", enable_register_sharing);
 
     if (enable_register_sharing) {
-      auto&& [decrease_num_registers, increase_num_registers] = std::get<WarpSpecialized>(circular_buffer_options.type).num_registers.value();
+      auto&& [decrease_num_registers, increase_num_registers] =
+          std::get<WarpSpecialized>(circular_buffer_options.type)
+              .num_registers.value();
 
       // Decrease registers in load warp group
       kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
@@ -1414,7 +1420,7 @@ class CircularBufferInserter : private kir::ExprMutator {
       // Increase registers in compute warp group
       kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(increase_num_registers, DataType::Index),
-          /*increase_registers*/true);
+          /*increase_registers*/ true);
       warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
     }
 

@@ -242,7 +242,7 @@ struct WarpSpecialized {
   WarpSpecialized() = default;
 
   void validateRegisterSharing() {
-    // short-circuit: register sharing is not used. 
+    // short-circuit: register sharing is not used.
     if (!num_registers.has_value()) {
       return;
     }
@@ -286,8 +286,9 @@ inline std::ostream& operator<<(
   if (warp_specialized.num_registers.has_value()) {
     auto&& [decrease_num_reg, increase_num_reg] =
         warp_specialized.num_registers.value();
-    num_registers =
-        "RegisterSharing_" + decrease_num_reg + "_" + increase_num_reg;
+    std::stringstream s;
+    s << "RegisterSharing_" << decrease_num_reg << "_" << increase_num_reg;
+    num_registers = s.str();
   }
   return os << "WarpSpecializedOn" << parallel_type_str << num_registers;
 }
