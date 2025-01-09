@@ -48,7 +48,7 @@ static void setupTransformerForward(Fusion* fusion, DataType dtype) {
 
   const int64_t D = communicator_->size(); // number of devices
 
-  std::unique_ptr<DistributedTransformer> model = std::make_unique<DistributedTransformer>(
+  auto model = std::make_unique<DistributedTransformer>(
         D, B, E, H, S, kDropoutProb, kSdpaProb);
 
   model->setupForward(fusion, dtype, /*sequence_parallel=*/false);
