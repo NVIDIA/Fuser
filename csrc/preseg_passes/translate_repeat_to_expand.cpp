@@ -145,10 +145,6 @@ class RepeatToExpandTranslator {
 
       const auto num_repetitions = (int64_t)info.cat_inp_tvs.size();
 
-      if (num_repetitions < 2) {
-        continue;
-      }
-
       const auto inp_domain =
           TensorDomain::noReductions(info.input_tv->getLogicalDomain());
 

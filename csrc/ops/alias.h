@@ -185,6 +185,8 @@ NVF_API TensorView* expand_as(TensorView* inp, TensorView* other);
 // Repeat each dimension for a given time. The repeat_times parameter
 // must have the same number of elements as the dimensionality of the
 // input tensor (excluding reduction IDs).
-NVF_API TensorView* repeat(TensorView* inp, std::vector<int64_t> repeat_times);
+NVF_API TensorView* repeat(
+    TensorView* inp,
+    const std::vector<int64_t>& repeat_times);
 
 } // namespace nvfuser

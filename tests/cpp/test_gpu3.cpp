@@ -9273,7 +9273,7 @@ TEST_F(NVFuserTest, AllIdsMultipleDependencies) {
 }
 
 // Repeating a broadcast ID. RepeatOp should be used.
-TEST_F(NVFuserTest, Repeat1) {
+TEST_F(NVFuserTest, RepeatBroadcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -9298,7 +9298,7 @@ TEST_F(NVFuserTest, Repeat1) {
 
 // Repeating a non-broadcast ID. Should be translated to broadcast +
 // expand + reshape.
-TEST_F(NVFuserTest, Repeat2) {
+TEST_F(NVFuserTest, RepeatNonBroadcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -9328,7 +9328,7 @@ TEST_F(NVFuserTest, Repeat2) {
 }
 
 // Repeating a mix of broadcast and non-broadcast IDs
-TEST_F(NVFuserTest, Repeat3) {
+TEST_F(NVFuserTest, RepeatBroadcastAndNonBroadcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());

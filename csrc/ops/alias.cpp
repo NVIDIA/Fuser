@@ -1124,7 +1124,9 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   return out_tensor;
 }
 
-TensorView* repeat(TensorView* inp_tv, std::vector<int64_t> repeat_times) {
+TensorView* repeat(
+    TensorView* inp_tv,
+    const std::vector<int64_t>& repeat_times) {
   const auto ndims =
       TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
 
@@ -1135,6 +1137,10 @@ TensorView* repeat(TensorView* inp_tv, std::vector<int64_t> repeat_times) {
   // repeated ID
   // Step 2. Expand the broadcast ID by the repetition factor
   // Step 3. Flatten the expanded ID and the repeated ID
+  //
+  // Note that it's also possible to repeat multiple non-broadcast IDs
+  // once by inserting and expanding broadcast IDs by one BroadcastOp
+  // and one ExpandOp.
 
   bool has_repetition_of_broadcast = false;
   auto intermediate_tv = inp_tv;

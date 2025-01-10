@@ -2142,6 +2142,15 @@ RepeatOp::RepeatOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
 
   NVF_ERROR(in_domain.size() == out_domain.size());
 
+  NVF_ERROR(
+      std::none_of(
+          out->getLogicalDomain().begin(),
+          out->getLogicalDomain().end(),
+          [](IterDomain* out_logical_id) {
+            return out_logical_id->isReduction();
+          }),
+      "Output should not have reduction IDs.");
+
   bool repetition_found = false;
   for (const auto i : c10::irange(in_domain.size())) {
     if (in_domain.at(i)->isBroadcast() && !out_domain.at(i)->isBroadcast()) {
@@ -2178,11 +2187,11 @@ std::vector<PolymorphicValue> RepeatOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(
       inputs.size() == 1,
-      "ConcretizeOp expects exactly 1 input, but received ",
+      "RepeatOp expects exactly 1 input, but received ",
       inputs.size());
   auto tensor = inputs.at(0).as<at::Tensor>();
-  std::vector<int64_t> sizes;
-  sizes.reserve(out()->getLogicalDomain().size());
+  std::vector<int64_t> multipliers;
+  multipliers.reserve(out()->getLogicalDomain().size());
   const auto c2p =
       PairwiseLogicalDomainMap(in(), out()).mapConsumerToProducer();
   for (const auto i : c10::irange(out()->getLogicalDomain().size())) {
@@ -2191,14 +2200,17 @@ std::vector<PolymorphicValue> RepeatOp::evaluate(
     auto out_extent = ee.evaluate(out_id->extent()).as<int64_t>();
     auto inp_extent = ee.evaluate(inp_id->extent()).as<int64_t>();
     NVF_ERROR(
-        out_extent == inp_extent || out_extent % inp_extent == 0,
-        "Invalid input and output extents: ",
+        out_extent % inp_extent == 0,
+        "For dimension ",
+        i,
+        ", the output extent (",
+        out_extent,
+        " should be a multiple of the input extent (",
         inp_extent,
-        ", ",
-        out_extent);
-    sizes.push_back(out_extent / inp_extent);
+        ").");
+    multipliers.push_back(out_extent / inp_extent);
   }
-  return {tensor.repeat(sizes)};
+  return {tensor.repeat(multipliers)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RepeatOp)

@@ -26,6 +26,8 @@
 
 namespace nvfuser::preseg_passes {
 
+using testing::ElementsAre;
+
 using PresegTest = NVFuserTest;
 
 TEST_F(PresegTest, FusionTestOptimizationPassFlag) {
@@ -1024,10 +1026,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand6) {
 
   // Should be scheduled as a pointwise kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_FALSE(runtime->isSegmented());
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser::preseg_passes
