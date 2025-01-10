@@ -446,6 +446,7 @@ if(BUILD_PYTHON)
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
+    ${NVFUSER_SRCS_DIR}/python_frontend/communicator_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/schedule_bindings.cpp
