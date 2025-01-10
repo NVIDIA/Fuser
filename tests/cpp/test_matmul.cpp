@@ -4299,6 +4299,63 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
+TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM_BroadcastInputs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {2});
+  auto tv3 = castOp(DataType::BFloat16, tv2);
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto a_ref = at::randn({M, 1, K}, options);
+  auto b_ref = at::randn({1, N, K}, options);
+  auto out_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(128, 256, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = false;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  std::vector<c10::IValue> inputs = {a_ref, b_ref};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+}
+
 TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
   Fusion fusion;
   FusionGuard fg(&fusion);

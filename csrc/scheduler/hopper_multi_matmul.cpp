@@ -304,6 +304,18 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         }
       }
     }
+
+    // Persistent kernel scheduling
+    if (params_->cta_order ==
+        MatmulParams::TileRasterizationOrder::ColumnMajor) {
+      tv->reorder(
+          {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+    }
+    tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
+
+    // TODO: get this from device props
+    const int64_t num_sms = 132L;
+    tv->split(num_device_and_batch_dims_, num_sms);
   }
   return all_merged_roles;
 }
@@ -347,6 +359,8 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
+    tv->axis(num_device_and_batch_dims_ + 1)->parallelize(ParallelType::BIDx);
+    /*
     switch (params_->cta_order) {
       // TODO: Should we instead check the roles of these dimensions to take the
       // outermost two M or N axes?
@@ -363,6 +377,7 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
       default:
         NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
     }
+    */
   }
 }
 
@@ -653,7 +668,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy));
+                  .smem_circular_buffer_prefetch_gap,
+          WarpSpecialized(ParallelType::TIDy));
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
@@ -661,7 +677,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy));
+                  .smem_circular_buffer_prefetch_gap,
+          WarpSpecialized(ParallelType::TIDy));
     }
   }
 
