@@ -144,18 +144,6 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // This doesn't work yet due to issue #3571
-  if (getenv("BROADCAST_CHECK")) {
-    if (std::any_of(
-            ref_tv->getLogicalDomain().begin(),
-            ref_tv->getLogicalDomain().end(),
-            [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "Broadcast iter domain in reference not supported: ", ref_tv->toString());
-      return false;
-    }
-  }
-
   // Having different resizes between outputs is not allowed at this
   // moment. For example, consider a fusion like:
   //
@@ -223,6 +211,18 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   params->split_grid_x_dim =
       ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx;
 
+  const auto largest_input =
+      getLargestTensor(fusion->inputs(), runtime_info).first;
+  if (largest_input != nullptr) {
+    int64_t index_of_largest_input = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), largest_input));
+    params->largest_input = index_of_largest_input;
+  } else {
+    params->largest_input = -1;
+  }
+
   return params;
 }
 
@@ -263,6 +263,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
+  TensorView* largest_input = nullptr;
+  if (resize_params->largest_input >= 0) {
+    largest_input =
+        fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
+  }
+
+  // Mistral bwd has a reshape at the end of the fusion that merges
+  // the two innermost dimensions. To make the below vectorization to
+  // work, the vectorization needs to be applied to the innermost
+  // dimension only, so the merge needs to be canceled.
+  if (largest_input != nullptr) {
+    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+  }
+
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
@@ -277,10 +291,27 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
-  const int64_t bdimx = 128;
+  if (largest_input != nullptr) {
+    std::vector<IterDomain*> ref_alloc;
+    ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
+    std::copy_if(
+        largest_input->getMaybeAllocationDomain().begin(),
+        largest_input->getMaybeAllocationDomain().end(),
+        std::back_inserter(ref_alloc),
+        [](IterDomain* alloc_id) {
+          return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
+              !alloc_id->isDeviceDim();
+        });
+
+    // Reorder the reference as the allocation domain of the largest fusion
+    // input
+    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
+  }
 
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
+
+  const int64_t bdimx = 128;
 
   // Schedule only the remaining IDs
   ref_tv->flatten(outermost_pos);

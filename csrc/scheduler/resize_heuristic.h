@@ -23,6 +23,8 @@ class ResizeParams : public HeuristicParams {
   // Split grid x dimension
   bool split_grid_x_dim = false;
 
+  int64_t largest_input = 0;
+
   static constexpr int64_t max_gdimx = (1L << 31) - 1L;
 
   using HeuristicParams::HeuristicParams;
@@ -33,7 +35,8 @@ class ResizeParams : public HeuristicParams {
     if (other == nullptr) {
       return false;
     }
-    bool attr_equal = other->split_grid_x_dim == split_grid_x_dim;
+    bool attr_equal = other->split_grid_x_dim == split_grid_x_dim &&
+        other->largest_input == largest_input;
     return attr_equal;
   }
 
@@ -41,7 +44,8 @@ class ResizeParams : public HeuristicParams {
     std::stringstream ss;
     ss << "\n===== Resize Parameters ========\n"
        << (tag.empty() ? "" : "Tag: ") << tag << " Resize Characteristics:\n"
-       << " split grid x dim: " << split_grid_x_dim << "\n";
+       << " split grid x dim: " << split_grid_x_dim << "\n"
+       << " index of largest input: " << largest_input << "\n";
     ss << "====================================\n";
     return ss.str();
   }

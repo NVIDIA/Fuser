@@ -748,5 +748,7 @@ inline int64_t nLogicalDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
+void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
