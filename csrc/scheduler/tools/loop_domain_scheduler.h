@@ -100,8 +100,8 @@ void scheduleLoopDomainsBy(
 // as t0, which could minimize strided accesses.
 //
 // This scheduling is not always feasible. Specifically, if a reshape
-// outout iter domain is resized, the loop domain needs to keep using
-// the reshape output iter domain. Similary, if a rehape output iter
+// output iter domain is resized, the loop domain needs to keep using
+// the reshape output iter domain. Similarly, if a rehape output iter
 // domain is reduced, the reshape is currently not cancelled. This is
 // because if a reshape has a split and only one of the split output
 // iter domain is reduced, the split needs to remain. If a reshape

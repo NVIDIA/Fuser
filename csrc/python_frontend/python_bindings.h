@@ -14,9 +14,13 @@
 #include <visibility.h>
 
 namespace nvfuser::python_frontend {
+
 NVF_API void initNvFuserPythonBindings(PyObject* module);
+
+void bindCommunicator(py::module& nvfuser);
 
 void bindSchedule(py::class_<FusionDefinition>& fusion_def);
 
 NVF_API void cleanup();
+
 } // namespace nvfuser::python_frontend
