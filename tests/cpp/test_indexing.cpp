@@ -23,6 +23,7 @@
 #include <ops/all_ops.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
 
 #include <algorithm>
@@ -346,6 +347,13 @@ class PredicateIndexValidator : public kir::IrVisitor {
     }
 
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
+
+    // This is just an initialization expr, likely by zero. Only the
+    // actual expr will be validted.
+    if (out_ti->view()->definition()->input(0)->isA<TensorView>() &&
+        expr->input(0)->isScalar()) {
+      return;
+    }
 
     NVF_ERROR(!scope_exprs_.empty());
     auto inline_ite = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
@@ -5390,6 +5398,105 @@ TEST_F(IndexingTest, ResizeRotation) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(PredicateIndexingTest, VectorizedResizeRotation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto zero = fusion.zeroVal();
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  // left half
+  auto tv2 = slice(tv1, {{zero, IrBuilder::create<Val>(i0 / 2)}});
+
+  auto tv3 = set(tv0);
+  // right half
+  auto tv4 = slice(
+      tv3, {{IrBuilder::create<Val>(i0 / 2), IrBuilder::create<Val>(i0)}});
+
+  // Rotation
+  auto tv5 = cat({tv4, tv2}, 0);
+
+  auto tv6 = add(tv0, tv5);
+
+  fusion.addOutput(tv6);
+
+  for (Expr* expr : fusion.exprs()) {
+    if (expr->isOneOf<SliceOp, PadOp>()) {
+      scheduler_tools::propagateResizeToInputs(expr);
+    }
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    tv->split(0, 4);
+  }
+
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      if (for_loops_.back()->iter_domain()->getParallelType() !=
+          ParallelType::Vectorize) {
+        return nullptr;
+      }
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+
+      Val* zero = tv->fusion()->zeroVal();
+
+      auto second_resize = dynamic_cast<Resize*>(
+          tv->axis(0)->definition()->input(0)->definition());
+      EXPECT_NE(second_resize, nullptr);
+
+      auto start_idx = addExpr(
+          IrBuilder::addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()), zero),
+          IrBuilder::negExpr(second_resize->leftExpand()));
+      auto stop_idx = addExpr(
+          IrBuilder::addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()), createInt(3)),
+          IrBuilder::negExpr(second_resize->leftExpand()));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 // Repro of issue #3505. The indexing WAR for resize triggered an
 // assertion due to loop promotion.
 TEST_F(IndexingTest, Issue3505Repro1) {
@@ -5519,6 +5626,43 @@ TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
   ke.compile(&fusion, inputs);
   auto outputs = ke.run(inputs);
 
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Small repro of
+// https://github.com/NVIDIA/Fuser/issues/3688. Broadcast logical
+// IDs may not be reachable from loop IDs, thus the indexing for the
+// logical IDs of the pad output failed.
+TEST_F(IndexingTest, BroadcastLogicalDomainIndexing) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{1, 32};
+  std::vector<int64_t> shape2{8, 34};
+
+  auto tv0 = makeConcreteTensor(shape1);
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor(shape2);
+  fusion.addInput(tv1);
+
+  auto tv2 = pad(tv0, {fusion.oneVal(), fusion.oneVal()});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv2->inlineAt(-1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 

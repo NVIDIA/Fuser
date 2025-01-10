@@ -1246,4 +1246,44 @@ TEST_F(PointwiseTest, DomainMapSlice1) {
   testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({2, 4, 8});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({2});
+  fusion.addInput(tv1);
+
+  auto tv2 = reshape(tv0, {2, 4, 8}, {2, 32});
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = add(tv2, tv3);
+
+  // tv4 covers source IDs {2, 4, 8}.
+  fusion.addOutput(tv4);
+  // meanwhile, tv3's broadcast ID map through permissive to `32`, which is not
+  // directly contained by tv4's source IDs. This test ensures that we project
+  // the mapped ID back to its source IDs and correctly schedule this fusion as
+  // a single kernel.
+  fusion.addOutput(tv3);
+
+  DomainMapUnitTest domain_map(fusion_ptr.get());
+  EXPECT_TRUE(domain_map.isValidReference(tv4));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 4, 8}, options);
+  auto t1 = at::randn({2}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(!runtime->isSegmented());
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
