@@ -70,10 +70,10 @@ void MinimumDeviceVersion::handle(LoadStoreOp* ls_op) {
 }
 
 void MinimumDeviceVersion::handle(TensorView* tv) {
-  bool enable_register_sharing =
-      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type) &&
-      std::get<WarpSpecialized>(tv->circularBufferOptions.type)
-        .num_registers.has_value();
+  bool enable_register_sharing = std::holds_alternative<WarpSpecialized>(
+                                     tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+          .num_registers.has_value();
   if (enable_register_sharing) {
     ensureVersion(
         {9, 0},
