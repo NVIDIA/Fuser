@@ -223,6 +223,19 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     params->largest_input = -1;
   }
 
+  // Vectorization based on the largest input if there's any input
+  // tv. Or the largest output otherwise.
+  auto ref_tv_for_vectorization =
+      largest_input != nullptr ? largest_input : largest_output;
+  // Only consider the innermost dimension to vectorize for now.
+  // TODO: Consider vectorizing merged IDs, not just the innermost
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      ref_tv_for_vectorization,
+      data_cache,
+      (int64_t)ref_tv_for_vectorization->getLogicalDomain().size() - 1,
+      {});
+
   return params;
 }
 
@@ -311,23 +324,31 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
+  const int64_t vec_factor = resize_params->vectorization_factor;
+
   const int64_t bdimx = 128;
 
-  // Schedule only the remaining IDs
-  ref_tv->flatten(outermost_pos);
-  // [..., I0]
+  int64_t next_innermost_pos = -1;
+  if (vec_factor > 1) {
+    ref_tv->split(-1, vec_factor);
+    // [..., vec_factor]
+    --next_innermost_pos;
+  }
 
-  ref_tv->split(-1, bdimx);
-  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
-  // [..., I0/bdimx, bdimx(TIDx)]
+  ref_tv->flatten(outermost_pos, next_innermost_pos);
+  // [..., I0, vec_factor]
+
+  ref_tv->split(next_innermost_pos, bdimx);
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::TIDx);
+  --next_innermost_pos;
+  // [..., I0/bdimx, bdimx(TIDx), vec_factor]
 
   if (resize_params->split_grid_x_dim) {
-    ref_tv->split(-2, ResizeParams::max_gdimx);
-    // [..., I0/bdimx/max_gdimx, bdimx(TIDx)]
+    ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
+    // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx), vec_factor]
   }
-  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
-  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx)] or
-  // [..., I0/bdimx(BIDx), bdimx(TIDx)]
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
+  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor]
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
@@ -339,6 +360,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       fusion->allTvs(),
       ref_tv->getLoopDomain(),
       /*update_loop_domain_only=*/true);
+
+  if (vec_factor > 1) {
+    const auto tvs_to_vectorize =
+        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
+    for (auto tv_to_vectorize : tvs_to_vectorize) {
+      if (tv_to_vectorize->isFusionInput()) {
+        for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
+          consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+      } else {
+        tv_to_vectorize->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+    }
+  }
 
   inlineMost();
 
