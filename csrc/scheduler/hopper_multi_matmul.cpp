@@ -21,6 +21,7 @@
 #include <utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
+#include <utility>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
@@ -654,7 +655,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy));
+                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy, std::make_pair(56, 224)));
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
@@ -662,7 +663,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy));
+                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy, std::make_pair(56, 224)));
     }
   }
 
