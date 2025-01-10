@@ -56,6 +56,16 @@ class LoadStoreOpInserter : private kir::ExprMutator {
             container, LoadStoreOpType::Set, out, in));
   }
 
+  void handle(RepeatOp* op) final {
+    auto out = op->out();
+    auto in = op->in();
+    auto container = out->container();
+    registerReplaceAndPropagate(
+        op,
+        IrBuilder::createInContainer<LoadStoreOp>(
+            container, LoadStoreOpType::Set, out, in));
+  }
+
   void handle(ViewOp* vop) final {
     auto out = vop->out();
     auto in = vop->in();

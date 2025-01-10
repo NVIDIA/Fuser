@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
@@ -2728,6 +2729,58 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   auto outputs = ke.run(inputs);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+}
+
+// Test automatically scheduling a fusion that requires 64-bit indexing
+TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({-1, -1}, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+  auto tv3 = maybeCastOp(DataType::Float, tv2);
+  auto tv4 = neg(tv3);
+  auto tv5 = castOp(DataType::Half, tv4);
+
+  fusion->addOutput(tv5);
+
+  // We use an input size large enough to require 64-bit indexing to index some
+  // elements of the inputs.
+  // NOTE: This size requires 64-bit indexing in the epilogue only.
+  const int M = 1 << 16, N = 1 << 15, K = 1 << 8;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  at::Tensor a = at::randn({M, K}, options);
+  at::Tensor b = at::randn({K, N}, options);
+  std::vector<c10::IValue> inputs{a, b};
+
+  at::Tensor tref = -at::matmul(a, b);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(
+      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+
+  if (!cudaArchGuardShouldSkip(9, 0)) {
+    // The Hopper matmul scheduler should reject this fusion since it requires
+    // 64-bit indexing.
+    // See https://github.com/NVIDIA/Fuser/issues/3595
+    // TODO: Lift this temporary restriction and remove this check
+    for (const auto& heur : executor_cache.getMostRecentKernelRuntime()
+                                ->schedulerHeuristics()
+                                ->heuristicsList()) {
+      EXPECT_NE(heur->scheduler_type, SchedulerType::Matmul);
+    }
+  }
 }
 
 class MatmulFusionTest

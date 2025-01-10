@@ -91,12 +91,10 @@ std::string rolesToPrecisionString(
   std::string precision = "   ";
   const std::vector<TensorView*>& a_operands =
       tensor_roles.at(MatmulTensorRole::OPERAND_A);
-  NVF_ERROR(
-      a_operands.size() == 1, "We currently require exactly one A operand");
+  NVF_ERROR(!a_operands.empty(), "We currently require at least one A operand");
   const std::vector<TensorView*>& b_operands =
       tensor_roles.at(MatmulTensorRole::OPERAND_B);
-  NVF_ERROR(
-      b_operands.size() == 1, "We currently require exactly one B operand");
+  NVF_ERROR(!b_operands.empty(), "We currently require at least one B operand");
   TensorView* a = a_operands.front();
   TensorView* b = b_operands.front();
   NVF_CHECK(

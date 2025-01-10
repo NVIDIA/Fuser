@@ -80,9 +80,9 @@ TensorView* triu(TensorView* tv, Val* offset) {
 
   NVF_CHECK(
       dims >= 2,
-      "triu is only supported for 2+D tensors, but got ",
+      "input tensor for triu must have 2 or more dims, but got ",
       dims,
-      "D tensor");
+      " dims");
 
   auto fusion = tv->fusion();
 
