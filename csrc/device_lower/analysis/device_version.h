@@ -48,6 +48,11 @@ class MinimumDeviceVersion : private IterVisitor {
   //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async
   void handle(LoadStoreOp* ls_op) final;
 
+  //! If TensorView has warp specialized circular buffering, it will use the
+  //! setmaxnreg ptx instruction that requires Hopper (9.0+).
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/#miscellaneous-instructions-setmaxnreg
+  void handle(TensorView* tv) final;
+
   //! bump min_version_ to at least this value
   void ensureVersion(std::pair<int, int> version, std::string reason);
 

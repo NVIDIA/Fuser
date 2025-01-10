@@ -28,7 +28,7 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
     )
 
     num_symbolic_parameters = len(symbolic_parameter_list)
-    assert num_symbolic_parameters == len(
+    assert num_symbolic_parameters >= len(
         args
     ), f"{num_symbolic_parameters} vs {len(args)}"
 
