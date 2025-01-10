@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -87,7 +87,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
 }
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1178,8 +1178,23 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0});
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
@@ -1232,8 +1247,23 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0});
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
   if (axis_extent < number_of_stages) {
@@ -1293,8 +1323,23 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0});
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
   if (axis_extent < number_of_stages) {
@@ -1364,8 +1409,23 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0});
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
@@ -1433,8 +1493,23 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0, t1});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+  
+  ke.compile(fusion.get(), {t0, t1});
   std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -1501,8 +1576,23 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0, t1});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0, t1});
   std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -1562,8 +1652,23 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   at::Tensor t1 = sum(t0, {-1});
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0});
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
@@ -1613,8 +1718,23 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   at::Tensor t1 = sum(t0, {0});
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0});
   std::vector<at::Tensor> cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   // Please note that, serial reduction has larger error than parallel reduction
@@ -1742,6 +1862,22 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
 
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
+
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {at_tv0});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
   ke.compile(fusion.get(), {at_tv0});
   std::vector<at::Tensor> cg_outputs = ke.run({at_tv0});
 
@@ -1866,8 +2002,23 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
       (t0.unsqueeze(/*dim=*/-1) * t1.unsqueeze(/*dim=*/0)).sum(/*dim=*/1);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
 
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0, t1});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
+
+  ke.compile(fusion.get(), {t0, t1});
   std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(
       tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
@@ -1983,8 +2134,22 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   at::Tensor aten_output = (t0 * t1).sum(/*dim=*/1);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
+  bool enable_register_sharing =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type.type) &&
+      std::get<WarpSpecialized>(circular_buffer_type.type)
+        .num_registers.has_value();
+  if (enable_register_sharing && deviceMajorMinorCheck(10)) {
+    try {
+      ke.compile(fusion.get(), {t0, t1});
+    } catch (const std::exception& e) {
+      const char* reference = R"(Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0))";
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+    }
+    ASSERT_FALSE();
+  }
 
+  ke.compile(fusion.get(), {t0, t1});
   std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
   compare<float>(
       tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
