@@ -30,7 +30,7 @@ INSTANTIATE_TEST_SUITE_P(
     Manual,
     MultiDeviceHostIrIntegrationTest,
     testing::Combine(testing::Bool(), testing::Bool()),
-    [](const testing::TestParamInfo<MultiDeviceHostIrTestParams>& info)
+    [](const testing::TestParamInfo<MultiDeviceHostIrIntegrationTestParams>& info)
         -> std::string {
       std::string s;
       s += std::get<0>(info.param) ? "useFusionExecutorCache"
