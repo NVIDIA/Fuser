@@ -278,17 +278,6 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
         continue;
       }
 
-      // Broadcast groups may not be reachable, which should be
-      // fine. For example, Index::getConsumerPerDimLogicalIndex may
-      // try to get an index of a broadcast logical ID. However, the
-      // loop domain of the tensor may not use the broadcast logical
-      // ID, which is completely fine.
-      if (to_group->front()->as<IterDomain>()->isBroadcast()) {
-        continue;
-      }
-
-      // Otherwise, this is an error. Need to understand why this
-      // happens.
       // Dump the graph for debugging
       std::ofstream ofs("local_graph.dot", std::ofstream::trunc);
       auto dot_string = local_graph.toGraphvizDotGraph();
