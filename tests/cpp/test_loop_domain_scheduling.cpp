@@ -734,7 +734,8 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape4) {
   const auto tv1_original_loop = tv1->getLoopDomain();
   const auto tv2_original_loop = tv2->getLoopDomain();
 
-  // Nothing should be modified as the slice depends on the reshaped domain
+  // tv1 and tv2 should not be modified as the slice depends on the reshaped
+  // domain
   scheduler_tools::cancelReshapeInLoopDomains(tv0);
 
   EXPECT_EQ(tv1->getLoopDomain(), tv1_original_loop);
