@@ -4333,12 +4333,12 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM_BroadcastInputs) {
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
-  mparams.promote_prologue_smem_reuse = true;
+  mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
