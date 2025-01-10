@@ -30,8 +30,8 @@ void clusterWait() {
 
 // Synchronize threads in cluster
 void clusterSync() {
-  cluster_arrive();
-  cluster_wait();
+  clusterArrive();
+  clusterWait();
 }
 
 // Returns the dim3 grid size in terms of number of clusters.
