@@ -9347,7 +9347,7 @@ TEST_F(NVFuserTest, RepeatBroadcastAndNonBroadcast) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
-}  
+}
 
 // Testing the forwading of the fusion segmenter. The reshape of tv1,
 // which merges two IDs, is forwarded. Those two IDs are mapped to a
