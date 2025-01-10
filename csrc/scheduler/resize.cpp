@@ -32,6 +32,7 @@ TensorView* getReferenceTensor(Fusion* fusion) {
   return pointwise_utils::getReferenceTensor(fusion);
 }
 
+// Returns the largest tensor with its number of elements
 std::pair<TensorView*, int64_t> getLargestTensor(
     const std::vector<Val*>& vals,
     SchedulerRuntimeInfo& runtime_info) {
@@ -187,7 +188,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
   if (grouped_inputs_outputs.size() >= 2) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Multiple transpose groups not supported.");
+        schedulerType(), "Transpose-like patterns not supported.");
     return false;
   }
 
@@ -208,11 +209,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   const auto& [largest_output, max_num_elms] =
       getLargestTensor(fusion->outputs(), runtime_info);
 
-  if (ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx) {
-    params->split_grid_x_dim = true;
-  } else {
-    params->split_grid_x_dim = false;
-  }
+  params->split_grid_x_dim =
+      ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx;
 
   const auto largest_input =
       getLargestTensor(fusion->inputs(), runtime_info).first;
@@ -221,7 +219,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
         fusion->inputs().begin(),
         std::find(
             fusion->inputs().begin(), fusion->inputs().end(), largest_input));
-
     params->largest_input = index_of_largest_input;
   } else {
     params->largest_input = -1;
