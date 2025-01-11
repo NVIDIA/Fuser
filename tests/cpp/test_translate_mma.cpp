@@ -470,7 +470,7 @@ using LinearNodeTranslationTest =
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
@@ -490,6 +490,11 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
 
   EnableOptionsGuard eog;
   if (enable_fusion) {
+    if (A_dim != 2 && !cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP()
+          << "Translating linear with batch dims is not yet supported on Hopper";
+    }
+
     EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
   } else {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);

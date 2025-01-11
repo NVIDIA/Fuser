@@ -17,12 +17,13 @@ mpi_test = mpi_fixtures.mpi_test
 
 
 @pytest.mark.mpi
-def test_sizes_and_ranks(mpi_test):
+def test_sizes_and_ranks():
+    comm = nvfuser.Communicator.instance()
     size, rank, local_size, local_rank = (
-        mpi_test.size,
-        mpi_test.rank,
-        mpi_test.local_size,
-        mpi_test.local_rank,
+        comm.size(),
+        comm.rank(),
+        comm.local_size(),
+        comm.local_rank(),
     )
     assert size > 0
     assert rank >= 0 and rank < size
