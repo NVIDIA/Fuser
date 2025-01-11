@@ -58,6 +58,13 @@ __device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
 
 namespace Hopper {
 
+// TODO add cache hint argument to cp.async.bulk.tensor multicast
+namespace CacheHint {
+constexpr uint64_t EVICT_NORMAL = 0x1000000000000000;
+constexpr uint64_t EVICT_FIRST = 0x12F0000000000000;
+constexpr uint64_t EVICT_LAST = 0x14F0000000000000;
+} // namespace CacheHint
+
 // Description: Elect a leader thread from a set of threads in a warp
 //
 // The common pattern is to select any thread from the first warp without
@@ -118,10 +125,14 @@ __device__ inline void cpAsyncBulkTensorTileG2SMulticast(
     uint16_t cta_mask) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-      " [%0], [%1, {%3}], [%2], [%4];"
+      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster"
+      " [%0], [%1, {%3}], [%2], %4;"
       :
-      : "r"(smem_addr), "l"(gmem_int_desc), "r"(src.mbarrier), "r"(src.crds[0]), "h"(cta_mask)
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "h"(cta_mask)
       : "memory");
 }
 
@@ -147,8 +158,8 @@ __device__ inline void cpAsyncBulkTensorTileG2SMulticast(
     uint16_t cta_mask) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-      " [%0], [%1, {%3, %4}], [%2], [%5];"
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster"
+      " [%0], [%1, {%3, %4}], [%2], %5;"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
@@ -182,8 +193,8 @@ __device__ inline void cpAsyncBulkTensorTileG2SMulticast(
     uint16_t cta_mask) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster.L2::cache_hint"
-      " [%0], [%1, {%3, %4, %5}], [%2], [%6];"
+      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5}], [%2], %6;"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
@@ -219,8 +230,8 @@ __device__ inline void cpAsyncBulkTensorTileG2SMulticast(
     uint16_t cta_mask) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster.L2::cache_hint"
-      " [%0], [%1, {%3, %4, %5, %6}], [%2], [%7];"
+      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5, %6}], [%2], %7;"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
@@ -258,8 +269,8 @@ __device__ inline void cpAsyncBulkTensorTileG2SMulticast(
     uint16_t cta_mask) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster.L2::cache_hint"
-      " [%0], [%1, {%3, %4, %5, %6, %7}], [%2], [%8];"
+      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5, %6, %7}], [%2], %8;"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
