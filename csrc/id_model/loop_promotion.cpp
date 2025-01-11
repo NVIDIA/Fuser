@@ -102,6 +102,16 @@ namespace {
 // loop groups of the loop domains need to be checked as loop
 // promotion does not matter for the other domains.
 bool isLoopGraphUniform(const IdModel& id_model) {
+  std::unordered_set<IterDomain*> all_loop_ids;
+  for (const auto tv : id_model.tvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (auto id : tv->getLoopDomain()) {
+      all_loop_ids.emplace(id);
+    }
+  }
+
   for (const auto tv : id_model.tvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -111,8 +121,27 @@ bool isLoopGraphUniform(const IdModel& id_model) {
           id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
       const auto all_exact_groups =
           id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-      if (all_exact_groups.size() > 1) {
-        return false;
+      if (all_exact_groups.size() == 1) {
+        continue;
+      }
+
+      bool effective_group_found = false;
+      for (const auto& exact_group : all_exact_groups) {
+        // It should be fine ignore groups consisting of only non-loop
+        // IDs
+        if (std::all_of(
+                exact_group->begin(), exact_group->end(), [&](Val* val) {
+                  return all_loop_ids.count(val->as<IterDomain>()) == 0;
+                })) {
+          continue;
+        }
+
+        if (effective_group_found) {
+          // Multiple groups found
+          return false;
+        }
+
+        effective_group_found = true;
       }
     }
   }
@@ -945,6 +974,16 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     buildWithNoBroadcast() {
   const auto& loop_graph = idGraph(IdMappingMode::LOOP);
 
+  std::unordered_set<IterDomain*> all_used_loop_ids;
+  for (const auto tv : id_model_.tvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (auto id : tv->getLoopDomain()) {
+      all_used_loop_ids.emplace(id);
+    }
+  }
+
   std::unordered_map<ValGroup, IterDomain*> map;
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
@@ -963,6 +1002,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     for (Val* val : *loop_group) {
       IterDomain* loop_id = val->as<IterDomain>();
+      if (!all_used_loop_ids.count(loop_id)) {
+        continue;
+      }
       auto this_num_exprs =
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();
@@ -989,7 +1031,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       num_exprs = this_num_exprs;
     }
 
-    NVF_ERROR(promotion != nullptr);
+    // If promotion is null, it means no ID is actually a loop ID. In
+    // that case, the loop group should not need promotion info
+    if (promotion == nullptr) {
+      continue;
+    }
 
     map.emplace(loop_group, promotion);
   }

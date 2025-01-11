@@ -338,10 +338,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // domains may not be defined correctly. Only consider loop domains
     // for now.
     for (const auto& allocation_domain : allocation_domains) {
-      bool is_loop = std::find(
-                         tv->getLoopDomain().begin(),
-                         tv->getLoopDomain().end(),
-                         allocation_domain) != tv->getLoopDomain().end();
+      bool is_loop = !tv->isFusionInput() &&
+          std::find(
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
+              allocation_domain) != tv->getLoopDomain().end();
       IterDomain* promotion_domain = nullptr;
       if (is_loop) {
         promotion_domain = getLoopPromotion(allocation_domain, id_model);

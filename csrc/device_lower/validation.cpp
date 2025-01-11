@@ -760,6 +760,10 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     bool has_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
 
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
     for (const auto i : c10::irange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
       IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
@@ -1129,6 +1133,9 @@ void validateSwizzle(Fusion* fusion) {
 
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
