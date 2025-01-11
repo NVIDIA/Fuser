@@ -37,6 +37,14 @@ void bindCommunicator(py::module& nvfuser) {
       "local_rank",
       &Communicator::local_rank,
       "Returns the in-node rank associated with the current process.");
+  communicator.def(
+      "barrier",
+      [](Communicator& self) {
+        // Communicator::barrier takes an optional backend argument, which we
+        // don't use yet.
+        self.barrier();
+      },
+      "Performs a blocking barrier across all ranks.");
 }
 
 } // namespace nvfuser::python_frontend
