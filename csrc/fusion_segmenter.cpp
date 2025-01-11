@@ -3603,28 +3603,22 @@ class MergeUpCastArithDownCast {
     bool merged = true;
     while (merged) {
       merged = false;
-      std::unordered_set<SegmentedGroup*> considered;
+      std::unordered_set<SegmentedGroup*> considered_groups;
       for (SegmentedGroup* group : segment_candidate_finder_->groups()) {
-        if (!isUpCast(group) || considered.count(group)) {
+        if (!isUpCast(group) || considered_groups.count(group)) {
           continue;
         }
 
-        std::cerr << "Initial group: " << group << "\n";
-        for (auto expr : group->exprs()) {
-          std::cerr << expr->toString();
-        }
-
-        // This group consists of a single up-cast expr
         auto closed_groups = getClosedGroup(group);
-        if (!closed_groups.has_value()) {
+        if (closed_groups.size() < 2) {
           continue;
         }
 
-        for (auto group : *closed_groups) {
-          considered.insert(group);
+        for (auto group : closed_groups) {
+          considered_groups.insert(group);
         }
 
-        if (mergeClosedGroups(closed_groups.value())) {
+        if (mergeClosedGroups(closed_groups)) {
           merged = true;
           break;
         }
@@ -3632,8 +3626,7 @@ class MergeUpCastArithDownCast {
     }
   }
 
-  std::optional<std::vector<SegmentedGroup*>> getClosedGroup(
-      SegmentedGroup* initial_group) {
+  std::vector<SegmentedGroup*> getClosedGroup(SegmentedGroup* initial_group) {
     std::vector<SegmentedGroup*> groups_to_merge;
     std::unordered_set<SegmentedGroup*> groups_to_merge_set;
 
@@ -3675,14 +3668,6 @@ class MergeUpCastArithDownCast {
 
   SegmentedGroup* mergeClosedGroups(
       const std::vector<SegmentedGroup*>& groups) {
-    std::cerr << "Try merging upcast-arith-downcast groups\n";
-    for (auto group : groups) {
-      std::cerr << toString(group) << "\n";
-      for (auto expr : group->exprs()) {
-        std::cerr << "\t" << expr->toString();
-      }
-    }
-
     auto sched_type = tryMerge(
         segment_candidate_finder_->segmented_fusion_.get(),
         segment_candidate_finder_->runtimeInfo(),
@@ -3692,7 +3677,6 @@ class MergeUpCastArithDownCast {
       return nullptr;
     }
 
-    std::cerr << "Merge upcast-arith-downcast groups: " << sched_type << "\n";
     auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(groups);
 
     return joined_group;
