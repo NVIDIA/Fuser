@@ -826,7 +826,7 @@ bool isSchedulerInUse(
     const SchedulerType& scheduler_type);
 
 // Disable magic zero
-const CompileParams matmul_cparams{DataType::Int32, 255, false};
+constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);

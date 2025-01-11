@@ -160,26 +160,25 @@ bool hasCpuScalarOutputs(Fusion* _fusion) {
 }
 } // namespace
 
-bool KernelExecutor::supported(Fusion* _fusion) {
+bool KernelExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("KernelExecutor::supported");
-  return !hasCpuScalarOutputs(_fusion);
+  return !hasCpuScalarOutputs(fusion);
 }
 
 void KernelExecutor::compile(
-    Fusion* _fusion,
+    Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("KernelExecutor::compile");
-  fusion_ = std::make_unique<Fusion>(*_fusion);
+
   NVF_ERROR(
-      supported(fusion_.get()),
+      supported(fusion),
       "KernelExecutor does not support the Fusion provided.");
 
   NVF_ERROR(
-      !fusion_->outputs().empty(),
-      "No output found for this kernel, aborting.");
+      !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
   auto device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
@@ -194,7 +193,7 @@ void KernelExecutor::compile(
 
   //! Force index_type to int and disable magic zero if we detect that the
   //! kernel contains any TMA memory operations.
-  std::vector<Expr*> exprs = fusion_->exprs();
+  std::vector<Expr*> exprs = fusion->exprs();
   bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
     return ir_utils::isCpAsyncBulk(e);
   });
@@ -251,7 +250,7 @@ void KernelExecutor::compile(
   // Lowered is needed to compute launch parameters as it uses the CA map. We
   // could modify that, but simply generating that part first.
   compiled_kernel_ = std::make_unique<CompiledKernel>(
-      fusion_.get(),
+      fusion,
       compile_params,
       device,
       scheduler_type,
@@ -920,7 +919,8 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
-      outputs.empty() || (outputs.size() == fusion()->outputs().size()),
+      outputs.empty() ||
+          (outputs.size() == compiledKernel()->fusion()->outputs().size()),
       __func__,
       " provided number of outputs does not match fusion output");
 

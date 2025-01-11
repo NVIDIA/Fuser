@@ -22,6 +22,9 @@ struct CompileParams {
   bool enable_magic_zero = true;
   // if true, save ptxas info to compile log and check for register spilling
   bool enable_ptxas_verbose = false;
+  // Wrapping device in an optional allows us to initialize a value for the
+  // struct without having to select a specific device. Otherwise the default
+  // constructor will be deleted for the struct.
   std::optional<c10::Device> device = std::nullopt;
 
   bool operator==(const CompileParams& other) const {

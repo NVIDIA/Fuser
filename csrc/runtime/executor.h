@@ -145,7 +145,7 @@ class KernelExecutor : public ExecutorAbstract {
     if (compiledKernel()) {
       return true;
     }
-    return fusion_ != nullptr;
+    return false;
   };
 
   void evictCache(size_t cache_id) {
@@ -180,9 +180,6 @@ class KernelExecutor : public ExecutorAbstract {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  const std::unique_ptr<Fusion>& fusion() const {
-    return fusion_;
-  }
   //! Internal knob used for debugging/profiling only
   void setExecuteKernelFlag(bool execute_kernel) {
     execute_kernel_ = execute_kernel;
@@ -338,9 +335,6 @@ class KernelExecutor : public ExecutorAbstract {
   std::optional<int64_t> available_dynamic_smem_size_ = std::nullopt;
 
   int64_t warp_size_ = 0;
-
-  // Initialized for non-compiled fusions
-  std::unique_ptr<Fusion> fusion_;
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.

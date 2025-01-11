@@ -20,7 +20,6 @@
 #include <runtime/executor_params.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
-// #include <serde/fusion_cache_generated.h>
 #include <utils.h>
 #include <atomic>
 
@@ -54,6 +53,9 @@ class RtcKernel : public NonCopyable {
   int64_t device_index_;
 };
 
+//! Class for compilation logic through nvRTC. It shouldn't hold any logic
+//! associated with how to run a kernel, but how to compile it. It should also
+//! contain any information about the kernel itself.
 class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
@@ -119,11 +121,6 @@ class CompiledKernel : public NonCopyable {
     return lowered_->kernel()->as<Fusion>();
   }
 
-  //! get register spills (load + store) of the compiled kernel
-  int getKernelRegisterSpills() const {
-    return compiled_kernel_->register_spills;
-  }
-
   //! Returns the string of the compiled kernel
   NVF_API std::string kernelString() const {
     NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
@@ -155,9 +152,6 @@ class CompiledKernel : public NonCopyable {
   const int64_t& groupId() const {
     return group_id_;
   }
-  // void setGroupId(int64_t gid) {
-  //   group_id_ = gid;
-  // }
 
   bool validKernelId() const {
     return !kernel_id_.empty();
