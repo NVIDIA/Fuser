@@ -4179,9 +4179,9 @@ void SegmentCandidateFinder::findSegments() {
   removeScalarEdges();
 
   // Run pre-merge heuristics
-  if (getenv("MergeUpAndDownCast") {
+  if (getenv("MergeUpAndDownCast")) {
     MergeUpCastArithDownCast::run(this);
-    }
+  }
 
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
