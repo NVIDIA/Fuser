@@ -11472,7 +11472,8 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         nvfuser_index_t i34;
         i34 = i33 % 3;
         if ((Hopper::electSync(4294967295U) && b17)) {
-          mbarrier::waitParity(toSmem((&T7[(i34 + 3LL)])), parity[i34]++);
+          mbarrier::waitParity(toSmem((&T7[(i34 + 3LL)])), parity[i34]);
+          parity[i34] ^= 0b1;
           mbarrier::arriveExpectTX(toSmem((&T7[i34])), 32768U);
           Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr5, (Array<nvfuser_index_t, 2, 1>{(64 * i33), i25}), toSmem((&T7[i34])) }), (i6 + (32768 * i34)));
           mbarrier::arriveExpectTX(toSmem((&T7[i34])), 16384U);
@@ -11488,7 +11489,8 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         i38 = i9 + (16384 * i37);
         unsigned i39;
         i39 = i6 + (32768 * i37);
-        mbarrier::waitParity(toSmem((&T7[i37])), parity[i37]++);
+        mbarrier::waitParity(toSmem((&T7[i37])), parity[i37]);
+        parity[i37] ^= 0b1;
         asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
         for(nvfuser_index_t i40 = 0; i40 < 4; ++i40) {
