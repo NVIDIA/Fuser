@@ -1254,7 +1254,7 @@ void CompiledKernel::compile(int64_t block_size) {
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
+  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
   // If the loaded external source code is empty, revert to the default
