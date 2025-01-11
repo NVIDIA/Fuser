@@ -332,28 +332,28 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
   int64_t m_cluster = 1;
   int64_t n_cluster = 1;
   if (fusion_->hasManaged("cluster_dims")) {
-      auto cluster_dims =
-          fusion_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
-              "cluster_dims");
-      m_cluster = std::get<0>(cluster_dims);
-      n_cluster = std::get<0>(cluster_dims);
+    auto cluster_dims =
+        fusion_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+            "cluster_dims");
+    m_cluster = std::get<0>(cluster_dims);
+    n_cluster = std::get<1>(cluster_dims);
   }
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
                             MmaOperand operand_type,
-			    int64_t cluster_dim) {
+                            int64_t cluster_dim) {
     blockTileTensors(smem_operands);
     for (TensorView* tv : smem_operands) {
       if (params_->promote_prologue_smem_reuse) {
         tv->promoteReuse();
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
+      if (cluster_dim > 1) {
+        tv->split(-2, cluster_dim, /*inner_split=*/false);
+        // TODO parallelize with multicast
+      }
       MmaInputSmemSwizzle swizzle_type = mma_utils::tmaSwizzleSharedMemory(tv);
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
-      if (cluster_dim > 1) {
-        tv->split(-6, cluster_dim, /*inner_split=*/false);
-	// TODO parallelize with multicast
-      }
     }
   };
   scheduleBranch(as_, acw_smems_, MmaOperand::A, m_cluster);
@@ -669,7 +669,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy, std::make_pair(56, 224)));
+                  .smem_circular_buffer_prefetch_gap,
+          WarpSpecialized(ParallelType::TIDy, std::make_pair(56, 224)));
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
@@ -677,7 +678,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap, WarpSpecialized(ParallelType::TIDy, std::make_pair(56, 224)));
+                  .smem_circular_buffer_prefetch_gap,
+          WarpSpecialized(ParallelType::TIDy, std::make_pair(56, 224)));
     }
   }
 
