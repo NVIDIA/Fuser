@@ -4149,6 +4149,15 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
 
+  {
+    std::stringstream file_name;
+    file_name << "complete_fusion.dot";
+    IrGraphGenerator::print(
+        completeFusion(),
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
+  }
+
   buildInitialSegments();
 
   segmented_fusion_->validateIfDebug();
