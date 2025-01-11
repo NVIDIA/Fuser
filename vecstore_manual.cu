@@ -11375,11 +11375,12 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i2;
-  i2 = ceilDiv(T0.logical_size[0LL], 128);
+  // M = 4096, N = 14336, K = 5120
+  i2 = ceilDiv(T0.logical_size[0LL], 128); // = 4096 / 128 = 32
   nvfuser_index_t i3;
-  i3 = ceilDiv(((ceilDiv(T1.logical_size[1LL], 256)) * i2), 132);
+  i3 = ceilDiv(((ceilDiv(T1.logical_size[1LL], 256)) * i2), 132); // = ceil((ceil(14336 / 128) * 32) / 132) = 28
   nvfuser_index_t i4;
-  i4 = ceilDiv(T0.logical_size[2LL], 64);
+  i4 = ceilDiv(T0.logical_size[2LL], 64); // = 5120 / 64 = 80
   const TensorMap* ptr5;
   ptr5 = &var0;
   __bfloat* T5 = reinterpret_cast<__bfloat*>(array + smem_offset + 49152);
@@ -11445,8 +11446,9 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
     asm volatile("wgmma.fence.sync.aligned;\n");
     asm volatile("fence.proxy.async;\n");
 
-    Array<uint32_t, 3, 1> parity = {0, 0, 0};
+    uint32_t parity[3];// = {0, 0, 0};
 
+  // i3 = 28
   #pragma unroll 1
   for(nvfuser_index_t i23 = 0; i23 < i3; ++i23) {
     nvfuser_index_t i24;
@@ -11467,6 +11469,14 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
     ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
 
     if (b19) {
+      // i4 = 80
+      // NOTE: This loop runs 80 iterations, but it starts at the first
+      // circular buffer slot every time This means that the _last_ slot it
+      // fills is the second slot. Ideally, on the second iteration of the
+      // persistent i23 loop, we would start at the third slot so that we would
+      // not have to wait. In a worst case scenario, we would have just filled
+      // the first slot then we'd need to wait for the MMA to complete before
+      // moving on to load the next tile.
       #pragma unroll 2
       for(nvfuser_index_t i33 = 0; i33 < i4; ++i33) {
         nvfuser_index_t i34;
@@ -11481,6 +11491,9 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         }
       }
     } else {
+      // i4 = 80
+      // See above about the problem when i4 is not divisible by the number of
+      // load stages.
       #pragma unroll 2
       for(nvfuser_index_t i36 = 0; i36 < i4; ++i36) {
         nvfuser_index_t i37;
@@ -11489,8 +11502,10 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         i38 = i9 + (16384 * i37);
         unsigned i39;
         i39 = i6 + (32768 * i37);
+
         mbarrier::waitParity(toSmem((&T7[i37])), parity[i37]);
         parity[i37] ^= 0b1;
+
         asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
         for(nvfuser_index_t i40 = 0; i40 < 4; ++i40) {
