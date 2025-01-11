@@ -1715,6 +1715,9 @@ void GroupDependencyAnalysis::computeAllProducers() {
   while (!to_visit.empty()) {
     SegmentedGroup* to_update = nullptr;
     for (auto visiting_group : to_visit) {
+      for (auto expr : visiting_group->exprs()) {
+        std::cerr << expr->toString();
+      }
       if (std::all_of(
               visiting_group->producer_edges.begin(),
               visiting_group->producer_edges.end(),
@@ -3587,14 +3590,14 @@ bool CombineReductions::shouldRun(
   return false;
 }
 
-class MergeUpCastArithDownCast {
+class MergeUpAndDownCast {
  public:
   static void run(SegmentCandidateFinder* segment_candidate_finder) {
-    MergeUpCastArithDownCast group_cast(segment_candidate_finder);
+    MergeUpAndDownCast group_cast(segment_candidate_finder);
   }
 
  private:
-  MergeUpCastArithDownCast(SegmentCandidateFinder* segment_candidate_finder)
+  MergeUpAndDownCast(SegmentCandidateFinder* segment_candidate_finder)
       : segment_candidate_finder_(segment_candidate_finder) {
     merge();
   }
@@ -3641,21 +3644,30 @@ class MergeUpCastArithDownCast {
         continue;
       }
 
+      // For simplicity, all groups are assumed to be the initial
+      // single-expr groups. Skip if not
+
       groups_to_merge.push_back(group);
       groups_to_merge_set.insert(group);
 
-      if (!isDownCast(group)) {
-        for (const auto consumer_edge : group->consumer_edges) {
-          SegmentedGroup* consumer_group = consumer_edge->to;
-          if (!groups_to_merge_set.count(consumer_group)) {
-            to_visit.push_back(consumer_group);
-          }
+      // Consumer traversal. Stop if this group is a down cast
+      // group. Also stop if there are multiple consumer edges to
+      // simplify keeping the DAG property.
+      if (!isDownCast(group) && group->consumer_edges.size() == 1) {
+        auto consumer_edge = group->consumer_edges.at(0);
+        SegmentedGroup* consumer_group = consumer_edge->to;
+        if (!groups_to_merge_set.count(consumer_group)) {
+          to_visit.push_back(consumer_group);
         }
       }
 
       if (!isUpCast(group)) {
         for (const auto producer_edge : group->producer_edges) {
           SegmentedGroup* producer_group = producer_edge->from;
+          // Don't add producers that have more than multiple consumers
+          if (producer_group->consumer_edges.size() > 1) {
+            continue;
+          }
           if (!groups_to_merge_set.count(producer_group)) {
             to_visit.push_back(producer_group);
           }
@@ -3678,6 +3690,11 @@ class MergeUpCastArithDownCast {
     }
 
     auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(groups);
+
+    std::cerr << "Merged cast group\n";
+    for (auto expr : joined_group->exprs()) {
+      std::cerr << expr->toString();
+    }
 
     return joined_group;
   }
@@ -4173,7 +4190,9 @@ void SegmentCandidateFinder::findSegments() {
 
   // Run pre-merge heuristics
   if (getenv("MergeUpAndDownCast")) {
-    MergeUpCastArithDownCast::run(this);
+    MergeUpAndDownCast::run(this);
+    segmented_fusion_->draw();
+    segmented_fusion_->validateIfDebug(true);
   }
 
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
@@ -4764,6 +4783,23 @@ void SegmentedFusion::validateDAG() const {
       } else {
         // DFS traversal to one of the frontier groups
         auto group_to_visit = cur_frontiers.back();
+        if (visited_groups.count(group_to_visit) != 0) {
+          std::cerr << "Detected at:\n";
+          for (auto expr : group_to_visit->exprs()) {
+            std::cerr << expr->toString();
+          }
+          std::cerr << "Input group\n";
+          for (auto expr : input_group->exprs()) {
+            std::cerr << expr->toString();
+          }
+          std::cerr << "Visited groups\n";
+          for (auto g : visited_groups) {
+            std::cerr << "Group\n";
+            for (auto e : g->exprs()) {
+              std::cerr << e->toString();
+            }
+          }
+        }
         NVF_ERROR(
             visited_groups.count(group_to_visit) == 0,
             "Cycle detected at ",

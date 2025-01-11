@@ -488,7 +488,7 @@ class GroupDependencyAnalysis;
 
 // Manual node merging passes
 class CombineReductions;
-class MergeUpCastArithDownCast;
+class MergeUpAndDownCast;
 
 //! Options to configure/debug candidate finder
 struct SegmentCandidateFinderOptions {
@@ -692,7 +692,7 @@ class SegmentCandidateFinder {
   //!  eventually should have a dedicated interface
   //!  instead of keeping adding friends
   friend class CombineReductions;
-  friend class MergeUpCastArithDownCast;
+  friend class MergeUpAndDownCast;
 
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
