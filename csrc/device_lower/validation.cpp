@@ -417,7 +417,7 @@ class VectorizeValidator : public OptInDispatch {
     auto expr_path = ValGraphPermissiveBFS::getExprGroupsBetween(
         graph,
         graph.toGroups(tv->getMaybeAllocationDomain()),
-        graph.toGroups(std::vector<Val*>{v_id}).first;
+        graph.toGroups(std::vector<Val*>{v_id})).first;
 
     expr_path = reverse(expr_path);
 
