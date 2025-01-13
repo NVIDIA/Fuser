@@ -2119,6 +2119,9 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           break;
         }
       }
+      NVF_ERROR(
+          inner_loop != nullptr,
+          "Could not find enclosing loop for stmatrix index");
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
           out = hardCodedIndexGenerationForStMatrix(
