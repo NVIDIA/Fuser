@@ -6,66 +6,11 @@ from nvfuser import FusionDefinition
 from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 import torch
 
-from .rope_ops import rope_with_cat_fusion, rope_without_cat_fusion, rope_setup
-
-
-@pytest.mark.parametrize("use_cat", [True, False], ids=["with_cat", "without_cat"])
-def test_rope_benchmark(
-    benchmark, use_cat: bool, disable_validation: bool, disable_benchmarking: bool
-):
-    batch_size = 32
-    seq_len = 4096
-    num_heads = 32
-    features_per_head = 128
-
-    # torch.manual_seed(0)
-    q = torch.randn(
-        batch_size,
-        seq_len,
-        num_heads,
-        features_per_head,
-        dtype=torch.bfloat16,
-        device="cuda:0",
-    )
-    freqs = torch.randn(
-        seq_len, features_per_head // 2, dtype=torch.bfloat16, device="cuda:0"
-    )
-    cos = freqs.cos()
-    sin = freqs.sin()
-
-    if use_cat:
-        with FusionDefinition() as fd:
-            rope_with_cat_fusion(fd, batch_size, seq_len, num_heads, features_per_head)
-        inputs = [q, torch.cat([cos, cos], dim=-1), torch.cat([sin, sin], dim=-1)]
-    else:
-        with FusionDefinition() as fd:
-            rope_without_cat_fusion(
-                fd, batch_size, seq_len, num_heads, features_per_head
-            )
-        # [S, F/2, 2]
-        cos_and_minus_sin = torch.stack([cos, -sin], dim=-1)
-        # [S, F/2, 2]
-        sin_and_cos = torch.stack([sin, cos], dim=-1)
-        # [S, 2, F/2, 2]
-        cos_sin_matrix = torch.stack([cos_and_minus_sin, sin_and_cos], dim=1)
-        inputs = [q, cos_sin_matrix]
-
-    if not disable_validation:
-        q_real, q_image = q.permute([0, 2, 1, 3]).split(features_per_head // 2, dim=-1)
-        q_real = q_real.to(torch.float32)
-        q_image = q_image.to(torch.float32)
-        ref_out = torch.cat(
-            [q_real * cos - q_image * sin, q_image * cos + q_real * sin], dim=-1
-        ).to(torch.bfloat16)
-        nvf_out = fd.execute(inputs)
-        torch.testing.assert_close(nvf_out, [ref_out], atol=0, rtol=0)
-
-    if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, inputs)
+from .rope_ops import rope_setup
 
 
 @pytest.mark.parametrize(
-    "rope_variation",
+    "variation",
     [
         "llama_2_7b_hf_rope",
         "llama_3_8B_rope",
@@ -77,9 +22,9 @@ def test_rope_benchmark(
 @pytest.mark.parametrize(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
-def test_rope_variations_fwd_benchmark(
+def test_rope_fwd_benchmark(
     benchmark,
-    rope_variation: str,
+    variation: str,
     executor: str,
 ):
     kwargs = {}
@@ -88,7 +33,7 @@ def test_rope_variations_fwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, inputs, _, _ = rope_setup[rope_variation]()
+    model, inputs, _, _ = rope_setup[variation]()
 
     def fwd_call(inp):
         return model(*inp)
@@ -99,7 +44,7 @@ def test_rope_variations_fwd_benchmark(
 
 
 @pytest.mark.parametrize(
-    "rope_variation",
+    "variation",
     [
         "llama_2_7b_hf_rope",
         "llama_3_8B_rope",
@@ -111,9 +56,9 @@ def test_rope_variations_fwd_benchmark(
 @pytest.mark.parametrize(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
-def test_rope_variations_bwd_benchmark(
+def test_rope_bwd_benchmark(
     benchmark,
-    rope_variation: str,
+    variation: str,
     executor: str,
 ):
     kwargs = {}
@@ -122,7 +67,7 @@ def test_rope_variations_bwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, fwd_inputs, grad, iobytes = rope_setup[rope_variation]()
+    model, fwd_inputs, grad, iobytes = rope_setup[variation]()
 
     def fwd_call(inp):
         return model(*inp)
