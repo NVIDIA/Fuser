@@ -16,6 +16,7 @@ namespace nvfuser {
 
 class HostIrLower {
  public:
+  // The flag `ignore_inner_resharding` is useful because the preseg passes `InsertReshardingsPass` and `ReorderShardedAxisPass` want different behaviors
   static bool canLower(Expr* expr, bool ignore_inner_resharding = false);
 
   // Lower a sharded Expr into a series of Communication.

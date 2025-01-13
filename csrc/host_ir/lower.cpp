@@ -337,8 +337,10 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-    return (ignore_inner_resharding || !isInnerResharding(ldst)) &&
-        ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
+    if (!ignore_inner_resharding && isInnerResharding(expr)) {
+      return false;
+    }
+    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
   } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
     // For now we only support c = matmul(a,b) when b,c are fully replicated and
     // a is sharded on axis 1
