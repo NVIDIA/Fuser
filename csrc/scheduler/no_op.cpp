@@ -111,7 +111,7 @@ std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  auto params = std::make_unique<NoOpHeuristic>(SchedulerType::NoOp);
+  auto params = std::make_unique<HeursiticParams>(SchedulerType::NoOp);
   params->cparams.index_type = runtime_info.getIndexType();
   return params;
 }
