@@ -397,17 +397,17 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // to the async proxy
         // When wgmma_fence needs to be issued by all warps:
         // 1) Before the first wgmma.mma_async operation in a warp group.
-        // 2) Between a register access by a thread in the warp group and any 
-        // wgmma.mma_async instruction that accesses the same registers, either
-        // as accumulator or input register containing fragments of matrix A, 
-        // except when these are accumulator register accesses across multiple
-        // wgmma.mma_async instructions of the same shape. In the latter case,
-        // an ordering guarantee is provided by default.
+        // 2) Between a register access by a thread in the warp group and any
+        //  wgmma.mma_async instruction that accesses the same registers, either
+        //  as accumulator or input register containing fragments of matrix A,
+        //  except when these are accumulator register accesses across multiple
+        //  wgmma.mma_async instructions of the same shape. In the latter case,
+        //  an ordering guarantee is provided by default.
         auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
         registerInsertBefore(expr, wgmma_fence, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
-          // fence.proxy.async makes sure that writes to operands in the generic proxy are visible
-          // to the async proxy
+          // fence.proxy.async makes sure that writes to operands in the generic
+          // proxy are visible to the async proxy
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
