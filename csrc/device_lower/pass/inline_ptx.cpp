@@ -248,6 +248,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
     auto* commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
     auto* wait = IrBuilder::create<kir::AsyncWait>(
         AsyncOpType::WgMma,
+        // If cb_opts.stage - cb_opts.prefetch == 0, then keep_stages will be
+        // -1, which is invalid.
         std::min(0LL, /*keep_stages=*/cb_opts.stage - cb_opts.prefetch - 1));
 
     registerInsertBefore(mma, commit);
