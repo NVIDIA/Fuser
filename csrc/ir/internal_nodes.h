@@ -320,6 +320,8 @@ class NVF_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
+  std::string getGraphvizLabel() const override;
+
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
@@ -357,6 +359,8 @@ class NVF_API BinaryOp : public Expr {
   const char* getOpString() const override {
     return "BinaryOp";
   }
+
+  std::string getGraphvizLabel() const override;
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -404,6 +408,8 @@ class TernaryOp : public Expr {
   const char* getOpString() const override {
     return "TernaryOp";
   }
+
+  std::string getGraphvizLabel() const override;
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -1445,15 +1451,15 @@ class NVF_API MmaOp : public Expr {
     return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
-  int m() const {
+  int64_t m() const {
     return getM(macro());
   }
 
-  int n() const {
+  int64_t n() const {
     return getN(macro());
   }
 
-  int k() const {
+  int64_t k() const {
     return getK(macro());
   }
 
@@ -1514,6 +1520,42 @@ class ExpandOp : public Expr {
 
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+// Represents a repetition of broadcast IDs. Repetitions of
+// non-broadcast IDs are represented using the broadcast, expand and
+// reshape pattern. See the repeat op implementation in ops/alias.cpp
+// as well as the TranslateRepeatToExpand preseg pass.
+class RepeatOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // in: Input tensor that have broadcast logical IDs.
+  // out: Output tensor where some of the input broadcast logical IDs
+  // are converted to concrete IDs. Their extents represent the
+  // repetition factor of each ID.
+  RepeatOp(IrBuilderPasskey, TensorView* out, TensorView* in);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "RepeatOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   std::vector<PolymorphicValue> evaluate(

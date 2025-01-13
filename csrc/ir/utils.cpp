@@ -451,7 +451,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmtsTo(allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getAllStmtsTo(allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -501,6 +501,24 @@ class ValReplacementMutator : private OptOutMutator {
     std::unordered_set<Val*> outputs;
     std::vector<Val*> ordered_outputs;
     for (auto expr : exprs) {
+      // Iter domains and their exprs are taken care by traversing
+      // from TensorDomain with TensorDomain::allStatements, so they
+      // don't need to be included here
+      if (std::any_of(
+              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+                return output->isA<IterDomain>();
+              })) {
+        NVF_ERROR(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<IterDomain>();
+            }));
+        NVF_ERROR(std::all_of(
+            expr->inputs().begin(), expr->inputs().end(), [](Val* input) {
+              return input->isA<IterDomain>();
+            }));
+        continue;
+      }
+
       inputs.insert(expr->inputs().begin(), expr->inputs().end());
       outputs.insert(expr->outputs().begin(), expr->outputs().end());
       ordered_outputs.insert(
@@ -920,14 +938,13 @@ CompareDomainWithReferenceResult compareDomainWithReference(
     //  the reference domain. If it's connected even with missing
     //  dependencies, it should be considered redundant. For this
     //  reason, a variant of IRBFS with a relaxed dependency condition
-    //  is used. IRBFSWithPermissiveDependence can traverse as long as one of
+    //  is used. IRPermissiveBFS can traverse as long as one of
     //  the inputs or outputs is visited.
-    const auto from_remaining_ids =
-        getExprsBetween<IRBFSWithPermissiveDependence>(
-            {unused_ids.begin(), unused_ids.end()},
-            {reference.begin(), reference.end()},
-            /*require_all_to_visited=*/false)
-            .first;
+    const auto from_remaining_ids = getExprsBetween<IRPermissiveBFS>(
+                                        {unused_ids.begin(), unused_ids.end()},
+                                        {reference.begin(), reference.end()},
+                                        /*require_all_to_visited=*/false)
+                                        .first;
     // Nothing is reachable, which means all of the unused IDs are not redundant
     if (from_remaining_ids.empty()) {
       additional_ids = unused_ids;

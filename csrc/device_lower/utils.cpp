@@ -162,6 +162,7 @@ bool isTvOp(const Expr* expr) {
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
+          RepeatOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
@@ -921,7 +922,11 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. In the split-k case, use the root domain for the
+  // mma layout because the k dimension is divided into two iterDomains in the
+  // logical domain.
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;

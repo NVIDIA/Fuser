@@ -29,6 +29,27 @@
 
 namespace nvfuser {
 
+void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
+    TensorView* tv,
+    bool is_mma_result) {
+  // TODO Add constraints
+
+  auto apply_k_dim_offset = [is_mma_result](int64_t idx) constexpr {
+    return (is_mma_result) ? idx - 1 : idx;
+  };
+
+  // Original: [..., Mo, No, Mi, Ni]
+  tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
+  tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
+  // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+  tv->reorder({{apply_k_dim_offset(-3), apply_k_dim_offset(-2)}});
+  // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+  tv->merge(apply_k_dim_offset(-4));
+  // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+  tv->axis(apply_k_dim_offset(-3))->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+}
+
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
@@ -52,6 +73,8 @@ void HopperMultipleMatmulScheduler::run() {
   defineOperandCaches();
 
   inspectPrologues();
+
+  setCGADims();
 
   scheduleOperands();
 
@@ -78,7 +101,8 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
   scheduler_utils::clearMemorySpace(fusion_);
 
   // Cache inputs
-  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
+  scheduler_utils::cacheInputs(
+      fusion_, /*unroll=*/true, /*propagate_allocation=*/true);
 
   // Cache and fork outputs
   scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
@@ -395,22 +419,13 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
     // do split-K rFactor to define splitk_sum and smem_epilogue
     if (params_->splitk_factor != 1) {
-      // TODO: schedule split-K
-      NVF_THROW("Hopper split-K is not yet tested");
       // Note that the split-K split is already done in blockTileTensors
       TensorView* splitk_sum = mma_result->rFactor({-4, -1});
       std::swap(splitk_sum, mma_result);
       splitk_sums_.push_back(splitk_sum);
     }
 
-    mma_result->split(-3, getM(params_->mma_macro));
-    mma_result->split(-2, getN(params_->mma_macro));
-    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
-    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
-    mma_result->reorder({{-4, -3}});
-    mma_result->merge(-5);
-    mma_result->axis(-4)->parallelize(ParallelType::TIDy);
-
+    transformLikeMmaOutput(mma_result, /*is_mma_result=*/true);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -420,106 +435,52 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
   }
 }
 
-void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
-  const MatMulTileOptions& gemm_tile = params_->tile_sizes;
-  const int64_t vectorization_factor = params_->supported_vec_size.epilogue;
-  // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
-  mma_utils::checkConcreteStaticDim(c->axis(-2));
-  mma_utils::checkConcreteStaticDim(c->axis(-1));
-  const int64_t tile_size_m = c->axis(-2)->extent()->evaluate().as<int64_t>();
-  const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
-  NVF_ERROR(
-      tile_size_m == gemm_tile.cta_tile.m,
-      "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
-      gemm_tile.cta_tile.m,
-      ", actual: ",
-      tile_size_m);
-  NVF_ERROR(
-      tile_size_n == gemm_tile.cta_tile.n,
-      "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
-      gemm_tile.cta_tile.n,
-      ", actual: ",
-      tile_size_n);
-  const int64_t tot_elements = tile_size_m * tile_size_n;
-  constexpr int64_t warp_size = 32l;
-  const int64_t tidx = warp_size;
-  const int64_t tidy = gemm_tile.cta_tile.n / gemm_tile.warp_tile.n;
-  const int64_t tidz = gemm_tile.cta_tile.m / gemm_tile.warp_tile.m;
-  // step-1, merge last 2 dims
-  c->merge(-2);
-  // [Mo, No, m*n]
-
-  // step-2, set vectorization to maximum
-  // We have fixed tidx, tidy, and tidz, so we need to make sure that the
-  // output tensor is divisible by tidx * tidy * tidz * vectorization_factor
-  NVF_ERROR(
-      tot_elements % (tidx * tidy * tidz * vectorization_factor) == 0,
-      "Output tensor cannot be fully vectorized! tot_elements:",
-      tot_elements,
-      ", tidx: ",
-      tidx,
-      ", tidy: ",
-      tidy,
-      ", tidz: ",
-      tidz,
-      ", vectorization_factor: ",
-      vectorization_factor);
-  c->split(-1, vectorization_factor);
-  c->axis(-1)->parallelize(ParallelType::Vectorize);
-  // [Mo, No, m*n/vect, vect]
-
-  // step-3, Split out a warp for TIDx
-  c->split(-2, tidx);
-  c->axis(-2)->parallelize(ParallelType::TIDx);
-  // [Mo, No, m*n/vect/TIDx, TIDx, vect]
-
-  // step-4, Split out for TIDy and TIDz
-  // TIDy = cta_tile_n/warp_tile_n
-  // TIDz = cta_tile_m/warp_tile_m
-  c->split(-3, tidy);
-  c->axis(-3)->parallelize(ParallelType::TIDy);
-
-  c->split(-4, tidz);
-  c->axis(-4)->parallelize(ParallelType::TIDz);
-  // [Mo, No, m*n/vect/TIDx/TIDy/TIDz, TIDz, TIDy, TIDx, vect]
-
-  for (TensorView* mma_result : mma_results_) {
-    // step-5, Parallel first 2 dims same as mma_result
-    scheduler_utils::parallelizeAllLike(
-        mma_result,
-        2,
-        {c},
-        {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz});
-  }
-}
-
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
-  // TODO: schedule epilogue by propagation backward from dc
+  std::vector<TensorView*> cached_tvs;
+
+  // Propagate to (not including) the splitk output if there is a splitk
+  // else this is just mma_results_
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
+    auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
+    // Load/cache the epilogue inputs if there are any.
+    for (auto* c : c_tvs) {
+      cached_tvs.push_back(c->cacheAfter());
+    }
+    propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
+  }
+
   if (!params_->use_smem_epilogue) {
     for (Val* dv : fusion_->outputs()) {
       auto* d = dv->as<TensorView>();
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
-      auto* dc = d->definition()->input(0)->as<TensorView>();
 
-      // Block Schedule and Parallelize
-      blockTileTensors({dc, d});
-      parallelizeBlocks({dc, d});
+      // Schedule the output TV and propagate it back to the outputs of the Mma
+      // op.
+      blockTileTensors({d});
+      parallelizeBlocks({d});
+      transformLikeMmaOutput(d, /*is_mma_result=*/false);
 
-      // Apply mma common transformation
-      for (auto tv : {dc, d}) {
-        // [..., Mo, No, Mi, Ni]
-        tv->split(-2, getM(params_->mma_macro));
-        tv->split(-1, getN(params_->mma_macro));
-        // [..., Mo, No, Mio, Mii, Nio, Nii]
-        // -> [..., Mo, No, Mio, Nio, Mii, Nii]
-        tv->reorder({{-3, -2}});
-        tv->merge(-4);
-        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-            tv->getLoopDomain());
-        tv->setLoopDomain(s.as<IterDomain*>());
-        tv->axis(-5)->parallelize(ParallelType::TIDy);
-      }
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          d->getLoopDomain());
+      d->setLoopDomain(s.as<IterDomain*>());
+
+      // TODO: We need to check bank conflicts in this path.
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          d,
+          -1,
+          propagate_to,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
+
+      // We don't respect vectorization_factor as yet. We vectorize the
+      // inner-dim with extent 2.
+      // TODO: support vectorization_factor.
       d->axis(-1)->parallelize(ParallelType::Vectorize);
+      if (!cached_tvs.empty()) {
+        scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
+      }
     }
   } else {
     constexpr int64_t stmatrix_tile_m = 16;
@@ -547,47 +508,75 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // NOTE: cacheBefore does not work with blockTileTensors
       TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
 
+      std::vector<TensorView*> tvs_to_schedule{d, d_smem};
+
+      bool dc_in_mma_results =
+          std::find(mma_results_.begin(), mma_results_.end(), dc) !=
+          mma_results_.end();
+
+      if (!dc_in_mma_results) {
+        // Skip scheduling dc if it is an mma_result. This can happen if we are
+        // not casting back to half-precision in the output
+        tvs_to_schedule.push_back(dc);
+      }
+
       // Set MemoryType
       dc->setMemoryType(MemoryType::Local);
       d_smem->setMemoryType(MemoryType::Shared);
 
-      // Set LoadStoreOp
-      d_smem->definition()->as<LoadStoreOp>()->setOpType(
-          LoadStoreOpType::StMatrix);
+      auto store_with_stmatrix = dataTypeSize(dc->dtype()) == 2;
+
+      if (store_with_stmatrix) {
+        // Set LoadStoreOp
+        d_smem->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::StMatrix);
+      }
       d->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
 
-      // Block Schedule and Parallelize
-      blockTileTensors({dc, d_smem, d});
-      parallelizeBlocks({dc, d_smem, d});
-
-      // Apply mma common transformation
-      for (auto tv : {dc, d_smem, d}) {
-        // Original: [..., Mo, No, Mi, Ni]
-        tv->split(-2, getM(params_->mma_macro));
-        tv->split(-1, getN(params_->mma_macro));
-        // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-        tv->reorder({{-3, -2}});
-        // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-        tv->merge(-4);
-        // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-        tv->axis(-3)->parallelize(ParallelType::TIDy);
-        // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+      // Apply the common transforms to dc, d_smem, d
+      // After these transforms we schedule the inner two non-reduction loops
+      // (instruction tile) of dc and propagate is back till the outputs of mma.
+      blockTileTensors(tvs_to_schedule);
+      parallelizeBlocks(tvs_to_schedule);
+      for (auto tv : tvs_to_schedule) {
+        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
       }
 
-      // Schedule register cache; Output from epilogue
-      {
+      // Should not propagate if the dc is a mma output as the mma output has
+      // already been scheduled.
+      if (!dc_in_mma_results) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
         dc->setAllocationDomain(s.as<IterDomain*>(), true);
+
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            dc,
+            -1,
+            propagate_to,
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType());
       }
 
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
-      // Schedule shared memory cache; Output from StMatrix
-      mma_utils::scheduleStMatrixForMmaOutput(
-          d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+      // [M, N] -> [128(TIDx), N/8 ,  m(2) , n(2)]
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          d_smem->getLoopDomain());
+      if (swizzle != MmaInputSmemSwizzle::None) {
+        // Create tma store allocation domain with swizzle
+        mma_utils::scheduleTMAStoreForMmaOutput(d_smem, swizzle);
+      }
+      d_smem->setLoopDomain(s.as<IterDomain*>());
+
+      if (store_with_stmatrix) {
+        // Schedule shared memory cache; Output from StMatrix
+        mma_utils::scheduleStMatrixForMmaOutput(
+            d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+      }
+
+      d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
       mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
@@ -595,87 +584,18 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   }
 }
 
-//! Propagates transformations from fusion output to fusion tv inputs that are
-//!  producers in the epilogue. Transformations' propagation aims at input tvs
-//!  which are not assigned to core roles, that is, are not MMA inputs.
-void HopperMultipleMatmulScheduler::scheduleFusionInputsForEpilogue() {
-  std::vector<TensorView*> cached_tvs;
-
-  // Handling transformations in fusion input tvs with assigned EPILOGUE_INPUT
-  //  role by propagating fusion output transformations through cached views
-  //  of EPILOGUE_INPUT fusion input tvs and by setting vectorization of the
-  //  inner most iterdomain of these cached views
-  if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
-    auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
-
-    // The system supports only scenario where there is only one fusion output
-    //  with assigned OUTPUT role, this condition is already verified so there
-    //  is no need for an additional checks here
-    auto output_d = tensor_roles_.at(MatmulTensorRole::OUTPUT).front();
-    for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
-    }
-
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        output_d, -1, c_tvs);
-
-    std::unordered_set<ParallelType> parallel_types = {};
-    if (params_->use_smem_epilogue) {
-      // In cases where smem epilogue feature is enabled, the vectorization
-      //  of domains will be propagated to fusion inputs that are epilogue
-      //  inputs, this may result in unaligned memory reads. Vectorization is
-      //  explicitly excluded form parallelization types to avoid this issue.
-      // This should be changed when vectorization analysis is available and
-      //  enabled for matmul scheduler.
-      parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
-    }
-    scheduler_utils::parallelizeAllLike(
-        output_d, -1, cached_tvs, parallel_types);
-
-    // The cached EPILOGUE_INPUT tvs are not needed anymore
-    cached_tvs.clear();
-  }
-}
-
 void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
-  NVF_THROW("Split-K scheduling is not yet implemented for Hopper matmul");
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-
-    if (params_->use_smem_epilogue) {
-      // Now that transforms are propagated backward to smem_epilogue, which
-      // is before splitk_sum, we can vectorize the inner-most non-trivial
-      // dimension of splitk_sum
-      //
-      // Note that the split-K reduction is the inner-most dimension.
-      Val* vec_ext = splitk_sum->axis(-2)->extent();
-      NVF_ERROR(vec_ext->isConstInt());
-      int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
-      splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
-      splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
-      if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
-        // NOTE: We might encounter an illegal vectorization size if we are
-        // using Float for this reduction and Half for output. So here we
-        // first check whether the vectorize size is at most 16 bytes. If not,
-        // then we split into an unrolled loop that will do multiple
-        // vectorized reads/writes instead. Note that we reorder such that the
-        // axes are in order UR TIDx V.
-        splitk_sum->split(
-            -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
-        splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
-        splitk_sum->reorder({{-4, -3}});
-        // In this case, we have [... iUR iTx rBz iS]
-      }
-      splitk_sum->reorder({{-2, -1}});
-    } else { // no smem epilogue
-      // Reorder to place the split-K reduction next to innermost [... rBz iS]
-      splitk_sum->reorder({{-9, -2}});
-    }
-    // Vectorize inner-most dimension [... (iUR iTx) rBz iV]
+    transformLikeMmaOutput(splitk_sum, /*is_mma_result=*/false);
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        splitk_sum->getLoopDomain());
+    splitk_sum->setLoopDomain(s.as<IterDomain*>());
+    splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
@@ -710,18 +630,32 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           params_->async_gmem_load_operands,
           "Circular buffer only supports async load");
     }
+    NVF_CHECK(
+        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap >
+                0 &&
+            params_->circular_buffer_options
+                    .smem_circular_buffer_prefetch_gap <=
+                params_->circular_buffer_options.smem_circular_buffer_stage,
+        "smem_circular_buffer_prefetch_gap is ",
+        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
+        " but is expected to be positive and not greater than number of stages: ",
+        params_->circular_buffer_options.smem_circular_buffer_stage);
 
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
+          params_->circular_buffer_options.smem_circular_buffer_stage -
+              params_->circular_buffer_options
+                  .smem_circular_buffer_prefetch_gap);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.smem_circular_buffer_stage - 1);
+          params_->circular_buffer_options.smem_circular_buffer_stage -
+              params_->circular_buffer_options
+                  .smem_circular_buffer_prefetch_gap);
     }
   }
 
