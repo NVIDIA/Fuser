@@ -250,7 +250,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         AsyncOpType::WgMma,
         // If cb_opts.stage - cb_opts.prefetch == 0, then keep_stages will be
         // -1, which is invalid.
-        std::min(0L, /*keep_stages=*/cb_opts.stage - cb_opts.prefetch - 1L));
+        std::max(0L, /*keep_stages=*/cb_opts.stage - cb_opts.prefetch - 1L));
 
     registerInsertBefore(mma, commit);
     registerInsertBefore(mma, wait);
