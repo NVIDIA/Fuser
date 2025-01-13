@@ -3586,6 +3586,167 @@ bool CombineReductions::shouldRun(
   return false;
 }
 
+class MergeUpAndDownCast {
+ public:
+  static void run(SegmentCandidateFinder* segment_candidate_finder) {
+    MergeUpAndDownCast group_cast(segment_candidate_finder);
+  }
+
+ private:
+  MergeUpAndDownCast(SegmentCandidateFinder* segment_candidate_finder)
+      : segment_candidate_finder_(segment_candidate_finder) {
+    merge();
+  }
+
+  void merge() {
+    bool merged = true;
+    while (merged) {
+      merged = false;
+      std::unordered_set<SegmentedGroup*> considered_groups;
+      for (SegmentedGroup* group : segment_candidate_finder_->groups()) {
+        if (!isUpCast(group) || considered_groups.count(group)) {
+          continue;
+        }
+
+        auto closed_groups = getClosedGroup(group);
+        if (closed_groups.size() < 2) {
+          continue;
+        }
+
+        for (auto group : closed_groups) {
+          considered_groups.insert(group);
+        }
+
+        if (mergeClosedGroups(closed_groups)) {
+          merged = true;
+          break;
+        }
+      }
+    }
+  }
+
+  std::vector<SegmentedGroup*> getClosedGroup(SegmentedGroup* initial_group) {
+    std::vector<SegmentedGroup*> groups_to_merge;
+    std::unordered_set<SegmentedGroup*> groups_to_merge_set;
+
+    std::deque<SegmentedGroup*> to_visit;
+    to_visit.push_back(initial_group);
+
+    while (!to_visit.empty()) {
+      SegmentedGroup* group = to_visit.front();
+      to_visit.pop_front();
+
+      if (groups_to_merge_set.count(group)) {
+        continue;
+      }
+
+      // For simplicity, all groups are assumed to be the initial
+      // single-expr groups. Skip if not
+
+      groups_to_merge.push_back(group);
+      groups_to_merge_set.insert(group);
+
+      // Consumer traversal. Stop if this group is a down cast
+      // group. Also stop if there are multiple consumer edges to
+      // simplify keeping the DAG property.
+      if (!isDownCast(group) && group->consumer_edges.size() == 1) {
+        auto consumer_edge = group->consumer_edges.at(0);
+        SegmentedGroup* consumer_group = consumer_edge->to;
+        if (!groups_to_merge_set.count(consumer_group)) {
+          to_visit.push_back(consumer_group);
+        }
+      }
+
+      if (!isUpCast(group)) {
+        for (const auto producer_edge : group->producer_edges) {
+          SegmentedGroup* producer_group = producer_edge->from;
+          // Don't add producers that have more than multiple consumers
+          if (producer_group->consumer_edges.size() > 1) {
+            continue;
+          }
+          if (!groups_to_merge_set.count(producer_group)) {
+            to_visit.push_back(producer_group);
+          }
+        }
+      }
+    }
+
+    return groups_to_merge;
+  }
+
+  SegmentedGroup* mergeClosedGroups(
+      const std::vector<SegmentedGroup*>& groups) {
+    auto sched_type = tryMerge(
+        segment_candidate_finder_->segmented_fusion_.get(),
+        segment_candidate_finder_->runtimeInfo(),
+        groups);
+
+    if (sched_type == SchedulerType::None) {
+      return nullptr;
+    }
+
+    auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(groups);
+
+    std::cerr << "Merged cast group\n";
+    for (auto expr : joined_group->exprs()) {
+      std::cerr << expr->toString();
+    }
+
+    return joined_group;
+  }
+
+  bool isUpCast(SegmentedGroup* group) const {
+    if (auto precision_bits = getProducerConsumerPrecision(group);
+        precision_bits.has_value()) {
+      return precision_bits->first < precision_bits->second;
+    } else {
+      return false;
+    }
+  }
+
+  bool isDownCast(SegmentedGroup* group) const {
+    if (auto precision_bits = getProducerConsumerPrecision(group);
+        precision_bits.has_value()) {
+      return precision_bits->first > precision_bits->second;
+    } else {
+      return false;
+    }
+  }
+
+  std::optional<std::pair<int64_t, int64_t>> getProducerConsumerPrecision(
+      SegmentedGroup* group) const {
+    if (group->exprs().size() != 1) {
+      return std::nullopt;
+    }
+
+    auto uop = dynamic_cast<UnaryOp*>(group->exprs().front());
+    if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+      return std::nullopt;
+    }
+
+    auto inp_tv = ir_utils::getTvInput(uop);
+    auto out_tv = ir_utils::getTvOutput(uop);
+    if (inp_tv == nullptr || out_tv == nullptr) {
+      return std::nullopt;
+    }
+
+    auto inp_dtype = inp_tv->dtype().type;
+    auto out_dtype = out_tv->dtype().type;
+    auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
+    auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
+
+    if (inp_prim_type == nullptr || out_prim_type == nullptr) {
+      return std::nullopt;
+    }
+
+    return std::make_pair(
+        primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
+  }
+
+ private:
+  SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
+};
+
 namespace {
 
 //! Returns true if group1 and group2 are an immediate producer-consumer pair.
@@ -3945,6 +4106,9 @@ void SegmentCandidateFinder::findSegments() {
   removeScalarEdges();
 
   // Run pre-merge heuristics
+  MergeUpAndDownCast::run(this);
+  segmented_fusion_->validateIfDebug(true);
+
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
   }
