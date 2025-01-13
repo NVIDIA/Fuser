@@ -534,8 +534,7 @@ TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   NVF_CHECK(
       this->axis(axis)->getParallelType() == ParallelType::Serial,
       "Splitting an axis of non-Serial parallel type is not supported at this time."
-      " Parallelization strategy must be set after calling split.",
-      ". Tensor: ",
+      " Parallelization strategy must be set after calling split: ",
       toString());
 
   if (factor->dtype() != DataType::Index) {
