@@ -3616,6 +3616,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   bindSchedule(fusion_def);
+
+  bindCommunicator(nvfuser);
 }
 
 void cleanup() {
