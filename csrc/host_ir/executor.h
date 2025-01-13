@@ -118,6 +118,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(GetCurrentStream* get_current_stream) override;
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
+  void handle(LaunchKernel* post_ir) override;
   void handle(Communication* communication) override;
   void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;

@@ -41,10 +41,15 @@ class HostIrContainer final : public Fusion {
     return top_level_exprs_.push_back(expr);
   }
 
+  void pushBackKernelExecutor(KernelExecutor* ke) {
+    return kernel_executors_.push_back(ke);
+  }
+
   Stream* getDefaultStream();
 
  private:
   std::vector<Expr*> top_level_exprs_;
+  std::vector<KernelExecutor*> kernel_executors_;
   Stream* default_stream_ = nullptr;
 };
 

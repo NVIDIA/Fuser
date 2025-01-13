@@ -115,6 +115,33 @@ class PostOnStream : public Expr {
   }
 };
 
+class LaunchKernel : public Expr {
+ public:
+  using Expr::Expr;
+  LaunchKernel(
+      std::vector<Val*> inputs,
+      std::vector<Val*> outputs);
+
+  LaunchKernel(const LaunchKernel& other) = delete;
+  LaunchKernel& operator=(const LaunchKernel& other) = delete;
+  LaunchKernel(LaunchKernel&& other) = delete;
+  LaunchKernel& operator=(LaunchKernel&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::LaunchKernel";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  Expr* hostOpToPost() const {
+    return attributes_.at(0)->as<Expr>();
+  }
+};
+
 class Stream : public Val {
  public:
   // if index is provided, the IR represents the streams whose index is the

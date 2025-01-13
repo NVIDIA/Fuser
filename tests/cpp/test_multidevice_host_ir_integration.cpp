@@ -24,6 +24,47 @@ class MultiDeviceHostIrIntegrationTest
 
 TEST_P(MultiDeviceHostIrIntegrationTest, test_kernel) {
   //auto [use_fusion_executor_cache, with_sharding_annotations] = GetParam();
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 32}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->compile(&fusion, aten_inputs);
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  hic->pushBackKernelExecutor(ke.get());
+
+  // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
+  std::vector<Val*> inputs = {tv0};
+  std::vector<Val*> outputs = {tv1};
+  auto launch_kernel =
+      IrBuilder::create<LaunchKernel>(0, inputs, outputs); // todo: change to segment index instead of hardcoding index 0 in the kernel_executors_ vector
+
+  // [Step 6)] Define the Host program
+  hic->pushBackTopLevelExprs(launch_kernel);
+
+  // [Step 7)] Define the Host program's global I/O
+  hic->addInput(inputs.back());
+  hic->addOutput(outputs.back());
+
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
+  params.use_fusion_executor_cache = false;
+  HostIrEvaluator hie(std::move(hic), communicator_, params);
+
+  auto outputs = hie.runWithInput({{inputs.back(), input}, {outputs.back(), output}});
+
+  // validate the obtained results
+  ASSERT_TRUE(outputs[0].equal(t0));
 }
 
 INSTANTIATE_TEST_SUITE_P(

@@ -298,6 +298,10 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
+void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
+
+}
+
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
