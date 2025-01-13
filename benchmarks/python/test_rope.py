@@ -2,9 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition
 from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
-import torch
 
 from .rope_ops import rope_setup
 
