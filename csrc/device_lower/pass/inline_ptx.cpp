@@ -248,7 +248,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     auto* commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
     auto* wait = IrBuilder::create<kir::AsyncWait>(
         AsyncOpType::WgMma,
-        /*keep_stages=*/cb_opts.stage - cb_opts.prefetch - 1);
+        std::min(0LL, /*keep_stages=*/cb_opts.stage - cb_opts.prefetch - 1));
 
     registerInsertBefore(mma, commit);
     registerInsertBefore(mma, wait);
