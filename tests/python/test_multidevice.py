@@ -124,8 +124,8 @@ def test_linear_loop_split(mpi_test):
         def definition(self):
             d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
             self.inp = self.define_tensor([b, s, e])
-            self.weight = self.define_tensor([d * e, e], contiguity=[True, True])
-            self.bias = self.define_tensor([d * e], contiguity=[True])
+            self.weight = self.define_tensor([d * e, e], contiguity=True)
+            self.bias = self.define_tensor([d * e], contiguity=True)
             self.out = self.ops.linear(self.inp, self.weight, self.bias)
             self.add_output(self.out)
 
