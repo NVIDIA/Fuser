@@ -11482,12 +11482,23 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         nvfuser_index_t i34;
         i34 = i33 % 3;
         if ((Hopper::electSync(4294967295U) && b17)) {
-          mbarrier::waitParity(toSmem((&T7[(i34 + 3LL)])), parity[i34]);
-          parity[i34] ^= 0b1;
-          mbarrier::arriveExpectTX(toSmem((&T7[i34])), 32768U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr5, (Array<nvfuser_index_t, 2, 1>{(64 * i33), i25}), toSmem((&T7[i34])) }), (i6 + (32768 * i34)));
-          mbarrier::arriveExpectTX(toSmem((&T7[i34])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(64 * i33), i27}), toSmem((&T7[i34])) }), (i8 + (16384 * i34)));
+
+          //mbarrier::waitParity(toSmem((&T7[(i34 + 3LL)])), parity[i34]);
+          //parity[i34] ^= 0b1;
+
+          // Parity = number of previous uses of this mbarrier. When i4 is not
+          // divisible by num_stages (3), then we should only multiply the
+          // outer loop iteration by a number less than ceilDiv
+          uint32_t stages_processed = i23 * i4 + i33;
+          nvfuser_index_t slot = stages_processed % 3;
+          uint32_t this_parity = (stages_processed / 3) % 2;
+
+          mbarrier::waitParity(toSmem((&T7[(slot + 3LL)])), this_parity);
+
+          mbarrier::arriveExpectTX(toSmem((&T7[slot])), 32768U);
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr5, (Array<nvfuser_index_t, 2, 1>{(64 * i33), i25}), toSmem((&T7[slot])) }), (i6 + (32768 * slot)));
+          mbarrier::arriveExpectTX(toSmem((&T7[slot])), 16384U);
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(64 * i33), i27}), toSmem((&T7[slot])) }), (i8 + (16384 * slot)));
         }
       }
     } else {
@@ -11496,15 +11507,23 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
       // load stages.
       #pragma unroll 2
       for(nvfuser_index_t i36 = 0; i36 < i4; ++i36) {
+        uint32_t stages_processed = i23 * i4 + i36;
+        nvfuser_index_t slot = stages_processed % 3;
+        uint32_t this_parity = (stages_processed / 3) % 2;
+
         nvfuser_index_t i37;
-        i37 = i36 % 3;
+        //i37 = i36 % 3;
+        i37 = slot;
+
         unsigned i38;
         i38 = i9 + (16384 * i37);
         unsigned i39;
         i39 = i6 + (32768 * i37);
 
-        mbarrier::waitParity(toSmem((&T7[i37])), parity[i37]);
-        parity[i37] ^= 0b1;
+        //mbarrier::waitParity(toSmem((&T7[i37])), parity[i37]);
+        //parity[i37] ^= 0b1;
+
+        mbarrier::waitParity(toSmem((&T7[slot])), this_parity);
 
         asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
@@ -11660,7 +11679,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         }
         asm volatile("wgmma.commit_group.sync.aligned;\n");
         asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-        mbarrier::arrive(toSmem((&T7[(i37 + 3LL)])));
+        mbarrier::arrive(toSmem((&T7[(slot + 3LL)])));
       }
       #pragma unroll
       for(nvfuser_index_t i46 = 0; i46 < 32; ++i46) {
