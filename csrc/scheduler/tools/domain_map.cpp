@@ -178,18 +178,15 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 bool DomainMap::areAllTargetIdsCoveredBy(
     TensorView* target_tv,
     TensorView* reference_tv) const {
-  auto get_source_iter_domains = [this](TensorView* tv) {
+  auto get_source_iter_domains = [this](const std::vector<IterDomain*>& ids) {
     // traverse back to collect all disjoint set producer IDs for each ID in the
     // logical domain of tv.
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
-    std::for_each(
-        tv->getLogicalDomain().begin(),
-        tv->getLogicalDomain().end(),
-        [&](IterDomain* tv_logical_id) {
-          all_producer_sets.pushBack(
-              ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
-        });
+    std::for_each(ids.begin(), ids.end(), [&](IterDomain* tv_logical_id) {
+      all_producer_sets.pushBack(
+          ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
+    });
     all_producer_sets.pushBack(
         ca_map_.getAllDisjointSetProducers(all_producer_sets));
 
@@ -213,7 +210,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // this contains all source iter domain that's covered by reference_tv, so
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
-  for (IterDomain* source_id_ref : get_source_iter_domains(reference_tv)) {
+  for (IterDomain* source_id_ref :
+       get_source_iter_domains(reference_tv->getLogicalDomain())) {
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
@@ -226,9 +224,10 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 
       // Note that ideally we should also be able to handle merge/split on
       // broadcast IDs, so we should really move this skip inside the loop below
-      // `get_source_iter_domains(target_tv)` and skip broadcast source IDs.
-      // currently we have the issue that split/merge does not preserve expanded
-      // broadcasts, see issue: https://github.com/NVIDIA/Fuser/issues/1126
+      // `get_source_iter_domains(target_tv->getLogicalDomain())` and skip
+      // broadcast source IDs. currently we have the issue that split/merge does
+      // not preserve expanded broadcasts, see issue:
+      // https://github.com/NVIDIA/Fuser/issues/1126
       covered_source_ids.insert(id_out);
     }
   }
@@ -248,21 +247,37 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // https://github.com/NVIDIA/Fuser/issues/3542
 
   // Check all source iter domain involved in producing target_tv
-  for (IterDomain* source_id_out : get_source_iter_domains(target_tv)) {
+  for (IterDomain* source_id_out :
+       get_source_iter_domains(target_tv->getLogicalDomain())) {
     // NOTE: we use concrete id instead. This allows us to link indirect
-    // broadcast. So in the example below: T2[i0, i1] = T0[i0, b0] + T1[i0, i1]
-    // T3[i0, i9] = pad(T0[i0, b0])
+    // broadcast. So in the example below:
+    //   input T0[
+    //   T2[i0, i2*i3] = T0[i0, i2, i3]
+    //   T3[i0, i2*i3] = T1[i0, b0] + T2[i0, i2*i3]
+    //   T4[i0, i9] = pad(T1[i0, b0])
     // We have i9 in T3
     //     -> source ID b0
-    //     -> concrete map to i1
+    //     -> concrete map to i2*i3
+    //     -> source ID from i2*i3 to [i2, i3]
     // So T3 is contained by T2. See test `PointwiseTest.DomainMapPad1`
-    auto concrete_source_id_out =
+    auto concrete_id_out =
         ca_map_.getConcreteMappedID(source_id_out, IdMappingMode::PERMISSIVE);
-    // if we find any source_id_out that's not contained, it's possible our
-    // propagation would fail since transformation involving this iter domain
-    // can't be resolved.
-    if (!getMappedInputConcreteID(covered_source_ids, concrete_source_id_out)) {
-      return false;
+
+    // After mapping with PERMISSIVE map, `concrete_id_out` might no longer be a
+    // source ID. We project to source ID again from concrete_id_out. See test
+    // DomainMapBroadcastIssue3653
+    // In the example above. `i2*i3` is not a source ID. Hence we needed to go
+    // through another projection to source IDs in order to map it to
+    // covered_source_ids.
+    for (IterDomain* concrete_source_id_out :
+         get_source_iter_domains({concrete_id_out})) {
+      // if we find any source_id_out that's not contained, it's possible our
+      // propagation would fail since transformation involving this iter
+      // domain can't be resolved.
+      if (!getMappedInputConcreteID(
+              covered_source_ids, concrete_source_id_out)) {
+        return false;
+      }
     }
   }
   return true;
@@ -359,7 +374,8 @@ IterDomain* DomainMap::anyMapped(
 }
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
-// The reference tensor must map to all the iterDomains in each input and output
+// The reference tensor must map to all the iterDomains in each input and
+// output
 bool DomainMap::isValidReference(TensorView* tv) const {
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
     if (input_tv->uses().empty()) {
@@ -372,8 +388,8 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     }
   }
   // The check on outputs are optional, transpose scheduler might propose a
-  // secondary reference that only applies to a subset of IO tensors. Ideally we
-  // should have a more robust check and consider the IO groups instead of
+  // secondary reference that only applies to a subset of IO tensors. Ideally
+  // we should have a more robust check and consider the IO groups instead of
   // blindly skip outputs.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(fusion_->outputs())) {

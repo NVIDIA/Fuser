@@ -1527,6 +1527,42 @@ class ExpandOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+// Represents a repetition of broadcast IDs. Repetitions of
+// non-broadcast IDs are represented using the broadcast, expand and
+// reshape pattern. See the repeat op implementation in ops/alias.cpp
+// as well as the TranslateRepeatToExpand preseg pass.
+class RepeatOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // in: Input tensor that have broadcast logical IDs.
+  // out: Output tensor where some of the input broadcast logical IDs
+  // are converted to concrete IDs. Their extents represent the
+  // repetition factor of each ID.
+  RepeatOp(IrBuilderPasskey, TensorView* out, TensorView* in);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "RepeatOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 class ViewAsScalar : public Expr {
  public:
   using Expr::Expr;

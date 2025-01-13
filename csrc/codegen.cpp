@@ -158,9 +158,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
  public:
   static std::string generateKernelDefinition(
       const kir::Kernel* kernel,
-      const std::string& kernel_name) {
+      const std::string& kernel_name,
+      std::optional<int64_t> num_threads_per_cta) {
     CudaKernelGenerator codegen(kernel);
-    codegen.genDeclaration(kernel_name);
+    codegen.genDeclaration(kernel_name, num_threads_per_cta);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -272,8 +273,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   // Generates the kernel function declaration
-  void genDeclaration(const std::string& kernel_name) {
+  void genDeclaration(
+      const std::string& kernel_name,
+      std::optional<int64_t> num_threads_per_cta) {
     code_ << "__global__ void ";
+    if (kernel_->hasManaged("enable_register_sharing") &&
+        kernel_->getManaged<bool>("enable_register_sharing")) {
+      NVF_ERROR(
+          num_threads_per_cta.has_value(),
+          "__launch_bounds__ must be set for register sharing warp specialization");
+      code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
+            << num_threads_per_cta.value() << ") ";
+    }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
           kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
@@ -3510,6 +3521,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
+  void handle(const kir::Return* ret) final {
+    indent() << "return;\n";
+  }
+
  private:
   std::stringstream code_;
   const kir::Kernel* kernel_;
@@ -3538,9 +3553,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
 std::string generateCudaKernel(
     const kir::Kernel* kernel,
-    const std::string& kernel_name) {
+    const std::string& kernel_name,
+    std::optional<int64_t> num_threads_per_cta) {
   FUSER_PERF_SCOPE("generateCudaKernel");
-  return CudaKernelGenerator::generateKernelDefinition(kernel, kernel_name);
+  return CudaKernelGenerator::generateKernelDefinition(
+      kernel, kernel_name, num_threads_per_cta);
 }
 
 } // namespace codegen
