@@ -2112,16 +2112,23 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       NVF_ERROR(ldst->out()->isA<TensorView>());
       TensorView* out_tv = ldst->out()->as<TensorView>();
       MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+      ForLoop* inner_loop = nullptr;
+      for (int64_t i = (int64_t)for_loops_.size() - 1L; i >= 0; --i) {
+        inner_loop = for_loops_.at((size_t)i);
+        if (!inner_loop->isTrivial()) {
+          break;
+        }
+      }
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
           out = hardCodedIndexGenerationForStMatrix(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, inner_loop, m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32:
           out = hardCodedIndexGenerationForStMatrixSwizzle(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, inner_loop, m_tile, n_tile, m, n);
           break;
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
