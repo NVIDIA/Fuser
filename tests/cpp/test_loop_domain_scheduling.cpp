@@ -487,4 +487,325 @@ TEST_F(LoopDomainSchedulingTest, UpdateLoopDomainOnlyWithExistingExpr) {
   EXPECT_NE(reshape_merge, propagated_merge);
 }
 
+// Testing propagating with broadcast IDs
+TEST_F(LoopDomainSchedulingTest, BroadcastRefereceIDs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = broadcast(tv2, {false, false, true});
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 32);
+
+  // Using tv3 as a reference. tv3 has two broadcast logical IDs,
+  // which are merged and split. By using tv3 as a reference, tv1 and
+  // tv2 shoud also be scheduled in the same way. tv1 should get two
+  // new broadcast IDs, while tv2 should get one.
+  scheduler_tools::scheduleLoopDomainsLike({tv1, tv2}, tv3->getLoopDomain());
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  for (auto tv : {tv1, tv2}) {
+    // There must be broadcast IDs that are exact mapped with the two
+    // logical broadcast IDs of tv3
+    const auto all_ids = tv->domain()->allIDs();
+    for (auto ref_logical_broadcast : tv3->getLogicalDomain()) {
+      if (!ref_logical_broadcast->isBroadcast()) {
+        continue;
+      }
+      auto it =
+          std::find_if(all_ids.begin(), all_ids.end(), [&](IterDomain* id) {
+            return id->isBroadcast() &&
+                exact_graph.disjointValSets().strictAreMapped(
+                    id, ref_logical_broadcast);
+          });
+      EXPECT_NE(it, all_ids.end())
+          << "No matching broadcast ID found in " << tv->toString()
+          << ". Missing ref broadcast: " << ref_logical_broadcast->toString();
+    }
+
+    // The loop domain should be exact mapped with tv3
+    ASSERT_EQ(tv->getLoopDomain().size(), tv3->getLoopDomain().size());
+    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+      auto tv_loop_id = tv->getLoopDomain().at(i);
+      auto ref_loop_id = tv3->getLoopDomain().at(i);
+      EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+          tv_loop_id, ref_loop_id));
+    }
+  }
+}
+
+// Cancelling a reshape to make all tensors ordered as the input
+TEST_F(LoopDomainSchedulingTest, CancelReshape1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{16, 32, 2};
+
+  auto tv0 = makeContigConcreteTensor(shape); // [i0, i1, i2]
+  fusion.addInput(tv0);
+  auto tv1 = permute(tv0, {1, 0, 2}); // [i1, i0, i2]
+  auto tv2 =
+      reshape(tv1, shape, {shape[1], shape[0] * shape[2]}); // [i1, i0*i2]
+  auto tv3 = sin(tv2);
+  fusion.addOutput(tv3);
+
+  // Cancel the reshape of tv2
+  scheduler_tools::cancelReshapeInLoopDomains(tv0);
+
+  // The loop domain of tv2 should now be the same as its root domain.
+  EXPECT_EQ(tv2->getRootDomain(), tv2->getLoopDomain());
+  // The loop domain of tv3 should be exact mapped with the tv2 loop
+  // domain
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    EXPECT_EQ(
+        exact_graph.toGroups(tv3->getLoopDomain()),
+        exact_graph.toGroups(tv2->getLoopDomain()));
+  }
+
+  // Reorder tv3 as the input
+  tv3->reorder({1, 0, 2});
+  tv3->flatten();
+  tv3->split(0, 128);
+  scheduler_tools::scheduleLoopDomainsLike({tv1, tv2}, tv3->getLoopDomain());
+
+  // All loop domains should be exact mapped
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    const auto ref_loop = exact_graph.toGroups(tv3->getLoopDomain());
+    for (auto tv : {tv1, tv2}) {
+      EXPECT_EQ(exact_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    }
+  }
+
+  inlineMost();
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Cancelling chained reshape ops
+TEST_F(LoopDomainSchedulingTest, CancelReshape2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{10, 11, 12};
+
+  auto tv0 = makeContigConcreteTensor(shape); // [i0, i1, i2]
+  fusion.addInput(tv0);
+  auto tv1 = reshape(
+      tv0,
+      {IrBuilder::create<Val>(shape[1]),
+       IrBuilder::create<Val>(shape[0] * shape[2])});
+  auto tv2 = reshape(
+      tv1,
+      {IrBuilder::create<Val>(shape[1]),
+       IrBuilder::create<Val>(shape[2]),
+       IrBuilder::create<Val>(shape[0])});
+  auto tv3 = reshape(
+      tv2,
+      {IrBuilder::create<Val>(shape[0] * shape[1]),
+       IrBuilder::create<Val>(shape[2])});
+  fusion.addOutput(tv3);
+
+  // Cancel all reshape ops
+  scheduler_tools::cancelReshapeInLoopDomains(tv0);
+
+  // All of the tensors should have the same loop domain
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    const auto ref_loop = exact_graph.toGroups(tv0->getLoopDomain());
+    for (auto tv : {tv1, tv2, tv3}) {
+      EXPECT_EQ(exact_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    }
+  }
+
+  tv3->flatten();
+  tv3->split(0, 32);
+
+  inlineMost();
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Two reshapes that get merged by a binary op
+TEST_F(LoopDomainSchedulingTest, CancelReshape3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{10, 11};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1L)});
+  auto tv2 = reshape(tv0, {IrBuilder::create<Val>(-1L)});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  // The cancellation of the second reshape won't do anything as the
+  // loop domain is already updated by the first reshape.
+  scheduler_tools::cancelReshapeInLoopDomains(tv0);
+
+  // All of the tensors should have the same loop domain
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    const auto ref_loop = exact_graph.toGroups(tv0->getLoopDomain());
+    for (auto tv : {tv1, tv2, tv3}) {
+      EXPECT_EQ(exact_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    }
+  }
+
+  inlineMost();
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Resize should prevent cancellation
+TEST_F(LoopDomainSchedulingTest, CancelReshape4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{10, 11, 12};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // Non-cancellable reshape due to the following slice
+  auto tv1 = reshape(
+      tv0, {IrBuilder::create<Val>(shape[0]), IrBuilder::create<Val>(-1L)});
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->axis(0)->extent()},
+       {fusion.oneVal(), tv1->axis(1)->extent()}});
+  fusion.addOutput(tv2);
+
+  // Cancellable reshape
+  auto tv3 = reshape(
+      tv0,
+      {IrBuilder::create<Val>(shape[0] * shape[1]),
+       IrBuilder::create<Val>(-1L)});
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->axis(0)->extent()},
+       {fusion.oneVal(), tv3->axis(1)->extent()}});
+  fusion.addOutput(tv4);
+
+  const auto tv1_original_loop = tv1->getLoopDomain();
+  const auto tv2_original_loop = tv2->getLoopDomain();
+
+  // tv1 and tv2 should not be modified as the slice depends on the reshaped
+  // domain
+  scheduler_tools::cancelReshapeInLoopDomains(tv0);
+
+  EXPECT_EQ(tv1->getLoopDomain(), tv1_original_loop);
+  EXPECT_EQ(tv2->getLoopDomain(), tv2_original_loop);
+
+  // The tv3 reshape should be cancelled as the slice does not
+  // depend on the reshape expr
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    ValGroups ref_loop;
+    for (const auto i : c10::irange(2)) {
+      ref_loop.pushBack(exact_graph.toGroup(tv0->getLoopDomain().at(i)));
+    }
+    // The first two loop IDs should be exact mapped with tv0
+    for (auto tv : {tv3, tv4}) {
+      ASSERT_EQ(tv->getLoopDomain().size(), 3);
+      ValGroups tv_loop_groups;
+      for (const auto i : c10::irange(2)) {
+        tv_loop_groups.pushBack(exact_graph.toGroup(tv->getLoopDomain().at(i)));
+      }
+      EXPECT_EQ(tv_loop_groups, ref_loop);
+    }
+  }
+}
+
+// Reduction should prevent cancellation
+TEST_F(LoopDomainSchedulingTest, CancelReshape5) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{10, 11, 12};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // Non-cancellable reshape due to the following reduction
+  auto tv1 = reshape(
+      tv0, {IrBuilder::create<Val>(shape[0]), IrBuilder::create<Val>(-1L)});
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  // Cancellable reshape
+  auto tv3 = reshape(
+      tv0,
+      {IrBuilder::create<Val>(shape[0] * shape[1]),
+       IrBuilder::create<Val>(-1L)});
+  auto tv4 = sum(tv3, {1});
+  fusion.addOutput(tv4);
+
+  const auto tv1_original_loop = tv1->getLoopDomain();
+  const auto tv2_original_loop = tv2->getLoopDomain();
+
+  // tv1 and tv2 should not be modified as the tv2 reduction depends on the
+  // reshaped domain
+  scheduler_tools::cancelReshapeInLoopDomains(tv0);
+
+  EXPECT_EQ(tv1->getLoopDomain(), tv1_original_loop);
+  EXPECT_EQ(tv2->getLoopDomain(), tv2_original_loop);
+
+  // The tv3 reshape should be cancelled as the reduction does not
+  // depend on the reshape expr
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    const auto ref_loop = exact_graph.toGroups(tv0->getLoopDomain());
+    for (auto tv : {tv3, tv4}) {
+      EXPECT_EQ(exact_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    }
+  }
+}
+
 } // namespace nvfuser

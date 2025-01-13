@@ -504,6 +504,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
+  void handle(RepeatOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
   void handle(PadOp* op) override {
     // For compute-at, padded id should be mapped
     mapPointwiseLikeOp(op);

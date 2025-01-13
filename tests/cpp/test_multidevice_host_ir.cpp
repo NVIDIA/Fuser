@@ -5,6 +5,7 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
@@ -347,6 +348,64 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
   EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+}
+
+using OverlapDistributedMatmulTest = MultiDeviceTest;
+
+TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
+  constexpr int64_t M = 32768;
+  constexpr int64_t K = 32768;
+  constexpr int64_t N = 1024;
+  constexpr int64_t S = 8;
+  const int64_t D = communicator_->size();
+  if (M % (D * S) != 0) {
+    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
+                 << ", D = " << D << ", S = " << S;
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
+  TensorView* b = makeContigTensor(2); //[K, N]
+  TensorView* c = matmul(a, b); //[S, D, M/(S*D), N]
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  at::Tensor ta_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
+  at::Tensor ta = ta_unsharded.slice(
+      1, communicator_->deviceId(), communicator_->deviceId() + 1);
+  at::Tensor tb = at::randn({K, N}, tensor_options);
+  at::Tensor tc_ref = at::matmul(ta_unsharded, tb);
+
+  std::vector<c10::IValue> inputs = {ta, tb};
+  at::Tensor tc;
+
+  constexpr int64_t kNumberOfIterations = 20;
+  constexpr int64_t kNumberOfWarmupIterations = 5;
+  for (auto i : c10::irange(kNumberOfIterations)) {
+    if (i == kNumberOfWarmupIterations) {
+      cudaProfilerStart();
+    }
+    tc = executor.runWithInput(inputs).at(0);
+  }
+  cudaProfilerStop();
+
+  EXPECT_TRUE(torch::allclose(tc_ref, tc, 1e-2, 1e-2));
 }
 
 } // namespace hir
