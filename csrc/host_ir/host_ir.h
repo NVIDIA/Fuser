@@ -119,6 +119,8 @@ class LaunchKernel : public Expr {
  public:
   using Expr::Expr;
   LaunchKernel(
+      IrBuilderPasskey passkey,
+      int hic_executor_index, // TODO
       std::vector<Val*> inputs,
       std::vector<Val*> outputs);
 
@@ -135,11 +137,15 @@ class LaunchKernel : public Expr {
     return "hir::LaunchKernel";
   }
 
+  int getIndex() const;
+
   bool sameAs(const Statement* other) const override;
 
   Expr* hostOpToPost() const {
     return attributes_.at(0)->as<Expr>();
   }
+
+  int hic_executor_index_;
 };
 
 class Stream : public Val {

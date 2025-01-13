@@ -9,6 +9,9 @@
 
 #include <fusion.h>
 #include <host_ir/host_ir.h>
+#include <runtime/executor.h>
+#include <runtime/executor_abstract.h>
+#include <runtime/executor_params.h>
 
 namespace nvfuser {
 
@@ -43,6 +46,10 @@ class HostIrContainer final : public Fusion {
 
   void pushBackKernelExecutor(KernelExecutor* ke) {
     return kernel_executors_.push_back(ke);
+  }
+
+  KernelExecutor* getKernelExecutor(int index) {
+    return kernel_executors_[index];
   }
 
   Stream* getDefaultStream();
