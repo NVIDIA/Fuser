@@ -997,9 +997,13 @@ void initNvFuserPythonBindings(PyObject* module) {
     return ss.str();
   });
   tensor_class.def_property_readonly(
-      "ndim", [](Tensor& self) { return self.dims; });
+      "ndim",
+      [](Tensor& self) { return self.dims; },
+      "Returns the rank of the tensor.");
   tensor_class.def_property_readonly(
-      "index", [](Tensor& self) { return self.index; });
+      "index",
+      [](Tensor& self) { return self.index; },
+      "Returns the index of the tensor as in FusionDefinition.sched.tensors().");
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
