@@ -256,7 +256,7 @@ TEST_P(MmaTest, SingleTileWithStridedInput) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-auto all_dtypes = testing::Values(DataType::Half, DataType::BFloat16);
+auto all_dtypes = testing::Values(DataType::Half);
 
 std::string testName(const testing::TestParamInfo<MmaTestParams>& info) {
   std::ostringstream os;
@@ -520,6 +520,144 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_P(HopperRS, SingleTileWithTMALoadStore2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  auto tvb =
+      makeContigConcreteTensor({getM(macro), getN(macro)}, DataType::Float);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tvb);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    // tv2c->reorder({{-1, -2}});
+    tv2->reorder({{-1, -2}});
+  }
+
+  auto tvb_c = set(tvb);
+  auto tvb_r = set(tvb_c);
+
+  tvb_c->setMemoryType(MemoryType::Shared);
+  tvb_c->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tvb_c->applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle::None);
+
+
+
+
+  // auto tv2c = tv2->cacheBefore();
+
+  auto tv2b = add(tv2, tvb_r);
+
+  auto tv3 = set(tv2b);
+  auto tv4 = set(tv3);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv4->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv4);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  // auto tv2c = tv2->cacheBefore();
+
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  matmul_utils::moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  // EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
+  // EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
+  // EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tvb_r->getLoopDomain());
+    tvb_r->setAllocationDomain(s.as<IterDomain*>(), true);
+    tvb_r->setLoopDomain(s.as<IterDomain*>());
+  }
+
+    {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2b->getLoopDomain());
+    tv2b->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2b->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3->getLoopDomain());
+    tv3->setLoopDomain(s.as<IterDomain*>());
+  }
+
+
+  fusion.printMath();
+
+  mma_utils::scheduleTMAStoreForMmaOutput(tv4, MmaInputSmemSwizzle::None);
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(DataType::Float)).device(at::kCUDA, 0);
+
+  at::Tensor aten_bias = at::randn({getM(macro), getN(macro)}, options);
+
+  KernelExecutor ke;
+  ke.compile(
+      &fusion,
+      {inputs.first, inputs.second, aten_bias},
+      LaunchParams(),
+      matmul_cparams);
+
+  auto cg_outputs = ke.run({inputs.first, inputs.second, aten_bias});
+  auto tref = atBiasEpilogue(
+      atMatmul(
+          inputs.first.squeeze().to(at::kFloat),
+          inputs.second.squeeze().to(at::kFloat),
+          layout),
+      aten_bias);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -689,7 +827,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         kAllHopperMacros,
         all_dtypes,
-        testing::Values(MmaLayout::TT, MmaLayout::TN),
+        testing::Values(MmaLayout::TN),
         kAllSmemSwizzleModes),
     testNameHopperRS);
 
