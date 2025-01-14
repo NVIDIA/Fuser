@@ -10,8 +10,6 @@
 #include <fusion.h>
 #include <host_ir/host_ir.h>
 #include <runtime/executor.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/executor_params.h>
 
 namespace nvfuser {
 
