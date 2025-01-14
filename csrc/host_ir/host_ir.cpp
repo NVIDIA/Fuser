@@ -121,7 +121,7 @@ bool PostOnStream::sameAs(const Statement* other) const {
 
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
-    int hic_executor_index,
+    int64_t hic_executor_index,
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {}),
@@ -131,12 +131,12 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
 std::string LaunchKernel::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "LaunchKernel ("
-                          << "Inputs:{";
+  indent(ss, indent_size) << "LaunchKernel("
+                          << "Inputs: {";
   std::for_each(inputs().begin(), inputs().end(), [&ss](auto input) {
     ss << input->toString(0) << ", ";
   });
-  ss << "}, Outputs:{";
+  ss << "}, Outputs: {";
   std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
     ss << output->toString(0) << ", ";
   });
@@ -144,16 +144,12 @@ std::string LaunchKernel::toString(int indent_size) const {
   return ss.str();
 }
 
-int LaunchKernel::getIndex() const {
+int64_t LaunchKernel::getIndex() const {
   return hic_executor_index_;
 }
 
 std::string LaunchKernel::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Can not be printed inline");
-}
-
-bool LaunchKernel::sameAs(const Statement* other) const {
-  return false;
 }
 
 Stream::Stream(IrBuilderPasskey passkey, Val* index)

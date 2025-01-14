@@ -120,7 +120,9 @@ class LaunchKernel : public Expr {
   using Expr::Expr;
   LaunchKernel(
       IrBuilderPasskey passkey,
-      int hic_executor_index, // TODO
+      int64_t hic_executor_index, // Index into the HostIrContainer's vector of
+                                  // KernelExecutors--i.e., the kernel this IR
+                                  // should launch
       std::vector<Val*> inputs,
       std::vector<Val*> outputs);
 
@@ -137,15 +139,9 @@ class LaunchKernel : public Expr {
     return "hir::LaunchKernel";
   }
 
-  int getIndex() const;
+  int64_t getIndex() const;
 
-  bool sameAs(const Statement* other) const override;
-
-  Expr* hostOpToPost() const {
-    return attributes_.at(0)->as<Expr>();
-  }
-
-  int hic_executor_index_;
+  int64_t hic_executor_index_;
 };
 
 class Stream : public Val {
