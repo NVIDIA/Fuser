@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -87,7 +87,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
 }
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1000,6 +1000,12 @@ class TmaCircularBufferingTest
     NVFuserTest::SetUp();
   }
 
+  bool testEnablesRegisterSharing() {
+    return std::holds_alternative<WarpSpecialized>(circular_buffer_type) &&
+        std::get<WarpSpecialized>(circular_buffer_type)
+            .num_registers.has_value();
+  }
+
   template <typename data_type>
   void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
     at::Tensor reference_cpu_data = reference.cpu();
@@ -1137,6 +1143,10 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
 
 TEST_P(TmaCircularBufferingTest, SingleDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1187,6 +1197,10 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
 
 TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1248,6 +1262,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
 TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1309,6 +1327,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
 TEST_P(TmaCircularBufferingTest, MultiDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1373,6 +1395,10 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
 
 TEST_P(TmaCircularBufferingTest, Pointwise) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1445,6 +1471,10 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
       << "Needs shared memory predicate, but current needsSharedMemoryPredicate() returns false";
 
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1510,6 +1540,10 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
 TEST_P(TmaCircularBufferingTest, InnerReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1571,6 +1605,10 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
 
 TEST_P(TmaCircularBufferingTest, OuterReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1624,6 +1662,10 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
@@ -1757,6 +1799,10 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
 
 TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1877,6 +1923,11 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
 TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

@@ -1187,10 +1187,7 @@ void clearMemorySpace(Fusion* fusion) {
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(
-    Fusion* fusion,
-    bool unroll,
-    bool propagate_allocation) {
+std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   if (!unroll) {
     return {};
   }
@@ -1227,10 +1224,10 @@ std::vector<TensorView*> cacheInputs(
     }
 
     auto cached_tv = tv->cacheAfter(
-        LoadStoreOpType::Set,
-        CacheOp::Unspecified,
-        propagate_allocation,
-        cached_uses);
+        /*op_type=*/LoadStoreOpType::Set,
+        /*cache_op=*/CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/true,
+        /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;

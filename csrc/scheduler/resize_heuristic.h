@@ -37,7 +37,8 @@ class ResizeParams : public HeuristicParams {
     if (other == nullptr) {
       return false;
     }
-    bool attr_equal = other->split_grid_x_dim == split_grid_x_dim &&
+    bool attr_equal = other->cparams == cparams &&
+        other->split_grid_x_dim == split_grid_x_dim &&
         other->largest_input == largest_input &&
         other->vectorization_factor == vectorization_factor;
     return attr_equal;
