@@ -30,7 +30,7 @@ jobs:
     permissions:
     steps:
       - name: PR-agent tools
-        uses: xwang233/pr-agent-docker@main
+        uses: nvidia/fuser@ci-workflow
         with:
           pr_url: ${{ github.pull_request.html_url }}
           tool: review
