@@ -33,7 +33,8 @@ class ResizeParams : public HeuristicParams {
     if (other == nullptr) {
       return false;
     }
-    bool attr_equal = other->split_grid_x_dim == split_grid_x_dim;
+    bool attr_equal = other->cparams == cparams &&
+        other->split_grid_x_dim == split_grid_x_dim;
     return attr_equal;
   }
 

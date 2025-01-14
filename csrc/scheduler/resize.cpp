@@ -280,7 +280,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   if (resize_params->split_grid_x_dim) {
     ref_tv->split(-2, ResizeParams::max_gdimx);
-    // [..., I0/bdimx/max_gdimx, bdimx(TIDx)]
+    // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx)]
   }
   ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
   // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx)] or
