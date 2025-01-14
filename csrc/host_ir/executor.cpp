@@ -330,7 +330,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   // run the compiled kernel
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
-  outputs = ExecutorDispatch::run(container_.getKernelExecutor(launch_kernel->getIndex()), args, std::vector<at::Tensor>{});
+  outputs = ExecutorDispatch::run(container_->getKernelExecutor(launch_kernel->getIndex()), args, std::vector<at::Tensor>{});
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {

@@ -43,28 +43,28 @@ TEST_P(MultiDeviceHostIrIntegrationTest, test_kernel) {
 
   hic->pushBackKernelExecutor(ke.get());
 
-  // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
-  std::vector<Val*> lk_inputs = {tv0};
-  std::vector<Val*> lk_outputs = {tv1};
-  auto launch_kernel =
-      IrBuilder::create<LaunchKernel>(0, lk_inputs, lk_outputs); // todo: change to segment index instead of hardcoding index 0 in the kernel_executors_ vector
+  IrCloner ir_cloner(hic.get());
+  auto tv2 = ir_cloner.clone(tv0);
+  auto tv3 = ir_cloner.clone(tv1);
 
-  // [Step 6)] Define the Host program
-  hic->pushBackTopLevelExprs(launch_kernel);
+  std::vector<Val*> lk_inputs = {tv2};
+  std::vector<Val*> lk_outputs = {tv3};
 
-  // [Step 7)] Define the Host program's global I/O
   hic->addInput(lk_inputs.back());
   hic->addOutput(lk_outputs.back());
 
-  // [Step 8)] Evaluate the Host program
+  auto launch_kernel =
+      IrBuilder::create<LaunchKernel>(0, lk_inputs, lk_outputs); // todo: change to segment index instead of hardcoding index 0 in the kernel_executors_ vector
+
+  hic->pushBackTopLevelExprs(launch_kernel);
+
   HostIrEvaluatorParams params;
   params.use_fusion_executor_cache = false;
   HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   at::Tensor output = at::empty({32, 32}, options);
-  auto outputs = hie.runWithInput({{inputs.back(), input}, {outputs.back(), output}});
+  auto outputs = hie.runWithInput({{lk_inputs.back(), t0}, {lk_outputs.back(), output}});
 
-  // validate the obtained results
   ASSERT_TRUE(outputs[0].equal(t0));
 }
 
