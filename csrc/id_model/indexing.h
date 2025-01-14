@@ -118,6 +118,12 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
+  // Get the indexing traversal path for indexing a given list of IDs
+  // for a given expr
+  ExprPath<ExprGroup> getIndexingPath(
+      const Expr* expr,
+      const std::vector<IterDomain*>& index_ids) const;
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
