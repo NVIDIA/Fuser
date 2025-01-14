@@ -350,7 +350,6 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
-  std::unique_ptr<PadPredicateInfo> pad_predcate_info_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

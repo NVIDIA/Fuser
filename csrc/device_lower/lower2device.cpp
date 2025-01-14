@@ -598,11 +598,6 @@ void GpuLower::analysis(Fusion* fusion) {
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
-
-  if (hasIdModel()) {
-    pad_predcate_info_ = std::make_unique<PadPredicateInfo>(
-        fusion_, *id_model_, *tensor_indexer_);
-  }
 }
 
 kir::Kernel* GpuLower::kernel() const {
