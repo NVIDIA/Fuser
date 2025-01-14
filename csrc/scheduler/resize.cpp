@@ -223,7 +223,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     params->largest_input = -1;
   }
 
-<<<<<<< HEAD
   // Vectorization based on the largest input if there's any input
   // tv. Or the largest output otherwise.
   auto ref_tv_for_vectorization =
@@ -237,8 +236,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
       (int64_t)ref_tv_for_vectorization->getLogicalDomain().size() - 1,
       {});
 
-=======
->>>>>>> resize_scheduler_reorder
   return params;
 }
 
@@ -304,14 +301,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
-<<<<<<< HEAD
-=======
   // Reorder tensors to align with the largest input. This is expected
   // to improve the memory read performance, while the write
   // performance could be lowered. This should generally be more
   // important to optimize the read performance, but more robust
   // decision would be needed.
->>>>>>> resize_scheduler_reorder
   if (largest_input != nullptr) {
     std::vector<IterDomain*> ref_alloc;
     ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
