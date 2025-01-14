@@ -27,7 +27,7 @@ jobs:
   pr-agent-review:
     name: Get an initial PR review from LLM
     runs-on: ubuntu-latest
-    permissions:
+    # permissions:
     steps:
       - name: PR-agent tools
         uses: nvidia/fuser@ci-workflow
