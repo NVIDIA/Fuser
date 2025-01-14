@@ -154,7 +154,9 @@ def test_linear_loop_split(multidevice_test):
     b, s, e = 2, 1024, 768
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(unsharded_weight_tensor, 0, mesh)
+    sharded_weight_tensor = multidevice_test.shard_tensor(
+        unsharded_weight_tensor, 0, mesh
+    )
     unsharded_bias_tensor = torch.randn(d * e)
     sharded_bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
 
