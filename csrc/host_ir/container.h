@@ -46,7 +46,7 @@ class HostIrContainer final : public Fusion {
     return kernel_executors_.push_back(std::move(ke));
   }
 
-  KernelExecutor* getKernelExecutor(int index) {
+  KernelExecutor* getKernelExecutor(int64_t index) {
     return kernel_executors_[index].get();
   }
 
