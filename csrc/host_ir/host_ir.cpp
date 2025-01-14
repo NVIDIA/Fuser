@@ -125,7 +125,7 @@ LaunchKernel::LaunchKernel(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {}) {
-      hic_executor_index_ = hic_executor_index; // todo initializer list
+  hic_executor_index_ = hic_executor_index; // todo initializer list
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
