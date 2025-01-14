@@ -937,8 +937,34 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
+#if 0
   const auto loop_domains = getLoopIds(expr, id_model_);
+<<<<<<< HEAD
   const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
+=======
+
+  // Set aside broadcast IDs as their indices should always be zero
+  // and they may not be reachable from the loop domain
+  std::vector<IterDomain*> broadcast_index_ids;
+  std::vector<IterDomain*> non_broadcast_index_ids;
+  for (const auto index_id : index_ids) {
+    if (index_id->isBroadcast()) {
+      broadcast_index_ids.push_back(index_id);
+    } else {
+      non_broadcast_index_ids.push_back(index_id);
+    }
+  }
+
+  const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
+  const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
+      expr, traversalGraph(), loop_domains, non_broadcast_index_ids);
+#else
+  const auto loop_domains = getLoopIds(expr, id_model_);
+
+  const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
+#endif
+
+>>>>>>> 869e485d8 (Omit the where predicate of pad when found safe to do so)
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains, for_loops);
 

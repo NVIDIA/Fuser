@@ -8,6 +8,8 @@
 #pragma once
 #include <exceptions.h>
 
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 
@@ -66,6 +68,14 @@ class PredicateElimination : public IterVisitor {
   std::unordered_set<const Expr*> non_predicated_exprs_;
   //! Tensors and their initialization values
   std::unordered_map<TensorView*, Val*> init_value_map_;
+};
+
+class PadPredicateInfo {
+ public:
+  PadPredicateInfo(
+      Fusion* fusion,
+      const IdModel& id_model,
+      const TensorIndexer& tensor_indexer);
 };
 
 } // namespace nvfuser

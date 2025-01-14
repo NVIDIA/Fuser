@@ -11,6 +11,7 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <instrumentation.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
@@ -1194,6 +1195,49 @@ std::string PredicateElimination::toString() const {
     ss << " " << expr;
   }
   return ss.str();
+}
+
+PadPredicateInfo::PadPredicateInfo(
+    Fusion* fusion,
+    const IdModel& id_model,
+    const TensorIndexer& tensor_indexer) {
+  for (auto expr : fusion->exprs()) {
+    auto pad = dynamic_cast<PadOp*>(expr);
+    if (pad == nullptr) {
+      continue;
+    }
+    // auto p_tv = pad->in()->as<TensorView>();
+    auto c_tv = pad->out()->as<TensorView>();
+
+    auto all_vals = DependencyCheck::getAllValsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()}, {c_tv});
+
+    auto pad_resize_exprs = DependencyCheck::getAllExprsBetween(
+        {c_tv->getRootDomain().begin(), c_tv->getRootDomain().end()},
+        {c_tv->getLogicalDomain().begin(), c_tv->getLogicalDomain().end()});
+    NVF_ERROR(std::all_of(
+        pad_resize_exprs.begin(), pad_resize_exprs.end(), [](Expr* expr) {
+          return expr->isA<Resize>();
+        }));
+
+    // Check if the pad exprs are propagated to the inputs
+    for (auto inp_tv : all_vals) {
+      if (!inp_tv->isA<TensorView>() || !inp_tv->isFusionInput()) {
+        continue;
+      }
+
+      for (auto inp_use : inp_tv->uses()) {
+        if (!ir_utils::isTvOp(inp_use)) {
+          continue;
+        }
+
+        auto inp_consumer_tv = inp_use->output(0)->as<TensorView>();
+
+        auto predicate_indexing_path = tensor_indexer.getIndexingPath(
+            inp_consumer_tv->definition(), inp_consumer_tv->getLogicalDomain());
+      }
+    }
+  }
 }
 
 } // namespace nvfuser

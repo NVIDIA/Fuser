@@ -200,6 +200,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
           {"nvtx", DisableOption::Nvtx},
+          {"pad_predicate_elimination", DisableOption::PadPredicateElimination},
           {"parallel_compile", DisableOption::ParallelCompile},
           {"parallel_serde", DisableOption::ParallelSerde},
           {"predicate_elimination", DisableOption::PredicateElimination},
