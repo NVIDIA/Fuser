@@ -4003,7 +4003,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 2048, N = 2048, K = 8192;
+  constexpr int64_t M = 4096, N = 8192, K = 5120;
   const auto dtype = DataType::Half;
 
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // K, M
