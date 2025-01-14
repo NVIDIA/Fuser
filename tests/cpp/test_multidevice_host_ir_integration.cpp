@@ -34,7 +34,7 @@ TEST_F(MultiDeviceTest, LaunchKernel) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
-  hic->pushBackKernelExecutor(ke.get());
+  hic->pushBackKernelExecutor(std::move(ke));
 
   IrCloner ir_cloner(hic.get());
   auto tv2 = ir_cloner.clone(tv0);

@@ -300,6 +300,8 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   std::vector<c10::IValue> input_IValues;
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -308,28 +310,14 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         " for handling ",
         launch_kernel->toString());
     PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    c10::IValue value;
-    if (input_evaluation.is<at::Tensor>()) {
-      value = input_evaluation.as<at::Tensor>();
-    } else if (input_evaluation.is<int64_t>()) {
-      value = at::Scalar(input_evaluation.as<int64_t>());
-    } else {
-      NVF_ERROR(
-          "Wrong type ",
-          input_evaluation.type().name(),
-          " for the PolymorphicValue ",
-          input_evaluation,
-          ", must be at::Tensor or int64_t");
-    }
-    input_IValues.push_back(value);
+    args.push(input_evaluation);
   }
 
   // placeholder for storing the outputs
   std::vector<at::Tensor> outputs;
 
   // run the compiled kernel
-  outputs = container_->getKernelExecutor(launch_kernel->getIndex())
-                ->run(input_IValues);
+  outputs = container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
