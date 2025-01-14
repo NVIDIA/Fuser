@@ -207,8 +207,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   NVF_ERROR(largest_out != nullptr);
 
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const auto device_multiprocessor_count = static_cast<int64_t>(
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
 
   // TODO: Set to 1?
   int64_t max_input_dtype_size = 2;
