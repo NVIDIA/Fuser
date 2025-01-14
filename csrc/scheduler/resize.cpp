@@ -267,13 +267,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   if (resize_params->largest_input >= 0) {
     largest_input =
         fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
-  }
 
-  // Mistral bwd has a reshape at the end of the fusion that merges
-  // the two innermost dimensions. To make the below vectorization to
-  // work, the vectorization needs to be applied to the innermost
-  // dimension only, so the merge needs to be canceled.
-  if (largest_input != nullptr) {
+    // The tensors are going to be reordered to align with the largest
+    // input. To make it work, merge operations for reshape should be
+    // cancelled.
     scheduler_tools::cancelReshapeInLoopDomains(largest_input);
   }
 
@@ -291,6 +288,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
+  // Reorder tensors to align with the largest input. This is expected
+  // to improve the memory read performance, while the write
+  // performance could be lowered. This should generally be more
+  // important to optimize the read performance, but more robust
+  // decision would be needed.
   if (largest_input != nullptr) {
     std::vector<IterDomain*> ref_alloc;
     ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
