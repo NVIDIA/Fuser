@@ -998,6 +998,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
   tensor_class.def_property_readonly(
       "ndim", [](Tensor& self) { return self.dims; });
+  tensor_class.def_property_readonly(
+      "index", [](Tensor& self) { return self.index; });
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
