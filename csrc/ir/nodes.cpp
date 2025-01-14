@@ -4519,7 +4519,7 @@ std::vector<int64_t> computeStrides(
 
   std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
       TensorDomain::noReductions(logical_domain),
-      TensorDomain::noReductions(allocation_domain));
+      TensorDomain::noDevices(TensorDomain::noReductions(allocation_domain)));
   NVF_CHECK(
       out_order.has_value(),
       "Valid permute from logical to allocation domain was not found.");
