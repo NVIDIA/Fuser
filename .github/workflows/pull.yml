@@ -23,3 +23,14 @@ jobs:
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
           https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
           -d "{\"state\":\"success\",\"target_url\":\"https://github.com/NVIDIA/Fuser/wiki/Bot-Commands\",\"description\":\"Authorized users: comment !build or !test to trigger CI pipelines. See wiki.\",\"context\":\"CI notes\"}"
+
+  pr-agent-review:
+    name: Get an initial PR review from LLM
+    runs-on: ubuntu-latest
+    permissions:
+    steps:
+      - name: PR-agent tools
+        uses: xwang233/pr-agent-docker@main
+        with:
+          pr_url: ${{ github.pull_request.html_url }}
+          tool: review
