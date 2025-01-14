@@ -40,7 +40,7 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
   // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
   tv->merge(-4);
   // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-  tv->axis(-3)->parallelize(ParallelType::TIDy);
+  //tv->axis(-3)->parallelize(ParallelType::TIDy);
   // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
 }
 
@@ -270,6 +270,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     // BMNK based on canonical_dim_ordering_, with any of these dimensions
     // possibly missing.
     mma_utils::mergeConsecutiveAxesWithSameRole(tv, id_roles_, graph_);
+    // [B, M, N, K] (could differ based on canonical_dim_ordering_)
 
     // Find order the axes that are present in the merged tensor
     std::vector<MatmulDimRole> merged_roles;
@@ -291,31 +292,85 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
     // scheduling is the next step in this modernization.
     mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+    // [B, Mo, No, Ko, Mi, Ni, Ki]
 
     swizzleBlockTiles(tv, merged_roles);
+    // [B, Mo~No, No~Mo, Ko, Mi, Ni, Ki]
 
     all_merged_roles.push_back(merged_roles);
 
-    if (params_->splitk_factor > 1) {
-      // Outer K dimension in tv is in same position found in merged_roles
-      for (size_t i : c10::irange(merged_roles.size())) {
-        if (merged_roles[i] == MatmulDimRole::K) {
-          tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
-        }
+    NVF_ERROR(params_->splitk_factor == 1, "Split-K not supported with persistent kernel");
+
+    //if (params_->splitk_factor > 1) {
+      //// Outer K dimension in tv is in same position found in merged_roles
+      //for (size_t i : c10::irange(merged_roles.size())) {
+        //if (merged_roles[i] == MatmulDimRole::K) {
+          //tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
+        //}
+      //}
+    //}
+
+    bool has_m = false;
+    bool has_n = false;
+    bool has_k = false;
+    std::vector<int64_t> warp_tile;
+    for (MatmulDimRole role : merged_roles) {
+      switch (role) {
+        case MatmulDimRole::Batch:
+          break;
+        case MatmulDimRole::M:
+          has_m = true;
+          warp_tile.push_back(params_->tile_sizes.warp_tile.m);
+          break;
+        case MatmulDimRole::N:
+          has_n = true;
+          warp_tile.push_back(params_->tile_sizes.warp_tile.n);
+          break;
+        case MatmulDimRole::K:
+          has_k = true;
+          warp_tile.push_back(params_->tile_sizes.warp_tile.k);
+          break;
       }
     }
 
+    NVF_ERROR(has_m || has_n, "Every tensor should have at least M or N dimensions");
+
     // Persistent kernel scheduling
-    if (params_->cta_order ==
-        MatmulParams::TileRasterizationOrder::ColumnMajor) {
-      tv->reorder(
-          {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+    if (has_m && has_n) {
+      if (params_->cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        tv->reorder(
+            {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+      }
+      // NOTE: this assumes tv has both M and N dimensions
+      // TODO: make this work for AxisMapping mma translations
+      tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
     }
-    tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
+    // [B, (Mo~No * No~Mo), Ko, Mi, Ni, Ki]
 
     // TODO: get this from device props
     const int64_t num_sms = 132L;
     tv->split(num_device_and_batch_dims_, num_sms);
+    // [B, (Mo~No * No~Mo) / 132, 132, Ko, Mi, Ni, Ki]
+
+    // Now split by warp tile and parallelize as TIDy
+    // TODO: use merged_roles here in case dims are reordered from MNK
+    mma_utils::makeTile(tv, warp_tile);
+    // [B, (Mo~No * No~Mo) / 132, 132, Ko, Mc, Nc, Kc, Mw, Nw, Kw]
+    if (has_m && has_n) {
+      tv->merge(-(int64_t)warp_tile.size() * 2);
+    }
+    // [B, (Mo~No * No~Mo) / 132, 132, Ko, Mc*Nc, Kc, Mw, Nw, Kw]
+    // There's a dangling rS{1} dimension from splitting cta_tile.k /
+    // warp_tile.k. Leave it there
+    tv->axis(-(int64_t)warp_tile.size()*2 + 1)->parallelize(ParallelType::TIDy);
+    // Reorder the Ko so that loop to be inner to the TIDy loop
+    // [B, (Mo~No * No~Mo) / 132, 132, Ko, Mc*Nc, Kc, Mw, Nw, Kw]
+    if (has_k && (has_m || has_n)) {
+      tv->reorder({{
+          -(int64_t)warp_tile.size()*2 + 1,
+          -(int64_t)warp_tile.size()*2}});
+    }
   }
   return all_merged_roles;
 }
@@ -444,7 +499,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     // After Reorder: [..., Mo, No, Mio, Nio, Kio, Mii, Nii, Kii]
     mma_result->merge(-6);
     // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-    mma_result->axis(-5)->parallelize(ParallelType::TIDy);
+    //mma_result->axis(-5)->parallelize(ParallelType::TIDy);
     // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
 
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
