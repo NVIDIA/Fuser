@@ -224,7 +224,9 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   }
 
   // Vectorization based on the largest input if there's any input
-  // tv. Or the largest output otherwise.
+  // tv. This is because the current heuristics are designed to
+  // optimize the read perfornance. The largest output is used if
+  // there's no input.
   auto ref_tv_for_vectorization =
       largest_input != nullptr ? largest_input : largest_output;
   // Only consider the innermost dimension to vectorize for now.
@@ -331,10 +333,16 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   const int64_t bdimx = 128;
 
   int64_t next_innermost_pos = -1;
+  // [..., ...]
+  //        ^
+  //        +--- next_innermost_pos
+
   if (vec_factor > 1) {
     ref_tv->split(-1, vec_factor);
-    // [..., vec_factor]
     --next_innermost_pos;
+    // [..., vec_factor]
+    //   ^
+    //   +--- next_innermost_pos
   }
 
   ref_tv->flatten(outermost_pos, next_innermost_pos);
