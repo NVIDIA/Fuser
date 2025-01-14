@@ -124,14 +124,24 @@ LaunchKernel::LaunchKernel(
     int hic_executor_index,
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
-    : Expr(passkey, std::move(inputs), std::move(outputs), {}) {
-  hic_executor_index_ = hic_executor_index; // todo initializer list
-}
+    : Expr(passkey, std::move(inputs), std::move(outputs), {}),
+      hic_executor_index_(hic_executor_index) {}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
 std::string LaunchKernel::toString(int indent_size) const {
-  return "";
+  std::stringstream ss;
+  indent(ss, indent_size) << "LaunchKernel ("
+                          << "Inputs:{";
+  std::for_each(inputs().begin(), inputs().end(), [&ss](auto input) {
+    ss << input->toString(0) << ", ";
+  });
+  ss << "}, Outputs:{";
+  std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
+    ss << output->toString(0) << ", ";
+  });
+  ss << "})" << std::endl;
+  return ss.str();
 }
 
 int LaunchKernel::getIndex() const {
