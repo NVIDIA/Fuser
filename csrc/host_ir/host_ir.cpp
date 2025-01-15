@@ -124,8 +124,9 @@ LaunchKernel::LaunchKernel(
     int64_t hic_executor_index,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs)
-    : Expr(passkey, inputs, outputs, {}),
-      hic_executor_index_(hic_executor_index) {}
+    : Expr(passkey, inputs, outputs, {}) {
+  addDataAttribute(hic_executor_index);
+}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 

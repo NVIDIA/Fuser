@@ -140,11 +140,8 @@ class LaunchKernel : public Expr {
   }
 
   int64_t getIndex() const {
-    return hic_executor_index_;
+    return attribute<int64_t>(0);
   }
-
- private:
-  const int64_t hic_executor_index_;
 };
 
 class Stream : public Val {
