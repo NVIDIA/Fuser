@@ -202,7 +202,9 @@ def test_matmul_loop_split(multidevice_test):
     b, s, e = 2, 1024, 768
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(e, d * e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(unsharded_weight_tensor, -1, mesh)
+    sharded_weight_tensor = multidevice_test.shard_tensor(
+        unsharded_weight_tensor, -1, mesh
+    )
 
     fd = Model(d, b, s, e)
     out_tensors = fd.execute([inp_tensor, sharded_weight_tensor])
