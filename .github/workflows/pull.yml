@@ -32,7 +32,7 @@ jobs:
       issues: write
     steps:
       - name: PR-agent tools
-        uses: nvidia/fuser@ci-workflow
+        uses: nvidia/fuser@ci-llm-workflow
         with:
           pr_url: ${{ github.event.pull_request.html_url }}
           tool: review
