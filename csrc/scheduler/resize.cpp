@@ -223,19 +223,21 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     params->largest_input = -1;
   }
 
-  // Vectorization based on the largest input if there's any input
-  // tv. This is because the current heuristics are designed to
-  // optimize the read performance. The largest output is used if
-  // there's no input.
-  auto ref_tv_for_vectorization =
-      largest_input != nullptr ? largest_input : largest_output;
+  auto ref_tv_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
+          data_cache, [fusion]() {
+            std::vector<TensorView*> data{getReferenceTensor(fusion)};
+            return std::make_unique<std::vector<TensorView*>>(std::move(data));
+          });
+  TensorView* ref_tv = ref_tv_entry.get()[0];
+
   // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
   params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      ref_tv_for_vectorization,
+      ref_tv,
       data_cache,
-      (int64_t)ref_tv_for_vectorization->getLogicalDomain().size() - 1,
+      (int64_t)ref_tv->getLogicalDomain().size() - 1,
       {});
 
   return params;
