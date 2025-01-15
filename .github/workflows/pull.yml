@@ -52,11 +52,13 @@ jobs:
         PR_REVIEWER__REQUIRE_SECURITY_REVIEW: false
         PR_REVIEWER__ENABLE_REVIEW_LABELS_EFFORT: false
         PR_REVIEWER__PERSISTENT_COMMENT: true
+        PR_REVIEWER__FINAL_UPDATE_MESSAGE: false
         PR_REVIEWER__EXTRA_INSTRUCTIONS: |
           Focus on potential logic change, especially on changes to function signatures.
 
         # PR_CODE_SUGGESTIONS__COMMITABLE_CODE_SUGGESTIONS: false
-        # PR_CODE_SUGGESTIONS__PERSISTENT_COMMENT: false
+        # PR_CODE_SUGGESTIONS__PERSISTENT_COMMENT: true
+        # PR_CODE_SUGGESTIONS__FINAL_UPDATE_MESSAGE: false
         # PR_CODE_SUGGESTIONS__WIKI_PAGE_ACCEPTED_SUGGESTIONS: false
 
     steps:
