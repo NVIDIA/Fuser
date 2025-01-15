@@ -438,10 +438,13 @@ bool isResharding(const Expr* expr) {
   id_model.buildBroadcastGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
+  debug() << expr->toString() << std::endl;
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
       if (haveDifferentShardings(input, output, id_model)) {
+        debug() << input->toString() << std::endl;
+        debug() << output->toString() << std::endl;
         return true;
       }
     }
