@@ -7,6 +7,10 @@ name: pull
 on:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
+
 run-name: CI status hello ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
 jobs:
   status_hello:
