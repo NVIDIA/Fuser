@@ -15,6 +15,9 @@ runs:
   using: 'docker'
   # image: 'dockerfile'
   image: docker://ghcr.io/nvidia/fuser:ci-llm-workflow
+  credentials:
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
   args:
     - --pr_url=${{ inputs.pr_url }}
     - ${{ inputs.tool }}
