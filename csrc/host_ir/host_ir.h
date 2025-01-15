@@ -123,8 +123,8 @@ class LaunchKernel : public Expr {
       int64_t hic_executor_index, // Index into the HostIrContainer's vector of
                                   // KernelExecutors--i.e., the kernel this IR
                                   // should launch
-      std::vector<Val*> inputs,
-      std::vector<Val*> outputs);
+      const std::vector<Val*>& inputs,
+      const std::vector<Val*>& outputs);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -139,8 +139,11 @@ class LaunchKernel : public Expr {
     return "hir::LaunchKernel";
   }
 
-  int64_t getIndex() const;
+  int64_t getIndex() const {
+    return hic_executor_index_;
+  }
 
+ private:
   int64_t hic_executor_index_;
 };
 

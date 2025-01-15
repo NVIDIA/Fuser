@@ -21,11 +21,11 @@ using HostIrIntegrationTest = NVFuserTest;
 TEST_F(HostIrIntegrationTest, LaunchKernel) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  TensorView* tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
+  TensorView* in = makeSymbolicTensor(2);
+  fusion.addInput(in);
 
-  TensorView* tv1 = set(tv0);
-  fusion.addOutput(tv1);
+  TensorView* out = set(in);
+  fusion.addOutput(out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
@@ -39,24 +39,21 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   hic->pushBackKernelExecutor(std::move(ke));
 
   IrCloner ir_cloner(hic.get());
-  auto tv2 = ir_cloner.clone(tv0);
-  auto tv3 = ir_cloner.clone(tv1);
+  auto hic_in = ir_cloner.clone(in);
+  auto hic_out = ir_cloner.clone(out);
 
-  std::vector<Val*> launch_kernel_inputs = {tv2};
-  std::vector<Val*> launch_kernel_outputs = {tv3};
-
-  hic->addInput(launch_kernel_inputs.back());
-  hic->addOutput(launch_kernel_outputs.back());
+  hic->addInput(hic_in);
+  hic->addOutput(hic_out);
 
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0, launch_kernel_inputs, launch_kernel_outputs);
+      0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
 
   hic->pushBackTopLevelExprs(launch_kernel);
 
   HostIrEvaluator hie(std::move(hic));
 
   at::Tensor output = at::empty({32, 32}, options);
-  auto outputs = hie.runWithInput({{tv2, t0}, {tv3, output}});
+  auto outputs = hie.runWithInput({{hic_in, t0}, {hic_out, output}});
 
   EXPECT_TRUE(outputs[0].equal(t0));
 }

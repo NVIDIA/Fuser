@@ -122,9 +122,9 @@ bool PostOnStream::sameAs(const Statement* other) const {
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t hic_executor_index,
-    std::vector<Val*> inputs,
-    std::vector<Val*> outputs)
-    : Expr(passkey, std::move(inputs), std::move(outputs), {}),
+    const std::vector<Val*>& inputs,
+    const std::vector<Val*>& outputs)
+    : Expr(passkey, inputs, outputs, {}),
       hic_executor_index_(hic_executor_index) {}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
@@ -142,10 +142,6 @@ std::string LaunchKernel::toString(int indent_size) const {
   });
   ss << "})" << std::endl;
   return ss.str();
-}
-
-int64_t LaunchKernel::getIndex() const {
-  return hic_executor_index_;
 }
 
 std::string LaunchKernel::toInlineString(int indent_size) const {
