@@ -327,12 +327,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
   }
 
+  const int64_t bdimx = 128;
+
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
   const int64_t vec_factor = resize_params->vectorization_factor;
-
-  const int64_t bdimx = 128;
 
   int64_t next_innermost_pos = -1;
   // [..., ...]
