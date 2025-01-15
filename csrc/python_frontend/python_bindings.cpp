@@ -997,7 +997,13 @@ void initNvFuserPythonBindings(PyObject* module) {
     return ss.str();
   });
   tensor_class.def_property_readonly(
-      "ndim", [](Tensor& self) { return self.dims; });
+      "ndim",
+      [](Tensor& self) { return self.dims; },
+      "Returns the rank of the tensor.");
+  tensor_class.def_property_readonly(
+      "index",
+      [](Tensor& self) { return self.index; },
+      "Returns the index of the tensor as in FusionDefinition.sched.tensors().");
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
@@ -1692,6 +1698,52 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("real", real)
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
+
+  nvf_ops.def(
+      "triu",
+      [](FusionDefinition::Operators& self,
+         Tensor input,
+         int64_t diagonal) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.triu");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(input.dims);
+
+        auto diagonal_ = fd->defineScalar();
+        fd->defineRecord(new ScalarRecord(
+            {fd->recordingState(diagonal_())}, diagonal, DataType::Int, true));
+
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(
+            {fd->recordingState(input()), fd->recordingState(diagonal_())},
+            {fd->recordingState(output())},
+            ("ops.triu"),
+            serde::RecordType::Binary_TV_VAL,
+            static_cast<TensorView* (*)(TensorView*, Val*)>(triu)));
+
+        return output;
+      },
+      py::arg("input"),
+      py::arg("diagonal") = 0,
+      py::return_value_policy::reference,
+      R"doc(
+    Returns the upper triangular part of a 2+D tensor.
+
+    Parameters
+    ----------
+    input : Tensor
+        The input tensor.
+    diagonal : int, optional
+        The diagonal to consider. Default is 0.
+
+    Returns
+    -------
+    Tensor
+        The upper triangular part of the input tensor.
+
+    >>> a = torch.randn(3, 3)
+    >>> fd.ops.triu(a)
+    )doc");
 
   // overload to
   nvf_ops.def(
@@ -3570,6 +3622,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   bindSchedule(fusion_def);
+
+  bindCommunicator(nvfuser);
 }
 
 void cleanup() {

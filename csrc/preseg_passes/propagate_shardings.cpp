@@ -98,47 +98,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     shardAllLike(ref_input, outputs_without_mesh);
   }
 
-  // shardAllLike, which calls parallelAllLke, tries to DID-parallelize
-  // reduction dimensions. For example,
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [r{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // becomes
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [rDID{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // This implies that the reduction result only exists on the "home" device.
-  // `lower_communication` can't lower such a reduction today. lowerToReduce
-  // is closest but it uses the output device mesh to indicate the home device.
-  // Also, an extra broadcast will be needed to replicate the reduction result
-  // to all devices for the pointwise op.
-  //
-  // Therefore, instead, we remove the DID from reduction dimensions and
-  // therefore reset them to Serial. This way,
-  // the above becomes
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [r{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // where the reduction will be lowered to an Allreduce.
-  //
-  // Alternatively, @naoyam proposed to represent an allreduce as a reduce
-  // followed by a broadcasting set.
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [rDID{i1}, i2] -> (Set) [i2] -> (Pointwise)
-  //   -> [i2]
-  //
-  // This will make the semantics similar to other parallel types and therefore
-  // we can better leverage existing parallelization utilities. We have yet to
-  // pursue this because of implementation difficulty -- `lower_communication`
-  // would need to match the reduce-set pattern.
-  for (TensorView* tv : fusion->allTvs()) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
-
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
   // if any of them has one. This is needed in addition to the forward
   // propagation for ops that don't take any TensorView operands, e.g.,

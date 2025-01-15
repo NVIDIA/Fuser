@@ -27,6 +27,8 @@
 
 namespace nvfuser::preseg_passes {
 
+using testing::ElementsAre;
+
 using PresegTest = NVFuserTest;
 
 TEST_F(PresegTest, FusionTestOptimizationPassFlag) {
@@ -981,6 +983,53 @@ TEST_F(PresegTest, TranslateRepeatToExpand5) {
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+}
+
+// Repeating a broadcast ID. Repro of
+// https://github.com/NVIDIA/Fuser/issues/3682.
+TEST_F(PresegTest, TranslateRepeatToExpand6) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32, 1});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0}, -1);
+  fusion.addOutput(tv1);
+
+  {
+    // Make sure pad and cat no longer exist
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+    // RepeatOp should be used
+    EXPECT_NE(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isA<RepeatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 1}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp0) {
