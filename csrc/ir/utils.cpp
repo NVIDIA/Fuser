@@ -1313,37 +1313,9 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  const auto alloc_no_red_bcast =
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
       TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
-  const auto logical_no_red_bcast =
-      TensorDomain::noBroadcasts(TensorDomain::noReductions(logical));
-
-  if (!isSharded(tv)) {
-    return alloc_no_red_bcast == logical_no_red_bcast;
-  }
-
-  // This handles the case where DID parallelization is applied on
-  // allocation/logical dimensions.
-  const auto alloc_no_red_bcast_device =
-      TensorDomain::noDevices(alloc_no_red_bcast);
-  if (alloc_no_red_bcast_device.size() != logical_no_red_bcast.size()) {
-    return false;
-  }
-
-  int64_t sharded_logical_idx = getShardedLogicalAxis(tv, ParallelType::DIDx);
-  for (auto idx : c10::irange((int64_t)logical_no_red_bcast.size())) {
-    // Compare all but the sharded axis since the logical and alloc ID will have
-    // different extents.
-    if (idx == sharded_logical_idx) {
-      continue;
-    }
-    if (alloc_no_red_bcast_device.at(idx) != logical_no_red_bcast.at(idx)) {
-      return false;
-    }
-  }
-  return true;
 }
-
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
 }

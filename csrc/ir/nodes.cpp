@@ -4543,8 +4543,6 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   if (meta_out.is_contiguous()) {
     return {matmul_out};
   }
-  // auto matmul_sizes = matmul_out.sizes();
-  // auto strides = computeStrides(out(), matmul_sizes);
   auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
   strided_matmul_out = strided_matmul_out.copy_(matmul_out);
   return {strided_matmul_out};
