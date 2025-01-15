@@ -115,6 +115,35 @@ class PostOnStream : public Expr {
   }
 };
 
+class LaunchKernel : public Expr {
+ public:
+  using Expr::Expr;
+  LaunchKernel(
+      IrBuilderPasskey passkey,
+      int64_t hic_executor_index, // Index into the HostIrContainer's vector of
+                                  // KernelExecutors--i.e., the kernel this IR
+                                  // should launch
+      const std::vector<Val*>& inputs,
+      const std::vector<Val*>& outputs);
+
+  LaunchKernel(const LaunchKernel& other) = delete;
+  LaunchKernel& operator=(const LaunchKernel& other) = delete;
+  LaunchKernel(LaunchKernel&& other) = delete;
+  LaunchKernel& operator=(LaunchKernel&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::LaunchKernel";
+  }
+
+  int64_t getIndex() const {
+    return attribute<int64_t>(0);
+  }
+};
+
 class Stream : public Val {
  public:
   // if index is provided, the IR represents the streams whose index is the

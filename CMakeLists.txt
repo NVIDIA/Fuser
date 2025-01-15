@@ -699,7 +699,12 @@ if(BUILD_TEST)
   add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
   list(APPEND TEST_BINARIES tutorial)
 
-  add_test(test_host_ir "${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp" "")
+  set(HOSTIR_TEST_SRCS)
+  list(APPEND HOSTIR_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_integration.cpp
+  )
+  add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
 
   if(BUILD_PYTHON)
