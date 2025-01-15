@@ -5,6 +5,9 @@ on:
     branches:
       - ci-llm-workflow
 
+env:
+  IMAGE_NAME_FULL: ghcr.io/nvidia/fuser:ci-llm-workflow
+
 jobs:
   build_and_publish:
     runs-on: ubuntu-latest
@@ -16,6 +19,6 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: build
-        run: docker buildx build -f dockerfile -t ghcr.io/nvidia/fuser:ci-llm-workflow . 
+        run: docker buildx build -f dockerfile -t ${{ env.IMAGE_NAME_FULL }} . 
       - name: push
-        run: docker push ghcr.io/nvidia/fuser:ci-llm-workflow
+        run: docker push ${{ env.IMAGE_NAME_FULL }}
