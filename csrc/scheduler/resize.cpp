@@ -211,6 +211,18 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   params->split_grid_x_dim =
       ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx;
 
+  const auto largest_input =
+      getLargestTensor(fusion->inputs(), runtime_info).first;
+  if (largest_input != nullptr) {
+    int64_t index_of_largest_input = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), largest_input));
+    params->largest_input = index_of_largest_input;
+  } else {
+    params->largest_input = -1;
+  }
+
   return params;
 }
 
@@ -251,6 +263,17 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
+  TensorView* largest_input = nullptr;
+  if (resize_params->largest_input >= 0) {
+    largest_input =
+        fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
+
+    // The tensors are going to be reordered to align with the largest
+    // input. To make it work, merge operations for reshape should be
+    // cancelled.
+    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+  }
+
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
@@ -264,6 +287,28 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
+
+  // Reorder tensors to align with the largest input. This is expected
+  // to improve the memory read performance, while the write
+  // performance could be lowered. This should generally be more
+  // important to optimize the read performance, but more robust
+  // decision would be needed.
+  if (largest_input != nullptr) {
+    std::vector<IterDomain*> ref_alloc;
+    ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
+    std::copy_if(
+        largest_input->getMaybeAllocationDomain().begin(),
+        largest_input->getMaybeAllocationDomain().end(),
+        std::back_inserter(ref_alloc),
+        [](IterDomain* alloc_id) {
+          return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
+              !alloc_id->isDeviceDim();
+        });
+
+    // Reorder the reference as the allocation domain of the largest fusion
+    // input
+    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
+  }
 
   const int64_t bdimx = 128;
 
