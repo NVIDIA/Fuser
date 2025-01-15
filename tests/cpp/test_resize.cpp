@@ -4991,7 +4991,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  /// Due to #3640, the vectorization analysis may return 4 for this
+  // Due to #3640, the vectorization analysis may return 4 for this
   // fusion since there's the use of the input without
   // slicing. However, the correct factor needs to consider the
   // slicing paths as well. For now, in order to avoid the error due
