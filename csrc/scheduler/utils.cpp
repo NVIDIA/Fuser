@@ -2699,13 +2699,9 @@ void reorderTensorLike(
         expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
 
     // Inserts the outputs at the innermost position
-    std::deque<ValGroup>::iterator innermost_it = ordered_domain.end();
-    for (auto it = inputs.rbegin(); it != inputs.rend(); ++it) {
-      innermost_it =
-          std::find(ordered_domain.begin(), ordered_domain.end(), *it);
-      NVF_ERROR(innermost_it != ordered_domain.end());
-      break;
-    }
+    auto innermost_it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), inputs.back());
+    NVF_ERROR(innermost_it != ordered_domain.end());
     ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
 
     // Removes the inputs
