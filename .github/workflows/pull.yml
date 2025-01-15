@@ -40,7 +40,7 @@ jobs:
         GITHUB__USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CONFIG__PUBLISH_OUTPUT: false
     steps:
-      - name: check envs
-        run: env
       - name: PR-agent tools
         run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review
+      - name: exit 1
+        run: exit 1
