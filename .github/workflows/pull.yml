@@ -30,7 +30,6 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
-      packages: read
     container:
       image: ghcr.io/nvidia/fuser:ci-llm-workflow
       credentials:
@@ -40,5 +39,7 @@ jobs:
         GITHUB.USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CONFIG.PUBLISH_OUTPUT: false
     steps:
+      - name: check envs
+        run: env
       - name: PR-agent tools
         run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review
