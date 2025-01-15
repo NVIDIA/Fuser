@@ -24,8 +24,8 @@ jobs:
           https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
           -d "{\"state\":\"success\",\"target_url\":\"https://github.com/NVIDIA/Fuser/wiki/Bot-Commands\",\"description\":\"Authorized users: comment !build or !test to trigger CI pipelines. See wiki.\",\"context\":\"CI notes\"}"
 
-  pr-agent-review:
-    name: Get an initial PR review from LLM
+  pr-agent-tools:
+    name: PR Agent tools
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -60,5 +60,5 @@ jobs:
         # PR_CODE_SUGGESTIONS__WIKI_PAGE_ACCEPTED_SUGGESTIONS: false
 
     steps:
-      - name: PR-agent tools
+      - name: PR Agent review
         run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review
