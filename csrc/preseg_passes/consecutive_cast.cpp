@@ -295,7 +295,7 @@ void castOptimizationPass(Fusion* fusion) {
   for (auto iter = exprs.rbegin(); iter != exprs.rend(); ++iter) {
     auto expr = *iter;
     // skip current expr if it's not a foldable cast or it has already been
-    // addressed
+    // removed in removeChainedCasts and is now a dangling pointer.
     if (visited.count(expr) != 0 || !isCast(expr)) {
       continue;
     }
