@@ -30,6 +30,7 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
+      packages: read
     container:
       image: ghcr.io/nvidia/fuser:ci-llm-workflow
       credentials:
