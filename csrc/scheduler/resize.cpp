@@ -224,17 +224,26 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     params->largest_input = -1;
   }
 
-  // Vectorization based on the largest input if there's any input
-  // tv. Or the largest output otherwise.
-  auto ref_tv_for_vectorization =
-      largest_input != nullptr ? largest_input : largest_output;
+  auto ref_tv_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
+          data_cache, [fusion]() {
+            std::vector<TensorView*> data{getReferenceTensor(fusion)};
+            return std::make_unique<std::vector<TensorView*>>(std::move(data));
+          });
+  TensorView* ref_tv = ref_tv_entry.get()[0];
+
+  // Before applying the vectorization split, any reshape transform of
+  // the largest input will be cancelled whenever possible, so the
+  // largest input is used as the reference of vectorization.
+  auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+
+  // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
-  // TODO: Use the reorder map
   params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      ref_tv_for_vectorization,
+      vec_ref_tv,
       data_cache,
-      (int64_t)ref_tv_for_vectorization->getLogicalDomain().size() - 1,
+      (int64_t)vec_ref_tv->getLogicalDomain().size() - 1,
       {});
 
   return params;
@@ -542,11 +551,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
-  int64_t vec_factor = resize_params->vectorization_factor;
-  if (getenv("VEC")) {
-    vec_factor = atoi(getenv("VEC"));
-  }
-
   // Use this value if not -1
   int64_t gdimx = -1;
   if (getenv("GDIMX")) {
@@ -600,24 +604,41 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
 
+  const int64_t vec_factor = resize_params->vectorization_factor;
+
   int64_t next_innermost_pos = -1;
+
+  // [..., ...]
+  //        ^
+  //        +--- next_innermost_pos
+
   if (vec_factor > 1) {
-    std::cerr << "Vectorizing by " << vec_factor << "\n";
     ref_tv->split(-1, vec_factor);
     --next_innermost_pos;
+    // [..., vec_factor]
+    //   ^
+    //   +--- next_innermost_pos
   }
 
   ref_tv->flatten(outermost_pos, next_innermost_pos);
+  // [..., I0, vec_factor]
+  //       ^
+  //       +--- next_innermost_pos
+
   ref_tv->split(next_innermost_pos, bdimx);
   ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::TIDx);
   --next_innermost_pos;
+  // [..., I0/bdimx, bdimx(TIDx), vec_factor]
+  //         ^
+  //         +--- next_innermost_pos
 
-  if (gdimx > 0) {
-    ref_tv->split(outermost_pos, gdimx);
-  } else if (resize_params->split_grid_x_dim) {
-    ref_tv->split(outermost_pos, ResizeParams::max_gdimx);
+  if (resize_params->split_grid_x_dim) {
+    ref_tv->split(next_innermost_pos, ResizeParams::max_gdimx);
+    // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx), vec_factor]
   }
   ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
+  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor] or
+  // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
   std::cout << "Before ref prop\n";
   fusion->print();
@@ -666,8 +687,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   if (vec_factor > 1) {
+    auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
     const auto tvs_to_vectorize =
-        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
+        scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
     for (auto tv_to_vectorize : tvs_to_vectorize) {
       if (tv_to_vectorize->isFusionInput()) {
         for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
