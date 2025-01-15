@@ -17,8 +17,7 @@ jobs:
     # This job only runs for pull request comments
     if: >-
           ( startsWith(github.event.comment.body, '!build') ||
-            startsWith(github.event.comment.body, '!test') ||
-            startsWith(github.event.comment.body, '!review')
+            startsWith(github.event.comment.body, '!test')
           ) &&
           ( github.actor == 'xwang233' || 
             github.actor == 'jjsjann123' || 
