@@ -37,8 +37,8 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
       env:
-        GITHUB.USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        CONFIG.PUBLISH_OUTPUT: false
+        GITHUB__USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CONFIG__PUBLISH_OUTPUT: false
     steps:
       - name: check envs
         run: env
