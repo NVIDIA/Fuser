@@ -414,10 +414,11 @@ class VectorizeValidator : public OptInDispatch {
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-    auto expr_path = ValGraphPermissiveBFS::getExprGroupsBetween(
-        graph,
-        graph.toGroups(tv->getMaybeAllocationDomain()),
-        graph.toGroups(std::vector<Val*>{v_id})).first;
+    auto expr_path = ValGraphBFS::getExprGroupsBetween(
+                         graph,
+                         graph.toGroups(tv->getMaybeAllocationDomain()),
+                         graph.toGroups(std::vector<Val*>{v_id}))
+                         .first;
 
     expr_path = reverse(expr_path);
 
@@ -502,6 +503,8 @@ class VectorizeValidator : public OptInDispatch {
         innermost_alloc_id = alloc;
       }
     }
+
+    NVF_ERROR(innermost_alloc_id != nullptr);
 
     return {innermost_alloc_id, dep_alloc_ids};
   }
