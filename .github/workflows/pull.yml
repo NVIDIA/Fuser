@@ -31,14 +31,14 @@ jobs:
       pull-requests: write
       issues: write
       packages: read
+    container:
+      image: ghcr.io/nvidia/fuser:ci-llm-workflow
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      env:
+        GITHUB.USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CONFIG.PUBLISH_OUTPUT: false
     steps:
-      - name: docker auth
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: PR-agent tools
-        uses: nvidia/fuser@ci-llm-workflow
-        with:
-          pr_url: ${{ github.event.pull_request.html_url }}
-          tool: review
-        env:
-          GITHUB.USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CONFIG.PUBLISH_OUTPUT: false
+        run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review
