@@ -12,7 +12,6 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
