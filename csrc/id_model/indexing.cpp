@@ -1103,6 +1103,14 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       continue;
     }
 
+    // TODO: It seems this shouldn't be predicated when the direction is
+    // Forward, i.e., when resize ops are propagated from
+    // producers to consumers. For example, ResizeTest.SliceThenPadLeftHalf
+    // would fail with this. Revisit for the Forward case if necessary.
+    if (direction == Direction::Forward) {
+      continue;
+    }
+
     // If the input ID is guaranteed to cover the output ID, then
     // the input index should never exceed its boundary.
     if (resize->leftExpand()->isConstInt() &&
