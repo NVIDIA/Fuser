@@ -281,6 +281,190 @@ TEST_F(Tutorial, simpleSched2) {
   EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_F(Tutorial, simpleLoop1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoop2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  // reorder consumer
+  tv2->reorder({{-1, -2}});
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoop2AllocDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  for (auto t : {tv0, tv1}) {
+    auto d = t->getLoopDomain();
+    t->reorder({{-1, -2}});
+    t->setAllocationDomain(t->getLoopDomain(), true);
+    t->setLoopDomain(d);
+  }
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoopTile) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  // reorder consumer
+  tv2->split(-1, 16);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoopTile2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  // reorder consumer
+  tv2->split(-2, 16);
+  tv2->split(-1, 16);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoopTileReorder) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  // reorder consumer
+  tv2->split(-2, 16);
+  tv2->split(-1, 16);
+  tv2->reorder({{-2, -3}});
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0.t(), t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0.t() + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_F(Tutorial, Reduction) {
   Fusion fusion;
   FusionGuard fg(&fusion);
