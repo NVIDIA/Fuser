@@ -52,8 +52,7 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  at::Tensor output = at::empty({32, 32}, options);
-  auto outputs = hie.runWithInput({{hic_in, t0}, {hic_out, output}});
+  auto outputs = hie.runWithInput({{hic_in, t0}});
 
   EXPECT_TRUE(outputs[0].equal(t0));
 }
