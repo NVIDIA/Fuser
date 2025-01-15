@@ -204,7 +204,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
-Expr* removeChainedCasts(Expr* expr) {
+Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
   std::list<Val*> chain_cast_vals;
   auto prev_expr = expr->input(0)->definition();
   while (isCast(prev_expr)) {
@@ -218,6 +218,8 @@ Expr* removeChainedCasts(Expr* expr) {
       break;
     }
 
+    // adding prev_expr to visited node so we'll short-cut it.
+    visited.insert(prev_expr);
     // in the loop, we just repetitively chaining consecutive casts.
     chain_cast_vals.push_front(intermediate_cast);
     prev_expr = prev_expr->input(0)->definition();
@@ -289,19 +291,25 @@ Expr* removeChainedCasts(Expr* expr) {
 void castOptimizationPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
   auto exprs = fusion->exprs();
+  std::unordered_set<Expr*> visited;
   for (auto iter = exprs.rbegin(); iter != exprs.rend(); ++iter) {
     auto expr = *iter;
     // skip current expr if it's not a foldable cast or it has already been
     // addressed
-    if (!isCast(expr)) {
+    if (visited.count(expr) != 0 || !isCast(expr)) {
       continue;
     }
 
-    do {
-      // when cast op expr is following a meta operation that's safe to be
-      // swapped, we do so hoping it would place the cast op to another cast op
-      // that can be optimized away. e.g. for a trivial reduction on reduced
-      // precision, the pattern will be
+    // initialize changed to true so we'll enter the loop in initial iteration.
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      // when down cast follows a meta operation that's safe to be swapped, we
+      // do so for two reasons:
+      // 1. lifting a down cast to inputs would reduce intermediate buffer size
+      // 2. it might place the cast op next to another cast op that can be
+      // optimized away. e.g. for a trivial reduction on reduced precision, the
+      // pattern will be
       //    T1 = castOp(T0, fp32)
       //    T2 = squeeze(T1)
       //    T3 = castOp(T2, fp16) // downCast
@@ -346,11 +354,16 @@ void castOptimizationPass(Fusion* fusion) {
           // update expr to point to the replayed_expr
           expr = replayed_expr_out->definition();
         }
+        changed = true;
       }
 
       // optimize chained cast operations ending at expr
-      expr = removeChainedCasts(expr);
-    } while (shouldSwapMetaCast(expr));
+      if (Expr* new_expr = removeChainedCasts(expr, visited);
+          new_expr != expr) {
+        expr = new_expr;
+        changed = true;
+      }
+    }
   }
 }
 
