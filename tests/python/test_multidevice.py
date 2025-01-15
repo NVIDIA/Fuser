@@ -294,7 +294,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
 @pytest.mark.mpi
-def test_sdpa_fwd_loop_split(multidevice_test, qkv_format: QkvFormat):
+def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     d, b, s, h, e = multidevice_test.size, 2, 1024, 12, 768
 
     if h % d != 0:
@@ -313,13 +313,13 @@ def test_sdpa_fwd_loop_split(multidevice_test, qkv_format: QkvFormat):
                 case QkvFormat.BSHE:
                     stride_order = [3, 1, 2, 0]
 
-            self.q, self.k, self.v = [
+            self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
                     shape=[b, h, s, e // h],
                     dtype=DataType.BFloat16,
                     stride_order=stride_order,
                 )
-                for _ in range(3)
+                for _ in range(4)
             ]
 
             # TODO(#3123): support sharded dropout and change this to a
@@ -330,10 +330,36 @@ def test_sdpa_fwd_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.q, self.k, self.v, dropout_p, is_causal, scale=None
             )
 
+            self.q_grad, self.k_grad, self.v_grad = self.ops.sdpfa_bwd(
+                self.out_grad,
+                self.q,
+                self.k,
+                self.v,
+                self.attn,
+                self.log_sumexp,
+                dropout_p,
+                is_causal,
+                seed,
+                offset,
+                scale=None,
+            )
+
             self.add_output(self.attn)
+            for grad in [self.q_grad, self.k_grad, self.v_grad]:
+                self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
-            for t in [self.q, self.k, self.v, self.attn, self.log_sumexp]:
+            for t in [
+                self.q,
+                self.k,
+                self.v,
+                self.attn,
+                self.log_sumexp,
+                self.out_grad,
+                self.q_grad,
+                self.k_grad,
+                self.v_grad,
+            ]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, 1, d, False)
                 self.sched.parallelize(t, 1, nvfuser.ParallelType.mesh_x)
@@ -349,14 +375,17 @@ def test_sdpa_fwd_loop_split(multidevice_test, qkv_format: QkvFormat):
         return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cpu")
 
     q, k, v = [make_unsharded_tensor().requires_grad_() for _ in range(3)]
-    sharded_q, sharded_k, sharded_v = [
-        multidevice_test.shard_tensor(t, 1, mesh) for t in [q, k, v]
+    out_grad = make_unsharded_tensor()
+    sharded_q, sharded_k, sharded_v, sharded_out_grad = [
+        multidevice_test.shard_tensor(t, 1, mesh) for t in [q, k, v, out_grad]
     ]
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
         expected_out = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, dropout_p=0.0, is_causal=True, scale=None
         )
+        expected_out.backward(out_grad)
+        expected_q_grad, expected_k_grad, expected_v_grad = q.grad, k.grad, v.grad
 
     fd = Model(qkv_format)
 
@@ -367,11 +396,12 @@ def test_sdpa_fwd_loop_split(multidevice_test, qkv_format: QkvFormat):
             case QkvFormat.BSHE:
                 return t.permute(0, 2, 1, 3).contiguous().transpose(1, 2)
 
-    out = fd.execute(
+    attn, q_grad, k_grad, v_grad = fd.execute(
         [
             stride_tensor(sharded_q).requires_grad_(),
             stride_tensor(sharded_k).requires_grad_(),
             stride_tensor(sharded_v).requires_grad_(),
+            stride_tensor(sharded_out_grad),
         ]
     )
 
@@ -390,7 +420,11 @@ def test_sdpa_fwd_loop_split(multidevice_test, qkv_format: QkvFormat):
             atol=1e-2,
         )
 
-    assert_close(out[0], expected_out)
+    for actual, expected in zip(
+        [attn, q_grad, k_grad, v_grad],
+        [expected_out, expected_q_grad, expected_k_grad, expected_v_grad],
+    ):
+        assert_close(actual, expected)
 
 
 def get_benchmark_fn(func, /, profile: bool):
