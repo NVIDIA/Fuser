@@ -3,7 +3,7 @@ name: push
 on:
   push:
     branches:
-      - ci-workflow
+      - ci-llm-workflow
 
 jobs:
   build_and_publish:
