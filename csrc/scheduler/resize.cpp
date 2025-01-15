@@ -15,6 +15,7 @@
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/resize.h>
+#include <scheduler/resize_heuristic.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
@@ -28,6 +29,31 @@ namespace {
 // Just use the pointwise version for now
 TensorView* getReferenceTensor(Fusion* fusion) {
   return pointwise_utils::getReferenceTensor(fusion);
+}
+
+// Returns the largest tensor with its number of elements
+std::pair<TensorView*, int64_t> getLargestTensor(
+    const std::vector<Val*>& vals,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t max_num_elms = -1;
+  TensorView* largest_tv = nullptr;
+  for (auto tv : ir_utils::filterByType<TensorView>(vals)) {
+    int64_t num_elms = 1;
+    for (auto logical_id : tv->getLogicalDomain()) {
+      auto inferred_val =
+          runtime_info.expressionEvaluator().evaluate(logical_id->extent());
+      NVF_ERROR(
+          inferred_val.hasValue(),
+          "Error inferring extent of: ",
+          logical_id->toString());
+      num_elms *= inferred_val.as<int64_t>();
+    }
+    if (num_elms > max_num_elms) {
+      largest_tv = tv;
+      max_num_elms = num_elms;
+    }
+  }
+  return std::make_pair(largest_tv, max_num_elms);
 }
 
 } // namespace
@@ -111,12 +137,10 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  // This doesn't work yet due to issue #3571
   auto ref_tv = getReferenceTensor(fusion);
-  if (std::any_of(
-          ref_tv->getLogicalDomain().begin(),
-          ref_tv->getLogicalDomain().end(),
-          [](IterDomain* logical_id) { return logical_id->isBroadcast(); })) {
+  if (ref_tv == nullptr) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "No reference found");
     return false;
   }
 
@@ -158,10 +182,12 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  // Disable the scheduler if there's a squeeze op. The loop option
-  // may also need to be enabled in that case, but that option is not
-  // turned on automatically yet.
-  if (ir_utils::hasOpsOfType<SqueezeOp>(fusion)) {
+  // Skip transpose-like patterns for now
+  scheduler_tools::TransposeDomainMap domain_map(fusion);
+  auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
+  if (grouped_inputs_outputs.size() >= 2) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Transpose-like patterns not supported.");
     return false;
   }
 
@@ -173,8 +199,18 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ResizeScheduler::computeHeuristics");
-  auto params = std::make_unique<HeuristicParams>(SchedulerType::Resize);
+  auto params = std::make_unique<ResizeParams>(SchedulerType::Resize);
+  params->tag = "Resize heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
+
+  const int64_t bdimx = 128;
+
+  const auto& [largest_output, max_num_elms] =
+      getLargestTensor(fusion->outputs(), runtime_info);
+
+  params->split_grid_x_dim =
+      ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx;
+
   return params;
 }
 
@@ -182,6 +218,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
   FusionGuard fg(fusion);
+  const auto resize_params = dynamic_cast<const ResizeParams*>(params);
+  NVF_ERROR(resize_params != nullptr);
 
   scheduler_utils::clearMemorySpace(fusion);
 
@@ -222,19 +260,31 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   auto ref_tv = getReferenceTensor(fusion);
+  NVF_ERROR(ref_tv != nullptr);
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
+
+  const int64_t bdimx = 128;
 
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
   // Schedule only the remaining IDs
   ref_tv->flatten(outermost_pos);
-  ref_tv->split(outermost_pos, 128);
-  ref_tv->split(outermost_pos, 1 << 14);
+  // [..., I0]
+
+  ref_tv->split(-1, bdimx);
   ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
+  // [..., I0/bdimx, bdimx(TIDx)]
+
+  if (resize_params->split_grid_x_dim) {
+    ref_tv->split(-2, ResizeParams::max_gdimx);
+    // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx)]
+  }
   ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
+  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx)] or
+  // [..., I0/bdimx(BIDx), bdimx(TIDx)]
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
