@@ -16,8 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: authenticate
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: build
         run: docker buildx build -f dockerfile -t ${{ env.IMAGE_NAME_FULL }} . 
       - name: push
