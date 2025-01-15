@@ -11426,13 +11426,23 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
     #pragma unroll
     for(nvfuser_index_t i33 = 0; i33 < 3; ++i33) {
       if (((Hopper::electSync(4294967295U) && b15) && b16)) {
-        mbarrier::init(toSmem((&T8[(i33 + 3LL)])), 256U);
+        mbarrier::init(toSmem((&T8[(i33 + 3LL)])), 128U);
       }
     }
+
+    // Set up new mbarriers for each WG. These flip whenever the WG starts being processed by the DMA warp
+    uint64_t* wg_barrier = reinterpret_cast<uint64_t*>(array + smem_offset + 212992 + (6 * 8));
+    #pragma unroll
+    for(nvfuser_index_t i38 = 0; i38 < 2; ++i38) {
+      if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+        mbarrier::init(toSmem((&wg_barrier[i38])), 1U);
+      }
+    }
+
     __syncthreads();
 
-    // TODO: First WG only arrive here
-    if (b18) {
+    // Only the first WG arrives here
+    if (b16) {
       #pragma unroll
       for(nvfuser_index_t i39 = 0; i39 < 3; ++i39) {
         mbarrier::arrive(toSmem((&T8[(i39 + 3LL)])));
@@ -11466,9 +11476,19 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
     ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
 
     if (b17) {
+
+      // i38 indicates wg
+      for(nvfuser_index_t i38 = 0; i38 < 2; ++i38) {
+
+      // Arrive to wake up next warp group
+      if ((Hopper::electSync(4294967295U) && b15)) {
+        mbarrier::arrive(toSmem(&wg_barrier[i38]));
+      }
+
+      nvfuser_index_t wg_phases_processed = i22 * 2 + i38;
       #pragma unroll 2
       for(nvfuser_index_t i34 = 0; i34 < i5; ++i34) {
-        uint32_t stages_processed = i22 * i5 + i34;
+        uint32_t stages_processed = wg_phases_processed * i5 + i34;
         nvfuser_index_t slot = stages_processed % 3;
         uint32_t this_parity = (stages_processed / 3) % 2;
 
@@ -11483,17 +11503,22 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
           mbarrier::waitParity(toSmem((&T8[(slot + 3LL)])), this_parity);
           mbarrier::arriveExpectTX(toSmem((&T8[slot])), 32768U);
           Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr6, (Array<nvfuser_index_t, 2, 1>{(64 * i34), i25}), toSmem((&T8[slot])) }), (i7 + (32768 * i35)));
-          mbarrier::arriveExpectTX(toSmem((&T8[slot])), 16384U);
-          #pragma unroll
-          for(nvfuser_index_t i38 = 0; i38 < 2; ++i38) {
+          mbarrier::arriveExpectTX(toSmem((&T8[slot])), 8192U);
+          // TODO: re-use memory here instead of flipping between halves of this slot
             Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr8, (Array<nvfuser_index_t, 2, 1>{i36, (i28 + (64 * i38))}), toSmem((&T8[slot])) }), (i37 + (8192 * i38)));
-          }
         }
       }
+      }
     } else {
+      // Each mbarrier is arrived at exactly once for each tile
+      uint32_t phase_parity = i22 % 2;
+      // Wait to awaken this phase
+      mbarrier::waitParity(toSmem(&wg_barrier[threadIdx.y]), phase_parity);
+
+      nvfuser_index_t wg_phases_processed = i22 * 2 + threadIdx.y;
       #pragma unroll 2
       for(nvfuser_index_t i40 = 0; i40 < i5; ++i40) {
-        uint32_t stages_processed = i22 * i5 + i40;
+        uint32_t stages_processed = wg_phases_processed * i5 + i40;
         nvfuser_index_t slot = stages_processed % 3;
         uint32_t this_parity = (stages_processed / 3) % 2;
 
@@ -11501,7 +11526,9 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         //i41 = i40 % 3;
         i41 = slot;
         unsigned i42;
+        // NOTE: i10 = i9 + TIDy*8192, so use i9 when we use the same smem for each chunk
         i42 = i10 + (16384 * i41);
+        //i42 = i9 + (16384 * i41);
         unsigned i43;
         i43 = i7 + (32768 * i41);
         mbarrier::waitParity(toSmem((&T8[slot])), this_parity);
@@ -11687,7 +11714,13 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__bflo
         asm volatile(
           "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
           :
-          :"r"((uint32_t)((toSmem(T7) + ((((nvfuser_index_t)threadIdx.y) * 32768) + (((i56 / 4) * 8192) + ((i11 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i56 % 4) * 2)) ^ (i11 % 8)) * 16))))))),
+          :"r"((uint32_t)((toSmem(T7) + (
+                  // TODO: don't index output smem with TIDy so we can reuse a
+                  // single chunk. Might take more syncing than
+                  // cp.async.bulk.wait_group
+                  (((nvfuser_index_t)threadIdx.y) * 32768) + 
+
+                  (((i56 / 4) * 8192) + ((i11 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i56 % 4) * 2)) ^ (i11 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T6[(8 * i56)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T6[(8 * i56)]))[1]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T6[(8 * i56)]))[2]),
