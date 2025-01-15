@@ -15,4 +15,4 @@ RUN set -ex; \
 RUN pip install -e .
 
 # ENTRYPOINT [ "python", "/app/pr_agent/cli.py" ]
-ENTRYPOINT [ "/bin/bash" ]
+# ENTRYPOINT [ "/bin/bash" ]
