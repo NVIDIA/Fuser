@@ -38,3 +38,4 @@ jobs:
           tool: review
         env:
           GITHUB.USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG.PUBLISH_OUTPUT: false
