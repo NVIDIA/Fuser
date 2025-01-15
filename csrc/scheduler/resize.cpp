@@ -225,7 +225,7 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
   // Vectorization based on the largest input if there's any input
   // tv. This is because the current heuristics are designed to
-  // optimize the read perfornance. The largest output is used if
+  // optimize the read performance. The largest output is used if
   // there's no input.
   auto ref_tv_for_vectorization =
       largest_input != nullptr ? largest_input : largest_output;
@@ -362,7 +362,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx), vec_factor]
   }
   ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
-  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor]
+  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor] or
+  // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
