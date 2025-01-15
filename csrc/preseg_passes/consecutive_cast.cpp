@@ -25,9 +25,9 @@ bool isCast(Expr* expr) {
   return false;
 }
 
-// for pattern `expr -> cast`, this function returns whether to replace it with
-// `cast -> expr`
-bool swapMetaCast(Expr* cast) {
+// for pattern `meta -> cast`, this function returns whether to replace it with
+// `cast -> meta`
+bool shouldSwapMetaCast(Expr* cast) {
   if (!cast->output(0)->isA<TensorView>()) {
     return false;
   }
@@ -38,7 +38,7 @@ bool swapMetaCast(Expr* cast) {
     return false;
   }
 
-  Expr* expr = cast->input(0)->definition();
+  Expr* meta = cast->input(0)->definition();
   // don't move meta operation when the its output is a fusion output, or has
   // multiple uses. In which case, we will have to duplicate the meta operation,
   // which might not be optimal. See
@@ -46,9 +46,9 @@ bool swapMetaCast(Expr* cast) {
   // TODO BroadcastOp is a moveable meta operation. We should enable it after
   // matmul scheduler is updated to support the new pattern with matmul. See
   // issue: https://github.com/NVIDIA/Fuser/issues/3665.
-  return (expr != nullptr && !expr->output(0)->isFusionOutput() &&
-          expr->output(0)->uses().size() == 1) &&
-      (expr->isOneOf<SqueezeOp, ViewOp>() || ir_utils::isSimpleTVSet(expr));
+  return (meta != nullptr && !meta->output(0)->isFusionOutput() &&
+          meta->output(0)->uses().size() == 1) &&
+      (meta->isOneOf<SqueezeOp, ViewOp>() || ir_utils::isSimpleTVSet(meta));
 }
 
 // replays meta operation on `new_in`. return the new output from replayed meta
@@ -204,7 +204,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
-Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
+Expr* removeChainedCasts(Expr* expr) {
   std::list<Val*> chain_cast_vals;
   auto prev_expr = expr->input(0)->definition();
   while (isCast(prev_expr)) {
@@ -218,8 +218,6 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
       break;
     }
 
-    // adding prev_expr to visited node so we'll short-cut it.
-    visited.insert(prev_expr);
     // in the loop, we just repetitively chaining consecutive casts.
     chain_cast_vals.push_front(intermediate_cast);
     prev_expr = prev_expr->input(0)->definition();
@@ -291,12 +289,11 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
 void castOptimizationPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
   auto exprs = fusion->exprs();
-  std::unordered_set<Expr*> visited;
   for (auto iter = exprs.rbegin(); iter != exprs.rend(); ++iter) {
     auto expr = *iter;
     // skip current expr if it's not a foldable cast or it has already been
     // addressed
-    if (visited.count(expr) != 0 || !isCast(expr)) {
+    if (!isCast(expr)) {
       continue;
     }
 
@@ -313,7 +310,7 @@ void castOptimizationPass(Fusion* fusion) {
       //    T2 = castOp(T1, fp16)
       //    T3 = squeeze(T2)      // operation in reduced precision
       // and we can further cancel out the two cast ops.
-      if (swapMetaCast(expr)) {
+      if (shouldSwapMetaCast(expr)) {
         // replay [meta -> expr] with
         //        [replayed_expr -> replayed_meta]
         Val* expr_out = expr->output(0);
@@ -352,8 +349,8 @@ void castOptimizationPass(Fusion* fusion) {
       }
 
       // optimize chained cast operations ending at expr
-      expr = removeChainedCasts(expr, visited);
-    } while (swapMetaCast(expr));
+      expr = removeChainedCasts(expr);
+    } while (shouldSwapMetaCast(expr));
   }
 }
 

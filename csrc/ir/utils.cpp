@@ -28,11 +28,17 @@ bool isSimpleTVSet(Expr* expr) {
     return false;
   }
   auto in_tv = dynamic_cast<TensorView*>(ldst->in());
+  if (in_tv == nullptr) {
+    return false;
+  }
   auto out_tv = dynamic_cast<TensorView*>(ldst->out());
-  return ldst->opType() == LoadStoreOpType::Set && in_tv != nullptr &&
-      out_tv != nullptr
+  if (out_tv == nullptr) {
+    return false;
+  }
+
+  return ldst->opType() == LoadStoreOpType::Set &&
       // The hasRoot() check is to prevent picking up Set.Permute ops here
-      && !ldst->out()->as<TensorView>()->hasRoot();
+      &&out_tv->hasRoot();
 }
 
 std::vector<int64_t> normalizeNew2Old(
