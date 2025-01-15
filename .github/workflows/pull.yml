@@ -32,5 +32,5 @@ jobs:
       - name: PR-agent tools
         uses: nvidia/fuser@ci-workflow
         with:
-          pr_url: ${{ github.pull_request.html_url }}
+          pr_url: ${{ github.event.pull_request.html_url }}
           tool: review
