@@ -2709,8 +2709,6 @@ class PaddingConsistencyAnalysis {
       // needs to explicitly find the group in the indexing
       // traversal graph.
       const auto& expr_g = index_traversal_graph.toGroup(path_expr_g->front());
-      std::cerr << "Indexing: " << expr_g->front()->toString();
-
       const auto inputs = getInputsOfExpr(
           expr_g,
           dir,
@@ -2783,9 +2781,6 @@ class PaddingConsistencyAnalysis {
     // Different resize. For padded sides, the resize expand
     // factor must be non-negative
 
-    std::cerr << "Another resize that depends on a pad resize: "
-              << expr_g->front()->toString();
-
     const ExprGroup& original_pad_resize = pad_resize_dep_map_.at(inputs.at(0));
 
     // Left expand factor
@@ -2804,8 +2799,6 @@ class PaddingConsistencyAnalysis {
         return false;
       }
     }
-
-    std::cerr << "No conflict found\n";
 
     for (const auto& output_g : outputs) {
       NVF_ERROR(
@@ -2860,7 +2853,7 @@ bool canOmitPadPredicate(const PadOp* pad) {
     return false;
   }
 
-  std::cerr << "canOmitPadPredicate?: " << pad->toString();
+  std::cerr << "Checking " << pad->toString();
 
   auto consumer_tv = pad->out()->as<TensorView>();
 
@@ -2929,8 +2922,35 @@ bool canOmitPadPredicate(const PadOp* pad) {
         tv_to_check->toString());
 
     if (pred_info.canOmitPredicate(tv_expr)) {
-      // If predicate is omitted, producer values are just
-      // propagated. Need to check the producers
+      // If predicate is omitted and producer values are just
+      // propagated, check the producers
+
+      // Check if the producer value is just moved
+      if (tv_expr != pad) {
+        if (!tv_expr->isOneOf<
+                LoadStoreOp,
+                BroadcastOp,
+                ExpandOp,
+                SqueezeOp,
+                SliceOp,
+                CatOp,
+                ViewOp,
+                UnaryOp>()) {
+          std::cerr << "Unsupported op: " << tv_expr->toString();
+          return false;
+        }
+
+        // For unary op, only cast is allowed for now. Should be able to
+        // support, e.g., abs, neg, etc. Neg must be careful as the
+        // negative zero is different from the positive zero, which
+        // matters for bitwise-or based concat
+        if (auto uop = dynamic_cast<UnaryOp*>(tv_expr)) {
+          if (uop->getUnaryOpType() != UnaryOpType::Cast) {
+            std::cerr << "Unsupported op: " << tv_expr->toString();
+            return false;
+          }
+        }
+      }
 
       // If there's no producer, i.e., a full op, and the predicate of
       // the expr is omitted, can't guarantee anything about the
