@@ -372,7 +372,6 @@ TEST_F(Tutorial, simpleLoop2AllocDomain) {
   EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
 }
 
-
 TEST_F(Tutorial, simpleLoopTileWithAllocDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -380,7 +379,7 @@ TEST_F(Tutorial, simpleLoopTileWithAllocDomain) {
   TensorView* tv0 = makeContigConcreteTensor({8, 4});
   TensorView* tv1 = makeContigConcreteTensor({8, 4});
   auto* tv2 = add(tv0, tv1);
-  auto *tv3 = neg(tv2);
+  auto* tv3 = neg(tv2);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -390,6 +389,41 @@ TEST_F(Tutorial, simpleLoopTileWithAllocDomain) {
   tv2->reorder({{-2, -3}});
   tv2->setAllocationDomain(tv2->getLoopDomain(), true);
 
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8, 4}, options);
+  at::Tensor t1 = at::randn({8, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0 + t1;
+  tref = -tref;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoopTileWithAllocDomain2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({8, 4});
+  TensorView* tv1 = makeContigConcreteTensor({8, 4});
+  auto* tv2 = add(tv0, tv1);
+  auto* tv3 = neg(tv2);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv3);
+
+  tv2->split(-1, 2);
+  tv2->reorder({{-2, -3}});
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+
+  tv3->split(-1, 2);
+  tv3->reorder({{-2, -3}});
 
   fusion.printKernel();
 
