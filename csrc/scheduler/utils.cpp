@@ -1187,10 +1187,7 @@ void clearMemorySpace(Fusion* fusion) {
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(
-    Fusion* fusion,
-    bool unroll,
-    bool propagate_allocation) {
+std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   if (!unroll) {
     return {};
   }
@@ -1227,10 +1224,10 @@ std::vector<TensorView*> cacheInputs(
     }
 
     auto cached_tv = tv->cacheAfter(
-        LoadStoreOpType::Set,
-        CacheOp::Unspecified,
-        propagate_allocation,
-        cached_uses);
+        /*op_type=*/LoadStoreOpType::Set,
+        /*cache_op=*/CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/true,
+        /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;
@@ -2702,13 +2699,9 @@ void reorderTensorLike(
         expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
 
     // Inserts the outputs at the innermost position
-    std::deque<ValGroup>::iterator innermost_it = ordered_domain.end();
-    for (auto it = inputs.rbegin(); it != inputs.rend(); ++it) {
-      innermost_it =
-          std::find(ordered_domain.begin(), ordered_domain.end(), *it);
-      NVF_ERROR(innermost_it != ordered_domain.end());
-      break;
-    }
+    auto innermost_it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), inputs.back());
+    NVF_ERROR(innermost_it != ordered_domain.end());
     ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
 
     // Removes the inputs

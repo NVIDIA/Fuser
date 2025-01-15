@@ -201,6 +201,7 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithInput(
@@ -295,6 +296,32 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+}
+
+void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
+  std::vector<c10::IValue> input_IValues;
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+  for (auto& input : launch_kernel->inputs()) {
+    NVF_ERROR(
+        expr_evaluator_.isKnown(input),
+        "No buffer associated with Val ",
+        input,
+        " for handling ",
+        launch_kernel->toString());
+    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
+    args.push(input_evaluation);
+  }
+
+  // run the compiled kernel
+  std::vector<at::Tensor> outputs =
+      container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
+
+  // Store the outputs in the context
+  for (auto output_idx : c10::irange(outputs.size())) {
+    expr_evaluator_.bind(
+        launch_kernel->outputs().at(output_idx), outputs.at(output_idx));
+  }
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {

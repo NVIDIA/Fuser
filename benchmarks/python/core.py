@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+from collections.abc import Iterable
 import pytest_benchmark
 import torch
 from torch.autograd import DeviceType
@@ -47,14 +48,18 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
 
 
-def with_executor(executor: str, fwd_fn: Callable) -> Callable:
-    assert executor in ["eager", "torchcompile", "thunder"]
+def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
+    assert executor in ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
     if executor == "eager":
         return fwd_fn
     if executor == "torchcompile":
-        return torch.compile(fwd_fn)
+        return torch.compile(fwd_fn, **kwargs)
     if executor == "thunder":
-        return thunder.jit(fwd_fn, nv_enable_bookend=False, executors=[nvfuserex])
+        return thunder.jit(
+            fwd_fn, nv_enable_bookend=False, executors=[nvfuserex], **kwargs
+        )
+    if executor == "thunder-torchcompile":
+        return thunder.jit(fwd_fn, executors=["torchcompile"], **kwargs)
 
 
 def compute_total_iobytes(
@@ -221,9 +226,9 @@ class NVFBenchmark:
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
-            if isinstance(inputs, torch.Tensor):
+            if not isinstance(inputs, Iterable):
                 inputs = [inputs]
-            if isinstance(outputs, torch.Tensor):
+            if not isinstance(outputs, Iterable):
                 outputs = [outputs]
 
             iobytes = 0
