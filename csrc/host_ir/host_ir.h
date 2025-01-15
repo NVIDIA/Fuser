@@ -144,7 +144,7 @@ class LaunchKernel : public Expr {
   }
 
  private:
-  int64_t hic_executor_index_;
+  const int64_t hic_executor_index_;
 };
 
 class Stream : public Val {
