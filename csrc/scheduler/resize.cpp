@@ -231,13 +231,18 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
           });
   TensorView* ref_tv = ref_tv_entry.get()[0];
 
+  // Before applying the vectorization split, any reshape transform of
+  // the largest input will be cancelled whenever possible, so the
+  // largest input is used as the reference of vectorization.
+  auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+
   // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
   params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      ref_tv,
+      vec_ref_tv,
       data_cache,
-      (int64_t)ref_tv->getLogicalDomain().size() - 1,
+      (int64_t)vec_ref_tv->getLogicalDomain().size() - 1,
       {});
 
   return params;
@@ -379,8 +384,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       /*update_loop_domain_only=*/true);
 
   if (vec_factor > 1) {
+    auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
     const auto tvs_to_vectorize =
-        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
+        scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
     for (auto tv_to_vectorize : tvs_to_vectorize) {
       if (tv_to_vectorize->isFusionInput()) {
         for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
