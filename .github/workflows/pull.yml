@@ -27,10 +27,14 @@ jobs:
   pr-agent-review:
     name: Get an initial PR review from LLM
     runs-on: ubuntu-latest
-    # permissions:
+    permissions:
+      pull-requests: write
+      issues: write
     steps:
       - name: PR-agent tools
         uses: nvidia/fuser@ci-workflow
         with:
           pr_url: ${{ github.event.pull_request.html_url }}
           tool: review
+        env:
+          GITHUB.USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
