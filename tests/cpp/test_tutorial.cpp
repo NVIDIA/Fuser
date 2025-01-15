@@ -407,6 +407,65 @@ TEST_F(Tutorial, simpleLoopTileWithAllocDomain) {
   EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_F(Tutorial, simpleLoopMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->merge(0);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0 + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(Tutorial, simpleLoopMerge2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto* tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->reorder({{-1, -2}});
+  tv2->merge(0);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({64, 64}, options);
+  at::Tensor t1 = at::randn({64, 64}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
+  auto tref = t0 + t1;
+
+  EXPECT_TRUE(at::allclose(outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_F(Tutorial, simpleLoopTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
