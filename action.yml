@@ -14,7 +14,7 @@ inputs:
 runs:
   using: 'docker'
   # image: 'dockerfile'
-  image: ghcr.io/nvidia/fuser:ci-llm-workflow
+  image: docker://ghcr.io/nvidia/fuser:ci-llm-workflow
   args:
     - --pr_url=${{ inputs.pr_url }}
     - ${{ inputs.tool }}
