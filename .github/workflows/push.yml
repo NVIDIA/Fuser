@@ -1,0 +1,21 @@
+name: push
+
+on:
+  push:
+    branches:
+      - ci-workflow
+
+jobs:
+  build_and_publish:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: authenticate
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login -u ${{ github.actor }} --password-stdin
+      - name: build
+        run: docker buildx build -f dockerfile -t ghcr.io/nvidia/fuser:ci-llm-workflow . 
+      - name: push
+        run: docker push ghcr.io/nvidia/fuser:ci-llm-workflow
