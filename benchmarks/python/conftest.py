@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import BENCHMARK_CONFIG, DEFAULT_EXECUTORS
+from .core import BENCHMARK_CONFIG
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 
 
@@ -102,7 +102,7 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(session, config, items):
     """
     The baseline benchmarks use `executor` parameter with
-    values ["eager", "torchcompile", "thunder"] that are optionally
+    values ["eager", "torchcompile", "thunder", "thunder-torchcompile"] that are optionally
     run using `--benchmark-{executor}` flag. They are skipped by
     default.
     """
@@ -122,7 +122,7 @@ def pytest_collection_modifyitems(session, config, items):
 
     executors_to_skip = []
 
-    for executor in DEFAULT_EXECUTORS:
+    for executor in executors:
         if not config.getoption(f"--benchmark-{executor}"):
             executors_to_skip.append(executor)
 
