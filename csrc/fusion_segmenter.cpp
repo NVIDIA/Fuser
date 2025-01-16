@@ -3592,7 +3592,7 @@ bool CombineReductions::shouldRun(
 // out. This is particularly commonly seen in fusions given by Thunder
 // as it inserts fine-grained downcasting and upcasting ops. Without
 // this preprocessing, a fusion may be segmented right after an
-// up-cast op, for example, and in fact it happened quitely frequently
+// up-cast op, for example, and in fact it happened quite frequently
 // in some of the RoPE cases. This preprocessing does not completely
 // avoid such segmentation boundaries, but it should become less
 // likely. See also https://github.com/NVIDIA/Fuser/pull/3699.
@@ -3722,20 +3722,20 @@ class MergeUpAndDownCast {
     return groups_to_merge;
   }
 
-  // Try merging a candidate cast group. Return a merged group if merged.
-  SegmentedGroup* mergeCastGroup(const std::vector<SegmentedGroup*>& groups) {
+  // Try merging a candidate cast group. Return true if merged.
+  bool mergeCastGroup(const std::vector<SegmentedGroup*>& groups) {
     auto sched_type = tryMerge(
         segment_candidate_finder_->segmented_fusion_.get(),
         segment_candidate_finder_->runtimeInfo(),
         groups);
 
     if (sched_type == SchedulerType::None) {
-      return nullptr;
+      return false;
     }
 
-    auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(groups);
+    segment_candidate_finder_->mergeAllGivenGroups(groups);
 
-    return joined_group;
+    return true;
   }
 
   bool isUpCast(SegmentedGroup* group) const {
@@ -3778,7 +3778,9 @@ class MergeUpAndDownCast {
     auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
     auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
 
-    if (inp_prim_type == nullptr || out_prim_type == nullptr) {
+    if (inp_prim_type == nullptr || out_prim_type == nullptr ||
+        *inp_prim_type == PrimDataType::Index ||
+        *out_prim_type == PrimDataType::Index) {
       return std::nullopt;
     }
 
