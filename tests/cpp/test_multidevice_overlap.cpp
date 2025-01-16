@@ -345,15 +345,120 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
   }
 }
 
+TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
+  constexpr int64_t number_of_warmups = 50;
+  constexpr int64_t number_of_iterations = 200;
+  constexpr int64_t iteration_profiler_start = 10;
+  constexpr int64_t iteration_profiler_end = 15;
+
+  const int64_t D = communicator_->size();
+  auto [backend,
+        S,
+        M,
+        K,
+        N,
+        number_of_streams,
+        add_cuStreamWriteValue32,
+        number_of_pgs,
+        unfuse_loops,
+        use_cuda_graph] = GetParam();
+
+  if (M % (D * S) != 0) {
+    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
+                 << ", D = " << D << ", S = " << S;
+  }
+  if (add_cuStreamWriteValue32) {
+    GTEST_SKIP() << "cuStreamWriteValue32 not supported with StreamParallelType";
+  }
+  if (number_of_pgs > 1) {
+    GTEST_SKIP() << "StreamParallelType not supported with multiple process groups";
+  }
+  if (unfuse_loops) {
+    GTEST_SKIP() << "StreamParallelType not supported with unfused loops";
+  }
+  if (use_cuda_graph) {
+    GTEST_SKIP() << "StreamParallelType not supported with cuda graphs";
+  }
+
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
+  TensorView* b = makeContigTensor(2); //[K, N]
+  TensorView* c = matmul(a, b); //[S, D, M/(S*D), N]
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(0)->parallelize(ParallelType::Stream);
+
+  communicator_->setDefaultBackend(backend);
+
+  hir::HostIrEvaluatorParams params;
+  params.number_of_streams = number_of_streams;
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
+
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  at::Tensor ta_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
+  at::Tensor ta = ta_unsharded.slice(
+      1, communicator_->deviceId(), communicator_->deviceId() + 1);
+  at::Tensor tb = at::randn({K, N}, tensor_options);
+  at::Tensor tc_ref = at::matmul(ta_unsharded, tb);
+
+  std::vector<c10::IValue> inputs = {ta, tb};
+  at::Tensor tc;
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  for (const auto& iteration :
+       c10::irange(number_of_warmups + number_of_iterations)) {
+    if (iteration == iteration_profiler_start) {
+      cudaProfilerStart();;
+    }
+    if (iteration == number_of_warmups) {
+      cudaEventRecord(start);
+    }
+
+    tc = executor.runWithInput(inputs).at(0);
+
+    if (iteration == iteration_profiler_end) {
+      cudaProfilerStop();;
+    }
+  }
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  milliseconds /= number_of_iterations;
+
+  std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  times.insert({test_name, milliseconds});
+  std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
+
+  EXPECT_TRUE(torch::allclose(tc_ref, tc, 1e-1, 1e-1));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     OverlapBenchmark,
     testing::Combine(
     testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
     /*S=*/testing::Values(1,2,4,8, 16, 32),
-    /*M=*/testing::Values(pow(2,10), pow(2,15)),
-    /*K=*/testing::Values(pow(2,10), pow(2,15)),
-    /*N=*/testing::Values(pow(2,10)),
+    /*M=*/testing::Values(pow(2,10), pow(2,15), pow(2,18)),
+    /*K=*/testing::Values(pow(2,10), pow(2,15), pow(2,18)),
+    /*N=*/testing::Values(pow(2,10), pow(2,15)),
     /*number_of_streams=*/testing::Values(3, 8, 32),
     /*add_cuStreamWriteValue32*/testing::Values(false, true),
     /*number_of_pgs=*/testing::Values(1, 2, 4, 8),
