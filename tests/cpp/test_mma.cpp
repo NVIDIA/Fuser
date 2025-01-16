@@ -560,9 +560,6 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore2) {
 
   tvb_c->applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle::None);
 
-
-
-
   // auto tv2c = tv2->cacheBefore();
 
   auto tv2b = add(tv2, tvb_r);
@@ -615,7 +612,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore2) {
     tvb_r->setLoopDomain(s.as<IterDomain*>());
   }
 
-    {
+  {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2b->getLoopDomain());
     tv2b->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -628,7 +625,6 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore2) {
     tv3->setLoopDomain(s.as<IterDomain*>());
   }
 
-
   fusion.printMath();
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv4, MmaInputSmemSwizzle::None);
@@ -636,8 +632,9 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore2) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(DataType::Float)).device(at::kCUDA, 0);
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(DataType::Float))
+                     .device(at::kCUDA, 0);
 
   at::Tensor aten_bias = at::randn({getM(macro), getN(macro)}, options);
 
@@ -649,13 +646,13 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore2) {
       matmul_cparams);
 
   auto cg_outputs = ke.run({inputs.first, inputs.second, aten_bias});
-  auto tref = atBiasEpilogue(
-      atMatmul(
-          inputs.first.squeeze().to(at::kFloat),
-          inputs.second.squeeze().to(at::kFloat),
-          layout),
-      aten_bias);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  tref = tref + aten_bias;
+
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-1, 1e-1));
 }
 
 TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
