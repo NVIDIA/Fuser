@@ -327,7 +327,7 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::EmbeddingFwdOp, deserializeEmbeddingFwdRecord);
-  
+
   // END OpRecord Parsers
 
   // START Reduction Parsers

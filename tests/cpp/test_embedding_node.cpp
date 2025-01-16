@@ -32,7 +32,8 @@ TEST_F(EmbeddingTest, EmbeddingFwdNode) {
   fusion->addInput(tv_inp);
   fusion->addInput(tv_weight);
 
-  auto tv_output = embedding_fwd(tv_inp, tv_weight, nullptr, nullptr, nullptr, nullptr, nullptr);
+  auto tv_output = embedding_fwd(
+      tv_inp, tv_weight, nullptr, nullptr, nullptr, nullptr, nullptr);
   fusion->addOutput(tv_output);
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -44,6 +45,6 @@ TEST_F(EmbeddingTest, EmbeddingFwdNode) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs({input, weight});
-  EXPECT_TRUE(at::allclose(nvf_out[0], aten_out));  
-}        
+  EXPECT_TRUE(at::allclose(nvf_out[0], aten_out));
+}
 } // namespace nvfuser

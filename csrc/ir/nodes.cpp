@@ -5374,21 +5374,21 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingFwdOp)
 std::string EmbeddingFwdOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << ",\n";
-  indent(ss, indent_size + 1)
-      << " = embedding(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = embedding(" << in()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << weight()->toString() << ",\n";
-  if (padding_idx() != nullptr){
+  if (padding_idx() != nullptr) {
     indent(ss, indent_size + 1)
-      << "          padding_idx = " << padding_idx()->toString() << ",\n";
+        << "          padding_idx = " << padding_idx()->toString() << ",\n";
   }
-  if (max_norm() != nullptr){
+  if (max_norm() != nullptr) {
     indent(ss, indent_size + 1)
-      << "          max_norm = " << max_norm()->toString() << ",\n";
+        << "          max_norm = " << max_norm()->toString() << ",\n";
   }
   indent(ss, indent_size + 1)
       << "          norm_type = " << norm_type()->toString() << ",\n";
   indent(ss, indent_size + 1)
-      << "          scale_grad_by_freq = " << scale_grad_by_freq()->toInlineString() << ",\n";
+      << "          scale_grad_by_freq = "
+      << scale_grad_by_freq()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
       << "          sparse = " << sparse()->toInlineString() << ")\n";
   return ss.str();
@@ -5401,34 +5401,40 @@ std::string EmbeddingFwdOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  
-  auto input = inputs.at(0).as<at::Tensor>();
+  to input = inputs.at(0).as<at::Tensor>();
   auto weight = inputs.at(1).as<at::Tensor>();
   auto norm_type = inputs.at(2).as<double>();
   auto scale_grad_by_freq = inputs.at(3).as<bool>();
   auto sparse = inputs.at(4).as<bool>();
   std::optional<int64_t> padding_idx = std::nullopt;
   if (has_padding_idx()){
-    padding_idx = inputs.at(5).as<int64_t>();
+     padding_idx = inputs.at(5).as<int64_t>();
   }
   std::optional<double> max_norm = std::nullopt;
   if (has_max_norm()){
-    auto idx = 5 + has_padding_idx();
+     auto idx = 5 + has_padding_idx();
     max_norm = inputs.at(idx).as<double>();
   }
 
   namespace F = torch::nn::functional;
   return {
-    F::embedding(
-      input, 
-      weight, 
-      F::EmbeddingFuncOptions()
-      .padding_idx(padding_idx)
-      .max_norm(max_norm)
-      .norm_type(norm_type)
-      .scale_grad_by_freq(scale_grad_by_freq)
-      .sparse(sparse))
-  };
-}
+ :embedding(
+      input,
+ 
+      ght,
+  
+      mbeddingFuncOptions()
+   
+          ding_idx(padding_idx)
+   
+          _norm(max_norm)
+   
+          m_type(norm_type)
+   
+          le_grad_by_freq(scale_grad_by_freq)
+   
+          rse(sparse))
+  }
 
 } // namespace nvfuser
+    

@@ -325,21 +325,23 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  if (EmbeddingFwdOp* op = dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
+  if (EmbeddingFwdOp* op =
+          dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
     // Producers:
     //   input = [*]
     //   weight = [V, embedding_dim]
     // Consumers:
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
-    if (producer_tv_->sameAs(op->in())){
-      for (auto idx: c10::irange(ndims_out-1)){
+    if (producer_tv_->sameAs(op->in())) {
+      for (auto idx : c10::irange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
     }
-    if (producer_tv_->sameAs(op->weight())){
-      updatePairwiseLogicalDomainMap(producer_logical.back(), consumer_root.back());
+    if (producer_tv_->sameAs(op->weight())) {
+      updatePairwiseLogicalDomainMap(
+          producer_logical.back(), consumer_root.back());
     }
     return dom_map;
   }

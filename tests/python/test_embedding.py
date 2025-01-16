@@ -4,11 +4,8 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from utils import NVFuserTest, is_pre_ampere
-from nvfuser import FusionDefinition, DataType, FusionCache
+from nvfuser import FusionDefinition, DataType
 import pytest
-import itertools
-from functools import partial
 import torch.nn.functional as F
 
 
@@ -17,17 +14,17 @@ import torch.nn.functional as F
 @pytest.mark.parametrize("norm_type", [None, 1.0])
 @pytest.mark.parametrize("scale_grad_by_freq", [None, True])
 @pytest.mark.parametrize("sparse", [None, True])
-def test_embedding( 
-                   padding_idx: None | int, 
-                   max_norm: None | float,
-                   norm_type: None | float,
-                   scale_grad_by_freq: None | bool,
-                   sparse: None | bool
-    ):
+def test_embedding(
+    padding_idx: None | int,
+    max_norm: None | float,
+    norm_type: None | float,
+    scale_grad_by_freq: None | bool,
+    sparse: None | bool,
+):
     def fusion_func(
-        fd: FusionDefinition, 
+        fd: FusionDefinition,
         has_optional_inputs: list[bool],
-        optional_inputs_dtypes: list[DataType]
+        optional_inputs_dtypes: list[DataType],
     ):
         input = fd.define_tensor(
             shape=[-1],
@@ -44,15 +41,25 @@ def test_embedding(
         # padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
         optional_inputs = [None] * 5
         for idx in range(len(optional_inputs)):
-          if has_optional_inputs[idx]:
-            optional_inputs[idx] = fd.define_scalar(value=None, dtype=optional_inputs_dtypes[idx])
+            if has_optional_inputs[idx]:
+                optional_inputs[idx] = fd.define_scalar(
+                    value=None, dtype=optional_inputs_dtypes[idx]
+                )
         out = fd.ops.embedding_fwd(input, weight, *optional_inputs)
         fd.add_output(out)
 
     N, S = 10, 3
-    input = torch.randint(N, (S,), dtype=torch.int64, device='cuda', requires_grad=False)
-    weight = torch.randn(N, S, dtype=torch.bfloat16, device='cuda', requires_grad=True)
-    optional_inputs_dtypes = [DataType.Int, DataType.Float, DataType.Float, DataType.Bool, DataType.Bool]
+    input = torch.randint(
+        N, (S,), dtype=torch.int64, device="cuda", requires_grad=False
+    )
+    weight = torch.randn(N, S, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    optional_inputs_dtypes = [
+        DataType.Int,
+        DataType.Float,
+        DataType.Float,
+        DataType.Bool,
+        DataType.Bool,
+    ]
 
     # This is not in pytest_ops.py since the torch API does not accept None values for some arguments.
     # Different inputs for nvfuser and torch API cannot be handled within OpInfo
@@ -63,15 +70,19 @@ def test_embedding(
         if param is not None:
             has_optional_inputs[idx] = True
             inputs.append(param)
-    
+
     with FusionDefinition() as fd:
-      fusion_func(fd, 
-                  has_optional_inputs=has_optional_inputs, 
-                  optional_inputs_dtypes= optional_inputs_dtypes)    
-    nvf_out = fd.execute(inputs) 
+        fusion_func(
+            fd,
+            has_optional_inputs=has_optional_inputs,
+            optional_inputs_dtypes=optional_inputs_dtypes,
+        )
+    nvf_out = fd.execute(inputs)
 
     norm_type = 2.0 if norm_type is None else norm_type
     scale_grad_by_freq = False if scale_grad_by_freq is None else scale_grad_by_freq
     sparse = False if sparse is None else sparse
-    ref_out = F.embedding(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse)
+    ref_out = F.embedding(
+        input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
+    )
     torch.testing.assert_close(nvf_out[0], ref_out)

@@ -2764,14 +2764,14 @@ class EmbeddingFwdOp : public Expr {
   }
 
   Val* padding_idx() const {
-    if (has_padding_idx()){
+    if (has_padding_idx()) {
       return input(5);
     }
     return nullptr;
   }
 
   Val* max_norm() const {
-    if (has_max_norm()){
+    if (has_max_norm()) {
       return input(5 + has_padding_idx());
     }
     return nullptr;

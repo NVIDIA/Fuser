@@ -3083,11 +3083,17 @@ struct EmbeddingFwdOpRecord : RecordFunctor {
         ? fd.getFusionState(args_.at(6).index)->as<Val>()
         : nullptr;
 
-    auto output = embedding_fwd(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse);
+    auto output = embedding_fwd(
+        input,
+        weight,
+        padding_idx,
+        max_norm,
+        norm_type,
+        scale_grad_by_freq,
+        sparse);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 };
-
 
 } // namespace nvfuser::python_frontend
 
