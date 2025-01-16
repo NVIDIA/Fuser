@@ -3052,16 +3052,16 @@ struct SdpaBwdOpRecord : RecordFunctor {
   }
 };
 
-struct EmbeddingOpRecord : RecordFunctor {
-  EmbeddingOpRecord(std::vector<State> args, std::vector<State> outputs)
+struct EmbeddingFwdOpRecord : RecordFunctor {
+  EmbeddingFwdOpRecord(std::vector<State> args, std::vector<State> outputs)
       : RecordFunctor(
             std::move(args),
             std::move(outputs),
-            "ops.embedding",
-            serde::RecordType::EmbeddingOp) {}
-  ~EmbeddingOpRecord() override = default;
+            "ops.embedding_fwd",
+            serde::RecordType::EmbeddingFwdOp) {}
+  ~EmbeddingFwdOpRecord() override = default;
   RecordFunctor* clone() final {
-    return new EmbeddingOpRecord(*this);
+    return new EmbeddingFwdOpRecord(*this);
   }
 
   void operator()(FusionState& fd) final {
@@ -3083,7 +3083,7 @@ struct EmbeddingOpRecord : RecordFunctor {
         ? fd.getFusionState(args_.at(6).index)->as<Val>()
         : nullptr;
 
-    auto output = embedding(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse);
+    auto output = embedding_fwd(input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 };

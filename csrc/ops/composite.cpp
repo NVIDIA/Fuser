@@ -662,7 +662,7 @@ SdpfaBwdResult sdpfa_bwd(
   return {grad_query, grad_key, grad_value};
 }
 
-TensorView* embedding(
+TensorView* embedding_fwd(
   TensorView* input,
   TensorView* weight,
   Val* padding_idx,
@@ -709,7 +709,7 @@ TensorView* embedding(
   if (sparse == nullptr){
     sparse = IrBuilder::create<Val>(false, DataType::Bool);
   }
-  IrBuilder::create<EmbeddingOp>(
+  IrBuilder::create<EmbeddingFwdOp>(
       output,
       input,
       weight,

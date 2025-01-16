@@ -325,7 +325,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  if (EmbeddingOp* op = dynamic_cast<EmbeddingOp*>(consumer_tv_->definition())) {
+  if (EmbeddingFwdOp* op = dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
     // Producers:
     //   input = [*]
     //   weight = [V, embedding_dim]

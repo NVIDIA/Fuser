@@ -2715,11 +2715,11 @@ class SdpaBwdOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
-class EmbeddingOp : public Expr {
+class EmbeddingFwdOp : public Expr {
  public:
   using Expr::Expr;
 
-  EmbeddingOp(
+  EmbeddingFwdOp(
       IrBuilderPasskey,
       TensorView* output,
       TensorView* input,
@@ -2733,7 +2733,7 @@ class EmbeddingOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "EmbeddingOp";
+    return "EmbeddingFwdOp";
   }
 
   std::string toString(int indent_size = 0) const override;

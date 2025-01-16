@@ -5337,7 +5337,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       slice_last_dim(grad_value)};
 }
 
-EmbeddingOp::EmbeddingOp(
+EmbeddingFwdOp::EmbeddingFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
     TensorView* input,
@@ -5369,9 +5369,9 @@ EmbeddingOp::EmbeddingOp(
   }
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingFwdOp)
 
-std::string EmbeddingOp::toString(int indent_size) const {
+std::string EmbeddingFwdOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << ",\n";
   indent(ss, indent_size + 1)
@@ -5394,11 +5394,11 @@ std::string EmbeddingOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string EmbeddingOp::toInlineString(int indent_size) const {
+std::string EmbeddingFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> EmbeddingOp::evaluate(
+std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   

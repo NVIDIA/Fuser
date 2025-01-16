@@ -118,7 +118,7 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* philox_offset,
     Val* scale);
 
-TensorView* embedding(
+TensorView* embedding_fwd(
   TensorView* input,
   TensorView* weight,
   Val* padding_idx,

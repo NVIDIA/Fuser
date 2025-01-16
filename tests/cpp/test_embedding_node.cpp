@@ -20,7 +20,7 @@ using EmbeddingTest = NVFuserTest;
 
 constexpr int64_t n = 5, s = 2;
 
-TEST_F(EmbeddingTest, EmbeddingNode) {
+TEST_F(EmbeddingTest, EmbeddingFwdNode) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> inp_shape({s});
@@ -32,7 +32,7 @@ TEST_F(EmbeddingTest, EmbeddingNode) {
   fusion->addInput(tv_inp);
   fusion->addInput(tv_weight);
 
-  auto tv_output = embedding(tv_inp, tv_weight, nullptr, nullptr, nullptr, nullptr, nullptr);
+  auto tv_output = embedding_fwd(tv_inp, tv_weight, nullptr, nullptr, nullptr, nullptr, nullptr);
   fusion->addOutput(tv_output);
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);

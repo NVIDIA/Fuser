@@ -3622,7 +3622,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   nvf_ops.def(
-      "embedding",
+      "embedding_fwd",
       [](FusionDefinition::Operators& self,
          Tensor input,
          Tensor weight,
@@ -3631,7 +3631,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Scalar> norm_type,
          std::optional<Scalar> scale_grad_by_freq,
          std::optional<Scalar> sparse) -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.embedding");
+        FUSER_PERF_SCOPE("Operators.embedding_fwd");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
@@ -3654,7 +3654,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ? fd->recordingState(sparse.value()())
             : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
 
-        fd->defineRecord(new EmbeddingOpRecord(
+        fd->defineRecord(new EmbeddingFwdOpRecord(
             {fd->recordingState(input()),
              fd->recordingState(weight()),
              padding_idx_state,
