@@ -81,4 +81,6 @@ def test_rope_bwd_benchmark(
 
     # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
     # a reference point for torchcompile and eager executor for comparison.
-    run_benchmark(benchmark, unary_bwd_torch, [output, grad(), fwd_inputs()], iobytes=iobytes())
+    run_benchmark(
+        benchmark, unary_bwd_torch, [output, grad(), fwd_inputs()], iobytes=iobytes()
+    )
