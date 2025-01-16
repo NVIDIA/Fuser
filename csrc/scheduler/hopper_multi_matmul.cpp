@@ -452,9 +452,17 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
     // Load/cache the epilogue inputs if there are any.
     for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
+      TensorView* smem_tv = c->cacheAfter();
+      LoadStoreOpType load_op = params_->async_gmem_load_operands
+          ? LoadStoreOpType::CpAsyncBulkTensorTile
+          : LoadStoreOpType::Set;
+
+      smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
+      smem_tv->setMemoryType(MemoryType::Shared);
+      cached_tvs.push_back(smem_tv);
     }
-    propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
+    propagate_to.insert(
+        propagate_to.end(), cached_tvs.begin(), cached_tvs.end());
   }
 
   if (!params_->use_smem_epilogue) {
