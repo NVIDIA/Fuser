@@ -561,9 +561,8 @@ template <
 class BFSWithPermissiveDependence
     : public BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT> {
  public:
-  using NodeType =
-      typename BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>::
-          NodeType;
+  using BFSBaseType = BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>;
+  using NodeType = typename BFSBaseType::NodeType;
 
   BFSWithPermissiveDependence(
       DefinitionT definition,
@@ -574,7 +573,7 @@ class BFSWithPermissiveDependence
       std::vector<NodeType> to,
       bool require_all_to_visited = true,
       Direction allowed_direction = Direction::Undefined)
-      : BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>(
+      : BFSBaseType(
             definition,
             uses,
             inputs,
@@ -617,6 +616,70 @@ class BFSWithPermissiveDependence
       return std::make_pair(Direction::Backward, prev_nodes);
     }
     return std::nullopt;
+  }
+
+  // When adding new neighbors of an expr node, if any of inputs is
+  // the previous node of this expr, then don't add the remaining
+  // inputs to the to-visit list. Similary, if any of the outputs is
+  // the previous node of this expr, don't add the remaining
+  // outputs. See BFSTest.IRBFSPermissiveTraversal2 for a concrete
+  // example.
+  void addNewNeighbors(const NodeType& node) override {
+    const ExprT* e = std::get_if<ExprT>(&node);
+    if (e == nullptr) {
+      BFSBaseType::addNewNeighbors(node);
+      return;
+    }
+
+    auto add_to_visit_list = [&](const NodeType& n) -> void {
+      if (this->isVisited(n) || this->excludeFromTraversal(n)) {
+        return;
+      }
+      this->to_visit_.emplace_back(n);
+    };
+
+    auto prev_nodes_it = this->prev_nodes_.find(node);
+
+    auto is_any_already_visited = [&](const auto& inputs_or_outputs) -> bool {
+      if (prev_nodes_it == this->prev_nodes_.end()) {
+        return false;
+      }
+
+      const std::vector<NodeType>& prev_nodes = prev_nodes_it->second.second;
+
+      return std::any_of(
+          inputs_or_outputs.begin(),
+          inputs_or_outputs.end(),
+          [&](const auto& input_or_output) {
+            return std::find(
+                       prev_nodes.begin(),
+                       prev_nodes.end(),
+                       NodeType(input_or_output)) != prev_nodes.end();
+          });
+    };
+
+    if (this->allowed_direction_ == Direction::Backward ||
+        this->allowed_direction_ == Direction::Undefined) {
+      // There's an input node that is marked as a previous node of
+      // this node. Since this is permissive traversal, some of the
+      // other inputs may not be visited yet, but going back to
+      // the input nodes doesn't seem to make sense
+      auto input_nodes = this->inputs_(*e);
+      if (!is_any_already_visited(input_nodes)) {
+        for (const auto& v : input_nodes) {
+          add_to_visit_list(v);
+        }
+      }
+    }
+    if (this->allowed_direction_ == Direction::Forward ||
+        this->allowed_direction_ == Direction::Undefined) {
+      auto output_nodes = this->outputs_(*e);
+      if (!is_any_already_visited(output_nodes)) {
+        for (const auto& v : output_nodes) {
+          add_to_visit_list(v);
+        }
+      }
+    }
   }
 };
 
