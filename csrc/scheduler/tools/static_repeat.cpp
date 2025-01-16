@@ -14,28 +14,55 @@ namespace nvfuser {
 namespace scheduler_tools {
 
 std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
-    TensorView* maybe_repeat_out_tv) {
+    TensorView* maybe_repeat_out) {
   // The pattern to detect:
   //
   // broadcast_out = broadcast(input)
   // expand_out = expand(broadcast_out)
-  // reshape_out = reshape(expand_out)
+  // repeat_out = reshape(expand_out)
+  //
+  // Additionally, since maybe_repeat_out is commonly a fusion
+  // output, it is likely there's a cache tv between expand_out and
+  // reshape_out, so the following pattern should also be detected.
+  //
+  // broadcast_out = broadcast(input)
+  // expand_out = expand(broadcast_out)
+  // cache_of_repeat_out = reshape(expand_out)
+  // repeat_out = set(cache_of_repeat_out)
 
-  auto reshape = dynamic_cast<ViewOp*>(maybe_repeat_out_tv->definition());
+  std::unordered_set<TensorView*> repeat_tvs;
+  repeat_tvs.insert(maybe_repeat_out);
+
+  auto reshape_out = maybe_repeat_out;
+
+  // Check if there's a cache
+  if (auto ldst = dynamic_cast<LoadStoreOp*>(maybe_repeat_out->definition());
+      ldst->opType() == LoadStoreOpType::Set) {
+    reshape_out = ldst->in()->as<TensorView>();
+    repeat_tvs.insert(reshape_out);
+  }
+
+  // Detect reshape
+  auto reshape = dynamic_cast<ViewOp*>(reshape_out->definition());
   if (reshape == nullptr) {
     return std::nullopt;
   }
 
-  auto expand_out_tv = reshape->in();
+  std::cerr << "Reshape out: " << reshape_out->definition()->toString() << ", "
+            << toDelimitedString(reshape_out->getRootDomain()) << "\n";
 
-  auto expand = dynamic_cast<ExpandOp*>(expand_out_tv->definition());
+  // Detect expand
+  auto expand_out = reshape->in();
+  repeat_tvs.insert(expand_out);
+  auto expand = dynamic_cast<ExpandOp*>(expand_out->definition());
   if (expand == nullptr) {
     return std::nullopt;
   }
 
-  auto broadcast_out_tv = expand->in();
-
-  auto broadcast = dynamic_cast<BroadcastOp*>(broadcast_out_tv->definition());
+  // Detect broadcast
+  auto broadcast_out = expand->in();
+  repeat_tvs.insert(broadcast_out);
+  auto broadcast = dynamic_cast<BroadcastOp*>(broadcast_out->definition());
   if (broadcast == nullptr) {
     return std::nullopt;
   }
@@ -46,9 +73,10 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   // Not sure if this is really necessary to check, but assume there's
   // only single chain of the ops and tensors from inp_tv to
-  // maybe_repeat_out_tv
-  if (inp_tv->uses().size() > 1 || broadcast_out_tv->uses().size() > 1 ||
-      expand_out_tv->uses().size() > 1) {
+  // maybe_reshape_out
+  if (std::any_of(repeat_tvs.begin(), repeat_tvs.end(), [](TensorView* tv) {
+        return tv->uses().size() > 1;
+      })) {
     return std::nullopt;
   }
 
@@ -56,14 +84,13 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   // one iter domain can be repeated
   IterDomain* broadcast_id = nullptr;
   int64_t broadcast_pos = -1;
-  for (const auto i :
-       c10::irange(broadcast_out_tv->getLogicalDomain().size())) {
+  for (const auto i : c10::irange(broadcast_out->getLogicalDomain().size())) {
     if (broadcast->getBroadcastDimFlags().at(i)) {
       if (broadcast_id != nullptr) {
         // Multiple broadcast IDs not supported
         return std::nullopt;
       }
-      broadcast_id = broadcast_out_tv->getLogicalDomain().at(i);
+      broadcast_id = broadcast_out->getLogicalDomain().at(i);
       broadcast_pos = (int64_t)i;
     }
   }
@@ -76,10 +103,9 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   // Check if and only if the broadcast ID is expanded
   IterDomain* expanded_id = nullptr;
-  for (const auto i :
-       c10::irange(broadcast_out_tv->getLogicalDomain().size())) {
-    auto p_id = broadcast_out_tv->getLogicalDomain().at(i);
-    auto c_id = expand_out_tv->getLogicalDomain().at(i);
+  for (const auto i : c10::irange(broadcast_out->getLogicalDomain().size())) {
+    auto p_id = broadcast_out->getLogicalDomain().at(i);
+    auto c_id = expand_out->getLogicalDomain().at(i);
     std::cerr << "p_id: " << p_id->toString() << ", c_id: " << c_id->toString()
               << "\n";
     if (p_id == broadcast_id && c_id->isBroadcast() &&
@@ -111,10 +137,10 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   // The expanded ID should be merged with the iter domain next to it,
   // and that should be the only reshape expr
   auto reshape_exprs = DependencyCheck::getAllExprsBetween(
-      {maybe_repeat_out_tv->getRootDomain().begin(),
-       maybe_repeat_out_tv->getRootDomain().end()},
-      {maybe_repeat_out_tv->getLogicalDomain().begin(),
-       maybe_repeat_out_tv->getLogicalDomain().end()});
+      {reshape_out->getRootDomain().begin(),
+       reshape_out->getRootDomain().end()},
+      {reshape_out->getLogicalDomain().begin(),
+       reshape_out->getLogicalDomain().end()});
   if (reshape_exprs.size() != 1) {
     return std::nullopt;
   }
@@ -130,8 +156,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   // The corresponding root ID of the outout tv should be one of the
   // inputs of the merge
-  auto reshape_root_broadcast =
-      maybe_repeat_out_tv->getRootDomain().at(broadcast_pos);
+  auto reshape_root_broadcast = reshape_out->getRootDomain().at(broadcast_pos);
   if (reshape_merge->outer() != reshape_root_broadcast &&
       reshape_merge->inner() != reshape_root_broadcast) {
     std::cerr << "Invalid merge\n";
@@ -139,10 +164,14 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   }
 
   StaticRepeatInfo info;
-  info.reshape_repeat_root_id =
-      maybe_repeat_out_tv->getRootDomain().at(broadcast_pos);
-  info.repeated_tvs = std::unordered_set<TensorView*>{
-      broadcast_out_tv, expand_out_tv, maybe_repeat_out_tv};
+  info.repeat_output_tv = maybe_repeat_out;
+  info.reshape_output_tv = reshape_out;
+  info.reshape_repeat_id = reshape_out->getRootDomain().at(broadcast_pos);
+  info.repeat_tvs = repeat_tvs;
+
+  if (getenv("SKIP")) {
+    return std::nullopt;
+  }
 
   return info;
 }

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <optional>
-#include <vector>
+#include <unordered_set>
 
 namespace nvfuser {
 
@@ -54,13 +54,19 @@ namespace scheduler_tools {
 // schedulers.
 
 struct StaticRepeatInfo {
-  // The root ID of the final repeated tensor that corresponds to the
+  // The final output tensor of the detected repeat pattern, e.g.,
+  // t3 in the above example case.
+  TensorView* repeat_output_tv = nullptr;
+  // The reshape output tensor, e.g., t3 in the above example case. It
+  // is not the same as repeat_output_tv when there's a cache.
+  TensorView* reshape_output_tv = nullptr;
+  // The ID of reshape output TV that corresponds to the
   // expanded broadcast ID. In the above example case, this
   // would be the root ID of t3 that corresponds to b2
-  IterDomain* reshape_repeat_root_id = nullptr;
+  IterDomain* reshape_repeat_id = nullptr;
   // Output tensors of the detected broadcast, expand and reshape
   // ops. In the above example case, this would consist of t1, t2 and t3.
-  std::unordered_set<TensorView*> repeated_tvs;
+  std::unordered_set<TensorView*> repeat_tvs;
 };
 
 // Check if the given tensor matches with the final reshape output
