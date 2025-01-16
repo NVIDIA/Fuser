@@ -22,7 +22,8 @@ BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
-DEFAULT_EXECUTORS = ['eager', 'torchcompile', 'thunder']
+DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
+
 
 def clear_l2_cache() -> None:
     """
@@ -44,7 +45,8 @@ def clear_dynamo_cache() -> None:
 
 
 # Backward function for torch baseline benchmarks.
-def unary_bwd_torch(inputs: List):  # [output, grad_out]
+# The first two inputs are expected to be out and grad_out. The remaining are inputs of the forward pass used to clear grad between subsequent runs to avoid grad accumulation. See setup() in run_benchmark().
+def unary_bwd_torch(inputs: List):  # [output, grad_out, fwd_inputs]
     inputs[0].backward(inputs[1], retain_graph=True)
 
 
