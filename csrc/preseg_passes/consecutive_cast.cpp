@@ -33,10 +33,12 @@ bool shouldSwapMetaCast(Expr* cast) {
   }
   // If cast is promoting dtype size, stop pushing cast along inputs to avoid
   // increase in intermediate buffer size.
-  if (!cast->input(0)->getDataType().has_value() ||
-      !cast->output(0)->getDataType().has_value() ||
-      (dataTypeSize(*cast->input(0)->getDataType()) <
-       dataTypeSize(*cast->output(0)->getDataType()))) {
+  // NOTE since we don't have dtype size for index at compile time, we'll skip
+  // cast on index types.
+  if (cast->input(0)->getDataType().value() == DataType::Index ||
+      cast->output(0)->getDataType().value() == DataType::Index ||
+      (dataTypeSize(cast->input(0)->getDataType().value()) <
+       dataTypeSize(cast->output(0)->getDataType().value()))) {
     return false;
   }
 
