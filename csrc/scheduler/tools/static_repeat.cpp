@@ -13,43 +13,18 @@
 namespace nvfuser {
 namespace scheduler_tools {
 
-std::optional<StaticRepeatInfo> getMaybeStaticRepeatId(TensorView* ref_tv) {
-  // Assume ref is a fusion output
-  NVF_ERROR(ref_tv->isFusionOutput());
-
-  // Find the broadcast, expand and reshape pattern.
-
-  TensorView* reshape_out_tv = ref_tv;
-
-  // It is likely a cache is inserted
-  auto load_store = dynamic_cast<LoadStoreOp*>(ref_tv->definition());
-  // Only Set is considered for now
-  if (load_store != nullptr) {
-    if (load_store->opType() != LoadStoreOpType::Set) {
-      return std::nullopt;
-    }
-    reshape_out_tv = load_store->input(0)->as<TensorView>();
-    // Not sure if this is really problematic, but the producer of the
-    // caching op should have only one consumer
-    if (reshape_out_tv->uses().size() > 1) {
-      return std::nullopt;
-    }
-  }
-
-  std::cerr << "Reshape out: " << reshape_out_tv->toString() << "\n";
-
+std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
+    TensorView* maybe_repeat_out_tv) {
   // The pattern to detect:
   //
   // broadcast_out = broadcast(input)
   // expand_out = expand(broadcast_out)
   // reshape_out = reshape(expand_out)
 
-  auto reshape = dynamic_cast<ViewOp*>(reshape_out_tv->definition());
+  auto reshape = dynamic_cast<ViewOp*>(maybe_repeat_out_tv->definition());
   if (reshape == nullptr) {
     return std::nullopt;
   }
-
-  std::cerr << reshape->toString();
 
   auto expand_out_tv = reshape->in();
 
@@ -58,8 +33,6 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatId(TensorView* ref_tv) {
     return std::nullopt;
   }
 
-  std::cerr << expand->toString();
-
   auto broadcast_out_tv = expand->in();
 
   auto broadcast = dynamic_cast<BroadcastOp*>(broadcast_out_tv->definition());
@@ -67,24 +40,17 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatId(TensorView* ref_tv) {
     return std::nullopt;
   }
 
-  std::cerr << broadcast->toString();
-
   auto inp_tv = broadcast->in();
 
   std::cerr << "Inp tv: " << inp_tv->toString() << "\n";
 
   // Not sure if this is really necessary to check, but assume there's
-  // only single chain of the ops and tensors from inp_tv to the
-  // fusion outputs
-  auto all_dep_vals =
-      DependencyCheck::getAllValsBetween({inp_tv}, inp_tv->fusion()->outputs());
-  if (std::unordered_set<Val*>{all_dep_vals.begin(), all_dep_vals.end()} !=
-      std::unordered_set<Val*>{
-          inp_tv, broadcast_out_tv, expand_out_tv, reshape_out_tv, ref_tv}) {
+  // only single chain of the ops and tensors from inp_tv to
+  // maybe_repeat_out_tv
+  if (inp_tv->uses().size() > 1 || broadcast_out_tv->uses().size() > 1 ||
+      expand_out_tv->uses().size() > 1) {
     return std::nullopt;
   }
-
-  std::cerr << "All dep vals: " << toDelimitedString(all_dep_vals) << "\n";
 
   // Check if the ops match with the repeat pattern. Currently only
   // one iter domain can be repeated
@@ -139,19 +105,17 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatId(TensorView* ref_tv) {
 
   // Only a static repeat factor is considered
   if (!expanded_id->expandedExtent()->isConstInt()) {
-    std::cerr << "Non-const expand\n";
     return std::nullopt;
   }
 
   // The expanded ID should be merged with the iter domain next to it,
   // and that should be the only reshape expr
   auto reshape_exprs = DependencyCheck::getAllExprsBetween(
-      {reshape_out_tv->getRootDomain().begin(),
-       reshape_out_tv->getRootDomain().end()},
-      {reshape_out_tv->getLogicalDomain().begin(),
-       reshape_out_tv->getLogicalDomain().end()});
+      {maybe_repeat_out_tv->getRootDomain().begin(),
+       maybe_repeat_out_tv->getRootDomain().end()},
+      {maybe_repeat_out_tv->getLogicalDomain().begin(),
+       maybe_repeat_out_tv->getLogicalDomain().end()});
   if (reshape_exprs.size() != 1) {
-    std::cerr << "More exprs: " << reshape_exprs.size() << "\n";
     return std::nullopt;
   }
 
@@ -164,28 +128,21 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatId(TensorView* ref_tv) {
 
   std::cerr << "Reshape merge: " << reshape_merge->toString() << "\n";
 
+  // The corresponding root ID of the outout tv should be one of the
+  // inputs of the merge
   auto reshape_root_broadcast =
-      reshape_out_tv->getRootDomain().at(broadcast_pos);
-  // IterDomain* ref_repeated_id = nullptr;
+      maybe_repeat_out_tv->getRootDomain().at(broadcast_pos);
   if (reshape_merge->outer() != reshape_root_broadcast &&
       reshape_merge->inner() != reshape_root_broadcast) {
     std::cerr << "Invalid merge\n";
     return std::nullopt;
   }
 
-  // When ref_tv != reshape_out_tv due to caching, assume the loop
-  // domain of the reference is already transformed to cancel the
-  // reshape
-  NVF_ERROR(
-      ref_tv->getLoopDomain().size() == reshape_out_tv->getRootDomain().size());
-
   StaticRepeatInfo info;
-  info.ref_repeating_id = ref_tv->getLoopDomain().at(broadcast_pos);
-  info.repeated_tvs =
-      std::vector<TensorView*>{broadcast_out_tv, expand_out_tv, reshape_out_tv};
-  if (reshape_out_tv != ref_tv) {
-    info.repeated_tvs.push_back(ref_tv);
-  }
+  info.reshape_repeat_root_id =
+      maybe_repeat_out_tv->getRootDomain().at(broadcast_pos);
+  info.repeated_tvs = std::unordered_set<TensorView*>{
+      broadcast_out_tv, expand_out_tv, maybe_repeat_out_tv};
 
   return info;
 }

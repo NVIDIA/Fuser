@@ -258,6 +258,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
+  auto ref_tv = getReferenceTensor(fusion);
+  NVF_ERROR(ref_tv != nullptr);
+
+  auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
+
   scheduler_utils::cacheInputs(fusion, true);
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
@@ -305,15 +310,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  auto ref_tv = getReferenceTensor(fusion);
-  NVF_ERROR(ref_tv != nullptr);
-
-  auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatId(ref_tv);
-  if (static_repeat_info.has_value()) {
-    std::cerr << "Static repeat: "
-              << static_repeat_info->ref_repeating_id->toString() << "|n";
-  }
-
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
@@ -344,17 +340,36 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Make sure the DID ID located at the outermost position
   auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
-  // Move the static repeat ID to the outermost position
+  // [DID, ..., ...]
+  //        ^
+  //        +--- outermost_pos
+
+  // Move the static repeat ID to the outermost position if
+  // detected. The repeat ID then just remains there with no scheduling.
   if (static_repeat_info.has_value()) {
-    auto pos = (int64_t)std::distance(
+    // Assume the reshape of the repeat has been cancelled. The ref
+    // tensor should have the repeat ID in its loop domain
+    auto it = std::find(
         ref_tv->getLoopDomain().begin(),
-        std::find(
-            ref_tv->getLoopDomain().begin(),
-            ref_tv->getLoopDomain().end(),
-            static_repeat_info->ref_repeating_id));
-    NVF_ERROR(pos >= outermost_pos);
-    ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{pos, 0}});
-    ++outermost_pos;
+        ref_tv->getLoopDomain().end(),
+        static_repeat_info->reshape_repeat_root_id);
+    // Gives up if not found. The reshape may have not been cancelled.
+    if (it != ref_tv->getLoopDomain().end()) {
+      auto pos = (int64_t)std::distance(ref_tv->getLoopDomain().begin(), it);
+      NVF_ERROR(
+          pos >= outermost_pos,
+          "Unexpected to have DID-parallelized repeat axis: ",
+          static_repeat_info->reshape_repeat_root_id->toString());
+
+      // [DID, ..., repeat_id, ...]
+      //        ^
+      //        +--- outermost_pos
+      ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{pos, 0}});
+      ++outermost_pos;
+      // [repeat_id, DID, ...]
+      //                   ^
+      //                   +--- outermost_pos
+    }
   }
 
   const int64_t vec_factor = resize_params->vectorization_factor;
@@ -393,15 +408,68 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
   // Propagate the reference to the other tensors. Note that the
-  // update flag is enabled so to workaround the resize propagation
+  // update flag is enabled to workaround the resize propagation
   // issue. This may not work if there's a tensor that is reshaped
   // from the reference tensor, but that should not be the case as the
   // reference is picked by the same routine used for the pointwise
   // scheduler.
-  scheduler_tools::scheduleLoopDomainsLike(
-      fusion->allTvs(),
-      ref_tv->getLoopDomain(),
-      /*update_loop_domain_only=*/true);
+  //
+  // When an ending static repeat is detected, the tensors are grouped
+  // to the pre-repeat group and the post-repeat group. Only the
+  // latter group have the repeat IDs. When propagating the loop
+  // domain of the reference tensor, which has the repeat ID, the full
+  // loop domain is propagated only to the post-repeat group. For the
+  // pre-repeat group, the repeat ID is dropped and only the remaining
+  // loop domain is propagated.
+  if (static_repeat_info.has_value()) {
+    // Find the cache of ref
+    NVF_ERROR(
+        ref_tv->isFusionOutput(),
+        "Reference is expected to be a fusion output: ",
+        ref_tv->toString());
+    auto ref_tv_def = dynamic_cast<LoadStoreOp*>(ref_tv->definition());
+    NVF_ERROR(
+        ref_tv_def != nullptr && ref_tv_def->opType() == LoadStoreOpType::Set,
+        "Missing caching LoadStoreOp for reference: ",
+        ref_tv->toString());
+    auto cache_of_ref_tv = ref_tv->definition()->input(0)->as<TensorView>();
+
+    // Divide all tvs to the pre and posgt repeat groups
+    auto all_tvs = fusion->allTvs();
+    std::vector<TensorView*> post_repeat_tvs;
+    post_repeat_tvs.reserve(static_repeat_info->repeated_tvs.size() + 1);
+    std::vector<TensorView*> pre_repeat_tvs;
+    pre_repeat_tvs.reserve(
+        all_tvs.size() - static_repeat_info->repeated_tvs.size() - 1);
+    for (auto tv : all_tvs) {
+      if (static_repeat_info->repeated_tvs.count(tv) || tv == cache_of_ref_tv) {
+        post_repeat_tvs.push_back(tv);
+      } else {
+        pre_repeat_tvs.push_back(tv);
+      }
+    }
+
+    // The repeat ID should be located at the outermost position
+    NVF_ERROR(
+        ref_tv->getLoopDomain().front() ==
+        static_repeat_info->reshape_repeat_root_id);
+    std::vector<IterDomain*> non_repeated_loop{
+        ref_tv->getLoopDomain().begin() + 1, ref_tv->getLoopDomain().end()};
+
+    scheduler_tools::scheduleLoopDomainsLike(
+        pre_repeat_tvs,
+        non_repeated_loop,
+        /*update_loop_domain_only=*/true);
+    scheduler_tools::scheduleLoopDomainsLike(
+        post_repeat_tvs,
+        ref_tv->getLoopDomain(),
+        /*update_loop_domain_only=*/true);
+  } else {
+    scheduler_tools::scheduleLoopDomainsLike(
+        fusion->allTvs(),
+        ref_tv->getLoopDomain(),
+        /*update_loop_domain_only=*/true);
+  }
 
   if (vec_factor > 1) {
     auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
