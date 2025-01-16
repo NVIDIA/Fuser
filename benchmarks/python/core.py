@@ -22,6 +22,7 @@ BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
+DEFAULT_EXECUTORS = ['eager', 'torchcompile', 'thunder']
 
 def clear_l2_cache() -> None:
     """
