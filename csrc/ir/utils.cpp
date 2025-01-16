@@ -1524,7 +1524,7 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
-std::optional<std::pair<int64_t, int64_t>> getPrecisonOfProducerConsumerTensors(
+std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
     UnaryOp* uop) {
   NVF_CHECK(
       uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast,

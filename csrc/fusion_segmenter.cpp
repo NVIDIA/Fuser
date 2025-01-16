@@ -3767,7 +3767,7 @@ class MergeUpAndDownCast {
       return std::nullopt;
     }
 
-    return ir_utils::getPrecisonOfProducerConsumerTensors(uop);
+    return ir_utils::getPrecisionOfProducerConsumerTensors(uop);
   }
 
  private:
