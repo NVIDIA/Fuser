@@ -673,7 +673,7 @@ TensorView* embedding_fwd(
   auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
   auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
   NVF_CHECK(
-      !input_domain.size().empty(),
+      !input_domain.empty(),
       "Expected input to be atleast 1D, got: ",
       input_domain.size());
   NVF_CHECK(

@@ -5401,40 +5401,30 @@ std::string EmbeddingFwdOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  to input = inputs.at(0).as<at::Tensor>();
+  auto input = inputs.at(0).as<at::Tensor>();
   auto weight = inputs.at(1).as<at::Tensor>();
   auto norm_type = inputs.at(2).as<double>();
   auto scale_grad_by_freq = inputs.at(3).as<bool>();
   auto sparse = inputs.at(4).as<bool>();
   std::optional<int64_t> padding_idx = std::nullopt;
-  if (has_padding_idx()){
-     padding_idx = inputs.at(5).as<int64_t>();
+  if (has_padding_idx()) {
+    padding_idx = inputs.at(5).as<int64_t>();
   }
   std::optional<double> max_norm = std::nullopt;
-  if (has_max_norm()){
-     auto idx = 5 + has_padding_idx();
+  if (has_max_norm()) {
+    auto idx = 5 + has_padding_idx();
     max_norm = inputs.at(idx).as<double>();
   }
 
   namespace F = torch::nn::functional;
-  return {
- :embedding(
+  return {F::embedding(
       input,
- 
-      ght,
-  
-      mbeddingFuncOptions()
-   
-          ding_idx(padding_idx)
-   
-          _norm(max_norm)
-   
-          m_type(norm_type)
-   
-          le_grad_by_freq(scale_grad_by_freq)
-   
-          rse(sparse))
-  }
-
+      weight,
+      F::EmbeddingFuncOptions()
+          .padding_idx(padding_idx)
+          .max_norm(max_norm)
+          .norm_type(norm_type)
+          .scale_grad_by_freq(scale_grad_by_freq)
+          .sparse(sparse))};
+}
 } // namespace nvfuser
-    
