@@ -551,12 +551,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
-  // Use this value if not -1
-  int64_t gdimx = -1;
-  if (getenv("GDIMX")) {
-    gdimx = atoi(getenv("GDIMX"));
-  }
-
   int64_t bdimx = 128;
   if (getenv("BDIMX")) {
     bdimx = atoi(getenv("BDIMX"));

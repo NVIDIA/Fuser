@@ -27,8 +27,6 @@ class ResizeParams : public HeuristicParams {
 
   int64_t vectorization_factor = 1;
 
-  int64_t vectorization_factor = 1;
-
   static constexpr int64_t max_gdimx = (1L << 31) - 1L;
 
   using HeuristicParams::HeuristicParams;
