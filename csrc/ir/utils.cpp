@@ -1524,4 +1524,32 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
+std::optional<std::pair<int64_t, int64_t>> getPrecisonOfProducerConsumerTensors(
+    UnaryOp* uop) {
+  NVF_CHECK(
+      uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast,
+      "Invalid expr: ",
+      uop->toString());
+
+  auto inp_tv = ir_utils::getTvInput(uop);
+  auto out_tv = ir_utils::getTvOutput(uop);
+  if (inp_tv == nullptr || out_tv == nullptr) {
+    return std::nullopt;
+  }
+
+  auto inp_dtype = inp_tv->dtype().type;
+  auto out_dtype = out_tv->dtype().type;
+  auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
+  auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
+
+  if (inp_prim_type == nullptr || out_prim_type == nullptr ||
+      *inp_prim_type == PrimDataType::Index ||
+      *out_prim_type == PrimDataType::Index) {
+    return std::nullopt;
+  }
+
+  return std::make_pair(
+      primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
+}
+
 } // namespace nvfuser::ir_utils

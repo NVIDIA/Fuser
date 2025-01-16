@@ -803,4 +803,9 @@ std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
 
+// Returns the number of bytes of data types of the producer and
+// consumer tensors of a cast unary op
+std::optional<std::pair<int64_t, int64_t>> getPrecisonOfProducerConsumerTensors(
+    UnaryOp* cast_op);
+
 } // namespace nvfuser::ir_utils
