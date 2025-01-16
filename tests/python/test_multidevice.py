@@ -389,7 +389,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
     fd = Model(qkv_format)
 
-    def stride_tensor(t: torch.Tensor) -> torch.Tensor:
+    def reformat_tensor(t: torch.Tensor) -> torch.Tensor:
         match qkv_format:
             case QkvFormat.BHSE:
                 return t
