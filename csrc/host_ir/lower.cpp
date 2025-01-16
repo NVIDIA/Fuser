@@ -6,12 +6,20 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
+#include <fusion_segmenter.h>
+#include <host_ir/lower.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <multidevice/device_mesh.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/propagate_shardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <limits>
 
 namespace nvfuser {
@@ -46,7 +54,7 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
 void lowerToScatter(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   auto root = input_tv->getDeviceMesh().at(0);
@@ -67,7 +75,7 @@ need multiple Gather if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   for (auto root : output_tv->getDeviceMesh().vector()) {
@@ -84,7 +92,7 @@ void lowerToGather(
 void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allgather, output_tv, input_tv, mesh.vector()));
@@ -95,7 +103,7 @@ void lowerToBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     DeviceIdxType root,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
   Team team = mesh.vector();
   if (!mesh.has(root)) {
@@ -112,7 +120,7 @@ void lowerToBroadcast(
 void lowerToBroadcastOrSendRecv(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
@@ -153,7 +161,7 @@ void lowerToReduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const auto reduce_op_type = getC10dReduceOpType(op_type);
@@ -177,7 +185,7 @@ void lowerToAllreduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allreduce,
@@ -192,10 +200,10 @@ void lowerToReduceScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Communication*>& comms) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedAxis(output_tv);
+  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
   // The output tensor is sharded on scattered_axis and needs to be mapped
   // back onto the input. The input has an reduced axis, so the scattered axis
   // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
@@ -225,17 +233,24 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<Communication*> lowerCommunication(Expr* c) {
+std::vector<Expr*> HostIrLower::lower(Expr* c) {
   FusionGuard fg(c->fusion());
 
-  std::vector<Communication*> comms;
+  if (c->isA<MatmulOp>()) {
+    return lowerToCollectiveBasedPipelinedGemmComm(c);
+  }
+
+  std::vector<Expr*> comms;
   NVF_ERROR(
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
-      "I/O must be TensorViews");
+      "Input/Output must be single TensorView: ",
+      c);
   auto* input_tv = c->input(0)->as<TensorView>();
   auto* output_tv = c->output(0)->as<TensorView>();
-  at::Tensor dummy;
+
+  input_tv->setMemoryType(MemoryType::Global);
+  output_tv->setMemoryType(MemoryType::Global);
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
@@ -247,7 +262,7 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
       isSharded(output_tv) && receiver_mesh.size() > 1;
 
   NVF_ERROR(
-      isLowerableToCommunication(c),
+      HostIrLower::canLower(c),
       "Lowering expression ",
       c->toString(),
       " to communication is not supported");
@@ -292,13 +307,19 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
   return comms;
 }
 
-bool isLowerableToCommunication(Expr* expr) {
+bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
+  if (!isResharding(expr)) {
+    return true;
+  }
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }
-  if (expr->isA<ReductionOp>()) {
-    auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
-    auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
+  if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
+    if (!ignore_inner_resharding && isInnerResharding(expr)) {
+      return false;
+    }
+    auto in = reduction->in()->as<TensorView>();
+    auto out = reduction->out()->as<TensorView>();
     // get the reduced axis
     std::vector<IterDomain*> reduction_axis;
     std::copy_if(
@@ -315,10 +336,222 @@ bool isLowerableToCommunication(Expr* expr) {
         PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
-  } else {
-    return expr->isA<LoadStoreOp>() &&
-        (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
+  } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+    if (!ignore_inner_resharding && isInnerResharding(expr)) {
+      return false;
+    }
+    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
+  } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
+    // For now we only support c = matmul(a,b) when b,c are fully replicated and
+    // a is sharded on axis 1
+    return !isSharded(matmul->inB()) && !isSharded(matmul->out()) &&
+        matmul->inA()->axis(0)->getParallelType() == ParallelType::Serial &&
+        getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1 &&
+        matmul->out()->axis(0)->getParallelType() == ParallelType::Stream;
   }
+  return false;
+}
+
+std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
+    Expr* expr) {
+  auto matmul = expr->as<MatmulOp>();
+  NVF_ERROR(matmul != nullptr, "Expect a MatmulOp, got", expr);
+  TensorView* tva = matmul->inA();
+  TensorView* tvb = matmul->inB();
+  TensorView* tvc = matmul->out();
+  NVF_ERROR(
+      !isSharded(tvb), "The B operand ", tvb, " is expected to not be sharded");
+  NVF_ERROR(
+      !isSharded(tvc),
+      "The output ",
+      matmul->out(),
+      " is expected to not be sharded");
+  const int64_t sharded_axis_index =
+      getShardedLogicalAxis(tva, ParallelType::DIDx);
+  IterDomain* stream_axis = tva->axis(0);
+  NVF_ERROR(
+      stream_axis->getParallelType() == ParallelType::Serial &&
+          sharded_axis_index == 1,
+      "The operand A ",
+      tva,
+      " is expected to be sharded on the dimension 1");
+
+  auto hic = FusionGuard::getCurFusion()->as<hir::HostIrContainer>();
+
+  auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
+  hir::Stream* original_stream = get_current_stream->stream();
+
+  TensorView* tva_allgathered =
+      ops::newValLike(tva, tva->dtype())->as<TensorView>();
+  tva_allgathered->axis(sharded_axis_index)->parallelize(ParallelType::Serial);
+  tva_allgathered->setMemoryType(MemoryType::Global);
+  auto* allocate_tva_allgathered =
+      IrBuilder::create<kir::Allocate>(tva_allgathered, MemoryType::Global);
+
+  tvc->setMemoryType(MemoryType::Global);
+  auto* allocate_tvc =
+      IrBuilder::create<kir::Allocate>(tvc, MemoryType::Global);
+
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start = hic->zeroVal();
+  auto* stop = stream_axis->extent();
+  auto* step = hic->oneVal();
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      stream_axis,
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* number_of_streams =
+      IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
+  auto* stream_index = mod(j, number_of_streams);
+  auto* stream = IrBuilder::create<hir::Stream>(stream_index);
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
+
+  TensorView* tva_j = select(tva, 0, j);
+  TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
+  TensorView* tvc_j = select(tvc, 0, j);
+
+  NVF_ERROR(
+      tva->hasDeviceMesh(),
+      "The matmul's input ",
+      tva,
+      "is expected to have a DeviceMesh");
+  for (auto tv : {tva_j, tva_allgathered_j, tvc_j}) {
+    tv->setDeviceMesh(tva->getDeviceMesh());
+  }
+
+  auto* communication = IrBuilder::create<Communication>(
+      CommunicationType::Allgather,
+      /*out=*/tva_allgathered_j,
+      /*in=*/tva_j,
+      /*team=*/tva->getDeviceMesh().vector());
+  auto* wait = IrBuilder::create<hir::Wait>(communication);
+
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_allgathered_j, tvb);
+
+  auto* set_back_original_stream =
+      IrBuilder::create<hir::SetCurrentStream>(original_stream);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(stream);
+
+  std::vector<Expr*> loop_body = {
+      set_stream,
+      tva_j->definition(),
+      tva_allgathered_j->definition(),
+      communication,
+      wait,
+      tvc_j->definition(),
+      mm,
+      set_back_original_stream,
+      sync_stream};
+  for (Expr* expr : loop_body) {
+    for_loop->body().push_back(expr);
+  }
+
+  return {get_current_stream, allocate_tva_allgathered, allocate_tvc, for_loop};
+}
+
+std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
+    std::unique_ptr<Fusion> fusion,
+    int64_t my_device_index) {
+  // Sharding PreSegmenter passes.
+  // Note: passes run before PreSegmenter optimization passes.
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::MakeReshardingContiguousPass>::runPass(fusion.get());
+
+  // Performs segmentation at the inter-device communications
+  // Each SegmentedGroup represents a pipeline's stage, and can be either
+  // 1) a Fusion which doesn't involve inter-device communication
+  // 2) a Fusion comprised of one Expr, representing inter-device communication
+  SegmentCandidateFinderOptions options{
+      .run_translate_welford = false,
+      .run_combine_reductions = false,
+      .run_herrmann_merge = true,
+      .run_final_merge = true,
+      .only_segment_resharding_exprs = true};
+  std::unique_ptr<SegmentedFusion> staged_fusion =
+      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+  // Infer a topologically ordered traversal of the segmented fusion to
+  // determine the order for launching the kernels/comms
+  RuntimeWorkSpace workspace;
+  prepareRuntimeOrder(staged_fusion.get(), workspace);
+
+  // Create the HostIrContainer representing the host program. Each segment of
+  // the segmented fusion will be translated to a HostIR
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+  IrCloner ir_cloner(hic.get());
+  auto clone =
+      [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
+    std::vector<Val*> cloned_vals(vals.size());
+    std::transform(
+        vals.begin(), vals.end(), cloned_vals.begin(), [&ir_cloner](Val* val) {
+          return ir_cloner.clone(val);
+        });
+    return cloned_vals;
+  };
+
+  for (auto group : workspace.group_run_order) {
+    std::vector<Expr*> host_exprs;
+    NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
+    if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
+      continue;
+    }
+    const bool is_resharding = std::any_of(
+        group->exprs().begin(), group->exprs().end(), [](auto expr) {
+          return isResharding(expr);
+        });
+    if (is_resharding) {
+      NVF_ERROR(
+          group->exprs().size() == 1,
+          "Communication segments must contain only one Expr");
+      for (auto* expr :
+           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
+        // Allocate the recv buffers of communications
+        if (expr->isA<Communication>()) {
+          auto* communication = expr->as<Communication>();
+          TensorView* tv = communication->out();
+          if (tv->getDeviceMesh().has(my_device_index)) {
+            auto* allocate =
+                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+            hic->pushBackTopLevelExprs(allocate);
+          }
+        }
+        hic->pushBackTopLevelExprs(expr);
+        if (expr->isA<Communication>()) {
+          auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+          hic->pushBackTopLevelExprs(wait);
+        }
+      }
+    } else {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
+    }
+  }
+  for (auto input : staged_fusion->inputs()) {
+    hic->addInput(ir_cloner.clone(input));
+  }
+  for (auto output : staged_fusion->outputs()) {
+    hic->addOutput(ir_cloner.clone(output));
+  }
+
+  return hic;
 }
 
 } // namespace nvfuser

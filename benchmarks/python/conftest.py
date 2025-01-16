@@ -32,6 +32,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks torch.compile mode.",
     )
+    parser.addoption(
+        "--benchmark-thunder-torchcompile",
+        action="store_true",
+        help="Benchmarks torch.compile mode.",
+    )
 
     # pytest-benchmark does not have CLI options to set rounds/warmup_rounds for benchmark.pedantic.
     # The following two options are used to overwrite the default values through CLI.
@@ -96,40 +101,39 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(session, config, items):
     """
-    The baseline benchmarks use `compile` parameter:
-        compile = false: Eager mode benchmark
-        compile = true: torch.compile benchmark
+    The baseline benchmarks use `executor` parameter with
+    values ["eager", "torchcompile", "thunder"] that are optionally
+    run using `--benchmark-{executor}` flag. They are skipped by
+    default.
     """
-    run_eager = config.getoption("--benchmark-eager")
-    run_thunder = config.getoption("--benchmark-thunder")
-    run_torchcompile = config.getoption("--benchmark-torchcompile")
 
-    if not run_eager:
-        skip_eager = pytest.mark.skip(reason="need --benchmark-eager option to run")
-        for item in items:
-            # If the benchmark has compile=False parameter (eager mode), skip it.
-            if (
-                hasattr(item, "callspec")
-                and "compile" in item.callspec.params
-                and not item.callspec.params["compile"]
-            ):
-                item.add_marker(skip_eager)
+    from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
-    if not run_torchcompile:
-        skip_torchcompile = pytest.mark.skip(
-            reason="need --benchmark-torchcompile option to run"
-        )
-        for item in items:
-            # If the benchmark has compile=True parameter (torch.compile mode), skip it.
-            if (
-                hasattr(item, "callspec")
-                and "compile" in item.callspec.params
-                and item.callspec.params["compile"]
-            ):
-                item.add_marker(skip_torchcompile)
+    executors = ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 
-    if not run_thunder:
-        skip_thunder = pytest.mark.skip(reason="need --benchmark-thunder option to run")
-        for item in items:
-            if "thunder" in item.nodeid:
-                item.add_marker(skip_thunder)
+    def get_test_executor(item) -> str | None:
+        if hasattr(item, "callspec") and "executor" in item.callspec.params:
+            test_executor = item.callspec.params["executor"]
+            assert (
+                test_executor in executors
+            ), f"Expected executor to be one of 'eager', 'torchcompile', 'thunder', 'thunder-torchcompile', found {test_executor}."
+            return test_executor
+        return None
+
+    executors_to_skip = []
+
+    for executor in executors:
+        if not config.getoption(f"--benchmark-{executor}"):
+            executors_to_skip.append(executor)
+
+    for item in items:
+        item.obj = retry_on_oom_or_skip_test(item.obj)
+
+        test_executor = get_test_executor(item)
+
+        if test_executor is not None and test_executor in executors_to_skip:
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"need --benchmark-{test_executor} option to run."
+                )
+            )

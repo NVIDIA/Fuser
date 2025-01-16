@@ -56,18 +56,17 @@ NVF_API void setFillAllocationWithNan(bool value);
 
 void fillTensorWithNan(at::Tensor& t);
 
-//! Used in distributed setting where we only want to
-//!  allocate output space and receive output data from
-//!  a different rank instead of computing them.
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device);
-
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     ExpressionEvaluator& expr_eval);
+
+// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
+at::Tensor allocateTensor(
+    const GlobalBufferInfo& out_info,
+    const AliasInfo& alias_info,
+    const c10::Device& device,
+    ExpressionEvaluator& ee);
 
 // Allocate output tensors for a given fusion. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs

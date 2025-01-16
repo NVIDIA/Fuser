@@ -204,6 +204,20 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         continue;
       }
 
+      // If any of the inputs is not included in the all ID set, do
+      // not include the definition in the model. Note that it is
+      // possible that some are included but not all since a single ID
+      // may be used by multiple exprs.
+      if (std::any_of(
+              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+                return std::find(
+                           all_ids.begin(),
+                           all_ids.end(),
+                           inp->as<IterDomain>()) == all_ids.end();
+              })) {
+        continue;
+      }
+
       id_definitions_[id].pushBack(def);
 
       auto inp_ids = ir_utils::filterByType<IterDomain>(def->inputs());
@@ -388,6 +402,31 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
         mapped_ids.push_back({split->in(), split->inner()});
+      }
+    } else {
+      // Rare, but don't want to deal with zero-dim IDs
+      if (!split->in()->extent()->isZeroInt()) {
+        // Even when the factor is not known to be 1, as long as the
+        // input and output have the same extent, they should be
+        // mapped. This happens, for example, split 32 by 32 -> 1, 32.
+        if (split->outer()->extent()->sameAs(split->in()->extent())) {
+          // In and outer have the same extent. They must be non-one and
+          // the inner must be one, or they must be one.
+          NVF_ERROR(
+              split->inner()->extent()->isOneInt() ||
+                  split->outer()->extent()->isOneInt(),
+              "Unexpected split: ",
+              split->toString());
+          mapped_ids.push_back({split->in(), split->outer()});
+        }
+        if (split->inner()->extent()->sameAs(split->in()->extent())) {
+          NVF_ERROR(
+              split->inner()->extent()->isOneInt() ||
+                  split->outer()->extent()->isOneInt(),
+              "Unexpected split: ",
+              split->toString());
+          mapped_ids.push_back({split->in(), split->inner()});
+        }
       }
     }
   } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
@@ -1093,7 +1132,7 @@ void IdModel::allocateLoopIndexVariables() {
     // If enabled, allocate own indices. Otherwise, use the one
     // generated for ComputeAtMap for compatibility with the legacy
     // indexing
-    if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    if (GpuLower::current()->idModelOptions().loop()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
       const auto& ca_map = GpuLower::current()->caMap();

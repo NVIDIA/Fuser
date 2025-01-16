@@ -253,6 +253,12 @@ class WarSyncInserter : private kir::ExprMutator {
     std::vector<TensorView*> to_erase;
     bool insert_sync = false;
     for (auto& entry : smem_allocations_) {
+      if (entry.first->isCircularBuffered() &&
+          entry.first->circularBufferOptions().usesMBarrierForWAR()) {
+        // If we are using mbarriers for WAR, we don't need to insert block
+        // syncs because the mbarriers will handle it.
+        continue;
+      }
       auto& alloc_stack = entry.second;
       if (!alloc_stack.empty() && alloc_stack.back().ca_loop == for_loop) {
         if (!alloc_stack.back().sync_after_read &&
@@ -387,11 +393,21 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
+        // Makes sure that writes to operands in the generic proxy are visible
+        // to the async proxy
+        // When wgmma_fence needs to be issued by all warps:
+        // 1) Before the first wgmma.mma_async operation in a warp group.
+        // 2) Between a register access by a thread in the warp group and any
+        //  wgmma.mma_async instruction that accesses the same registers, either
+        //  as accumulator or input register containing fragments of matrix A,
+        //  except when these are accumulator register accesses across multiple
+        //  wgmma.mma_async instructions of the same shape. In the latter case,
+        //  an ordering guarantee is provided by default.
+        auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
+        registerInsertBefore(expr, wgmma_fence, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
-          // Makes sure that writes to operands in the generic proxy are visible
-          // to the async proxy
-          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
-          registerInsertBefore(expr, wgmma_fence, scope);
+          // fence.proxy.async makes sure that writes to operands in the generic
+          // proxy are visible to the async proxy
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
@@ -461,6 +477,18 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       auto last_writes = last_writes_.front();
       last_writes_.pop_front();
       // Found that a sync is needed
+
+      if (!sync_bitmap.hasBID() &&
+          std::all_of(
+              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+                return !val->isA<TensorView>() ||
+                    val->as<TensorView>()->getMemoryType() !=
+                    MemoryType::Shared ||
+                    ir_utils::isCpAsyncBulkLoad(val->definition());
+              })) {
+        // RAW of TMA is handled separately, so skip it here.
+        return;
+      }
 
       // TODO: Explicitly test the 3 cases below
       Expr* sync_expr = nullptr;
@@ -700,7 +728,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
             (!tv->isCircularBuffered() ||
-             tv->circularBufferPrefetchDistance() == 0)) {
+             tv->circularBufferOptions().prefetch == 0)) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async
@@ -971,12 +999,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           "Only main circular buffer loop needs WAR async wait, ",
           "so the code should not reach here. Stage:",
           stage);
-      const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-      const auto prefetch_distance =
-          gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+
+      const auto& opt =
+          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               circular_buffer_loop->iter_domain());
-      pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
+      pending_ops = std::min(pending_ops, opt.stage - opt.prefetch - 1);
     }
     return pending_ops;
   }

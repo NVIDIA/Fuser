@@ -58,13 +58,13 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
-  hir::HostIrExecutorParams host_ir_executor_params;
+  hir::HostIrEvaluatorParams host_ir_executor_params;
 };
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling
-    auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
+    auto fusion_copy = std::make_unique<Fusion>(*fusion);
     unshard(fusion_copy.get());
     FusionExecutorCache unsharded_fec(std::move(fusion_copy));
     ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
@@ -83,10 +83,9 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
   }
 
   ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
-  for (int i : c10::irange(runtime->completeFusion()->outputs().size())) {
-    ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
-    auto output_tv =
-        runtime->completeFusion()->outputs().at(i)->as<TensorView>();
+  for (int i : c10::irange(fusion->outputs().size())) {
+    ASSERT_TRUE(fusion->outputs().at(i)->isA<TensorView>());
+    auto output_tv = fusion->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
@@ -126,7 +125,9 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator_, host_ir_executor_params);
+      std::make_unique<Fusion>(*fusion),
+      *communicator_,
+      host_ir_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;

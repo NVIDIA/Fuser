@@ -162,6 +162,7 @@ bool isTvOp(const Expr* expr) {
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
+          RepeatOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
@@ -278,24 +279,6 @@ std::vector<TensorView*> getTvs(const std::vector<Val*>& vals) {
     }
   }
   return tvs;
-}
-
-TensorView* getTvOutput(const Expr* expr) {
-  for (auto out : expr->outputs()) {
-    if (auto tv = getTv(out)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
-TensorView* getTvInput(const Expr* expr) {
-  for (auto inp : expr->inputs()) {
-    if (auto tv = getTv(inp)) {
-      return tv;
-    }
-  }
-  return nullptr;
 }
 
 bool isScalarOp(const Expr* expr) {
@@ -633,6 +616,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
+          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -848,9 +832,16 @@ bool isScalarExpr(Expr* expr) {
   return true;
 }
 
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  Val* pdm_max_extent = nullptr;
+  if (in_compute_warp) {
+    pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
+  } else {
+    pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  }
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -931,7 +922,11 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. In the split-k case, use the root domain for the
+  // mma layout because the k dimension is divided into two iterDomains in the
+  // logical domain.
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;
@@ -1907,6 +1902,11 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain) {
   FusionGuard fg(linear_g->front()->fusion());
+  // This function uses simplifyExpr extensively. If we have disable expression
+  // simplification in order to help inspect generated kernels then we will get
+  // incorrect results here. Instead, we ensure it is enabled using this guard.
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
   if (simplifyExpr(extent(linear_g))->isOne()) {
     // If the extent of the linear group is 1, we always consider it as linear,
     // regardless of its relationship with domain. For this case, we use stride
@@ -1917,7 +1917,8 @@ Val* proveLinearAndGetStride(
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  auto path =
+      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();
@@ -1938,7 +1939,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
   // Currently, the concrete loop ID depends on if loops are generated
   // based on the IdModel loop promotion, which needs to be enabled
   // explicitly by the IdModelEnableOption::Loop option.
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+  if (GpuLower::current()->idModelOptions().loop()) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
     // of generated kernels so that the CI diff check could report

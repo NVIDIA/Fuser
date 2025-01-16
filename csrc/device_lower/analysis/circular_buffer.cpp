@@ -143,6 +143,29 @@ void validateCircularBufferedTensor(const TensorView* tv) {
       ". Consumer memory type: ",
       c_mem_type);
 
+  // Ensure that the warp-specialized circular buffer loop is the outer-most
+  // for-loop if register sharing is enabled.
+  if (std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+          .num_registers.has_value()) {
+    for (int64_t axis : c10::irange((int64_t)tv->getLoopDomain().size())) {
+      // short-circuit: only check IterDomains to the left of the circular
+      // buffer position
+      if (axis >= circular_buffer_pos) {
+        break;
+      }
+      NVF_ERROR(
+          tv->getLoopDomain().at(axis)->isThread() ||
+              tv->getLoopDomain().at(axis)->isDeviceDim() ||
+              tv->getLoopDomain().at(axis)->isBroadcast() ||
+              tv->getLoopDomain().at(axis)->isOneInt(),
+          "When using register sharing with warp-specialized circular "
+          "buffering, the circular buffer loop must be the outer-most "
+          "for-loop.");
+    }
+  }
+
   return;
 }
 
@@ -195,36 +218,28 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   getTvInfo(tv).circular_buffer_axis = cb_axis;
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
-  setStageDepthAndPrefetchDistance(
-      cb_axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
+  setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
 }
 
-void CircularBufferInfo::setStageDepthAndPrefetchDistance(
+void CircularBufferInfo::setCircularBufferOptions(
     IterDomain* id,
-    int64_t stage_depth,
-    int64_t prefetch_distance) {
+    const CircularBufferOptions& opt) {
   auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
 
   auto maybe_existing_depth_it =
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
-    circular_buffer_options_[concrete_loop_id].stage = stage_depth;
-    circular_buffer_options_[concrete_loop_id].prefetch = prefetch_distance;
+    circular_buffer_options_[concrete_loop_id] = opt;
   } else {
     NVF_ERROR(
-        stage_depth == maybe_existing_depth_it->second.stage &&
-            prefetch_distance == maybe_existing_depth_it->second.prefetch,
-        "Unsupported multiple depth/prefetch pipelining, was set to (",
-        maybe_existing_depth_it->second.stage,
-        ",",
-        maybe_existing_depth_it->second.prefetch,
-        ") by ",
+        opt == maybe_existing_depth_it->second,
+        "Unsupported multiple options pipelining, was set to ",
+        maybe_existing_depth_it->second,
+        " by ",
         maybe_existing_depth_it->first->toString(),
-        " and then set to (",
-        stage_depth,
-        ",",
-        prefetch_distance,
-        ") by ",
+        " and then set to ",
+        opt,
+        " by ",
         concrete_loop_id->toString());
   }
 }
@@ -238,30 +253,19 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(
   return getTvInfo(tv).circular_buffer_axis;
 }
 
-int64_t CircularBufferInfo::getStageDepthFor(
+const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
     IterDomain* circular_buffer_axis) const {
-  auto concrete_id = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
 
-  auto maybe_depth_it = circular_buffer_options_.find(concrete_id);
-
-  NVF_ERROR(
-      maybe_depth_it != circular_buffer_options_.end(),
-      "Stage depth not found");
-
-  return maybe_depth_it->second.stage;
-}
-
-int64_t CircularBufferInfo::getPrefetchDistanceFor(
-    IterDomain* circular_buffer_axis) const {
-  auto concrete_id = lower_utils::getConcreteLoopID(circular_buffer_axis);
-
-  auto maybe_depth_it = circular_buffer_options_.find(concrete_id);
+  auto maybe_depth_it = circular_buffer_options_.find(circular_buffer_axis);
 
   NVF_ERROR(
       maybe_depth_it != circular_buffer_options_.end(),
       "Prefetch distance not found");
 
-  return maybe_depth_it->second.prefetch;
+  return maybe_depth_it->second;
 }
 
 ForLoop* CircularBufferInfo::getCircularBufferLoop(

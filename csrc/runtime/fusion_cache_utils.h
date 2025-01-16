@@ -28,7 +28,7 @@ class SegmentedFusion;
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
   std::unique_ptr<HeuristicParams> params = nullptr;
-  FusionExecutor* fusion_executor = nullptr;
+  ExecutorAbstract* fusion_executor = nullptr;
 };
 
 struct RuntimeWorkSpace {
@@ -91,7 +91,7 @@ class ArgumentManager {
       const RuntimeWorkSpace& runtime_workspace,
       const std::vector<Val*>& fusion_inputs);
 
-  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap();
+  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() const;
 
   const PolymorphicValue* checkTensorMap(Val* v);
 
@@ -103,6 +103,17 @@ class ArgumentManager {
       const std::vector<Val*>& group_outputs,
       const T& group_runtime_outputs,
       const int64_t group_id);
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ArgumentManager {";
+    for (auto entry : tensor_map_) {
+      ss << "  " << entry.first->toString() << " : "
+         << PolymorphicValue_functions::toString(*entry.second) << std::endl;
+    }
+    ss << "}" << std::endl;
+    return ss.str();
+  }
 
  private:
   KernelArgumentHolder& fusion_args_;
@@ -153,7 +164,7 @@ class InputsIdLookup : public NonCopyable {
   //! Encode each input sets to with an unique id;
   //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
-  //! cached in nested `FusionExecutorCache` and `FusionExecutor`.
+  //! cached in nested `FusionExecutorCache` and `KernelExecutor`.
   //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
   //! cache implementation ].
   //!

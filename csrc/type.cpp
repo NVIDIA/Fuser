@@ -712,6 +712,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "threadIdx.y";
     case ParallelType::TIDx:
       return "threadIdx.x";
+    case ParallelType::Stream:
+      return "Stream";
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::MisalignedVectorize:
@@ -1463,6 +1465,12 @@ std::ostream& operator<<(
       break;
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
+      break;
+    case CircularBufferLoopStage::LoadWarp:
+      os << "{LoadWarp}";
+      break;
+    case CircularBufferLoopStage::ComputeWarp:
+      os << "{ComputeWarp}";
       break;
     default:
       NVF_THROW("unknown circular buffer stage");

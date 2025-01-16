@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
+#include <ir/utils.h>
 #include <options.h>
 #include <utils.h>
 
@@ -106,6 +107,27 @@ inline IterDomain* getLoopPromotion(
   return loop_promotion_map_it->second;
 }
 
+// Get the loop domains of a given expr. Currently, they're always
+// the loop domains of a consumer tensor, but in the future this
+// function may return the loop domains of a producer for
+// producer-based indexing.
+inline std::vector<IterDomain*> getLoopIds(
+    const Expr* expr,
+    const IdModel& id_model) {
+  // Assume consumer-based indexing. Needs to revisit for ops like
+  // scatter
+  NVF_ERROR(!expr->outputs().empty());
+  auto output_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(output_tv != nullptr);
+  auto loop_ids = output_tv->getLoopDomain();
+
+  for (auto& loop_id : loop_ids) {
+    loop_id = getLoopPromotion(loop_id, id_model);
+  }
+
+  return loop_ids;
+}
+
 inline ParallelType getParallelType(const ValGroup& loop_group) {
   ParallelType common_pt = ParallelType::Serial;
   for (const auto val : *loop_group) {
@@ -137,6 +159,12 @@ inline bool shouldUseZeroIndex(
   // Trivial loop
   auto promotion_id =
       getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model);
+
+  // ExprSimplify should be disabled here as it would fail to
+  // recognize size-one IterDomain.
+  DisableOptionsGuard options_guard;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
+
   if (promotion_id->isBroadcast() ||
       simplifyExpr(promotion_id->extent())->isOneInt()) {
     return true;

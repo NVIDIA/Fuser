@@ -500,7 +500,7 @@ class OverlapTest : public MultiDeviceTest {
 
   void validate() {
     auto tc_expected = getExpectedResult();
-    auto tc_cpu = tc_.to(torch::kCPU);
+    auto tc_cpu = tc_.cpu();
     EXPECT_TRUE(tc_cpu.allclose(tc_expected, 1e-1, 1e-1))
         << "Unexpected results, obtained:" << tc_cpu
         << "\n expected: " << tc_expected;
@@ -736,7 +736,7 @@ TEST_F(
   // tva_j->isProducerOf(tvc_locally_reduced_j) == true
   hic->addOutput(tvc_locally_reduced_j);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -984,7 +984,7 @@ TEST_F(
   hic->addOutput(dst_buffer_ij);
   hic->addOutput(src_buffer_ij);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1024,6 +1024,9 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 
   void SetUp() {
     MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
@@ -1093,14 +1096,8 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
 TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
-  std::vector<c10::cuda::CUDAStream> streams;
-  std::generate_n(
-      std::back_inserter(streams),
-      params.number_of_streams,
-      [my_device_index = my_device_index_]() {
-        return c10::cuda::getStreamFromPool(
-            /*isHighPriority=*/false, my_device_index);
-      });
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1170,18 +1167,19 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
       IrBuilder::create<hir::Stream>(stream_index));
 
   TensorView* tva_j = select(tva, 0, j);
+  TensorView* tva_j_unsqueezed = unsqueeze(tva_j, 0);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
   DeviceMesh full_mesh(all_devices_);
   tva_allgathered_j->setDeviceMesh(full_mesh);
-  tva_j->setDeviceMesh(full_mesh);
+  tva_j_unsqueezed->setDeviceMesh(full_mesh);
 
   auto* communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       /*out=*/tva_allgathered_j,
-      /*in=*/tva_j,
+      /*in=*/tva_j_unsqueezed,
       /*team=*/all_devices_);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
@@ -1197,6 +1195,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   std::vector<Expr*> loop_body = {
       set_stream,
       tva_j->definition(),
+      tva_j_unsqueezed->definition(),
       tva_allgathered_j->definition(),
       communication,
       wait,
@@ -1232,11 +1231,27 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   for_loop_stream->body().push_back(sync_stream);
   hic->pushBackTopLevelExprs(for_loop_stream);
 
-  // The following line is artificial but necessary to make
-  // tva_j->isProducerOf(tvc_j) == true
-  hic->addOutput(tvc_j);
+  // The following line is artificial but necessary to make tva_j_unsqueeze a
+  // consumer of tva_j.
+  //
+  // HostIrEvaluator::handle(ForLoop*) relies on `Val::uses()` to find all
+  // **transitive** consumers of the loop index `j`.  `tva_j_unsqueezed` is a
+  // bit special among all transitive consumers of `j`. It doesn't use `j`
+  // directly but uses `tva_j` which is a TensorView.  TensorView's uses are
+  // built lazily by Fusion::resetTvUses. For efficiency, Fusion::resetTvUses
+  // only fix TensorViews that can reach outputs. Therefore, we add
+  // tva_j_unsqueezed as an output.  Other TensorViews don't need this
+  // treatmenet because they are direct users of `j`, a scalar whose uses are
+  // built eagerly upon registration.
+  //
+  // We could have added `tvc_j` instead as an output, which transitively
+  // consumes `tva_j_unsqueezed`. However, `tvc_j` has two definitions, a Select
+  // and a MatmulOp, and StmtSort::getExprs only traverse via the first
+  // registered definition (i.e. the Select). This sounds like a bug -- I wonder
+  // how nvFuser resets the TensorView uses of a kir::Kernel, also non-SSA.
+  hic->addOutput(tva_j_unsqueezed);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -1248,6 +1263,343 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
         {tvc, tc_unsharded_}};
 
     hie.runWithInput(std::move(inputs));
+    validate();
+  }
+}
+
+class RingAllgatherOverlapTest : public MultiDeviceTest {
+ protected:
+  OverlapTestParams params;
+
+  int64_t num_devices_;
+  int64_t my_device_index_;
+  int64_t number_of_steps_per_ring_, number_of_rings_;
+  std::vector<int64_t> all_devices_;
+  at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
+  at::Tensor ta_;
+  // stores the backend
+  c10d::Backend* world_communicator_;
+
+  // Define I/O and intermediate Tensor shapes
+  std::vector<int64_t> ta_unsharded_sizes;
+  std::vector<int64_t> tb_unsharded_sizes;
+  std::vector<int64_t> tc_unsharded_sizes;
+  std::vector<int64_t> ta_sizes;
+
+  void SetUp() {
+    MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
+
+    num_devices_ = communicator_->size();
+    my_device_index_ = communicator_->deviceId();
+
+    ASSERT_EQ(params.S % num_devices_, 0);
+    number_of_steps_per_ring_ = num_devices_;
+    number_of_rings_ = params.S / num_devices_;
+
+    // Setup the world communicators
+    std::vector<int64_t> devices(num_devices_);
+    std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
+    world_communicator_ =
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
+
+    // A(sharded(M), K)
+    // B(K, N)
+    // C(M, N)
+    // We use a full allocation of A on each device for algorithm simplicity
+    // TODO: use only 2 buffers instead of a full allocation
+    ta_unsharded_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / (number_of_steps_per_ring_ * number_of_rings_),
+        params.K};
+    ta_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / (number_of_steps_per_ring_ * number_of_rings_),
+        params.K};
+    tb_unsharded_sizes = std::vector<int64_t>{params.K, params.N};
+    tc_unsharded_sizes = std::vector<int64_t>{
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / (number_of_steps_per_ring_ * number_of_rings_),
+        params.N};
+
+    // Set up input tensors. We create the full unsharded tensors and define the
+    // actual input as the shard corresponding to the current device. Having the
+    // full unsharded input on each rank makes it possible to compute the
+    // expected result locally, hence, this way of doing is convenient for
+    // validating data correctness.
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, gpu_options);
+    tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_unsharded_sizes()=" << ta_unsharded_.sizes() << std::endl
+              << "tb_unsharded_sizes()=" << tb_unsharded_.sizes() << std::endl
+              << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl
+              << "ta_.sizes()=" << ta_.sizes() << std::endl;
+    }
+  }
+
+  // Each rank calls uniform_ and gets the same values for ta_ and tb_ because
+  // the random seed is initialized the same Therefore, we do not need to have
+  // one rank generate A and B and broadcast it to the rest of the ranks
+  void initializeIO() {
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    // we have allocated the full A matrix, but only copy the sharded portion
+    ta_.select(0, my_device_index_)
+        .copy_(ta_unsharded_.select(0, my_device_index_));
+  }
+
+  void validate() {
+    // compute the expected output for data correctness validation
+    auto tc_unsharded_expected_ =
+        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+    EXPECT_TRUE(
+        tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained: " << tc_unsharded_
+        << "expected: " << tc_unsharded_expected_;
+  }
+};
+
+TEST_F(
+    RingAllgatherOverlapTest,
+    RingAllgatherBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
+
+  const auto send_rank = (my_device_index_ + 1) % number_of_steps_per_ring_;
+  const auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) %
+      number_of_steps_per_ring_;
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+    c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
+
+    for (auto i : c10::irange(number_of_rings_)) {
+      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+        int64_t stream_index = (i + j) % streams.size();
+        setCurrentCUDAStream(streams.at(stream_index));
+
+        auto slice_index = (my_device_index_ - j + number_of_steps_per_ring_) %
+            number_of_steps_per_ring_;
+        auto next_slice_index =
+            (my_device_index_ - j - 1 + number_of_steps_per_ring_) %
+            number_of_steps_per_ring_;
+        auto ta_j_curr_slice = ta_.select(0, slice_index).select(0, i);
+        auto ta_j_next_slice = ta_.select(0, next_slice_index).select(0, i);
+        auto tc_j = tc_unsharded_.select(0, slice_index).select(0, i);
+
+        if (j != 0) {
+          comms_req->wait();
+        }
+
+        // send & matmul current index
+        std::vector<at::Tensor> src = {ta_j_curr_slice};
+        std::vector<at::Tensor> dst = {ta_j_next_slice};
+        if (j < number_of_steps_per_ring_ - 1) {
+          world_communicator_->startCoalescing();
+          world_communicator_->send(src, send_rank, 0);
+          world_communicator_->recv(dst, recv_rank, 0);
+          comms_req = world_communicator_->endCoalescing();
+        }
+        torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
+      }
+    }
+    synchronizeStreams(streams);
+    validate();
+  }
+}
+
+TEST_F(
+    RingAllgatherOverlapTest,
+    RingAllgatherBasedPipeliningHostIRImplementation) {
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tvb_unsharded = makeSymbolicTensor(tb_unsharded_.dim());
+  TensorView* tvc_unsharded = makeSymbolicTensor(tc_unsharded_.dim());
+  hic->addInput(tva);
+  hic->addInput(tvb_unsharded);
+  hic->addInput(tvc_unsharded);
+
+  auto* i = IrBuilder::create<Val>(DataType::Index); // for-loop running index
+  auto* start_i = hic->zeroVal();
+  auto* stop_i = tva->axis(1)->extent();
+  auto* step_i = hic->oneVal();
+  auto* for_loop_i = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(1),
+      /*index=*/i,
+      start_i,
+      stop_i,
+      step_i,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* j = IrBuilder::create<Val>(DataType::Index);
+  auto* start_j = hic->zeroVal();
+  auto* stop_j = tva->axis(0)->extent();
+  auto* step_j = hic->oneVal();
+  auto* for_loop_j = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(0),
+      /*index=*/j,
+      start_j,
+      stop_j,
+      step_j,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* stream_index =
+      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
+  auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
+  auto* number_of_steps_per_ring_val =
+      IrBuilder::create<Val>(number_of_steps_per_ring_);
+
+  auto* send_rank = mod(
+      add(my_device_index_val, hic->oneVal()), number_of_steps_per_ring_val);
+  auto* recv_rank =
+      mod(add(number_of_steps_per_ring_val,
+              sub(my_device_index_val, hic->oneVal())),
+          number_of_steps_per_ring_val);
+
+  auto* slice_index =
+      mod(add(sub(my_device_index_val, j), number_of_steps_per_ring_val),
+          number_of_steps_per_ring_val);
+  auto* next_slice_index =
+      mod(add(sub(sub(my_device_index_val, j), hic->oneVal()),
+              number_of_steps_per_ring_val),
+          number_of_steps_per_ring_val);
+
+  TensorView* tmp1 = select(tva, 0, slice_index);
+  TensorView* tmp2 = select(tva, 0, next_slice_index);
+  TensorView* tmp3 = select(tvc_unsharded, 0, slice_index);
+  TensorView* tva_j_curr_slice = select(tmp1, 0, i);
+  TensorView* tva_j_next_slice = select(tmp2, 0, i);
+  TensorView* tvc_j = select(tmp3, 0, i);
+
+  auto* mm =
+      IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+
+  // Setting the DeviceMesh of the communication's I/O is artificial but
+  // required at this point
+  DeviceMesh full_mesh(all_devices_);
+  tva_j_curr_slice->setDeviceMesh(full_mesh);
+  tva_j_next_slice->setDeviceMesh(full_mesh);
+
+  auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+  auto* send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND, tva_j_curr_slice, send_rank);
+  auto* recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV, tva_j_next_slice, recv_rank);
+  auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+  auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+  auto* cond = ne(j, hic->zeroVal());
+  auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
+  auto* if_not_first_ring_step_wait =
+      IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  if_not_first_ring_step_wait->thenBody().push_back(wait);
+
+  auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
+  auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
+  auto* if_not_last_ring_step_post_comms =
+      IrBuilder::create<kir::IfThenElse>(comm_predicate);
+  if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
+  if_not_last_ring_step_post_comms->thenBody().push_back(send);
+  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
+  if_not_last_ring_step_post_comms->thenBody().push_back(end_coalescing);
+
+  std::vector<Expr*> loop_j_body = {
+      set_stream,
+      tmp1->definition(),
+      tmp2->definition(),
+      tmp3->definition(),
+      tva_j_curr_slice->definition(),
+      tva_j_next_slice->definition(),
+      tvc_j->definition(),
+      if_not_first_ring_step_wait,
+      if_not_last_ring_step_post_comms,
+      mm};
+  for (Expr* expr : loop_j_body) {
+    for_loop_j->body().push_back(expr);
+  }
+  for_loop_i->body().push_back(for_loop_j);
+
+  hic->pushBackTopLevelExprs(for_loop_i);
+
+  // Synchronize all streams
+  auto* i_stream =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_stream = hic->zeroVal();
+  auto* stop_stream =
+      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
+  auto* step_stream = hic->oneVal();
+  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
+          ->axis(0),
+      /*index=*/i_stream,
+      start_stream,
+      stop_stream,
+      step_stream,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
+      IrBuilder::create<hir::Stream>(i_stream));
+  for_loop_stream->body().push_back(sync_stream);
+  hic->pushBackTopLevelExprs(for_loop_stream);
+
+  hic->addOutput(tmp1);
+  hic->addOutput(tmp2);
+  hic->addOutput(tmp3);
+  hic->addOutput(tva_j_curr_slice);
+  hic->addOutput(tva_j_next_slice);
+  hic->addOutput(tvc_j);
+
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    // I don't know why but this seems necessary...
+    at::manual_seed(getATenRandomSeed());
+
+    initializeIO();
+
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva, ta_},
+        {tvb_unsharded, tb_unsharded_},
+        {tvc_unsharded, tc_unsharded_}};
+
+    hie.runWithInput(std::move(inputs));
+
     validate();
   }
 }

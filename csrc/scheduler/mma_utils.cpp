@@ -20,6 +20,7 @@
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
+#include "options.h"
 
 namespace nvfuser {
 
@@ -187,7 +188,8 @@ TensorView* getOperandTv(
   NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
   const std::vector<TensorView*>& operands = it->second;
   NVF_ERROR(
-      operands.size() == 1,
+      isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+          operands.size() == 1,
       "Exactly one operand is expected in each A and B role");
   return operands.front();
 }
@@ -245,12 +247,15 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       ignore_occupancy_drop);
 }
 
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
@@ -280,12 +285,15 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
+void scheduleWarpTileWithNoReduction(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    MmaMacro macro) {
   // Assumes
   // [M, N, K]
   auto cta_tile = tile.cta_tile;
   auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
+  auto instruction_tile = getMmaOpShape(macro);
 
   mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 
@@ -1152,14 +1160,14 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
 // multi-matmul refactor is finished.
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
-    const ValGraph& permissive_graph,
+    const ValGraph& graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
   for (size_t i : c10::irange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
-    const ValGroup& g = permissive_graph.toGroup(id);
+    const ValGroup& g = graph.toGroup(id);
     auto order_it = std::find(ordering.begin(), ordering.end(), g);
     NVF_ERROR(
         order_it != ordering.end(),
@@ -1173,8 +1181,8 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
 
   // Now merge dims that have the same role
   NVF_ERROR(tv->nDims() > 0);
-  const auto getRole = [&dim_roles, &permissive_graph](IterDomain* id) {
-    const ValGroup& g = permissive_graph.toGroup(id);
+  const auto getRole = [&dim_roles, &graph](IterDomain* id) {
+    const ValGroup& g = graph.toGroup(id);
     const auto it = dim_roles.find(g);
     NVF_ERROR(it != dim_roles.end());
     return it->second;
@@ -1250,43 +1258,93 @@ inline void resolveTvToMatmulDimRolesMapping(
 
 } // anonymous namespace
 
-void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
-  NVF_ERROR(
-      tv->getMemoryType() == MemoryType::Global,
-      "TMA Store should write to global memory");
+void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
+  // [BDX, BDY, TDY, MI, NI]
+  // skip all but last 2 iterDomains
+  int64_t num_ids_to_skip =
+      static_cast<int64_t>(tv->getLoopDomain().size() - 2);
 
-  NVF_ERROR(
-      tv->definition()->isA<LoadStoreOp>(),
-      "This tensor should be the result of a LoadStoreOp");
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+  } else {
+    auto dtype = tv->getDataType().value();
 
-  NVF_ERROR(
-      tv->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile,
-      "This is not a TMA operation");
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
 
-  NVF_ERROR(
-      tv->definition()
-              ->as<LoadStoreOp>()
-              ->in()
-              ->as<TensorView>()
-              ->getMemoryType() == MemoryType::Shared,
-      "Producer should be in shared memory");
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
-  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
-  tv->split(-2, m);
-  tv->split(-1, n);
-  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
-  tv->reorder({{-2, -3}});
-  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+    num_ids_to_skip += 1;
+  }
+
+  // The shared memory producer must have the swizzled allocation domain.
+  // The global memory consumer must have the ParallelType::Bulk iterDomains.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Set the allocation to the loop domain.
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  } else {
+    mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+        tv, num_ids_to_skip);
+  }
+}
+
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    int64_t tile_m,
+    int64_t tile_n) {
+  NVF_ERROR(
+      ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
+      "We only support 16x16 and 16x16 stmatrix now");
+
+  NVF_CHECK(
+      dataTypeSize(tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
+
+  if (tile_m == 16 && tile_n == 16) {
+    // Let [M, N] be [64, 32]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+    // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+    tv->split(-3, 2);
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+    tv->reorder({{-4, 0}});
+    // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+    tv->merge(-3);
+    tv->merge(-2);
+  } else if (tile_m == 16 && tile_n == 8) {
+    // Let [M, N] be [64, 16]
+    // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
+    // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
+    tv->reorder({{-3, 0}});
+    // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
+    tv->merge(-2);
+  }
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << patterns.size();
-    return ss.str();
+    if (!isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+      std::stringstream ss;
+      ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+         << patterns.size();
+      return ss.str();
+    }
+    TORCH_WARN("TODO: Update getOperandInnerDims for multiple patterns");
   }
   const MatmulPattern& pattern = patterns[0];
   IdModel id_model(fusion);
@@ -1302,10 +1360,9 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles) {
-  // Assumes the permissive graph has already been built, since we've been
+  // Assumes the Broadcast graph has already been built, since we've been
   // provided dim_roles
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   // Note: using DataWrapperOpt<MatmulDimRole> would be preferable here.
   // However, using DataWrapperOpt<MatmulDimRole>(std::move(dom)) leads to a
@@ -1314,11 +1371,11 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   // To avoid this complication I'm using an unwrapped variant for the lambda's
   // result type.
   using MatmulDimRoleOpt = std::variant<std::string, MatmulDimRole>;
-  const auto findInnerDim =
-      [&dim_roles, &permissive_graph](TensorView* tv) -> MatmulDimRoleOpt {
+  const auto findInnerDim = [&dim_roles,
+                             &graph](TensorView* tv) -> MatmulDimRoleOpt {
     IterDomain* inner_id =
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
-    const ValGroup& g = permissive_graph.toGroup(inner_id);
+    const ValGroup& g = graph.toGroup(inner_id);
     auto g_it = dim_roles.find(g);
     if (g_it == dim_roles.end()) {
       return "Inner domain of tensor was not mapped to a MatmulDimRole";
@@ -1362,10 +1419,9 @@ TensorRolesMapOpt getTensorRoles(
 
   TensorRolesMap tensor_roles;
 
-  // Assumes the permissive graph has already been built, since we've been
+  // Assumes the Broadcast graph has already been built, since we've been
   // provided dim_roles
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   struct DimPresence {
     bool m = false;
@@ -1374,13 +1430,13 @@ TensorRolesMapOpt getTensorRoles(
     bool unmapped = false;
   };
 
-  const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
+  const auto findDims = [&dim_roles, &graph](TensorView* tv) {
     DimPresence has;
     for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      const ValGroup& g = permissive_graph.toGroup(id);
+      const ValGroup& g = graph.toGroup(id);
       auto it = dim_roles.find(g);
       if (it == dim_roles.end()) {
         // tv has an unmapped non-broadcast and non-reduction dimension
@@ -1715,132 +1771,304 @@ std::string MatmulPattern::toString() const {
   return ss.str();
 }
 
-MmaOp* MatmulPattern::translateToMmaOp() {
-  if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
-    // No translation needed
-    return mma_op;
-  } else if (output->definition()->isA<ReductionOp>()) {
-    Val* init = IrBuilder::create<Val>(0.0, output->dtype());
-    // This replaces the mul and sum by overwriting output->definition()
-    return IrBuilder::create<MmaOp>(output, A, B, init);
+namespace {
+
+// The `MatmulTranslator` helper class is used to map different matrix
+// multiplication patterns to `MmaOp`. The `MmaOp` expression maps to the
+//  TensorCore ptx function.
+//
+//    1. `MmaOp` --This expression is what we need, so no changes required.
+// 2. `ReductionOp` -- This expression corresponds with the sum operation in
+// the `broadcast->multiply->sum` pattern.
+// 3. `LinearOp` -- This expression is `y = w @ x + beta`, so it is replaced
+// with `MmaOp` and pointwise `add`.
+// 4. `MatmulOp` -- This expression is `y = A[M, K] @ B[K, N]`. The `MmaOp`
+// expression requires `[M, N, K]` ordering, so it requires transposing the
+// `B` operand. It also support batch matrix multiplication, which is
+// tracked by `MmaOp::AxisMapping`.
+//
+// `finalizeMatmulOrLinearOp`
+//  * Fused-Multiply-Sum (FMS) is the output from MmaOp.
+//  * The output dtype can be different than the original output dtype.
+//  * This function casts the FMS TensorView to the original output dtype if
+//   necessary.
+//
+// `OptInDispatch` is used to catch any unsupported `MatmulPattern`. It is
+// preferred to throw an error than to fallback to a sub-optimal default
+// `MmaOp` translation.
+class MatmulTranslator : public OptInDispatch {
+ public:
+  static MmaOp* translate(MatmulPattern& pattern, bool avoid_intermediates) {
+    MatmulTranslator trans(pattern, avoid_intermediates);
+    trans.dispatch(pattern.output->definition());
+    return trans.mma_;
   }
 
-  // This will hold the translated output from MatmulOp or LinearOp
-  TensorView* fms = nullptr;
-  MmaOp* mma_op = nullptr;
-  if (auto lop = dynamic_cast<LinearOp*>(output->definition())) {
+ private:
+  MatmulTranslator(MatmulPattern& pattern, bool avoid_intermediates)
+      : pattern_(pattern), avoid_intermediates_(avoid_intermediates) {}
+
+  using OptInDispatch::handle;
+
+  void handle(MmaOp* mma) final {
+    mma_ = mma;
+  }
+
+  void handle(ReductionOp* rop) final {
+    Val* init = IrBuilder::create<Val>(0.0, pattern_.output->dtype());
+    // This replaces the mul and sum by overwriting output->definition()
+    mma_ = IrBuilder::create<MmaOp>(
+        pattern_.output,
+        pattern_.A,
+        pattern_.B,
+        init,
+        MmaOp::AxisMapping::trivialMapping(pattern_.output->nDims()));
+  }
+
+  void handle(LinearOp* lop) final {
+    // This will hold the translated output from MatmulOp or LinearOp
+    TensorView* fms = nullptr;
     // Linear takes inputs input, weight(, bias)
-    //   - input can be any dimension > 0. We assert that it must be at least 2
-    //   and refuse to translate if dimension is 1.
+    //   - input can be any dimension > 0. We assert that it must be at least
+    //   2 and refuse to translate if dimension is 1.
     //   - weight can be one or two dimensional. We refuse to translate if
     //   dimension is 1.
     //   - bias, if present, can be zero or one dimensional. Bias can only be
     //   present if weight is 2D
+    //
+    // When A has dimension greater than two, all the preceding dimensions
+    // are essentially also M dimensions. The output is shaped like
+    //
+    // A [ ... iS0{M} iS1{K} ]
+    // B [ iS2{N} iS3{K} ]
+    // out [ ... iS3{M} iS3{N} rS3{K} ]
     //
     // We translate by broadcasting input, weight, and bias such that the
     // contracted dimension K is in the last position (this is true of the
     // logical domains in input and weight already). Then we form an MmaOp and
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
+    int64_t a_dims = (int64_t)pattern_.A->getLogicalDomain().size();
+    int64_t b_dims = (int64_t)pattern_.B->getLogicalDomain().size();
     NVF_ERROR(
-        A->nDims() > 1 && B->nDims() > 1,
-        "Cannot translate LinearOp with 1D input");
-    std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
-    bcast_dim[bcast_dim.size() - 2] = true; // N
-    A = broadcast(A, bcast_dim);
+        a_dims > 1 && b_dims > 1, "Cannot translate LinearOp with 1D input");
+    NVF_ERROR(
+        b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
+    if (avoid_intermediates_) {
+      MmaOp::AxisMapping axis_mapping;
+      int64_t out_dim = a_dims + 1L;
+      axis_mapping.a_axes.reserve(out_dim);
+      for (int64_t d : c10::irange(out_dim - 2L)) {
+        axis_mapping.a_axes.push_back((int64_t)d);
+      }
+      axis_mapping.a_axes.push_back(-1); // missing N dimension
+      axis_mapping.a_axes.push_back(a_dims - 1L); // K dimension
 
-    bcast_dim[bcast_dim.size() - 2] = false; // reset N
-    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
-    B = broadcast(B, bcast_dim);
+      axis_mapping.b_axes.reserve(out_dim);
+      axis_mapping.b_axes.resize(out_dim, -1);
+      axis_mapping.b_axes[out_dim - 2] = 0; // N
+      axis_mapping.b_axes[out_dim - 1] = 1; // K
 
-    fms = fusedMultiplySum(A, B, {-1});
-    mma_op = fms->definition()->as<MmaOp>();
+      int64_t num_M_dims = 1 + a_dims - b_dims;
+
+      // Add loop broadcasts to A and B to mimic logical broadcasts for
+      // simpler scheduling
+      // Note that since operands can be shared among multiple patterns, we
+      // should avoid modifying the operand twice. This is why we first check
+      // for loop broadcasts.
+      if (pattern_.A->domain()->additionalIDs().empty()) {
+        pattern_.A->broadcast(-2); // There's always a single N dimension
+      }
+
+      if (pattern_.B->domain()->additionalIDs().empty()) {
+        for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+          // Broadcast B for every M dimension in A
+          pattern_.B->broadcast(0);
+        }
+      }
+
+      fms = fusedMultiplySum(
+          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+    } else {
+      std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
+      bcast_dim[bcast_dim.size() - 2] = true; // N
+      pattern_.A = broadcast(pattern_.A, bcast_dim);
+
+      bcast_dim[bcast_dim.size() - 2] = false; // reset N
+      std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+      pattern_.B = broadcast(pattern_.B, bcast_dim);
+
+      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
+    }
+
+    mma_ = fms->definition()->as<MmaOp>();
 
     auto* bias = dynamic_cast<TensorView*>(lop->bias());
     if (bias != nullptr) {
       fms = add(fms, bias);
     }
-  } else if (output->definition()->isA<MatmulOp>()) {
-    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
-    // must transpose B then broadcast both operands before creating the final
-    // op.
+    finalizeMatmulOpOrLinearOp(fms);
+  }
+
+  void handle(MatmulOp* mop) final {
+    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so
+    // we must transpose B then broadcast both operands before creating the
+    // final op.
     //
     // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
     // whose dtype matches that of the inputs. We will most commonly then also
     // need to cast the output of the MmaOp to produce the output TensorView.
+    //
+    // There are two possibilities:
+    //
+    // Case 1: A->nDims() > B->nDims():
+    //
+    //   A [ ..., B1, ..., Bn, M, K ]
+    //   B [ B1, ..., Bn, K, N ]
+    //
+    //   All the preceding dimensions in A are additional M dimensions. There
+    //   are batch dimensions in between those and "M".
+    //
+    // Case 2: A->nDims() <= B->nDims():
+    //
+    //   A [ B1, ..., Bn, M, K ]
+    //   B [ ..., B1, ..., Bn, K, N ]
+    //
+    //   All the preceding dimensions in B are additional N dimensions. There
+    //   are batch dimensions in between those and "N".
+    //
+    // In either case, to form the output we transpose B in the last two dims,
+    // and prepend broadcasts to the lower dimensional input as needed.
     NVF_ERROR(
-        A->nDims() > 1 && B->nDims() > 1,
+        pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
-    TensorView* Btrans = transpose(B, -2, -1);
-    A = unsqueeze(A, -2);
-    B = unsqueeze(Btrans, -3);
-    // A and B might have different dimensions. If so, broadcast the smaller one
-    // up to the size of the larger.
-    int64_t out_dims = std::max(A->nDims(), B->nDims());
-    // Add new outer broadcast dimensions if necessary
-    A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
-    B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
-    fms = fusedMultiplySum(A, B, {-1});
-    mma_op = fms->definition()->as<MmaOp>();
-  } else {
-    NVF_THROW(
-        "Could not translate matmul pattern with output ",
-        output->toString(),
-        " to MmaOp");
+    TensorView* fms = nullptr;
+    if (avoid_intermediates_) {
+      MmaOp::AxisMapping axis_mapping;
+      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims()) + 1;
+
+      axis_mapping.a_axes.resize((size_t)out_dims, -1);
+      axis_mapping.b_axes.resize((size_t)out_dims, -1);
+
+      for (size_t a_axis : c10::irange((size_t)pattern_.A->nDims() - 1)) {
+        // Output is [ ... M, N, K ]
+        // This loop maps everything but N and K to A
+        int64_t out_axis =
+            (int64_t)a_axis + (out_dims - 1 - pattern_.A->nDims());
+        axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
+      }
+      // Map the K dim, skipping one position
+      axis_mapping.a_axes.at((size_t)out_dims - 1) = pattern_.A->nDims() - 1;
+
+      for (size_t b_axis : c10::irange((size_t)pattern_.B->nDims() - 2)) {
+        // Output is [ ... M, N, K ]
+        // This loop maps everything before M to B, skipping the output M dim
+        int64_t out_axis =
+            (int64_t)b_axis + (out_dims - pattern_.B->nDims()) - 1;
+        axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
+      }
+      // Skip the K dim and map N and K
+      axis_mapping.b_axes.at((size_t)out_dims - 2) = pattern_.B->nDims() - 1;
+      axis_mapping.b_axes.at((size_t)out_dims - 1) = pattern_.B->nDims() - 2;
+
+      fms = fusedMultiplySum(
+          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+
+      int64_t num_M_dims =
+          std::max(1 + pattern_.A->nDims() - pattern_.B->nDims(), (int64_t)1);
+
+      // Reorder to BMNK.
+      // Add loop broadcasts to A and B to mimick logical broadcasts for
+      // simpler scheduling
+      pattern_.A->broadcast(-2);
+
+      pattern_.B->reorder({{-2, -1}});
+      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
+        // Broadcast B for every M dimension in A
+        pattern_.B->broadcast(-3);
+      }
+    } else {
+      TensorView* Btrans = transpose(pattern_.B, -2, -1);
+      pattern_.A = unsqueeze(pattern_.A, -2);
+      pattern_.B = unsqueeze(Btrans, -3);
+      // A and B might have different dimensions. If so, broadcast the smaller
+      // one up to the size of the larger.
+      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims());
+      // Add new outer broadcast dimensions if necessary
+      pattern_.A = ops::maybe_broadcast_inner_to_rank(pattern_.A, out_dims);
+      pattern_.B = ops::maybe_broadcast_inner_to_rank(pattern_.B, out_dims);
+      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
+    }
+    mma_ = fms->definition()->as<MmaOp>();
+    finalizeMatmulOpOrLinearOp(fms);
   }
-  NVF_ERROR(fms != nullptr);
-  NVF_ERROR(mma_op != nullptr);
 
   // The following is common to both MatmulOp and LinearOp translation
+  void finalizeMatmulOpOrLinearOp(TensorView* fms) {
+    NVF_ERROR(fms != nullptr);
+    NVF_ERROR(mma_ != nullptr);
 
-  // TODO: skip downcasting if the only uses of `output` are casts back to
-  // higher precision in order avoid the round trip cast in defining an
-  // epilogue that starts with MatmulOp.
-  if (output->dtype() != fms->dtype()) {
-    // When fms is a different dtype from output, it means we _might_ need to
-    // insert a cast. However, we can skip inserting that cast for any uses of
-    // output that are simply casts back to Float.
+    // TODO: skip downcasting if the only uses of `output` are casts back to
+    // higher precision in order avoid the round trip cast in defining an
+    // epilogue that starts with MatmulOp.
+    if (pattern_.output->dtype() != fms->dtype()) {
+      // When fms is a different dtype from output, it means we _might_ need
+      // to insert a cast. However, we can skip inserting that cast for any
+      // uses of output that are simply casts back to Float.
 
-    // This vector holds tensors that would be round-trip cast to the same
-    // dtype as fms. We first collect these Vals then we do the replacements
-    // separately in order to avoid dereferencing an Expr* that has already
-    // been replaced.
-    std::vector<Val*> round_trip_vals;
-    for (Expr* use : output->uses()) {
-      if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
-          uop->getUnaryOpType() == UnaryOpType::Cast &&
-          uop->out()->dtype() == fms->dtype()) {
-        round_trip_vals.push_back(uop->out());
+      // This vector holds tensors that would be round-trip cast to the same
+      // dtype as fms. We first collect these Vals then we do the replacements
+      // separately in order to avoid dereferencing an Expr* that has already
+      // been replaced.
+      std::vector<Val*> round_trip_vals;
+      for (Expr* use : pattern_.output->uses()) {
+        if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
+            uop->getUnaryOpType() == UnaryOpType::Cast &&
+            uop->out()->dtype() == fms->dtype()) {
+          round_trip_vals.push_back(uop->out());
+        }
       }
+      // If there are any uses that were not round-trip casts, then we should
+      // insert the castOp.
+      if (pattern_.output->uses().size() > round_trip_vals.size()) {
+        TensorView* old_output = pattern_.output;
+        pattern_.output = castOp(pattern_.output->dtype(), fms);
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+            old_output, pattern_.output);
+      }
+      // if any casts are skipped, then we reset output to point to the Float
+      // output fms instead of the downcast.
+      if (!round_trip_vals.empty()) {
+        pattern_.output = fms;
+      }
+      // Finally, replace the round_trip_vals with fms
+      for (Val* v : round_trip_vals) {
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
+      }
+    } else {
+      // No cast needed, for example the inputs might be Float
+      ir_utils::transferDefinitionToNewOutputs(
+          fms->definition(), {pattern_.output});
     }
-    // If there are any uses that were not round-trip casts, then we should
-    // insert the castOp.
-    if (output->uses().size() > round_trip_vals.size()) {
-      TensorView* old_output = output;
-      output = castOp(output->dtype(), fms);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
-    }
-    // if any casts are skipped, then we reset output to point to the Float
-    // output fms instead of the downcast.
-    if (!round_trip_vals.empty()) {
-      output = fms;
-    }
-    // Finally, replace the round_trip_vals with fms
-    for (Val* v : round_trip_vals) {
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
-    }
-  } else {
-    // No cast needed, for example the inputs might be Float
-    ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
   }
-  return mma_op;
+
+ private:
+  MatmulPattern& pattern_;
+  bool avoid_intermediates_;
+  MmaOp* mma_ = nullptr;
+};
+
+} // namespace
+
+MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
+  return MatmulTranslator::translate(*this, avoid_intermediates);
 }
 
 namespace {
 // Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
 // mappings
 DimRolesMap matmulOrLinearOpDimRoles(
-    const ValGraph& permissive_graph,
+    const ValGraph& graph,
     const std::vector<IterDomain*>& out_logical,
     const std::vector<IterDomain*>& mapping_a,
     const std::vector<IterDomain*>& mapping_b) {
@@ -1849,7 +2077,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
   NVF_ERROR(mapping_a.size() == mapping_b.size());
   for (size_t i : c10::irange(out_logical.size())) {
     IterDomain* id_out = out_logical[i];
-    const ValGroup& g = permissive_graph.toGroup(id_out);
+    const ValGroup& g = graph.toGroup(id_out);
 
     if (id_out->isReduction()) {
       dim_roles[g] = MatmulDimRole::K;
@@ -1875,9 +2103,8 @@ DimRolesMap matmulOrLinearOpDimRoles(
 } // namespace
 
 DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
-  const ValGraph& permissive_graph =
-      id_model.idGraph(IdMappingMode::PERMISSIVE);
+  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
   // Batch. These are enumerated in the MatmulDimRole enum class. They are
@@ -1892,7 +2119,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   if (output->definition()->isA<MatmulOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     return matmulOrLinearOpDimRoles(
-        permissive_graph,
+        graph,
         out_logical,
         ops::mapMatmulOpIterDomains(
             A->getLogicalDomain(), 0, out_logical.size()),
@@ -1903,7 +2130,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     bool k_bcast = A->getLogicalDomain().back()->isBroadcast();
     return matmulOrLinearOpDimRoles(
-        permissive_graph,
+        graph,
         out_logical,
         ops::mapLinearOpIterDomains(
             A->getLogicalDomain(), 0, out_logical.size(), k_bcast),
@@ -1920,17 +2147,18 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   // for each valgroup, store a pair of flags. The first records whether the
   // group is present at all in the tv. The second records whether the value is
   // concrete (i.e. not reduction, broadcast, or device).
-  std::unordered_map<ValGroup, std::pair<DimPresence, DimPresence>> flags;
-  const auto recordPresence = [&permissive_graph, &flags](
+  std::unordered_map<ValGroup, DimPresence> flags;
+  const auto recordPresence = [&graph, &flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getLogicalDomain()) {
-      const ValGroup& g = permissive_graph.toGroup(id);
-      auto& [present_flags, concrete_flags] = flags[g];
-      present_flags.set(tensor_num);
+      const ValGroup& g = graph.toGroup(id);
+      DimPresence& group_flags = flags[g];
+      // Note: broadcast or device dims will be initialized to have all false
+      // flags above
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
-      concrete_flags.set(tensor_num);
+      group_flags.set(tensor_num);
     }
   };
   recordPresence(A, 0);
@@ -1939,8 +2167,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   DimRolesMap dim_roles;
 
-  for (const auto& [g, f] : flags) {
-    const auto& [present_flags, concrete_flags] = f;
+  for (const auto& [g, concrete_flags] : flags) {
     if (concrete_flags.all() || concrete_flags.none()) {
       // Batch dimensions are any of those that are not concretized or reduced.
       // These could be all Iteration or all Broadcast
@@ -1953,9 +2180,25 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
       dim_roles[g] = MatmulDimRole::N;
     } else {
       NVF_THROW(
-          "IterDomain ValGroup should be present in at least two of A, B, output.",
-          " present_flags: ",
-          present_flags);
+          "IterDomain ValGroup should be concrete in at least two of A, B, output.",
+          " concrete_flags: ",
+          concrete_flags);
+    }
+  }
+
+  // NOTE: For Hopper, we create loop broadcasts to mimic logical broadcasts
+  // when translating MatmulOp and LinearOp. Here we detect these and map them
+  // appropriately.
+  for (IterDomain* id : A->getLoopDomain()) {
+    const ValGroup& g = graph.toGroup(id);
+    if (dim_roles.count(g) == 0) {
+      dim_roles[g] = MatmulDimRole::N;
+    }
+  }
+  for (IterDomain* id : B->getLoopDomain()) {
+    const ValGroup& g = graph.toGroup(id);
+    if (dim_roles.count(g) == 0) {
+      dim_roles[g] = MatmulDimRole::M;
     }
   }
 
@@ -1965,7 +2208,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph) {
+    const ValGraph& graph) {
   VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
       other_dims, device_dims;
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
@@ -1989,7 +2232,7 @@ std::vector<ValGroup> canonicalDimOrdering(
         IterDomain* id = *id_it;
         if (id->isDeviceDim()) {
           // save device dim groups since they must be outermost
-          const ValGroup& g = permissive_graph.toGroup(id);
+          const ValGroup& g = graph.toGroup(id);
           device_dims.pushBack(g);
           continue;
         } else if (id->isBroadcast() || id->isReduction()) {
@@ -1997,7 +2240,7 @@ std::vector<ValGroup> canonicalDimOrdering(
           // their roles
           continue;
         }
-        const ValGroup& g = permissive_graph.toGroup(id);
+        const ValGroup& g = graph.toGroup(id);
         const auto it = dim_roles.find(g);
         if (it == dim_roles.end()) {
           other_dims.pushBack(g);
@@ -2127,6 +2370,288 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
   }
   return std::pair<DimRolesMap, TensorRolesMap>{
       id_roles, tensor_roles_opt.getData()};
+}
+
+namespace {
+// This function returns a pair of integers. The first integer is the gcd
+// between megabanks and row stride. The second integer is the repeat pattern
+// size. If the gcd is 1, then no swizzle is necessary to resolve bank
+// conflicts. In that case, the second integer is irrelevant and -1 is returned.
+std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
+    TensorView* shared_mem_tv) {
+  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+
+  // Check that the innermost 2 dimensions are concrete and static
+  //  sized so that the swizzle function can be defined.
+  NVF_ERROR(
+      (int64_t)swizzle_domain.size() >= 2,
+      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      shared_mem_tv->toString());
+  mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
+  mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
+
+  // Extract the constant sizes of the swizzled tile
+  const int64_t tile_size_x =
+      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
+  const int64_t tile_size_y =
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+
+  // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
+  // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
+  // (i.e. float)
+  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  NVF_ERROR(data_type_size == 2 || data_type_size == 4);
+
+  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+  // Each thread vectorized write 2 items, so 8 items per row.
+  //--0--1--2--3
+  //--4--5--6--7
+  //--8--9--10-11
+  //--12-13-14-15
+  //--16-17-18-19
+  //--20-21-22-23
+  //--24-25-26-27
+  //--28-29-30-31
+  constexpr int64_t n_rows = 8;
+  constexpr int64_t n_cols = 8;
+
+  // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
+  NVF_ERROR(
+      tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
+          tile_size_y >= n_cols && tile_size_y % n_cols == 0,
+      "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
+      tile_size_x,
+      "x",
+      tile_size_y);
+
+  /* Note [How to remove bank conflict for ldmatrix?]
+   *
+   * **This note is interleaved with code, I suggest reading this note like
+   *   reading a jupyter notebook**
+   *
+   * Our task is to make sure different rows does not fall into the same
+   * bank of shared memory.
+   *
+   * Introduction to bank conflict can be found at page 54-72 of:
+   * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
+   *
+   * When we talk about bank conflict removal, we are talking about the
+   * following task:
+   *   "there are 32 banks, and each bank contains one 4-byte word, we want to
+   *    make sure different lanes in a warp does not access different word
+   *    addresses in the same bank"
+   * For example, if thread 0 is accessing word address 1, and thread 1 is
+   * accessing word address 33, then these two threads will have a bank
+   * conflict because they are accessing different word addresses in the same
+   * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
+   * accessing byte address 6 then there will be no bank conflict because 4
+   * and 6 both belong to word 1.
+   */
+
+  constexpr int64_t smem_bytes_per_word = 4;
+  constexpr int64_t smem_banks = 32;
+
+  /* but here, for our convenience, because ldmatrix always use vectorized
+   * access of 8 items = 16 bytes = 4 words, we further group words into
+   * units: we consider each 4 words as a "unit", and each 4 banks as a
+   * "megabank". So we can rephrase our task as:
+   *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
+   *    want to make sure different lanes in a warp does not access different
+   *    unit addresses in the same megabank"
+   * In this terminology, matrices are in the row major format, each matrix
+   * has 8 rows, and each row has exactly one unit.
+   */
+
+  constexpr int64_t items_per_unit = n_cols;
+  const int64_t bytes_per_unit = items_per_unit * data_type_size;
+  const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
+  const int64_t num_megabanks = smem_banks / words_per_unit;
+
+  /* In the following example, each CTA tile contains 2 rows and 3 colums of
+   * matrices, each 8x8 size:
+   *   +----------+----------+----------+
+   *   | matrix 0 | matrix 1 | matrix 2 |
+   *   +----------+----------+----------+
+   *   | matrix 3 | matrix 4 | matrix 5 |
+   *   +----------+----------+----------+
+   * The addresses of different rows in the same matrix are offset by 3 units.
+   * In this perspective, loading a matrix is a strided memory access with the
+   * following stride (in units):
+   */
+
+  // number of units per row
+  int64_t row_stride = tile_size_y / items_per_unit;
+
+  /* So the bank conflicting problem is now converted to the following game:
+   *   I have a clock that has one pointer and `num_megabanks` ticks. I start
+   *   my game by making my pointer pointing to somewhere, and turn forward
+   *   the pointer `n_rows` times, each time by `row_stride` ticks.
+   * This problem can be well modeled by modular arithmetic in number theory
+   * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
+   * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
+   * Additions and multiplications are defined in a cyclic manner:
+   *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
+   *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
+   * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
+   *
+   * It worth mention that Z/nZ is a "commutative ring", that is, we can use
+   * addition and multiplication rules just like using normal integers:
+   *   a + b = b + a, a * (b + c) = a * b + a * c, ...
+   * In short, we can reason about Z/nZ just like we are reasoning about
+   * integers, except that every number is automatically "% n".
+   *
+   * Reference:
+   * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
+   * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
+   *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
+   *     we are only interested in non-negative numbers here, so there is no
+   *     need to worry about this problem
+   */
+
+  // row_stride in Z/nZ, where n is num_megabanks:
+  // assert(row_stride >= 0);
+  // assert(num_megabanks >= 0);
+  int64_t row_stride_znz = row_stride % num_megabanks;
+  /* Consider the following function in Z/nZ:
+   *   f(i; init) = init + i * stride
+   * where init is the initial position of the pointer in the clock when we
+   * start the game, and stride is the number of ticks we move forward each
+   * time, and i is the number of times we move forward. For a fixed init, we
+   * abbrivate f(i; init) as f(i).
+   *
+   * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
+   * `init` is the megabank of the 0th row of the matrix.
+   *
+   * One very important property of f(i) is:
+   * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
+   * This property is true because:
+   *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
+   *
+   * The above property tells us, as we turn the clock forward:
+   * - initially, we will go to a never-visited tick in each turn, but,
+   * - at some point, we will return back to our original position, and,
+   * - after we return, we start repeat the pervious pattern again and again.
+   *
+   * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
+   *     i  0 1 2 3 4 5 6 7
+   *   f(i) 0 6 4 2 0 6 4 2
+   * We can see that f(i) is repeating a pattern of four unique numbers
+   * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
+   * different megabanks, and we have a 2-way conflict.
+   *
+   * The question of interest is, does the above observation generalize? That
+   * is, does f(i) always repeat a pattern of p unique numbers q times? Note
+   * that p and q must satisfy p * q = n.
+   *
+   * The answer to the above question is: yes! Consider the following
+   * equation:
+   *    f(i1 + j) == f(i1)
+   * We want to know what is the smallest positive number j that makes the
+   * above equation true. Because this tells us in how many steps we will see
+   * repeat. This equation can be simplified as:
+   *   f(i1 + j) == f(i1) + j * stride == f(i1)
+   *   ==> j * stride == 0
+   *
+   * An important tool to study this equation is multiplicative inverse:
+   * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
+   * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
+   * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
+   * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
+   * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
+   *   (2 * 8) % 15 = 1
+   *
+   * stride has an multiplicative inverse if and only if stride coprime with
+   * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
+   * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
+   * not repeat, that is: there is no bank conflict.
+   */
+
+  int64_t g = std::gcd(num_megabanks, row_stride_znz);
+  if (g == 1) {
+    return {g, -1}; // No need to swizzle in this case.
+  }
+
+  /* For the case where stride does not coprime with n, we note that
+   * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
+   * can write stride and n as:
+   *   stride = s * g, n = m * g
+   * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
+   * have:
+   *   (j * stride) % n = 0
+   *   ==> (j * s) % m * g = 0
+   *   ==> (j * s) % m = 0
+   * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
+   * further get:
+   *   j == 0 (in Z/mZ)
+   * That is, j is a multiple of m in Z. So the smallest positive j that make
+   * the equation hold is n / g.
+   *
+   * That is: f(i) always repeat a pattern of n/g unique numbers g times.
+   * In other word: we are using n/g megabanks, and we have a g-way bank
+   * conflict.
+   *
+   * Let's use the word "pattern" to refer to the set of values of `f` at
+   * different `i`, that is:
+   *   pattern k = { f(i; init=k) | i in Z/nZ }
+   * For the example of stride = 6 under Z/8Z, we have the following patterns
+   *        f(i): 01234567
+   *   pattern 0: x_x_x_x_
+   *   pattern 1: _x_x_x_x
+   *   (x => occupied, _ => unoccupied)
+   */
+
+  int64_t repeated_pattern_size = num_megabanks / g;
+
+  if (repeated_pattern_size >= n_rows) {
+    return {g, -1}; // No need to swizzle in this case.
+  }
+
+  return {g, repeated_pattern_size};
+}
+} // namespace
+
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
+  auto&& [g, repeated_pattern_size] = analyzeSwizzleSharedMemory(shared_mem_tv);
+
+  if (g == 1) {
+    return MmaInputSmemSwizzle::None; // No need to swizzle in this case.
+  }
+
+  // 128B swizzle results in 8 x 8 matrix given half precision inputs.
+  constexpr int64_t n_rows = 8;
+
+  NVF_ERROR(
+      n_rows % repeated_pattern_size == 0,
+      "Can not partition matrix into megarows");
+  int64_t num_gigarows = n_rows / repeated_pattern_size;
+  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
+
+  /* To further simplify the problem, if we assume: */
+  NVF_ERROR(
+      num_gigarows % num_gigabanks == 0,
+      "Requires non-square swizzle, which is not supported yet");
+
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+  // Extract the constant sizes of the swizzled tile
+  const int64_t inner_dim_size =
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+
+  auto dtype = shared_mem_tv->getDataType().value();
+  const int64_t B128_elements = 128 / dataTypeSize(dtype);
+  const int64_t B64_elements = 64 / dataTypeSize(dtype);
+  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+
+  if (inner_dim_size % B128_elements == 0) {
+    return MmaInputSmemSwizzle::B128;
+  } else if (inner_dim_size % B64_elements == 0) {
+    return MmaInputSmemSwizzle::B64;
+  } else if (inner_dim_size % B32_elements == 0) {
+    return MmaInputSmemSwizzle::B32;
+  } else {
+    NVF_THROW("Unsupported swizzle size for TMA shared memory mma inputs");
+  }
 }
 
 } // namespace mma_utils

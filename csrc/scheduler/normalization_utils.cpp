@@ -1420,6 +1420,7 @@ void schedulePersistentKernel(
       unroll,
       vectorize,
       is_outer_grid_persistence,
+      rparams->unroll_factor_inner_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs,
@@ -1575,8 +1576,11 @@ class PersistentBufferResolution : public IterVisitor {
       // with the persistence of the persistent tensor
       const auto& producer_logical_ids =
           exact_graph_.toGroups(tv->getLogicalDomain());
-      auto reachable_ids = ValGraphBFS::getReachableValsFrom(
-          exact_graph_, persistent_ids, producer_logical_ids);
+      auto reachable_ids = getReachableValsFrom<ValGraphBFS>(
+          persistent_ids.vector(),
+          producer_logical_ids.vector(),
+          Direction::Undefined,
+          exact_graph_);
 
       return !reachable_ids.empty();
     };

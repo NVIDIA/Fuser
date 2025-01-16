@@ -40,7 +40,7 @@ std::string toString(LaunchParams lparams);
 //! if not segmented.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     std::vector<c10::IValue>& aten_inputs);
 
 //! Run benchmark iterations with a fusion executor and
@@ -48,7 +48,7 @@ int64_t runBenchmarkIterations(
 //! kernel time is added to benchmark_state.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
+    KernelExecutor* ke,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());

@@ -96,6 +96,7 @@ class Val;
   f(BroadcastOp);                 \
   f(SqueezeOp);                   \
   f(ExpandOp);                    \
+  f(RepeatOp);                    \
   f(ViewAsScalar);                \
   f(ViewOp);                      \
   f(CatOp);                       \
@@ -120,6 +121,8 @@ class Val;
   f(GridSync);                        \
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
+  f(SetMaxNReg);                      \
+  f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
@@ -145,7 +148,9 @@ class Val;
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \
+  f(LaunchKernel);                    \
   f(SetCurrentStream);                \
+  f(GetCurrentStream);                \
   f(Wait);                            \
   f(Synchronize);                     \
   f(StartCoalescing);                 \

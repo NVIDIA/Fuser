@@ -26,7 +26,7 @@ std::vector<IterDomain*> getPredicateDomains(
       : consumer_tv->getLogicalDomain();
 
   // Broadcast domains should not need to be predicated. Note that
-  // unlike indexing for TensorIndex, reduction doamins do need to be
+  // unlike indexing for TensorIndex, reduction domains do need to be
   // indexed to guard the access to the producer tensor
   predicate_domains.erase(
       std::remove_if(
@@ -249,8 +249,10 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       return nullptr;
     } else {
       auto prefetch_distance =
-          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-              fl->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(fl->iter_domain())
+              .prefetch;
       return SimplifyingIrBuilder::addExpr(
           original_index,
           SimplifyingIrBuilder::create<Val>(

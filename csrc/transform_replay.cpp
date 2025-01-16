@@ -52,25 +52,20 @@ class ReplaySelf : public ReplayTransformations {
         loop_ids_.find(mapped) != loop_ids_.end(),
         "Transform traversal failed, modified a node but it was not a loop node.");
 
-    // outer loop size
-    Val* remainder = ceilDiv(mapped->extent(), s->factor());
+    NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
 
-    // Manually replay the split, following the output of the operations.
-    // This is so rfactor ops are replayed correctly.
-    IterDomain* ido = IterDomainBuilder(s->outer())
-                          .start(s->container()->zeroVal())
-                          .extent(s->innerSplit() ? remainder : s->factor())
-                          .build();
-
-    // inner IterDomain
-    IterDomain* idi = IterDomainBuilder(s->inner())
-                          .start(s->container()->zeroVal())
-                          .extent(s->innerSplit() ? s->factor() : remainder)
-                          .build();
-
-    // Generate the split node
-    IrBuilder::createInContainer<Split>(
-        s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
+    // Due to rfactor transformations, the iter types of the outputs
+    // may not follow the default rule. For example, even if the input
+    // is a reduction iter domain, the outputs may not. To replay the
+    // original split expression, the output iter types need to be
+    // specified explicitly.
+    auto [ido, idi] = IterDomain::split(
+        mapped,
+        s->factor(),
+        s->innerSplit(),
+        s->outer()->isRFactorProduct(),
+        s->outer()->getIterType(),
+        s->inner()->getIterType());
 
     // Remove mapped id from loop IDs
     loop_ids_.erase(mapped);
@@ -107,16 +102,7 @@ class ReplaySelf : public ReplayTransformations {
         id_inner_mapped,
         " however one or both are not loop nodes.");
 
-    Val* merged_id_size =
-        mul(id_outer_mapped->extent(), id_inner_mapped->extent());
-
-    IterDomain* merged_id = IterDomainBuilder(m->out())
-                                .start(m->container()->zeroVal())
-                                .extent(merged_id_size)
-                                .build();
-
-    IrBuilder::createInContainer<Merge>(
-        m->container(), merged_id, id_outer_mapped, id_inner_mapped);
+    IterDomain* merged_id = IterDomain::merge(id_outer_mapped, id_inner_mapped);
 
     // Remove inputs from the loop IDs
     loop_ids_.erase(id_outer_mapped);
@@ -784,11 +770,13 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     new_contiguity.reserve(producer_rank);
 
     for (auto i : c10::irange(producer_rank)) {
-      IterDomain* id = producer->getAllocationDomain()[i];
+      IterDomain* alloc_id = producer->getAllocationDomain()[i];
       // We won't find reduction IterDomains in the map. See
       // AllocationDomainTest.CacheBefore.
-      if (auto it = p2c_map.find(id); it != p2c_map.end()) {
-        new_allocation_domain.push_back(it->second);
+      if (auto it = p2c_map.find(alloc_id); it != p2c_map.end()) {
+        IterDomain* new_alloc_id = it->second;
+        new_alloc_id->parallelize(alloc_id->getParallelType());
+        new_allocation_domain.push_back(new_alloc_id);
         new_contiguity.push_back(producer->getContiguity()[i]);
       }
     }

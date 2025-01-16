@@ -52,7 +52,6 @@ sass::Container getSASSFor(
     MmaLayout layout,
     GemmTile cta_tile,
     GemmTile warp_tile,
-    GemmTile instruction_tile,
     MmaMacro macro,
     int M,
     int N,
@@ -80,7 +79,6 @@ sass::Container getSASSFor(
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = cta_tile;
   gemm_tile.warp_tile = warp_tile;
-  gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -98,16 +96,16 @@ sass::Container getSASSFor(
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
-  return sass::parse(fe.disassembledKernelSASS());
+  return sass::parse(ke.disassembledKernelSASS());
 }
 
 // A fusion with epilogue made of binary op (scalar multiplication)
@@ -115,7 +113,6 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
     MmaLayout layout,
     GemmTile cta_tile,
     GemmTile warp_tile,
-    GemmTile instruction_tile,
     MmaMacro macro,
     int M,
     int N,
@@ -144,7 +141,6 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = cta_tile;
   gemm_tile.warp_tile = warp_tile;
-  gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -161,13 +157,13 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
   const double alpha = 2.5;
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion,
       {inputs.first, inputs.second, alpha},
       LaunchParams(),
       matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second, alpha});
+  auto cg_outputs = ke.run({inputs.first, inputs.second, alpha});
   auto tref = at::mul(
                   atMatmul(
                       inputs.first.to(at::kFloat),
@@ -178,12 +174,14 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
-  return sass::parse(fe.disassembledKernelSASS());
+  return sass::parse(ke.disassembledKernelSASS());
 }
 
 } // namespace
 
 TEST_P(MatmulSASSTestWithLayout, AmpereSanity) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -199,7 +197,6 @@ TEST_P(MatmulSASSTestWithLayout, AmpereSanity) {
           layout,
           GemmTile(128, 128, 32),
           GemmTile(64, 64, 32),
-          GemmTile(16, 8, 16),
           MmaMacro::Ampere_16_8_16,
           M,
           N,
@@ -254,7 +251,6 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
             layout,
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
             MmaMacro::Ampere_16_8_16,
             M,
             N,
@@ -355,7 +351,6 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
   const int smem_circular_buffer_stage = 4;
   const bool ignore_occupancy_drop = true;
   const auto [use_smem_epilogue, promote_prologue_smem_reuse] =
@@ -377,9 +372,9 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
     bool found_LDGDEPBAR = false;
     bool found_DEPBAR = false; // kAllSupportedMmaLayout;
     int BAR_COUNT = 0;
-    // we have at least 6 shared memory barriers in the kernel if
-    // use_shared_epilogue. If promote_prologue_smem_reuse, then 8
-    const int EXPECTED_BAR_COUNT = promote_prologue_smem_reuse ? 8 : 6;
+    // we have at least 5 shared memory barriers in the kernel if
+    // use_shared_epilogue. If promote_prologue_smem_reuse, then 7
+    const int EXPECTED_BAR_COUNT = promote_prologue_smem_reuse ? 7 : 5;
     sass::Container sass;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
@@ -388,7 +383,6 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
             layout,
             gemm_tile.cta_tile,
             gemm_tile.warp_tile,
-            gemm_tile.instruction_tile,
             MmaMacro::Ampere_16_8_16,
             M,
             N,
@@ -507,7 +501,6 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
             layout,
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
             MmaMacro::Ampere_16_8_16,
             M,
             N,
@@ -637,7 +630,6 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM) {
             layout,
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
             MmaMacro::Ampere_16_8_16,
             M,
             N,

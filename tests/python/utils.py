@@ -202,6 +202,14 @@ def is_pre_hopper():
     return prop.major < 9
 
 
+def verify_stride_order(output_strides, stride_order):
+    sorted_stride = list(output_strides)
+    rank = len(output_strides)
+    for idx, axis in enumerate(stride_order):
+        sorted_stride[rank - 1 - axis] = output_strides[idx]
+    assert sorted(sorted_stride, reverse=True) == sorted_stride
+
+
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results
@@ -242,15 +250,24 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 
 # Run original FusionDefinition
 # Clone FusionDefinition
+# Apply segmentation if it supported for this FusionDefinition
 # Run cloned python definition
 # Check that the result of cloned python definition matches original results
-def check_cpp_translation(reference_outputs, fd, inputs, device=None):
+def check_cpp_translation(
+    reference_outputs, fd, inputs, supports_segmentation, device=None
+):
     try:
         torch.manual_seed(0)
+
+        # Clone
         cloned_fd = FusionDefinition()
         clone(fd, cloned_fd)
-        print(fd)
-        print(cloned_fd)
+
+        # Segment
+        if supports_segmentation:
+            cloned_fd.segment(inputs)
+
+        # Run
         cloned_outputs = cloned_fd.execute(inputs, device=device)
 
         # Make sure the results of original and cloned definitions match.
@@ -270,12 +287,14 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
         print(
             "(A failure here suggests a mismatch in functionality between the original and cloned definitions.)"
         )
+        print("Does FusionDefinition supports segmentation?\t", supports_segmentation)
         print(fd.getReproErrorString("executing", inputs))
         raise err
 
 
 # This DEBUG_SERDE environment flag is used to debug serialization failures.
 #
+# If DEBUG_SERDE=debug
 # 1) It disables automatically saving FusionCache upon program exit. Therefore,
 # it has to be a global flag not per-test.
 #
@@ -285,8 +304,14 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
 #
 # 3) It keeps the temporary files that are created during serde_check.
 # Normally, these files are deleted after each test.
-env_var_debug_serde = os.getenv("DEBUG_SERDE")
-debug_serde: bool = env_var_debug_serde in ("true", "1")
+#
+# DEBUG_SERDE=disable
+# 1) It disables the @nvfusertest_serde_check decorator. This disables checking
+# that serde round-trips preserve the definition during testing.
+env_var_debug_serde = os.getenv("DEBUG_SERDE", "").lower()
+debug_serde: bool = env_var_debug_serde == "debug"
+disable_serde: bool = env_var_debug_serde == "disable"
+del env_var_debug_serde
 
 
 # The pytest framework and test_python_frontend.py use different arguments for
@@ -316,7 +341,7 @@ def basic_serde_check():
                 )
             else:
                 raise RuntimeError(
-                    "***** Use DEBUG_SERDE=true to debug serialization failure."
+                    "***** Use DEBUG_SERDE=debug to debug serialization failure."
                 )
 
 
@@ -325,6 +350,11 @@ def basic_serde_check():
 # binary. Call FusionCache.reset() to clear the cache after running an error
 # test in `test_python_frontend.py'.
 def atexit_serde_check():
+    if disable_serde:
+        # Ignore FusionCache and automatic serialization if serde check is
+        # disabled
+        return
+
     from nvfuser import FusionCache
 
     if not debug_serde:
@@ -345,6 +375,8 @@ def nvfusertest_serde_check(test_fn: Callable):
     function. Currently, it uses serialization to rebuild the FusionCache
     structure.
     """
+    if disable_serde:
+        return test_fn
 
     def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args
@@ -404,9 +436,12 @@ class NVFuserTest(TestCase):
         fusion_func,
         inputs,
         *,
+        _enable_options=[],
+        _disable_options=[],
         new_fusion_expected=True,
         device=None,
-        is_clonable=False,
+        is_clonable=True,
+        supports_segmentation=True,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
@@ -420,14 +455,23 @@ class NVFuserTest(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
         torch.manual_seed(0)
-        out = fd.execute(inputs, device=device)
+        out = fd.execute(
+            inputs,
+            device=device,
+            _enable_options=_enable_options,
+            _disable_options=_disable_options,
+        )
 
         self.assertTrue(
             check_captured_python_definition(out, fd, inputs_captured, device)
         )
-
-        self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
+        if not disable_serde:
+            self.assertEqual(
+                fc.num_fusions() - before_fusions, int(new_fusion_expected)
+            )
 
         if is_clonable:
-            self.assertTrue(check_cpp_translation(out, fd, inputs_cloned))
+            self.assertTrue(
+                check_cpp_translation(out, fd, inputs_cloned, supports_segmentation)
+            )
         return out, fd

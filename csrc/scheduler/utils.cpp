@@ -1198,12 +1198,36 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(tv)) {
-      // Right now, tensors that are input to the slice, select, and pad ops
-      // can't be cached as they must be in global memory.
+        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+      // Right now, tensors that are input to the select, gather and
+      // index_select ops can't be cached as they must be in global memory.
       continue;
     }
-    auto cached_tv = tv->cacheAfter();
+
+    // TODO: might need to reverse this when scheduler handles pad directly
+    // Do not insert a cache for pad as vectorization needs to be
+    // done directly.
+    //
+    // Note that this means that if an input is padded and also is
+    // used without padding, it will be read twice, once for pad and
+    // once more for caching load. It would make sense to use the PTX
+    // caching load instructions.
+    std::vector<Expr*> cached_uses;
+    for (auto use : tv->uses()) {
+      if (!use->isOneOf<PadOp, SliceOp>()) {
+        cached_uses.push_back(use);
+      }
+    }
+
+    if (cached_uses.empty()) {
+      continue;
+    }
+
+    auto cached_tv = tv->cacheAfter(
+        /*op_type=*/LoadStoreOpType::Set,
+        /*cache_op=*/CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/true,
+        /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;
@@ -1290,12 +1314,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // We do not allow vectorization with resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->in();
-        }
+        projected_id = resize->in();
       }
     } else {
       NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
@@ -1350,12 +1369,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        // We do not allow vectorization wit resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->out();
-        }
+        projected_id = resize->out();
       }
     } else {
       NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
@@ -1549,12 +1563,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   // scheduler prefer to use output instead of input as reference tensor.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
-    // At this moment, vectorization through resize is not
-    // supported. This is not required currently as we always insert
-    // cacheBefore, but just in case.
-    if (ir_utils::hasResizedRfactor(output_tv)) {
-      continue;
-    }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(output_tv);
     }
@@ -1566,22 +1574,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
-      continue;
-    }
-
-    auto expr_resizes = [](Expr* e) -> bool {
-      return std::any_of(
-          e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
-            if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
-              return ir_utils::hasResizedRfactor(out_tv);
-            }
-            return false;
-          });
-    };
-
-    // At this moment, vectorization through resize is not supported
-    if (std::any_of(
-            input_tv->uses().begin(), input_tv->uses().end(), expr_resizes)) {
       continue;
     }
 
@@ -2385,7 +2377,7 @@ bool revertUseOfInputCache(
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of each proucer. If a tensor shows up as a
+  // Inserting a copy of each producer. If a tensor shows up as a
   // producer for multiple consumers, only insert one
   // copy and share it with all the consumers.
 
@@ -2565,7 +2557,7 @@ int64_t getSharedMemoryOverheadPerBlock(
     dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
-  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {
@@ -2659,6 +2651,92 @@ void moveNonConcretizedBroadcastInnermost(
 
     tv->reorder(old2new);
   }
+}
+
+int64_t reorderDevicesToOuter(TensorView* tv) {
+  int64_t reorder_pos = 0;
+  std::unordered_map<int64_t, int64_t> old2new;
+  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    if (tv->axis((int64_t)i)->isDeviceDim()) {
+      old2new.emplace((int64_t)i, reorder_pos);
+      ++reorder_pos;
+    }
+  }
+  tv->reorder(old2new);
+  return (int64_t)old2new.size();
+}
+
+void reorderTensorLike(
+    TensorView* target_tv,
+    const std::vector<IterDomain*>& ref) {
+  const auto& tv_loop_domain = target_tv->getLoopDomain();
+
+  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  const auto& graph = id_model.buildBroadcastGraph();
+
+  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+
+  ValGroups ref_groups = graph.toGroups(ref);
+
+  // Traverse from the reference to the target tv. The reference is
+  // not guaranteed to cover all loop IDs of target, so
+  // require_all_to_visited needs to be false
+  auto path = ValGraphBFS::getExprGroupsBetween(
+                  graph,
+                  ref_groups,
+                  target_groups,
+                  /*require_all_to_visited=*/false)
+                  .first;
+
+  // Traverse the expr path to create an ordered ID groups
+  std::deque<ValGroup> ordered_domain{
+      ref_groups.vector().begin(), ref_groups.vector().end()};
+
+  for (const auto& [expr_g, dir] : path) {
+    auto inputs = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+    auto outputs = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+
+    // Inserts the outputs at the innermost position
+    auto innermost_it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), inputs.back());
+    NVF_ERROR(innermost_it != ordered_domain.end());
+    ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
+
+    // Removes the inputs
+    for (const auto& inp : inputs) {
+      ordered_domain.erase(
+          std::remove(ordered_domain.begin(), ordered_domain.end(), inp),
+          ordered_domain.end());
+    }
+  }
+
+  std::unordered_map<int64_t, int64_t> old2new;
+
+  // Place IDs that do not appear in ref at the outer position
+  int64_t new_id_pos = 0;
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it == ordered_domain.end()) {
+      old2new.emplace((int64_t)i, new_id_pos);
+      ++new_id_pos;
+    }
+  }
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it != ordered_domain.end()) {
+      int64_t new_pos =
+          (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
+      old2new.emplace((int64_t)i, new_pos);
+    }
+  }
+
+  target_tv->reorder(old2new);
 }
 
 } // namespace scheduler_utils

@@ -17,6 +17,15 @@
 
 namespace nvfuser {
 
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache) {
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
+  NVF_CHECK(executors.size() == 1);
+  NVF_CHECK(executors.front()->isA<KernelExecutor>());
+  return executors.front()->as<KernelExecutor>();
+}
+
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
@@ -24,15 +33,13 @@ CGResultsPackage scheduleAndRun(
     bool validate_scheduler) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, scheduler_type, runtime_inputs, validate_scheduler);
-  auto fusion_executor = std::make_unique<FusionExecutor>();
-  fusion_executor->compileFusion(
-      fusion, runtime_inputs, heuristic_params->lparams);
-  auto cg_outputs =
-      fusion_executor->runFusion(runtime_inputs, heuristic_params->lparams);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke->run(runtime_inputs, heuristic_params->lparams);
   CGResultsPackage results = {
       .outputs = cg_outputs,
       .heuristic_params = std::move(heuristic_params),
-      .fusion_executor = std::move(fusion_executor)};
+      .kernel_executor = std::move(ke)};
   return results;
 }
 
@@ -807,6 +814,14 @@ bool isVectorized(TensorView* tv) {
     }
   }
   return false;
+}
+
+std::string macroToString(const MmaMacro macro) {
+  std::stringstream ss;
+  ss << "m" << getM(macro);
+  ss << "_n" << getN(macro);
+  ss << "_k" << getK(macro);
+  return ss.str();
 }
 
 } // namespace nvfuser

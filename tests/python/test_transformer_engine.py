@@ -2,24 +2,60 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import os
 import pytest
 import torch
 import torch.distributed as dist
+import transformer_engine.pytorch as te
 from enum import auto, Enum
 from functools import partial
+from mpi4py import MPI
 
 
-import transformer_engine.pytorch as te
+class MpiTest:
+    def __init__(self):
+        self._communicator = MPI.COMM_WORLD
+        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
+        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
 
-import mpi_fixtures
+    @property
+    def size(self):
+        return self._communicator.size
+
+    @property
+    def rank(self):
+        return self._communicator.rank
+
+    @property
+    def local_size(self):
+        return self._local_size
+
+    @property
+    def local_rank(self):
+        return self._local_rank
+
+    def barrier(self):
+        self._communicator.barrier()
 
 
-mpi_test = mpi_fixtures.mpi_test
+@pytest.fixture(scope="session")
+def mpi_test():
+    fixture = MpiTest()
+    yield fixture
+    # Sync all ranks after each test for isolation.
+    fixture.barrier()
 
 
 class ComputeType(Enum):
     FORWARD = auto()
     BACKWARD = auto()
+
+
+class Parallelism(Enum):
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism
+    TENSOR_PARALLEL = auto()
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
+    SEQUENCE_PARALLEL = auto()
 
 
 @pytest.fixture(scope="module")
@@ -40,14 +76,34 @@ def setup_process_group(mpi_test) -> None:
 # ```bash
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
-# and then display the status using e.g. `nsys stats --report=cuda_gpu_kernel_sum report1.nsys-rep`.
+# and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(setup_process_group, benchmark, compute_type):
+@pytest.mark.parametrize(
+    "parallelism",
+    [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
+    ids=["tp", "sp"],
+)
+@pytest.mark.parametrize(
+    "overlap",
+    [False, True],
+    ids=["nonoverlap", "overlap"],
+)
+def test_transformer_layer(
+    setup_process_group,
+    monkeypatch,
+    benchmark,
+    compute_type: ComputeType,
+    parallelism: Parallelism,
+    overlap: bool,
+):
+    if overlap and parallelism == Parallelism.TENSOR_PARALLEL:
+        pytest.skip("Tensor parallelism doesn't support overlapping")
+
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -65,14 +121,41 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
         hidden_size,
         ffn_hidden_size,
         num_heads,
+        # According to https://github.com/NVIDIA/TransformerEngine/issues/1350,
+        # `attn_input_format` has to match the format of `transformer_layer`'s
+        # input.
+        attn_input_format="bshd",
         set_parallel_mode=True,
+        sequence_parallel=(parallelism == Parallelism.SEQUENCE_PARALLEL),
+        ub_tp_comm_overlap=overlap,
         tp_group=dist.group.WORLD,
     )
     transformer_layer.to(dtype).to("cuda")
 
+    match parallelism:
+        case Parallelism.TENSOR_PARALLEL:
+            local_sequence_length = sequence_length
+        case Parallelism.SEQUENCE_PARALLEL:
+            assert sequence_length % size == 0
+            local_sequence_length = sequence_length // size
+
     x = torch.randn(
-        batch_size, sequence_length, hidden_size, dtype=dtype, device="cuda"
+        batch_size, local_sequence_length, hidden_size, dtype=dtype, device="cuda"
     )
+
+    if overlap:
+        # Similar to https://github.com/NVIDIA/TransformerEngine/blob/e7bfc0c547d63332e4f8d65e606dc69f4c22ffbe/examples/pytorch/comm_gemm_overlap/te_layer_with_overlap.py#L27-L29
+        monkeypatch.setenv("CUDA_DEVICE_MAX_CONNECTIONS", "1")
+        if not te.cpp_extensions.device_supports_multicast():
+            monkeypatch.setenv("UB_SKIPMC", "1")
+
+        te.module.base.initialize_ub(
+            # Instructed by https://github.com/NVIDIA/TransformerEngine/blob/e7bfc0c547d63332e4f8d65e606dc69f4c22ffbe/transformer_engine/pytorch/module/base.py#L96-L99
+            [batch_size * sequence_length, hidden_size],
+            size,
+            dtype=dtype,
+            bootstrap_backend="nccl",
+        )
 
     match compute_type:
         case ComputeType.FORWARD:
@@ -90,7 +173,9 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
 
             # Warmup.
             y = benchmark_fn(False)
-            assert y.size() == torch.Size([batch_size, sequence_length, hidden_size])
+            assert y.size() == torch.Size(
+                [batch_size, local_sequence_length, hidden_size]
+            )
 
             benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
         case ComputeType.BACKWARD:
@@ -130,3 +215,6 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
                 setup=partial(setup_fn, True),
                 rounds=5,
             )
+
+    if overlap:
+        te.module.base.destroy_ub()

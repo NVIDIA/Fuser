@@ -18,6 +18,7 @@
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <val_graph_visitor.h>
 
 #include <c10/util/irange.h>
 
@@ -67,6 +68,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
+
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
@@ -365,10 +367,59 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     distributePE(merge_or_split);
   };
 
-  auto clear_left_of = [&frontier](IterDomain* id) {
-    auto it = std::find(frontier.begin(), frontier.end(), id);
-    if (it != frontier.end()) {
-      frontier.erase(frontier.begin(), it + 1);
+  auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
+    IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
+    IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
+
+    auto it = std::find(frontier.begin(), frontier.end(), id_from);
+    if (it == frontier.end()) {
+      return;
+    }
+    auto pos = std::distance(frontier.begin(), it);
+
+    // project resize op to frontier.
+    frontier[pos] = id_to;
+    // clear left of resize, since those are no long contiguous.
+    frontier.erase(frontier.begin(), it);
+
+    if (recording_) {
+      // we need to check slice offset at this point.
+      auto projected_extent = getProjectedExtent(id_from);
+
+      // projected_extent == 0: return the projected_extent as-is
+      // resize_extent == 0   : no resizing, return the projected_extent as-is
+      // resize_extent != 0   : slicing/padding, return gcd(projected_extent,
+      // abs(resize_extent)) This is a conservative analysis of the offset for
+      // data accessing. A better approach needs to consider the actual start
+      // pointer address and handle it in alignment analysis in runtime info. We
+      // also need to consider multiple resize stacked together and how they
+      // could interact with each other. Translating this to code: if
+      // (resize_extent == 0 || projected_extent == 0) {
+      //   return projected_extent;
+      // } else {
+      //   gcd(projected_extent, abs(resize_extent));
+      // }
+      auto comp = [](Val* projected_extent, Val* resize_extent) {
+        return SimplifyingIrBuilder::whereExpr(
+            SimplifyingIrBuilder::logicalOrExpr(
+                SimplifyingIrBuilder::eqExpr(
+                    resize_extent, resize_extent->container()->zeroVal()),
+                SimplifyingIrBuilder::eqExpr(
+                    projected_extent,
+                    projected_extent->container()->zeroVal())),
+            projected_extent,
+            SimplifyingIrBuilder::gcdExpr(
+                projected_extent, IrBuilder::absExpr(resize_extent)));
+      };
+      projected_extent = comp(projected_extent, resize_op->leftExpand());
+      projected_extent = comp(projected_extent, resize_op->rightExpand());
+
+      // cap extent by the destination, this is useful when the id_to is resized
+      // to zero, where projected_extent shouldn't go beyond the total extent.
+      projected_extent =
+          SimplifyingIrBuilder::minExpr(projected_extent, id_to->extent());
+
+      addProjectedExtent(id_to, projected_extent);
     }
   };
 
@@ -391,8 +442,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateDistribute(merge);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->out());
+      propagateResize(resize, false);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -415,8 +465,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->in());
+      propagateResize(resize, true);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -781,14 +830,14 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getLogicalDomain();
+  auto logical_dom = ref->getLogicalDomain();
   if (!logical_reorder_map.empty()) {
-    root_dom = TensorDomain::orderedAs(root_dom, logical_reorder_map);
+    logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
-  while (!root_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
+  while (!logical_dom.empty()) {
+    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
                           .getTvToContigMergeOfInnerSizeMap());
-    root_dom.erase(root_dom.begin());
+    logical_dom.erase(logical_dom.begin());
   }
   return mappers;
 }

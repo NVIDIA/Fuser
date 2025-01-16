@@ -43,7 +43,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
-      "Missing mapping from operation string to nvfuser function in serde deserialization.");
+      "Missing mapping from operation string to nvfuser function in serde deserialization: ",
+      buffer->name()->str());
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
@@ -364,10 +365,12 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastOp, deserializeBroadcastRecord);
 
   auto deserializeCatRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Cat();
     return new python_frontend::CatOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim(),
+        data->manual_padding());
   };
   registerParser(RecordType::CatOp, deserializeCatRecord);
 
@@ -538,7 +541,9 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SliceOpRecord(
-        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Slice()->manual_normalization());
   };
   registerParser(RecordType::SliceOp, deserializeSliceRecord);
 
@@ -647,6 +652,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   unary_tv.emplace(                                                         \
       ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
   unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
+
+#define NVFUSER_UNARY_TV_ALPHA_OP(op_str, op_name) \
+  binary_tv_val.emplace(                           \
+      ("ops." op_str),                             \
+      static_cast<TensorView* (*)(TensorView*, Val*)>(op_name));
 
 #define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \
   binary_tv.emplace(                               \
@@ -803,6 +813,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
 
+  NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
+
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
   NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
@@ -835,6 +847,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
   NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)
   NVFUSER_BINARY_TV_OP("gcd", gcd)
+  NVFUSER_BINARY_TV_OP("ceilDiv", ceilDiv)
 
   NVFUSER_BINARY_TV_ALPHA_OP("add_alpha", add_alpha)
   NVFUSER_BINARY_TV_ALPHA_OP("sub_alpha", sub_alpha)

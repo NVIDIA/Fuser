@@ -3,14 +3,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
     compute_total_iobytes,
+    with_executor,
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import dropout_rmsnorm
 
 
 def dropout_rmsnorm_fwd_fusion(
@@ -80,12 +82,6 @@ def dropout_rmsnorm_fwd_fusion(
     fd.add_output(T28)
 
 
-def dropout_rmsnorm_fwd(inputs: list):
-    input1, input2, weights, dropout_p = inputs
-    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
-    return weights * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
-
-
 def dropout_rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser input/outputs differ from baseline outputs (output).
     nvf_inp_out = {
@@ -111,8 +107,6 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    clear_cuda_cache()
-
     input1 = torch.randn(size, device="cuda", dtype=dtype)
     input2 = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
@@ -147,17 +141,16 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [input1, input2, weights])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_rmsnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     dropout_p = 0.2
 
@@ -168,10 +161,12 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
         dropout_p,
     ]
 
+    benchmark_fn = with_executor(executor, dropout_rmsnorm)
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd,
+        benchmark_fn,
         inputs,
         iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype),
     )

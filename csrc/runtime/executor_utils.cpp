@@ -673,12 +673,12 @@ void validateCircularBuffering(
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
     NVF_ERROR(
-        runtime_axis_size >= cb_tv->circularBufferDepth(),
+        runtime_axis_size >= cb_tv->circularBufferOptions().stage,
         "This kernel fails to fill the circular buffer pipeline at runtime. ",
         "The extent of the circular buffer axis is ",
         runtime_axis_size,
         " while ",
-        cb_tv->circularBufferDepth(),
+        cb_tv->circularBufferOptions().stage,
         " is the number of stages in the circular buffer.");
   }
 }
@@ -689,7 +689,7 @@ void validateVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("FusionExecutor::validateVectorizedTensors");
+  FUSER_PERF_SCOPE("KernelExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
       kernel, args, outputs, data_cache, expr_eval);
@@ -721,12 +721,13 @@ ExpressionEvaluator bindInputs(
       std::stringstream ss;
       ss << "When trying to run the provided host program,"
          << " there was an error with the provided input " << i
-         << ". Provided input was:\n  ";
-      ss << PolymorphicValue_functions::toString(*args[i]);
-      ss << "\n  Fusion input is:\n  ";
-      ss << inputs[i]->toString();
-      ss << "\n  Expr eval provided the error:\n\"\"\"";
-      ss << e.msg() << "\"\"\"\n";
+         << ". Provided input was:" << std::endl;
+      indent(ss, 1) << PolymorphicValue_functions::toString(*args[i])
+                    << std::endl;
+      ss << "Fusion input was:" << std::endl;
+      indent(ss, 1) << inputs[i]->toString() << std::endl;
+      ss << "Expr eval provided the error:" << std::endl;
+      ss << R"(""")" << e.msg() << R"(""")" << std::endl;
       NVF_THROW(ss.str());
     }
   }

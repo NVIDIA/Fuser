@@ -31,13 +31,13 @@ def test_batchnorm_fwd_nvf_benchmark(
     )
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
 def test_batchnorm_fwd_baseline_benchmark(
-    benchmark, size: tuple, dtype: torch.dtype, channels_last: bool, compile: bool
+    benchmark, size: tuple, dtype: torch.dtype, channels_last: bool, executor: str
 ):
     norm_fwd_baseline_benchmark(
-        benchmark, size, dtype, channels_last, compile, "batch_norm"
+        benchmark, size, dtype, channels_last, executor, "batch_norm"
     )

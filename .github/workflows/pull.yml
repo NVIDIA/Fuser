@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# A workflow to send CI-related helpful information to PRs
+name: pull
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
+
+run-name: CI status hello ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+jobs:
+  status_hello:
+    name: send CI hello status
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Set CI hello status
+        run: |
+          curl \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
+          -d "{\"state\":\"success\",\"target_url\":\"https://github.com/NVIDIA/Fuser/wiki/Bot-Commands\",\"description\":\"Authorized users: comment !build or !test to trigger CI pipelines. See wiki.\",\"context\":\"CI notes\"}"
+
+  pr-agent-tools:
+    name: PR Agent tools
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+      packages: read
+    container:
+      image: ghcr.io/nvidia/fuser:ci-llm-workflow
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      env:
+        GITHUB__USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CONFIG__PUBLISH_OUTPUT: true
+
+        OPENAI__KEY: ${{ secrets.LLM_OPENAI__KEY }}
+        OPENAI__API_BASE: ${{ secrets.LLM_OPENAI__API_BASE }}
+        CONFIG__MODEL: ${{ secrets.LLM_CONFIG__MODEL }}
+        CONFIG__CUSTOM_MODEL_MAX_TOKENS: 131072
+
+        CONFIG__MAX_MODEL_TOKENS: 65536
+        CONFIG__PUBLISH_OUTPUT_PROGRESS: false 
+
+        PR_REVIEWER__REQUIRE_SCORE_REVIEW: false
+        PR_REVIEWER__REQUIRE_TESTS_REVIEW: true
+        PR_REVIEWER__REQUIRE_ESTIMATE_EFFORT_TO_REVIEW: true
+        PR_REVIEWER__REQUIRE_CAN_BE_SPLIT_REVIEW: false
+        PR_REVIEWER__REQUIRE_SECURITY_REVIEW: false
+        PR_REVIEWER__REQUIRE_TICKET_ANALYSIS_REVIEW: false
+
+        PR_REVIEWER__ENABLE_REVIEW_LABELS_EFFORT: false
+        PR_REVIEWER__ENABLE_REVIEW_LABELS_SECURITY: false
+
+        PR_REVIEWER__PERSISTENT_COMMENT: true
+        PR_REVIEWER__FINAL_UPDATE_MESSAGE: false
+
+        PR_REVIEWER__EXTRA_INSTRUCTIONS: |
+          Focus on potential logic change, especially on changes to function signatures.
+
+    steps:
+      - name: PR Agent review
+        run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review

@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
-from .core import run_benchmark, clear_dynamo_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import huggingface_attn
 
 
 # Fusion from huggingface attention implementation.
@@ -74,17 +75,6 @@ def huggingface_attn_fwd_fusion(
     fd.add_output(T47)
 
 
-def huggingface_attn_fwd(
-    inputs: list,
-):
-    # Reference implementation in Thunder: https://github.com/Lightning-AI/lightning-thunder/blob/888b46324462fba70f93d5017bc0d99025f05091/thunder/tests/hf_bart_self_attn.py#L73-L83
-    attention_mask, input, size, dropout_p = inputs
-    batch_size, seq_len, nh, n_embd = size
-    attn = (input + attention_mask).view(batch_size * nh, seq_len, seq_len)
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    return torch.nn.functional.dropout(attn, p=dropout_p)
-
-
 def huggingface_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser outputs (output, attn, dropout_mask) differ from baseline outputs (output).
 
@@ -104,8 +94,6 @@ def test_huggingface_attn_fwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
@@ -137,17 +125,16 @@ def test_huggingface_attn_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [attention_mask, inputs])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_huggingface_attn_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    clear_cuda_cache()
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
@@ -156,10 +143,12 @@ def test_huggingface_attn_fwd_baseline_benchmark(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
 
+    benchmark_fn = with_executor(executor, huggingface_attn)
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(huggingface_attn_fwd) if compile else huggingface_attn_fwd,
-        [attention_mask, inputs, size, dropout_p],
+        benchmark_fn,
+        [inputs, attention_mask, size, dropout_p],
         iobytes=huggingface_attn_fwd_iobytes(size, dtype),
     )

@@ -103,7 +103,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               "Expecting predicated body to only have one vectorized expression.");
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
-              vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>(),
+              vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
+                  vec_expr->isA<TernaryOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
@@ -245,16 +246,41 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         IrBuilder::create<UnaryOp>(
             UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
 
-        Val* first_warp = IrBuilder::logicalAndExpr(
-            IrBuilder::logicalAndExpr(
-                IrBuilder::ltExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDx),
-                    warp_size),
-                IrBuilder::eqExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDy), zero)),
-            IrBuilder::eqExpr(
-                NamedScalar::getParallelIndex(ParallelType::TIDz), zero));
-        return IrBuilder::logicalAndExpr(first_warp, elect_sync_val);
+        auto load_warp_loop_it =
+            std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+              return fl->circularBufferLoopStage() ==
+                  CircularBufferLoopStage::LoadWarp;
+            });
+        ParallelType load_warp_on = ParallelType::Serial;
+        if (load_warp_loop_it != for_loops_.end()) {
+          load_warp_on = std::get<WarpSpecialized>(
+                             GpuLower::current()
+                                 ->circularBufferInfo()
+                                 .getCircularBufferOptionsFor(
+                                     (*load_warp_loop_it)->iter_domain())
+                                 .type)
+                             .on;
+        }
+
+        // If we are in a load warp, then the warp-dispatching IfThenElse
+        // already selects on `load_warp_on`, so we should not generate
+        // predicates for it here.
+        const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+        Val* conditional = load_warp_on == ParallelType::TIDx
+            ? pred->fusion()->trueVal()
+            : SimplifyingIrBuilder::logicalAndExpr(
+                  elect_sync_val,
+                  IrBuilder::ltExpr(
+                      NamedScalar::getParallelIndex(ParallelType::TIDx),
+                      warp_size));
+        for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+          if (pdim_map.has(pt) && load_warp_on != pt) {
+            conditional = SimplifyingIrBuilder::logicalAndExpr(
+                conditional,
+                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+          }
+        }
+        return conditional;
       }
       default:
         break;

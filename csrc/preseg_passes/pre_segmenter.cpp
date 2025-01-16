@@ -24,6 +24,8 @@
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <preseg_passes/segment_inplace_update.h>
+#include <preseg_passes/translate_repeat_to_expand.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -44,6 +46,9 @@ namespace nvfuser::preseg_passes {
 
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
+  // This pass should be placed before ConsecutiveCastPass as more
+  // consecutive cast ops may be exposed by this pass
+  OptimizationPass<TranslateRepeatToExpand>::runPass(fusion);
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
@@ -53,8 +58,19 @@ namespace nvfuser::preseg_passes {
   //    avoid moving pad operatoins around, which could disturb the analysis
   //    from MarkAliasPrepare
   // 2. after MoveSplitCat
-  //    to avoid this pass moving PadOp around to break the MoveSplitCat.
-  OptimizationPass<MovePadPass>::runPass(fusion);
+  //    to avoid this pass moving PadOp around to break the
+  // MoveSplitCat.
+  //
+  // Moving a pad backward means all preceding operations would be
+  // executed for the whole padded region too. Since the resize
+  // scheduler does not have the issue, let it take care of padding
+  // whenever enabled. Note that even when it is enabled, it is
+  // currently only limited to pointwise patterns and does not
+  // support, for example, reductions, etc, so this preseg pass still
+  // may be preferable in some cases.
+  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
+    OptimizationPass<MovePadPass>::runPass(fusion);
+  }
   // NOTE vvv this doesn't really work, since our type promotion to higher
   // precision for Add cannot be canceled out with previous cast to lower
   // precision. Since it's not an no-op and it has a quantization effect. I'll
@@ -65,6 +81,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
+  OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

@@ -13,6 +13,7 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <type.h>
@@ -141,8 +142,8 @@ Allocate::Allocate(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "IR type only valid for Kernel or HostIr container.");
   if (!shape.empty()) {
     NVF_ERROR(
         (shape.size() == 1 && shape[0]->isOneInt()) ||
@@ -483,6 +484,47 @@ std::string WgMmaFence::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WgMmaFence)
+
+SetMaxNReg::SetMaxNReg(
+    IrBuilderPasskey passkey,
+    Val* number_of_registers,
+    bool increase_registers)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addInput(number_of_registers);
+  addDataAttribute(increase_registers);
+}
+
+std::string SetMaxNReg::toString(int indent_size) const {
+  return (increaseRegisters()) ? "setmaxnreg.inc.sync.aligned.u32"
+                               : "setmaxnreg.dec.sync.aligned.u32";
+}
+
+std::string SetMaxNReg::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "SetMaxNReg can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Return::toString(int indent_size) const {
+  return "return";
+}
+
+std::string Return::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Return can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Return)
 
 MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,

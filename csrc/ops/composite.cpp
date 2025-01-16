@@ -56,6 +56,59 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
+TensorView* triu(TensorView* tv, Val* offset) {
+  NVF_CHECK(
+      isIntegralType(offset->getDataType().value()),
+      "offset must have integral type");
+
+  // Let's say we want a triu of a 2D tensor of shape [2, 4]
+  // We broadcast the iota of the outer dim
+  // [0    [0, 0, 0, 0]
+  // 1] -> [1, 1, 1, 1]
+  // We broadcast the iota of the inner dim
+  // [0, 1, 2, 3] -> [0, 1, 2, 3]
+  //                 [0, 1, 2, 3]
+  // Using LE on the bcast tensors we get the mask
+  //[0, 0, 0, 0]  LE [0, 1, 2, 3]
+  //[1, 1, 1, 1]     [0, 1, 2, 3]
+  // Gives:
+  //[1, 1, 1, 1]
+  //[0, 1, 1, 1]
+  auto tv_logical_no_reductions =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto dims = tv_logical_no_reductions.size();
+
+  NVF_CHECK(
+      dims >= 2,
+      "input tensor for triu must have 2 or more dims, but got ",
+      dims,
+      " dims");
+
+  auto fusion = tv->fusion();
+
+  auto tv_rows = iota(
+      tv_logical_no_reductions[dims - 2]->extent(),
+      fusion->zeroVal(DataType::Index),
+      fusion->oneVal(DataType::Index),
+      DataType::Index);
+
+  // If triu has an offset of k, we shift/subtract the iota of the columns by k
+  // before broadcasting and comparing with the iota of the rows.
+  // So when building an iota op, instead of starting from 0 with a step of 1
+  // we start from -offset (== -k) with a step of 1.
+  auto start_shifted_by_offset = SimplifyingIrBuilder::negExpr(offset);
+  auto tv_columns = iota(
+      tv_logical_no_reductions[dims - 1]->extent(),
+      start_shifted_by_offset,
+      fusion->oneVal(DataType::Index),
+      DataType::Index);
+
+  auto tv_rows_b = broadcast(tv_rows, {false, true});
+  auto tv_cols_b = broadcast(tv_columns, {true, false});
+  auto mask = le(tv_rows_b, tv_cols_b);
+  return where(mask, tv, fusion->zeroVal(DataType::Index));
+}
+
 namespace {
 
 TensorView* newForLinear(
@@ -424,23 +477,6 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
 }
-
-namespace {
-template <typename T>
-void checkAllEqual(std::initializer_list<T> elements) {
-  for (const auto& element : elements) {
-    NVF_CHECK(
-        element == *elements.begin(),
-        "Expected all elements to be equal, but found ",
-        element,
-        " and ",
-        *elements.begin(),
-        " in [",
-        toDelimitedString(elements),
-        "]");
-  }
-}
-} // namespace
 
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,

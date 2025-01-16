@@ -672,6 +672,7 @@ enum class ParallelType {
   TIDz,
   TIDy,
   TIDx,
+  Stream,
   Vectorize,
   MisalignedVectorize,
   Unroll,
@@ -702,6 +703,9 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDx,
     ParallelType::TIDy,
     ParallelType::TIDz};
+
+static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
+    ParallelType::DIDx};
 
 enum class MemoryType { Local, Shared, Global };
 
@@ -766,7 +770,45 @@ enum class LoadStoreOpType {
 
 // Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
-enum class CircularBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
+enum class CircularBufferLoopStage {
+  Prolog = 0,
+  Main,
+  Epilog,
+  LoadWarp,
+  ComputeWarp,
+  EndOfStages, // A special placeholder used to iterate over all stages
+  NotApplicable
+};
+
+// The circular buffer load expressions are cloned for these circular buffer
+// loop types.
+// e.g., No additional loads are required for the Epilogue stage.
+inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Prolog ||
+      stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::LoadWarp;
+}
+
+// The consuming expressions of circular buffer are cloned for these circular
+// buffer loop types.
+// e.g., No actual computation occurs in the Prologue stage.
+inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::Epilog ||
+      stage == CircularBufferLoopStage::ComputeWarp;
+}
+
+// A loop type may have WAR hazard if any of the following is true:
+// - The load *in this loop type* may overwrite a buffer being read by a
+//   compute somewhere (*may or may not be in this loop*)
+// - The compute *in this loop type* reads circular buffer TVs that, if not
+//   properly handled, could be overwriten by a circular buffer loading
+//   somewhere (*may or may not be in this loop*)
+inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::LoadWarp ||
+      stage == CircularBufferLoopStage::ComputeWarp;
+}
 
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda

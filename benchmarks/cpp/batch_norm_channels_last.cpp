@@ -79,7 +79,7 @@ static void setupBatchNorm_nhwc(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BatchNorm_nhwc(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
@@ -103,7 +103,7 @@ static void NvFuserScheduler_BatchNorm_nhwc(
   std::vector<c10::IValue> aten_inputs(
       {at_x, at_weight, at_bias, at_run_mean, at_run_var});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
