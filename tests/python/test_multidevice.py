@@ -112,6 +112,68 @@ def test_linear(multidevice_test):
 
 
 @pytest.mark.mpi
+def test_linear_loop_split(multidevice_test):
+    class Model(FusionDefinition):
+        def __init__(self, num_devices, batch, sequence, hidden):
+            super().__init__()
+            self._num_devices = num_devices
+            self._batch = batch
+            self._sequence = sequence
+            self._hidden = hidden
+
+        def definition(self):
+            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
+            self.inp = self.define_tensor([b, s, e])
+            self.weight = self.define_tensor([d * e, e])
+            self.bias = self.define_tensor([d * e])
+            self.out = self.ops.linear(self.inp, self.weight, self.bias)
+            self.add_output(self.out)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.weight, self.bias, self.out]:
+                self.sched._set_device_mesh(t, mesh)
+
+            # Shard N for weight (N, K) and bias (N)
+            for t in [self.weight, self.bias]:
+                self.sched.split(t, 0, d, False)
+                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(t)
+
+            # Output of linear: {.., i{M}, i{N}, r{K}}
+            # Shard N -> axis(-2)
+            self.sched.split(self.out, -2, d, False)
+            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.out)
+
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    b, s, e = 2, 1024, 768
+    inp_tensor = torch.randn(b, s, e, device="cuda")
+    unsharded_weight_tensor = torch.randn(d * e, e)
+    sharded_weight_tensor = multidevice_test.shard_tensor(
+        unsharded_weight_tensor, 0, mesh
+    )
+    unsharded_bias_tensor = torch.randn(d * e)
+    sharded_bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
+
+    fd = Model(d, b, s, e)
+    out_tensors = fd.execute([inp_tensor, sharded_weight_tensor, sharded_bias_tensor])
+
+    # [b, s, d*e]
+    unsharded_out_tensor = torch.nn.functional.linear(
+        inp_tensor.cpu(), unsharded_weight_tensor, unsharded_bias_tensor
+    )
+    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    # rtol is the same as the default for fp32. atol is slightly increased.
+    torch.testing.assert_close(
+        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-3
+    )
+
+
+@pytest.mark.mpi
 def test_matmul_allreduce(multidevice_test):
     d, b, s, e = multidevice_test.size, 1, 4, 8
 

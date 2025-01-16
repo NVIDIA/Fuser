@@ -211,6 +211,40 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   params->split_grid_x_dim =
       ceilDiv(max_num_elms, bdimx) > ResizeParams::max_gdimx;
 
+  const auto largest_input =
+      getLargestTensor(fusion->inputs(), runtime_info).first;
+  if (largest_input != nullptr) {
+    int64_t index_of_largest_input = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), largest_input));
+    params->largest_input = index_of_largest_input;
+  } else {
+    params->largest_input = -1;
+  }
+
+  auto ref_tv_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
+          data_cache, [fusion]() {
+            std::vector<TensorView*> data{getReferenceTensor(fusion)};
+            return std::make_unique<std::vector<TensorView*>>(std::move(data));
+          });
+  TensorView* ref_tv = ref_tv_entry.get()[0];
+
+  // Before applying the vectorization split, any reshape transform of
+  // the largest input will be cancelled whenever possible, so the
+  // largest input is used as the reference of vectorization.
+  auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+
+  // Only consider the innermost dimension to vectorize for now.
+  // TODO: Consider vectorizing merged IDs, not just the innermost
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      vec_ref_tv,
+      data_cache,
+      (int64_t)vec_ref_tv->getLogicalDomain().size() - 1,
+      {});
+
   return params;
 }
 
@@ -251,6 +285,17 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
+  TensorView* largest_input = nullptr;
+  if (resize_params->largest_input >= 0) {
+    largest_input =
+        fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
+
+    // The tensors are going to be reordered to align with the largest
+    // input. To make it work, merge operations for reshape should be
+    // cancelled.
+    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+  }
+
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
@@ -265,26 +310,67 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
+  // Reorder tensors to align with the largest input. This is expected
+  // to improve the memory read performance, while the write
+  // performance could be lowered. This should generally be more
+  // important to optimize the read performance, but more robust
+  // decision would be needed.
+  if (largest_input != nullptr) {
+    std::vector<IterDomain*> ref_alloc;
+    ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
+    std::copy_if(
+        largest_input->getMaybeAllocationDomain().begin(),
+        largest_input->getMaybeAllocationDomain().end(),
+        std::back_inserter(ref_alloc),
+        [](IterDomain* alloc_id) {
+          return !alloc_id->isBroadcast() && !alloc_id->isReduction() &&
+              !alloc_id->isDeviceDim();
+        });
+
+    // Reorder the reference as the allocation domain of the largest fusion
+    // input
+    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
+  }
+
   const int64_t bdimx = 128;
 
   // Make sure the DID ID located at the outermost position
   const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
 
-  // Schedule only the remaining IDs
-  ref_tv->flatten(outermost_pos);
-  // [..., I0]
+  const int64_t vec_factor = resize_params->vectorization_factor;
 
-  ref_tv->split(-1, bdimx);
-  ref_tv->axis(-1)->parallelize(ParallelType::TIDx);
-  // [..., I0/bdimx, bdimx(TIDx)]
+  int64_t next_innermost_pos = -1;
+  // [..., ...]
+  //        ^
+  //        +--- next_innermost_pos
+
+  if (vec_factor > 1) {
+    ref_tv->split(-1, vec_factor);
+    --next_innermost_pos;
+    // [..., vec_factor]
+    //   ^
+    //   +--- next_innermost_pos
+  }
+
+  ref_tv->flatten(outermost_pos, next_innermost_pos);
+  // [..., I0, vec_factor]
+  //       ^
+  //       +--- next_innermost_pos
+
+  ref_tv->split(next_innermost_pos, bdimx);
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::TIDx);
+  --next_innermost_pos;
+  // [..., I0/bdimx, bdimx(TIDx), vec_factor]
+  //         ^
+  //         +--- next_innermost_pos
 
   if (resize_params->split_grid_x_dim) {
-    ref_tv->split(-2, ResizeParams::max_gdimx);
-    // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx)]
+    ref_tv->split(next_innermost_pos, ResizeParams::max_gdimx);
+    // [..., I0/bdimx/max_gdimx, max_gdimx, bdimx(TIDx), vec_factor]
   }
-  ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
-  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx)] or
-  // [..., I0/bdimx(BIDx), bdimx(TIDx)]
+  ref_tv->axis(next_innermost_pos)->parallelize(ParallelType::BIDx);
+  // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor] or
+  // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled so to workaround the resize propagation
@@ -296,6 +382,21 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       fusion->allTvs(),
       ref_tv->getLoopDomain(),
       /*update_loop_domain_only=*/true);
+
+  if (vec_factor > 1) {
+    auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+    const auto tvs_to_vectorize =
+        scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
+    for (auto tv_to_vectorize : tvs_to_vectorize) {
+      if (tv_to_vectorize->isFusionInput()) {
+        for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
+          consumer_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+      } else {
+        tv_to_vectorize->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+    }
+  }
 
   inlineMost();
 

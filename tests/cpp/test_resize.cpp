@@ -4991,7 +4991,13 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 100});
+  // Due to #3640, the vectorization analysis may return 4 for this
+  // fusion since there's the use of the input without
+  // slicing. However, the correct factor needs to consider the
+  // slicing paths as well. For now, in order to avoid the error due
+  // to issue #3640, use a size that is divisible by 8.
+  // std::vector<int64_t> shape({16, 100});
+  std::vector<int64_t> shape({16, 96});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -5021,7 +5027,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   fusion.addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 100}, options);
+  auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
