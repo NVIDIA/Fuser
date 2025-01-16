@@ -20,6 +20,7 @@
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/resize_utils.h>
+#include <scheduler/tools/static_repeat.h>
 #include <val_graph_visitor.h>
 
 namespace nvfuser {
@@ -307,6 +308,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   auto ref_tv = getReferenceTensor(fusion);
   NVF_ERROR(ref_tv != nullptr);
 
+  auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatId(ref_tv);
+  if (static_repeat_info.has_value()) {
+    std::cerr << "Static repeat: "
+              << static_repeat_info->ref_repeating_id->toString() << "|n";
+  }
+
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
 
@@ -335,7 +342,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   const int64_t bdimx = 128;
 
   // Make sure the DID ID located at the outermost position
-  const auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
+  auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
+
+  // Move the static repeat ID to the outermost position
+  if (static_repeat_info.has_value()) {
+    auto pos = (int64_t)std::distance(
+        ref_tv->getLoopDomain().begin(),
+        std::find(
+            ref_tv->getLoopDomain().begin(),
+            ref_tv->getLoopDomain().end(),
+            static_repeat_info->ref_repeating_id));
+    NVF_ERROR(pos >= outermost_pos);
+    ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{pos, 0}});
+    ++outermost_pos;
+  }
 
   const int64_t vec_factor = resize_params->vectorization_factor;
 
