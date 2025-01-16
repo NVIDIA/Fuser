@@ -394,7 +394,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             case QkvFormat.BHSE:
                 return t
             case QkvFormat.BSHE:
-                return t.permute(0, 2, 1, 3).contiguous().transpose(1, 2)
+                return t.transpose(1, 2).contiguous().transpose(1, 2)
 
     attn, q_grad, k_grad, v_grad = fd.execute(
         [
