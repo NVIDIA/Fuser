@@ -3590,6 +3590,16 @@ bool CombineReductions::shouldRun(
   return false;
 }
 
+// This preprocessing attempts to find groups of exprs consist of an
+// up-cast, followed by some ops and ended by a downcast. It is highly
+// likely that such sequences of ops should never be segmented
+// out. This is particularly commonly seen in fusions given by Thunder
+// as it inserts fine-grained downcasting and upcasting ops. Without
+// this preprocessing, a fusion may be segmented right after an
+// up-cast op, for example, and in fact it happened quite frequently
+// in some of the RoPE cases. This preprocessing does not completely
+// avoid such segmentation boundaries, but it should become less
+// likely. See also https://github.com/NVIDIA/Fuser/pull/3699.
 class MergeUpAndDownCast {
  public:
   static void run(SegmentCandidateFinder* segment_candidate_finder) {
@@ -3607,21 +3617,25 @@ class MergeUpAndDownCast {
     while (merged) {
       merged = false;
       std::unordered_set<SegmentedGroup*> considered_groups;
+
       for (SegmentedGroup* group : segment_candidate_finder_->groups()) {
+        // If the group is an up-cast group, see if there's a
+        // candidate group starting with the group.
         if (!isUpCast(group) || considered_groups.count(group)) {
           continue;
         }
 
-        auto closed_groups = getClosedGroup(group);
-        if (closed_groups.size() < 2) {
+        auto groups_to_merge = getCandidateCastGroup(group);
+        if (groups_to_merge.size() < 2) {
           continue;
         }
 
-        for (auto group : closed_groups) {
+        for (auto group : groups_to_merge) {
           considered_groups.insert(group);
         }
 
-        if (mergeClosedGroups(closed_groups)) {
+        // Try merging the detected group
+        if (mergeCastGroup(groups_to_merge)) {
           merged = true;
           break;
         }
@@ -3629,7 +3643,41 @@ class MergeUpAndDownCast {
     }
   }
 
-  std::vector<SegmentedGroup*> getClosedGroup(SegmentedGroup* initial_group) {
+  // Try to detect a set of groups that could be merged as a cast
+  // group. The analysis starts with an initial group that solely
+  // consists of an up-cast expression. From the initial group, it
+  // traverses its neighbor groups. If the group is an down-cast group,
+  // it only traverses through the consumer edges. If it's an up-cast
+  // group, it only traverses through the producer edges.
+  //
+  // Additionaly, this traversal has several safeguards to keep the
+  // DAG property intact:
+  //
+  // - For a given group, it does not visit its consumers if it has
+  //   multiple consumers, even if the group is not a down-cast
+  //   group.
+  // - Similarly, it does not visit a producer if the producer has
+  //   multiple cosumers.
+  //
+  // The basic form of this set of groups should look like an up-cast
+  // group, followed by some op groups and ended by a down-cast
+  // group. However, it is not always the case because of the above
+  // safeguards. For example, the following groups would be detected
+  // as a cast group.
+  //
+  // t1 = bf16ToFp32(t0)
+  // t2 = neg(t1)
+  // t3 = sin(t2)
+  // t4 = cos(t2)
+  // t5 = fp32ToBf16(t3)
+  // t6 = fp32ToBf16(t4)
+  //
+  // In this case, t1 and t2 would be detected as a candidate group,
+  // but t3 and t4 would not be included. While we could certainly
+  // extend the analysis, it would need to make sure the DAG property
+  // is not violated.
+  std::vector<SegmentedGroup*> getCandidateCastGroup(
+      SegmentedGroup* initial_group) {
     std::vector<SegmentedGroup*> groups_to_merge;
     std::unordered_set<SegmentedGroup*> groups_to_merge_set;
 
@@ -3678,25 +3726,20 @@ class MergeUpAndDownCast {
     return groups_to_merge;
   }
 
-  SegmentedGroup* mergeClosedGroups(
-      const std::vector<SegmentedGroup*>& groups) {
+  // Try merging a candidate cast group. Return true if merged.
+  bool mergeCastGroup(const std::vector<SegmentedGroup*>& groups) {
     auto sched_type = tryMerge(
         segment_candidate_finder_->segmented_fusion_.get(),
         segment_candidate_finder_->runtimeInfo(),
         groups);
 
     if (sched_type == SchedulerType::None) {
-      return nullptr;
+      return false;
     }
 
-    auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(groups);
+    segment_candidate_finder_->mergeAllGivenGroups(groups);
 
-    std::cerr << "Merged cast group\n";
-    for (auto expr : joined_group->exprs()) {
-      std::cerr << expr->toString();
-    }
-
-    return joined_group;
+    return true;
   }
 
   bool isUpCast(SegmentedGroup* group) const {
@@ -3728,23 +3771,7 @@ class MergeUpAndDownCast {
       return std::nullopt;
     }
 
-    auto inp_tv = ir_utils::getTvInput(uop);
-    auto out_tv = ir_utils::getTvOutput(uop);
-    if (inp_tv == nullptr || out_tv == nullptr) {
-      return std::nullopt;
-    }
-
-    auto inp_dtype = inp_tv->dtype().type;
-    auto out_dtype = out_tv->dtype().type;
-    auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
-    auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
-
-    if (inp_prim_type == nullptr || out_prim_type == nullptr) {
-      return std::nullopt;
-    }
-
-    return std::make_pair(
-        primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
+    return ir_utils::getPrecisionOfProducerConsumerTensors(uop);
   }
 
  private:
@@ -4189,11 +4216,8 @@ void SegmentCandidateFinder::findSegments() {
   removeScalarEdges();
 
   // Run pre-merge heuristics
-  if (getenv("MergeUpAndDownCast")) {
-    MergeUpAndDownCast::run(this);
-    segmented_fusion_->draw();
-    segmented_fusion_->validateIfDebug(true);
-  }
+  MergeUpAndDownCast::run(this);
+  segmented_fusion_->validateIfDebug(true);
 
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
