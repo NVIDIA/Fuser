@@ -398,10 +398,10 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
     attn, q_grad, k_grad, v_grad = fd.execute(
         [
-            stride_tensor(sharded_q).requires_grad_(),
-            stride_tensor(sharded_k).requires_grad_(),
-            stride_tensor(sharded_v).requires_grad_(),
-            stride_tensor(sharded_out_grad),
+            reformat_tensor(sharded_q).requires_grad_(),
+            reformat_tensor(sharded_k).requires_grad_(),
+            reformat_tensor(sharded_v).requires_grad_(),
+            reformat_tensor(sharded_out_grad),
         ]
     )
 
