@@ -23,7 +23,7 @@ class ResizeParams : public HeuristicParams {
   // Split grid x dimension
   bool split_grid_x_dim = false;
 
-  int64_t largest_input = 0;
+  int64_t largest_input = -1;
 
   int64_t vectorization_factor = 1;
 
@@ -38,7 +38,7 @@ class ResizeParams : public HeuristicParams {
       return false;
     }
 
-    bool attr_equal = attr_equal = other->cparams == cparams &&
+    bool attr_equal = other->cparams == cparams &&
         other->split_grid_x_dim == split_grid_x_dim &&
         other->largest_input == largest_input &&
         other->vectorization_factor == vectorization_factor;
