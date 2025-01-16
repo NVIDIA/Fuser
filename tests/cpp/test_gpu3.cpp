@@ -9366,20 +9366,20 @@ TEST_F(NVFuserTest, CastPrecision) {
   auto tv4 = castOp(DataType::Int, tv3);
   fusion.addOutput(tv4);
 
-  auto tv1_precision = ir_utils::getPrecisonOfProducerConsumerTensors(
+  auto tv1_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
       tv1->definition()->as<UnaryOp>());
   ASSERT_TRUE(tv1_precision.has_value());
   EXPECT_EQ(tv1_precision->first, 2);
   EXPECT_EQ(tv1_precision->second, 4);
 
-  auto tv2_precision = ir_utils::getPrecisonOfProducerConsumerTensors(
+  auto tv2_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
       tv2->definition()->as<UnaryOp>());
   ASSERT_TRUE(tv2_precision.has_value());
   EXPECT_EQ(tv2_precision->first, 4);
   EXPECT_EQ(tv2_precision->second, 2);
 
   // Precision of type Index is not possible to determine until lowering
-  auto tv4_precision = ir_utils::getPrecisonOfProducerConsumerTensors(
+  auto tv4_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
       tv4->definition()->as<UnaryOp>());
   ASSERT_FALSE(tv4_precision.has_value());
 }
