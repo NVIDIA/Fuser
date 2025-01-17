@@ -178,34 +178,11 @@ __device__ __inline__ __half __e4m32half(const __e4m3 h) {
 }
 
 __device__ __inline__ __e4m3 __bfloat2e4m3(const __bfloat h) {
-  unsigned short _tmp_buffer;
-  __e4m3 val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16.bf16 %1, %1;\n\t"
-      "cvt.u32.u16 buf0, %1;\n\t"
-      "cvt.rn.satfinite.e4m3x2.f16x2 %0, buf0;\n\t"
-      "}"
-      : "=h"(_tmp_buffer)
-      : "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-  return val;
+  return __float2e4m3(__bfloat2float(h));
 }
 
 __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  __bfloat val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e4m3x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %0, buf0;\n\t"
-      "cvt.bf16.f16 %0, %0;\n\t"
-      "}"
-      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
-      : "h"(_tmp_buffer));
-
-  return val;
+  return __float2bfloat(__e4m32float(h));
 }
 
 __device__ __inline__ __e4m3 operator|(const __e4m3 x, const __e4m3 y) {
@@ -388,34 +365,11 @@ __device__ __inline__ __half __e5m22half(const __e5m2 h) {
 }
 
 __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
-  unsigned short _tmp_buffer;
-  __e5m2 val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16.bf16 %1, %1;\n\t"
-      "cvt.u32.u16 buf0, %1;\n\t"
-      "cvt.rn.satfinite.e5m2x2.f16x2 %0, buf0;\n\t"
-      "}"
-      : "=h"(_tmp_buffer)
-      : "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-  return val;
+  return __float2e5m2(__bfloat2float(h));
 }
 
 __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  __bfloat val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e5m2x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %0, buf0;\n\t"
-      "cvt.bf16.f16 %0, %0;\n\t"
-      "}"
-      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
-      : "h"(_tmp_buffer));
-
-  return val;
+  return __float2bfloat(__e5m22float(h));
 }
 
 __device__ __inline__ __e5m2 operator|(const __e5m2 x, const __e5m2 y) {
