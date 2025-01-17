@@ -57,6 +57,12 @@ bool shouldSwapMetaCast(Expr* cast) {
 
 // replays meta operation on `new_in`. return the new output from replayed meta
 // operation
+// TODO merge this into replayExprWithNewInput. There are two missing features
+// in replayExprWithNewInput:
+//   1. It expects new input to be of the same DataType as the old one, we
+//   should be able to update that;
+//   2. It doesn't support replay allocation domain transformations from the old
+//   outputs to the new outputs.
 Val* replayMetaOnNewInput(
     Expr* meta,
     Val* new_in,
@@ -208,7 +214,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //
 //        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
-Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
+Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& folded) {
   std::list<Val*> chain_cast_vals;
   auto prev_expr = expr->input(0)->definition();
   while (isCast(prev_expr)) {
@@ -222,8 +228,8 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
       break;
     }
 
-    // adding prev_expr to visited node so we'll short-cut it.
-    visited.insert(prev_expr);
+    // adding prev_expr to folded so we'll short-cut it.
+    folded.insert(prev_expr);
     // in the loop, we just repetitively chaining consecutive casts.
     chain_cast_vals.push_front(intermediate_cast);
     prev_expr = prev_expr->input(0)->definition();
@@ -295,12 +301,12 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& visited) {
 void castOptimizationPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
   auto exprs = fusion->exprs();
-  std::unordered_set<Expr*> visited;
+  std::unordered_set<Expr*> folded;
   for (auto iter = exprs.rbegin(); iter != exprs.rend(); ++iter) {
     auto expr = *iter;
     // skip current expr if it's not a foldable cast or it has already been
     // removed in removeChainedCasts and is now a dangling pointer.
-    if (visited.count(expr) != 0 || !isCast(expr)) {
+    if (folded.count(expr) != 0 || !isCast(expr)) {
       continue;
     }
 
@@ -362,8 +368,7 @@ void castOptimizationPass(Fusion* fusion) {
       }
 
       // optimize chained cast operations ending at expr
-      if (Expr* new_expr = removeChainedCasts(expr, visited);
-          new_expr != expr) {
+      if (Expr* new_expr = removeChainedCasts(expr, folded); new_expr != expr) {
         expr = new_expr;
         changed = true;
       }
