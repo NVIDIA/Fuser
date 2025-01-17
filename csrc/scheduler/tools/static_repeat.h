@@ -43,7 +43,7 @@ namespace scheduler_tools {
 // redundantly doing the same computations, which should be avoided if
 // possible.
 //
-// getMayeStaticRepeatInfo analyzes a given tensor and its producers
+// getMaybeStaticRepeatInfo analyzes a given tensor and its producers
 // to detect the above repeat pattern. The detected pattern is
 // currently only used by the resize scheduler. It effectively factors
 // out the repetition factor as an iter domain and moves it to the

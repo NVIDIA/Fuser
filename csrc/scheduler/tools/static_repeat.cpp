@@ -23,7 +23,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   //
   // Additionally, since maybe_repeat_out is commonly a fusion
   // output, it is likely there's a cache tv between expand_out and
-  // reshape_out, so the following pattern should also be detected.
+  // repeat_out, so the following pattern should also be detected.
   //
   // broadcast_out = broadcast(input)
   // expand_out = expand(broadcast_out)
