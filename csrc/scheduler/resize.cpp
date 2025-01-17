@@ -327,6 +327,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   if (resize_params->largest_input >= 0) {
     largest_input =
         fusion->inputs().at(resize_params->largest_input)->as<TensorView>();
+
     // The tensors are going to be reordered to align with the largest
     // input. To make it work, merge operations for reshape should be
     // cancelled.
@@ -356,21 +357,13 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Detect an ending repeat
   auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
 
-  std::cerr << "Scheduling reference: " << ref_tv->toString() << "\n";
-
-  auto static_repeat_info = getMaybeStaticRepeatId(ref_tv);
   if (static_repeat_info.has_value()) {
     std::cerr << "Static repeat: "
-              << static_repeat_info->ref_repeating_id->toString() << "|n";
+              << static_repeat_info->reshape_repeat_id->toString() << "\n";
   }
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
-
-  int64_t bdimx = 128;
-  if (getenv("BDIMX")) {
-    bdimx = atoi(getenv("BDIMX"));
-  }
 
   std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
 
@@ -396,8 +389,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
   }
 
+  const int64_t bdimx = 128;
+
   // Make sure the DID ID located at the outermost position
   auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
+
   // [DID, ..., ...]
   //        ^
   //        +--- outermost_pos
@@ -442,7 +438,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   const int64_t vec_factor = resize_params->vectorization_factor;
 
   int64_t next_innermost_pos = -1;
-
   // [..., ...]
   //        ^
   //        +--- next_innermost_pos
