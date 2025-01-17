@@ -146,22 +146,11 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Function to query whether compilation was attempted for a `KernelExecutor`
   bool isCompiled() const override {
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr);
-    NVF_ERROR(num_compiled_artifacts <= 1);
-    return num_compiled_artifacts == 1;
-  };
-
-  // function to query whether a `KernelExecutor` has a compiled kernel to
-  // execute
-  bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
-      NVF_ERROR(
-          fusion_ == nullptr,
-          "fusion_ should only be initialized when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
-  };
+  }
 
   void evictCache(size_t cache_id) {
     executor_entry_lookup_.erase(cache_id);
@@ -198,17 +187,6 @@ class KernelExecutor : public ExecutorAbstract {
   kir::Kernel* kernel() const {
     NVF_ERROR(lowered_);
     return lowered_->kernel();
-  }
-
-  Fusion* fusion() const {
-    NVF_ERROR(isCompiled());
-    if (fusion_ != nullptr) {
-      return fusion_.get();
-    }
-    if (lowered_ != nullptr) {
-      return lowered_->kernel()->as<Fusion>();
-    }
-    NVF_THROW("unreachable because of the isCompiled check");
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -502,9 +480,6 @@ class KernelExecutor : public ExecutorAbstract {
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
-
-  // Initialized for non-compiled fusions
-  std::unique_ptr<Fusion> fusion_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
