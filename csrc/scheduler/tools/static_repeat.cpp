@@ -148,7 +148,8 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   // Reshape of an expanded broadcast always generates a concrete
   // non-broadcast ID, so this check is not necessary, but just in
   // case in the future that may change.
-  if (reshape_merge->out()->isBroadcast()) {
+  if (reshape_merge->out()->isBroadcast() ||
+      reshape_merge->out()->hasExpandedExtent()) {
     return std::nullopt;
   }
 
