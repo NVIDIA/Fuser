@@ -350,33 +350,6 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
       MmaInputSmemSwizzle swizzle_type = mma_utils::tmaSwizzleSharedMemory(tv);
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
-      int64_t split_factor = 1;
-      const std::vector<TensorView*>& a_tensors =
-          tensor_roles_.at(MatmulTensorRole::OPERAND_A);
-      NVF_ERROR(tv->definition() != nullptr);
-      TensorView* producer = tv->definition()->input(0)->as<TensorView>();
-      if (std::find(a_tensors.begin(), a_tensors.end(), producer) !=
-          a_tensors.end()) {
-        split_factor =
-            params_->tile_sizes.cta_tile.m / params_->tile_sizes.warp_tile.m;
-      } else {
-        const std::vector<TensorView*>& b_tensors =
-            tensor_roles_.at(MatmulTensorRole::OPERAND_B);
-        NVF_ERROR(
-            std::find(b_tensors.begin(), b_tensors.end(), producer) !=
-            b_tensors.end());
-        split_factor =
-            params_->tile_sizes.cta_tile.n / params_->tile_sizes.warp_tile.n;
-      }
-      if (split_factor != 1) {
-        // Load only one warp tile at a time, corresponding to the data for
-        // each wg
-        NVF_ERROR(tv->axis(-5)->getParallelType() == ParallelType::Bulk);
-        tv->axis(-5)->parallelize(ParallelType::Serial);
-        tv->split(-5, split_factor, /*inner_split=*/false);
-        tv->merge(-7);
-        tv->axis(-5)->parallelize(ParallelType::Bulk);
-      }
     }
   };
   scheduleBranch(as_, acw_smems_, MmaOperand::A);

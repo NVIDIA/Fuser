@@ -4323,14 +4323,13 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM_BroadcastInputs) {
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.warp_tile = GemmTile(128, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-  mparams.grid_swizzle_factor = 2;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
