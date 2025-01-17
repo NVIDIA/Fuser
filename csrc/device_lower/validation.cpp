@@ -417,13 +417,26 @@ class VectorizeValidator : public OptInDispatch {
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-    auto loop_groups = graph.toGroups(getLoopIds(load_store, id_model));
-
+    // Traverse from the complete set of loop IDs to the allocation
+    // domain of this tensor. Note that the allocation domain may
+    // include unused IDs such as broadcast IDs. They may not be
+    // reachable, so the require_all_to_visited needs to be
+    // false. Here, only the innermost allocation ID needs to be
+    // reachable, which is asserted at the end of the function.
+    //
+    // Note that previously this traversal was from the allocation
+    // domain to v_id only. It does not work when the allocation
+    // domain has a broadcast ID that is promoted to a concrete ID
+    // and then is used to generate v_id. The traversal needs to use
+    // the promoted concrete ID instead of the broadcast allocation
+    // ID. Instead, here, we traverse from the promoted loop IDs to
+    // the allocation domain. This should be always able to reach at
+    // least the vectorized ID.
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
-                         loop_groups,
+                         graph.toGroups(getLoopIds(load_store, id_model)),
                          graph.toGroups(tv->getMaybeAllocationDomain()),
-                         false)
+                         /*require_all_to_visited=*/false)
                          .first;
 
     ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
@@ -508,7 +521,10 @@ class VectorizeValidator : public OptInDispatch {
       }
     }
 
-    NVF_ERROR(innermost_alloc_id != nullptr);
+    NVF_ERROR(
+        innermost_alloc_id != nullptr,
+        "No allocation ID for group found: ",
+        nvfuser::toString(cur_group));
 
     return {innermost_alloc_id, dep_alloc_ids};
   }
