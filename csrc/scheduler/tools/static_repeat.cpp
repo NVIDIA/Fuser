@@ -48,9 +48,6 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     return std::nullopt;
   }
 
-  std::cerr << "Reshape out: " << reshape_out->definition()->toString() << ", "
-            << toDelimitedString(reshape_out->getRootDomain()) << "\n";
-
   // Detect expand
   auto expand_out = reshape->in();
   repeat_tvs.insert(expand_out);
@@ -68,8 +65,6 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   }
 
   auto inp_tv = broadcast->in();
-
-  std::cerr << "Inp tv: " << inp_tv->toString() << "\n";
 
   // Not sure if this is really necessary to check, but assume there's
   // only single chain of the ops and tensors from inp_tv to
@@ -99,26 +94,19 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     return std::nullopt;
   }
 
-  std::cerr << "Broadcast ID: " << broadcast_id->toString() << "\n";
-
   // Check if and only if the broadcast ID is expanded
   IterDomain* expanded_id = nullptr;
   for (const auto i : c10::irange(broadcast_out->getLogicalDomain().size())) {
     auto p_id = broadcast_out->getLogicalDomain().at(i);
     auto c_id = expand_out->getLogicalDomain().at(i);
-    std::cerr << "p_id: " << p_id->toString() << ", c_id: " << c_id->toString()
-              << "\n";
     if (p_id == broadcast_id && c_id->isBroadcast() &&
         c_id->hasExpandedExtent()) {
       expanded_id = c_id;
-      std::cerr << "Expand: " << c_id->toString() << "\n";
     } else if (
         p_id->isBroadcast() && !p_id->hasExpandedExtent() &&
         c_id->isBroadcast() && c_id->hasExpandedExtent()) {
       // Expanded but this broadcast was not introduced by the
       // preceding broadcast op
-      std::cerr << "Non-broadcast expansion: " << p_id->toString() << ", "
-                << c_id->toString() << "\n";
       return std::nullopt;
     }
   }
@@ -126,8 +114,6 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   if (expanded_id == nullptr) {
     return std::nullopt;
   }
-
-  std::cerr << "Expand ID: " << expanded_id->toString() << "\n";
 
   // Only a static repeat factor is considered
   if (!expanded_id->expandedExtent()->isConstInt()) {
@@ -145,21 +131,16 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     return std::nullopt;
   }
 
-  std::cerr << reshape_exprs.at(0)->toString();
-
   auto reshape_merge = dynamic_cast<Merge*>(reshape_exprs.at(0));
   if (reshape_merge == nullptr) {
     return std::nullopt;
   }
-
-  std::cerr << "Reshape merge: " << reshape_merge->toString() << "\n";
 
   // The corresponding root ID of the outout tv should be one of the
   // inputs of the merge
   auto reshape_root_broadcast = reshape_out->getRootDomain().at(broadcast_pos);
   if (reshape_merge->outer() != reshape_root_broadcast &&
       reshape_merge->inner() != reshape_root_broadcast) {
-    std::cerr << "Invalid merge\n";
     return std::nullopt;
   }
 
