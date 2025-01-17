@@ -4339,16 +4339,16 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 64);
-  gemm_tile.warp_tile = GemmTile(64, 64, 64);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 5;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
@@ -4420,16 +4420,16 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 64);
-  gemm_tile.warp_tile = GemmTile(64, 64, 64);
+  gemm_tile.warp_tile = GemmTile(64, 128, 64);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
@@ -4451,9 +4451,9 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   // Relax tolerance for larger sum due to large K
   // TODO: Some of these are failing, perhaps due to improper syncing of
   // horizontally fused kernels?
-  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
   EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
+  EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
 }
 
 } // namespace nvfuser
