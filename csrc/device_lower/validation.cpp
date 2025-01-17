@@ -407,21 +407,26 @@ class VectorizeValidator : public OptInDispatch {
   // correctly for such a case, whereas this version addresses the
   // limitation by using ValGraphBFS.
   static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
-  getDependentAllocIDsIdModel(IterDomain* v_id, TensorView* tv) {
+  getDependentAllocIDsIdModel(
+      IterDomain* v_id,
+      TensorView* tv,
+      Expr* load_store) {
     NVF_ERROR(GpuLower::hasCurrent());
     NVF_ERROR(GpuLower::current()->hasIdModel());
 
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
+    auto loop_groups = graph.toGroups(getLoopIds(load_store, id_model));
+
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
+                         loop_groups,
                          graph.toGroups(tv->getMaybeAllocationDomain()),
-                         graph.toGroups(std::vector<Val*>{v_id}))
+                         false)
                          .first;
-    expr_path = reverse(expr_path);
 
-    ValGroup cur_group = graph.toGroup(v_id);
+    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
@@ -455,11 +460,11 @@ class VectorizeValidator : public OptInDispatch {
         }
       }
 
-      visited_ids.insert(outputs.begin(), outputs.end());
-
       if (std::find(inputs.begin(), inputs.end(), cur_group) == inputs.end()) {
         continue;
       }
+
+      visited_ids.insert(outputs.begin(), outputs.end());
 
       if (expr->isA<Resize>()) {
         // No validatiton is done at this moment
@@ -502,6 +507,8 @@ class VectorizeValidator : public OptInDispatch {
         innermost_alloc_id = alloc;
       }
     }
+
+    NVF_ERROR(innermost_alloc_id != nullptr);
 
     return {innermost_alloc_id, dep_alloc_ids};
   }
@@ -591,10 +598,11 @@ class VectorizeValidator : public OptInDispatch {
   static IterDomain* getAndValidateVectorizedIdInAllocationDomain(
       IterDomain* v_id,
       TensorView* tv,
-      std::string name) {
+      std::string name,
+      Expr* load_store) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
         GpuLower::current()->hasIdModel()
-        ? getDependentAllocIDsIdModel(v_id, tv)
+        ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
     validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
@@ -651,8 +659,14 @@ class VectorizeValidator : public OptInDispatch {
         vector_size,
         " however, vector sizes only upto and including 16 bytes are supported.");
 
-    auto consumer_vectorized_id =
-        getAndValidateVectorizedIdInAllocationDomain(v_id, tv, "consumer");
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+
+    auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
+        v_id, tv, "consumer", tv_def);
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -668,11 +682,6 @@ class VectorizeValidator : public OptInDispatch {
       GpuLower::current()->vectorizedAccesses().emplace(tv, vector_word_size);
     }
 
-    auto tv_def = tv->definition();
-    NVF_ERROR(
-        tv_def != nullptr,
-        "Tv has no definition, cannot validate vectorization:",
-        tv);
     // TernaryOp(where) is a could have multiple inputs. But we only support
     // single TensorView input for vectorization.
     TensorView* producer_tv = nullptr;
@@ -712,9 +721,10 @@ class VectorizeValidator : public OptInDispatch {
     // Validate producer
     if (GpuLower::current()->hasIdModel()) {
       // No need to do replayPasC when using IdModel
+      NVF_ERROR(tv_def->input(0) == producer_tv);
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              v_id, producer_tv, "producer");
+              v_id, producer_tv, "producer", tv_def);
     } else {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
       auto producer_replayed_as_consumer =
@@ -732,7 +742,7 @@ class VectorizeValidator : public OptInDispatch {
               .getReplay();
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              c2p_map.at(v_id), producer_tv, "producer");
+              c2p_map.at(v_id), producer_tv, "producer", tv_def);
     }
 
     // For aligned vectorize, the extent of a vectorized domain must
