@@ -21,7 +21,10 @@
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/resize_utils.h>
+#include <scheduler/tools/static_repeat.h>
 #include <val_graph_visitor.h>
+
+#include <memory>
 
 namespace nvfuser {
 
@@ -249,192 +252,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   return params;
 }
 
-namespace {
-
-struct StaticRepeatInfo {
-  IterDomain* ref_repeating_id = nullptr;
-  std::vector<TensorView*> repeated_tvs;
-};
-
-std::optional<StaticRepeatInfo> getMaybeStaticRepeatId(TensorView* ref_tv) {
-  // Assume ref is a fusion output
-  NVF_ERROR(ref_tv->isFusionOutput());
-
-  // Find the broadcast, expand and reshape pattern.
-
-  TensorView* reshape_out_tv = ref_tv;
-
-  // It is likely a cache is inserted
-  auto load_store = dynamic_cast<LoadStoreOp*>(ref_tv->definition());
-  // Only Set is considered for now
-  if (load_store != nullptr) {
-    if (load_store->opType() != LoadStoreOpType::Set) {
-      return std::nullopt;
-    }
-    reshape_out_tv = load_store->input(0)->as<TensorView>();
-    // Not sure if this is really problematic, but the producer of the
-    // caching op should have only one consumer
-    if (reshape_out_tv->uses().size() > 1) {
-      return std::nullopt;
-    }
-  }
-
-  std::cerr << "Reshape out: " << reshape_out_tv->toString() << "\n";
-
-  // The pattern to detect:
-  //
-  // broadcast_out = broadcast(input)
-  // expand_out = expand(broadcast_out)
-  // reshape_out = reshape(expand_out)
-
-  auto reshape = dynamic_cast<ViewOp*>(reshape_out_tv->definition());
-  if (reshape == nullptr) {
-    return std::nullopt;
-  }
-
-  std::cerr << reshape->toString();
-
-  auto expand_out_tv = reshape->in();
-
-  auto expand = dynamic_cast<ExpandOp*>(expand_out_tv->definition());
-  if (expand == nullptr) {
-    return std::nullopt;
-  }
-
-  std::cerr << expand->toString();
-
-  auto broadcast_out_tv = expand->in();
-
-  auto broadcast = dynamic_cast<BroadcastOp*>(broadcast_out_tv->definition());
-  if (broadcast == nullptr) {
-    return std::nullopt;
-  }
-
-  std::cerr << broadcast->toString();
-
-  auto inp_tv = broadcast->in();
-
-  std::cerr << "Inp tv: " << inp_tv->toString() << "\n";
-
-  // Not sure if this is really necessary to check, but assume there's
-  // only single chain of the ops and tensors from inp_tv to the
-  // fusion outputs
-  auto all_dep_vals =
-      DependencyCheck::getAllValsBetween({inp_tv}, inp_tv->fusion()->outputs());
-  if (std::unordered_set<Val*>{all_dep_vals.begin(), all_dep_vals.end()} !=
-      std::unordered_set<Val*>{
-          inp_tv, broadcast_out_tv, expand_out_tv, reshape_out_tv, ref_tv}) {
-    return std::nullopt;
-  }
-
-  std::cerr << "All dep vals: " << toDelimitedString(all_dep_vals) << "\n";
-
-  // Check if the ops match with the repeat pattern. Currently only
-  // one iter domain can be repeated
-  IterDomain* broadcast_id = nullptr;
-  int64_t broadcast_pos = -1;
-  for (const auto i :
-       c10::irange(broadcast_out_tv->getLogicalDomain().size())) {
-    if (broadcast->getBroadcastDimFlags().at(i)) {
-      if (broadcast_id != nullptr) {
-        // Multiple broadcast IDs not supported
-        return std::nullopt;
-      }
-      broadcast_id = broadcast_out_tv->getLogicalDomain().at(i);
-      broadcast_pos = (int64_t)i;
-    }
-  }
-
-  if (broadcast_id == nullptr) {
-    return std::nullopt;
-  }
-
-  std::cerr << "Broadcast ID: " << broadcast_id->toString() << "\n";
-
-  // Check if and only if the broadcast ID is expanded
-  IterDomain* expanded_id = nullptr;
-  for (const auto i :
-       c10::irange(broadcast_out_tv->getLogicalDomain().size())) {
-    auto p_id = broadcast_out_tv->getLogicalDomain().at(i);
-    auto c_id = expand_out_tv->getLogicalDomain().at(i);
-    std::cerr << "p_id: " << p_id->toString() << ", c_id: " << c_id->toString()
-              << "\n";
-    if (p_id == broadcast_id && c_id->isBroadcast() &&
-        c_id->hasExpandedExtent()) {
-      expanded_id = c_id;
-      std::cerr << "Expand: " << c_id->toString() << "\n";
-    } else if (
-        p_id->isBroadcast() && !p_id->hasExpandedExtent() &&
-        c_id->isBroadcast() && c_id->hasExpandedExtent()) {
-      // Expanded but this broadcast was not introduced by the
-      // preceding broadcast op
-      std::cerr << "Non-broadcast expansion: " << p_id->toString() << ", "
-                << c_id->toString() << "\n";
-      return std::nullopt;
-    }
-  }
-
-  if (expanded_id == nullptr) {
-    return std::nullopt;
-  }
-
-  std::cerr << "Expand ID: " << expanded_id->toString() << "\n";
-
-  // Only a static repeat factor is considered
-  if (!expanded_id->expandedExtent()->isConstInt()) {
-    std::cerr << "Non-const expand\n";
-    return std::nullopt;
-  }
-
-  // The expanded ID should be merged with the iter domain next to it,
-  // and that should be the only reshape expr
-  auto reshape_exprs = DependencyCheck::getAllExprsBetween(
-      {reshape_out_tv->getRootDomain().begin(),
-       reshape_out_tv->getRootDomain().end()},
-      {reshape_out_tv->getLogicalDomain().begin(),
-       reshape_out_tv->getLogicalDomain().end()});
-  if (reshape_exprs.size() != 1) {
-    std::cerr << "More exprs: " << reshape_exprs.size() << "\n";
-    return std::nullopt;
-  }
-
-  std::cerr << reshape_exprs.at(0)->toString();
-
-  auto reshape_merge = dynamic_cast<Merge*>(reshape_exprs.at(0));
-  if (reshape_merge == nullptr) {
-    return std::nullopt;
-  }
-
-  std::cerr << "Reshape merge: " << reshape_merge->toString() << "\n";
-
-  auto reshape_root_broadcast =
-      reshape_out_tv->getRootDomain().at(broadcast_pos);
-  // IterDomain* ref_repeated_id = nullptr;
-  if (reshape_merge->outer() != reshape_root_broadcast &&
-      reshape_merge->inner() != reshape_root_broadcast) {
-    std::cerr << "Invalid merge\n";
-    return std::nullopt;
-  }
-
-  // When ref_tv != reshape_out_tv due to caching, assume the loop
-  // domain of the reference is already transformed to cancel the
-  // reshape
-  NVF_ERROR(
-      ref_tv->getLoopDomain().size() == reshape_out_tv->getRootDomain().size());
-
-  StaticRepeatInfo info;
-  info.ref_repeating_id = ref_tv->getLoopDomain().at(broadcast_pos);
-  info.repeated_tvs =
-      std::vector<TensorView*>{broadcast_out_tv, expand_out_tv, reshape_out_tv};
-  if (reshape_out_tv != ref_tv) {
-    info.repeated_tvs.push_back(ref_tv);
-  }
-
-  return info;
-}
-
-} // namespace
-
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
@@ -460,24 +277,22 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         IrGraphGenerator::DetailLevel::ComputeOnly);
   }
 
+  auto ref_tv = getReferenceTensor(fusion);
+  NVF_ERROR(ref_tv != nullptr);
+
   scheduler_utils::cacheInputs(fusion, true);
   scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  {
-    std::cout << std::endl;
-    std::cout << "Caching done\n";
-    fusion->printMath();
-    std::cout << std::endl;
-  }
   auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
-  IdModel id_model(fusion, /*build_graphs=*/false);
-  const auto& exact_graph = id_model.buildExactGraph();
+  std::unique_ptr<IdModel> id_model =
+      std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
+  id_model->buildExactGraph();
 
   // Replicate resize inputs if necessary to avoid conflicting
   // propagations
   const auto exclusivity_info_map = scheduler_tools::getNonExclusiveResizeInfo(
-      resize_tensor_ops, exact_graph);
+      resize_tensor_ops, id_model->idGraph(IdMappingMode::EXACT));
   for (auto resize_tensor_op : resize_tensor_ops) {
     auto out_tv = resize_tensor_op->output(0)->as<TensorView>();
     if (exclusivity_info_map.count(out_tv) == 0) {
@@ -534,11 +349,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  // Should it be scheduled based on largest_input?
-  // No, that doesn't work when an expanded domain is reshaped.
+  // Update the IdModel
+  id_model = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
+  id_model->buildExactGraph();
 
-  auto ref_tv = getReferenceTensor(fusion);
-  NVF_ERROR(ref_tv != nullptr);
+  // Detect an ending repeat
+  auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
 
   std::cerr << "Scheduling reference: " << ref_tv->toString() << "\n";
 
@@ -582,21 +398,46 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Make sure the DID ID located at the outermost position
   auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
+  // [DID, ..., ...]
+  //        ^
+  //        +--- outermost_pos
 
-  // Move the static repeat ID to the outermost position
+  // Move the static repeat ID to the outermost position if
+  // detected. The repeat ID then just remains there with no
+  // scheduling.
+  bool repeat_id_moved_to_outermost = false;
   if (static_repeat_info.has_value()) {
-    auto pos = (int64_t)std::distance(
+    NVF_ERROR(ref_tv == static_repeat_info->repeat_output_tv);
+    auto ref_repeat_id_it = std::find_if(
         ref_tv->getLoopDomain().begin(),
-        std::find(
-            ref_tv->getLoopDomain().begin(),
-            ref_tv->getLoopDomain().end(),
-            static_repeat_info->ref_repeating_id));
-    NVF_ERROR(pos >= outermost_pos);
-    ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{pos, 0}});
-    ++outermost_pos;
-  }
+        ref_tv->getLoopDomain().end(),
+        [&](IterDomain* loop_id) {
+          return id_model->idGraph(IdMappingMode::EXACT)
+              .disjointValSets()
+              .strictAreMapped(loop_id, static_repeat_info->reshape_repeat_id);
+        });
+    // Gives up if the repeat ID is not found. Unclear if this could
+    // actually happen, though.
+    if (ref_repeat_id_it != ref_tv->getLoopDomain().end()) {
+      auto repeat_id_pos =
+          std::distance(ref_tv->getLoopDomain().begin(), ref_repeat_id_it);
+      NVF_ERROR(
+          repeat_id_pos >= outermost_pos,
+          "Unexpected to have DID-parallelized repeat axis: ",
+          static_repeat_info->reshape_repeat_id->toString());
 
-  std::cerr << "Reordered ref: " << ref_tv->toString() << "\n";
+      // [DID, ..., repeat_id, ...]
+      //        ^
+      //        +--- outermost_pos
+      ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{repeat_id_pos, 0}});
+      ++outermost_pos;
+      // [repeat_id, DID, ...]
+      //                   ^
+      //                   +--- outermost_pos
+
+      repeat_id_moved_to_outermost = true;
+    }
+  }
 
   const int64_t vec_factor = resize_params->vectorization_factor;
 
@@ -639,38 +480,47 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   std::cout << std::endl;
 
   // Propagate the reference to the other tensors. Note that the
-  // update flag is enabled so to workaround the resize propagation
+  // update flag is enabled to workaround the resize propagation
   // issue. This may not work if there's a tensor that is reshaped
   // from the reference tensor, but that should not be the case as the
   // reference is picked by the same routine used for the pointwise
   // scheduler.
-  if (static_repeat_info.has_value()) {
+  //
+  // When an ending static repeat is detected and the repeat ID is
+  // moved to the outermost position, propagation is done separately
+  // between the tensors before the repeat and after the repeat. The
+  // tensors are first grouped into the pre-repeat group and the
+  // post-repeat group, where only the latter group has the repeat
+  // IDs. When propagating the loop domain of the reference tensor,
+  // which has the repeat ID, the full loop domain is propagated only
+  // to the post-repeat group. For the pre-repeat group, the repeat ID
+  // is dropped and only the remaining loop domain is propagated.
+  if (repeat_id_moved_to_outermost) {
+    // Divide all tvs to the pre and posgt repeat groups
     auto all_tvs = fusion->allTvs();
-    std::vector<TensorView*> non_repeated_tvs;
-    non_repeated_tvs.reserve(
-        all_tvs.size() - static_repeat_info->repeated_tvs.size());
-    std::copy_if(
-        all_tvs.begin(),
-        all_tvs.end(),
-        std::back_inserter(non_repeated_tvs),
-        [&](TensorView* tv) {
-          return std::find(
-                     static_repeat_info->repeated_tvs.begin(),
-                     static_repeat_info->repeated_tvs.end(),
-                     tv) == static_repeat_info->repeated_tvs.end();
-        });
-    std::cerr << "Non repeated tvs: " << toDelimitedString(non_repeated_tvs)
-              << "\n";
-    std::cerr << "Repeated tvs: "
-              << toDelimitedString(static_repeat_info->repeated_tvs) << "\n";
+    std::vector<TensorView*> post_repeat_tvs;
+    post_repeat_tvs.reserve(static_repeat_info->repeat_tvs.size());
+    std::vector<TensorView*> pre_repeat_tvs;
+    pre_repeat_tvs.reserve(
+        all_tvs.size() - static_repeat_info->repeat_tvs.size());
+    for (auto tv : all_tvs) {
+      if (static_repeat_info->repeat_tvs.count(tv)) {
+        post_repeat_tvs.push_back(tv);
+      } else {
+        pre_repeat_tvs.push_back(tv);
+      }
+    }
+
+    // The repeat ID should be located at the outermost position
     std::vector<IterDomain*> non_repeated_loop{
         ref_tv->getLoopDomain().begin() + 1, ref_tv->getLoopDomain().end()};
+
     scheduler_tools::scheduleLoopDomainsLike(
-        non_repeated_tvs,
+        pre_repeat_tvs,
         non_repeated_loop,
         /*update_loop_domain_only=*/true);
     scheduler_tools::scheduleLoopDomainsLike(
-        static_repeat_info->repeated_tvs,
+        post_repeat_tvs,
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true);
   } else {
