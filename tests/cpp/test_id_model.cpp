@@ -135,7 +135,7 @@ class IdModelTester : public LoopPromotionMapBuilderCallback {
         /*loop_promotion_map_builder_callback=*/this);
 
     // Only build the loop graph
-    id_model->buildLoopGraph();
+    id_model->buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
   }
 
   void postStep1(

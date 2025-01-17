@@ -1204,6 +1204,20 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(eager_out2, nvf_out[1])
         # self.assertEqual(eager_out3, nvf_out[2])
 
+    def test_triu(self):
+        inputs = [
+            torch.randn(4, 16, device="cuda", dtype=torch.float16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.triu(t0, -1)
+            fd.add_output(t1)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out0 = torch.triu(inputs[0], -1)
+        self.assertEqual(eager_out0, nvf_out[0])
+
     def test_complex_rsqrt(self):
         inputs = [
             torch.randn(4, device="cuda", dtype=torch.complex64),

@@ -9272,6 +9272,118 @@ TEST_F(NVFuserTest, AllIdsMultipleDependencies) {
   }
 }
 
+// Repeating a broadcast ID. RepeatOp should be used.
+TEST_F(NVFuserTest, RepeatBroadcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = repeat(tv1, {1L, 2L});
+  fusion.addOutput(tv2);
+
+  EXPECT_TRUE(tv2->definition()->isA<RepeatOp>());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repeating a non-broadcast ID. Should be translated to broadcast +
+// expand + reshape.
+TEST_F(NVFuserTest, RepeatNonBroadcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2L});
+  fusion.addOutput(tv1);
+
+  ASSERT_TRUE(tv1->definition()->isA<ViewOp>());
+  ASSERT_TRUE(tv1->definition()->input(0)->definition()->isA<ExpandOp>());
+  ASSERT_TRUE(tv1->definition()
+                  ->input(0)
+                  ->definition()
+                  ->input(0)
+                  ->definition()
+                  ->isA<BroadcastOp>());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Repeating a mix of broadcast and non-broadcast IDs
+TEST_F(NVFuserTest, RepeatBroadcastAndNonBroadcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape{2, 1, 3, 1};
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2L, 2L, 2L, 2L});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, CastPrecision) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = castOp(DataType::BFloat16, tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(tv3);
+
+  auto tv4 = castOp(DataType::Int, tv3);
+  fusion.addOutput(tv4);
+
+  auto tv1_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+      tv1->definition()->as<UnaryOp>());
+  ASSERT_TRUE(tv1_precision.has_value());
+  EXPECT_EQ(tv1_precision->first, 2);
+  EXPECT_EQ(tv1_precision->second, 4);
+
+  auto tv2_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+      tv2->definition()->as<UnaryOp>());
+  ASSERT_TRUE(tv2_precision.has_value());
+  EXPECT_EQ(tv2_precision->first, 4);
+  EXPECT_EQ(tv2_precision->second, 2);
+
+  // Precision of type Index is not possible to determine until lowering
+  auto tv4_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+      tv4->definition()->as<UnaryOp>());
+  ASSERT_FALSE(tv4_precision.has_value());
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

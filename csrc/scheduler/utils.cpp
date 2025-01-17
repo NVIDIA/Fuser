@@ -2666,6 +2666,79 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
+void reorderTensorLike(
+    TensorView* target_tv,
+    const std::vector<IterDomain*>& ref) {
+  const auto& tv_loop_domain = target_tv->getLoopDomain();
+
+  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  const auto& graph = id_model.buildBroadcastGraph();
+
+  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+
+  ValGroups ref_groups = graph.toGroups(ref);
+
+  // Traverse from the reference to the target tv. The reference is
+  // not guaranteed to cover all loop IDs of target, so
+  // require_all_to_visited needs to be false
+  auto path = ValGraphBFS::getExprGroupsBetween(
+                  graph,
+                  ref_groups,
+                  target_groups,
+                  /*require_all_to_visited=*/false)
+                  .first;
+
+  // Traverse the expr path to create an ordered ID groups
+  std::deque<ValGroup> ordered_domain{
+      ref_groups.vector().begin(), ref_groups.vector().end()};
+
+  for (const auto& [expr_g, dir] : path) {
+    auto inputs = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+    auto outputs = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+
+    // Inserts the outputs at the innermost position
+    auto innermost_it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), inputs.back());
+    NVF_ERROR(innermost_it != ordered_domain.end());
+    ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
+
+    // Removes the inputs
+    for (const auto& inp : inputs) {
+      ordered_domain.erase(
+          std::remove(ordered_domain.begin(), ordered_domain.end(), inp),
+          ordered_domain.end());
+    }
+  }
+
+  std::unordered_map<int64_t, int64_t> old2new;
+
+  // Place IDs that do not appear in ref at the outer position
+  int64_t new_id_pos = 0;
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it == ordered_domain.end()) {
+      old2new.emplace((int64_t)i, new_id_pos);
+      ++new_id_pos;
+    }
+  }
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it != ordered_domain.end()) {
+      int64_t new_pos =
+          (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
+      old2new.emplace((int64_t)i, new_pos);
+    }
+  }
+
+  target_tv->reorder(old2new);
+}
+
 } // namespace scheduler_utils
 
 } // namespace nvfuser

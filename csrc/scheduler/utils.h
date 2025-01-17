@@ -745,5 +745,9 @@ inline int64_t nLogicalDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
+// Reorer the loop domain of a given tensor to align with a given list of
+// reference IDs. Non-matching loop IDs are placed outermost positions.
+void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

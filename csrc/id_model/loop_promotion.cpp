@@ -17,8 +17,12 @@ namespace nvfuser {
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
     IdModel& id_model,
     const StatefulInliningInfo& inlining_info,
-    LoopPromotionMapBuilderCallback* callback)
-    : id_model_(id_model), inlining_info_(inlining_info), callback_(callback) {}
+    LoopPromotionMapBuilderCallback* callback,
+    bool force_full_loop_promotion_analysis)
+    : id_model_(id_model),
+      inlining_info_(inlining_info),
+      callback_(callback),
+      force_full_loop_promotion_analysis_(force_full_loop_promotion_analysis) {}
 
 ValGraph& LoopPromotionMapBuilder::idGraph(IdMappingMode mode) {
   return id_model_.idGraph(mode);
@@ -97,11 +101,12 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
 namespace {
 
-// Check if all the domains of each loop group are exactly mapped. If
-// so, the full promotion analysis should not be necessary. Only the
+// Check if each loop group has at most one group of concrete domains. If
+// so, the full promotion analysis should not be necessary since
+// finding the promotion ID is a trivial probelm. Only the
 // loop groups of the loop domains need to be checked as loop
 // promotion does not matter for the other domains.
-bool isLoopGraphUniform(const IdModel& id_model) {
+bool isLoopGraphAlmostUniform(const IdModel& id_model) {
   for (const auto tv : id_model.tvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -111,8 +116,22 @@ bool isLoopGraphUniform(const IdModel& id_model) {
           id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
       const auto all_exact_groups =
           id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-      if (all_exact_groups.size() > 1) {
-        return false;
+      if (all_exact_groups.size() == 1) {
+        continue;
+      }
+
+      // Even when multiple exact groups are found, if there's only
+      // one concrete group and all the others are broadcast, it's
+      // obvious that the concrete group represents the promotion.
+      bool concrete_group_found = false;
+      for (const auto& exact_group : all_exact_groups) {
+        if (!exact_group->front()->as<IterDomain>()->isBroadcast()) {
+          if (concrete_group_found) {
+            // multiple concrete groups
+            return false;
+          }
+          concrete_group_found = true;
+        }
       }
     }
   }
@@ -126,8 +145,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
   // analysis. These are not comprehensive. Should add more conditions
   // if necessary.
-  if (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
-      isLoopGraphUniform(id_model_)) {
+  if (!force_full_loop_promotion_analysis_ &&
+      (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
+       isLoopGraphAlmostUniform(id_model_))) {
     return buildWithNoBroadcast();
   }
 
@@ -936,8 +956,10 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::get(
     IdModel& id_model,
     const StatefulInliningInfo& inlining_info,
-    LoopPromotionMapBuilderCallback* callback) {
-  LoopPromotionMapBuilder builder(id_model, inlining_info, callback);
+    LoopPromotionMapBuilderCallback* callback,
+    bool force_full_loop_promotion_analysis) {
+  LoopPromotionMapBuilder builder(
+      id_model, inlining_info, callback, force_full_loop_promotion_analysis);
   return builder.build();
 }
 
@@ -967,11 +989,18 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();
 
-      // First ID
-      if (promotion == nullptr) {
+      // A group is allowed to have one single exact group of concrete
+      // IDs with a broadcast group.
+      if (promotion == nullptr ||
+          (promotion->isBroadcast() && !loop_id->isBroadcast())) {
         is_const = this_is_const;
         promotion = loop_id;
         num_exprs = this_num_exprs;
+        continue;
+      }
+
+      // Ignore broadcast if a concrete ID is already found
+      if (!promotion->isBroadcast() && loop_id->isBroadcast()) {
         continue;
       }
 

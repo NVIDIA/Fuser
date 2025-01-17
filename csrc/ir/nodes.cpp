@@ -2135,6 +2135,86 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
 
+RepeatOp::RepeatOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
+    : Expr(passkey) {
+  auto in_domain = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto& out_domain = out->getLogicalDomain();
+
+  NVF_ERROR(in_domain.size() == out_domain.size());
+
+  NVF_ERROR(
+      std::none_of(
+          out->getLogicalDomain().begin(),
+          out->getLogicalDomain().end(),
+          [](IterDomain* out_logical_id) {
+            return out_logical_id->isReduction();
+          }),
+      "Output should not have reduction IDs.");
+
+  bool repetition_found = false;
+  for (const auto i : c10::irange(in_domain.size())) {
+    if (in_domain.at(i)->isBroadcast() && !out_domain.at(i)->isBroadcast()) {
+      NVF_ERROR(!in_domain.at(i)->hasExpandedExtent());
+      NVF_ERROR(in_domain.at(i)->extent()->isOneInt());
+      repetition_found = true;
+    }
+  }
+
+  NVF_ERROR(
+      repetition_found,
+      "No repetition dim found: ",
+      out->toString(),
+      ", ",
+      in->toString());
+
+  addOutput(out);
+  addInput(in);
+}
+
+std::string RepeatOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = repeat( " << in()
+                          << " )\n";
+  return ss.str();
+}
+
+std::string RepeatOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> RepeatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "RepeatOp expects exactly 1 input, but received ",
+      inputs.size());
+  auto tensor = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> multipliers;
+  multipliers.reserve(out()->getLogicalDomain().size());
+  const auto c2p =
+      PairwiseLogicalDomainMap(in(), out()).mapConsumerToProducer();
+  for (const auto i : c10::irange(out()->getLogicalDomain().size())) {
+    auto out_id = out()->getLogicalDomain().at(i);
+    auto inp_id = c2p.at(out_id);
+    auto out_extent = ee.evaluate(out_id->extent()).as<int64_t>();
+    auto inp_extent = ee.evaluate(inp_id->extent()).as<int64_t>();
+    NVF_ERROR(
+        out_extent % inp_extent == 0,
+        "For dimension ",
+        i,
+        ", the output extent (",
+        out_extent,
+        " should be a multiple of the input extent (",
+        inp_extent,
+        ").");
+    multipliers.push_back(out_extent / inp_extent);
+  }
+  return {tensor.repeat(multipliers)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(RepeatOp)
+
 ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
@@ -3705,6 +3785,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
                           (is_rfactor_dim && inp_id->isBroadcast())
                               ? IterType::Iteration
                               : inp_id->getIterType())
+                      .expanded_extent(nullptr)
                       .build();
     new_root_domain.push_back(out_id);
   }
