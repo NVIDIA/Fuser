@@ -169,10 +169,6 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   info.reshape_repeat_id = reshape_out->getRootDomain().at(broadcast_pos);
   info.repeat_tvs = repeat_tvs;
 
-  if (getenv("SKIP")) {
-    return std::nullopt;
-  }
-
   return info;
 }
 
