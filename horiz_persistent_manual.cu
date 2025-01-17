@@ -11697,18 +11697,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         mbarrier::arrive(toSmem((&T23[(slot + 2LL)])));
       }
     }
-    #pragma unroll
-    for(nvfuser_index_t i60 = 0; i60 < 2; ++i60) {
-      if (((Hopper::electSync(4294967295U) && b25) && b26)) {
-        mbarrier::inval(toSmem((&T23[(i60 + 2LL)])));
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i61 = 0; i61 < 2; ++i61) {
-      if (((Hopper::electSync(4294967295U) && b25) && b26)) {
-        mbarrier::inval(toSmem((&T23[i61])));
-      }
-    }
     Array<__bfloat, 64, 8> T18;
     #pragma unroll
     for(nvfuser_index_t i62 = 0; i62 < 16; ++i62) {
