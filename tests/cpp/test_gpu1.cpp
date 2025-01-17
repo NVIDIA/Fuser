@@ -2711,18 +2711,12 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
       std::vector<c10::IValue> inputs = {input1};
 
       KernelExecutor ke;
-      if (cast_targets == DataType::BFloat16 && !deviceMajorMinorCheck(9, 0)) {
-        // This could be coming from BFloat16 support or Float8_xxx support
-        ASSERT_THAT(
-            [&]() { ke.compile(&fusion, inputs); },
-            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains")));
 #if (CUDA_VERSION >= 12010)
-      } else if (!deviceMajorMinorCheck(8, 9)) {
+      if (!deviceMajorMinorCheck(8, 9)) {
 #elif (CUDA_VERSION >= 11080)
-      } else if (!deviceMajorMinorCheck(9)) {
+      if (!deviceMajorMinorCheck(9)) {
 #else
-      } else if (true) {
+      if (true) {
 #endif
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, inputs); },
