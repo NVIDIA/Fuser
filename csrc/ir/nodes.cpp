@@ -4537,9 +4537,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
 
   auto matmul_out = at::matmul(a, b);
   const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
-  auto options =
-      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
-  auto meta_out = at::empty_strided(sizes, strides, options);
+  auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
   if (meta_out.is_contiguous()) {
     return {matmul_out};
   }
