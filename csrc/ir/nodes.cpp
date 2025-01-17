@@ -3785,6 +3785,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
                           (is_rfactor_dim && inp_id->isBroadcast())
                               ? IterType::Iteration
                               : inp_id->getIterType())
+                      .expanded_extent(nullptr)
                       .build();
     new_root_domain.push_back(out_id);
   }
