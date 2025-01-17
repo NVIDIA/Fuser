@@ -808,4 +808,31 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape5) {
   }
 }
 
+TEST_F(LoopDomainSchedulingTest, VecValidationRepro) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1, 32});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({4, 32});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  tv4->flatten();
+  tv4->split(0, 4);
+
+  scheduler_tools::scheduleLoopDomainsLike({tv2, tv3}, tv4->getLoopDomain());
+
+  fusion.print();
+
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  fusion.printKernel();
+}
+
 } // namespace nvfuser
