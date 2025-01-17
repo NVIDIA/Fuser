@@ -952,7 +952,7 @@ TEST_F(RopeTest, EndingRepeat) {
   const auto ref_loop = exact_graph.toGroups(ref_tv->getLoopDomain());
 
   // The other tensors, except for the pad output, should be fully inlined into
-  // teh reference tensor.
+  // the reference tensor.
   for (auto tv : scheduled_fusion->allTvs()) {
     if (tv->isFusionInput()) {
       continue;
