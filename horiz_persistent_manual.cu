@@ -11716,7 +11716,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
       }
     }
     // Wait for previous tile's TMAs to finish before we start writing this tile's smem
-    asm volatile("cp.async.bulk.commit_group;\n");
+    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
     #pragma unroll
     for(nvfuser_index_t i68 = 0; i68 < 8; ++i68) {
       if ((b40 && (i41 < (-(16 * i68))))) {
@@ -11847,6 +11847,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         }
       }
     }
+    asm volatile("cp.async.bulk.commit_group;\n");
   }
 }
 }
