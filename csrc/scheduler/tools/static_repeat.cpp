@@ -69,7 +69,8 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   // Not sure if this is really necessary to check, but assume there's
   // only single chain of the ops and tensors from inp_tv to
   // maybe_reshape_out
-  if (std::any_of(repeat_tvs.begin(), repeat_tvs.end(), [](TensorView* tv) {
+  if (inp_tv->uses().size() > 1 &&
+      std::any_of(repeat_tvs.begin(), repeat_tvs.end(), [](TensorView* tv) {
         return tv->uses().size() > 1;
       })) {
     return std::nullopt;
