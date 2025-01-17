@@ -17,8 +17,12 @@ namespace nvfuser {
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
     IdModel& id_model,
     const StatefulInliningInfo& inlining_info,
-    LoopPromotionMapBuilderCallback* callback)
-    : id_model_(id_model), inlining_info_(inlining_info), callback_(callback) {}
+    LoopPromotionMapBuilderCallback* callback,
+    bool force_full_loop_promotion_analysis)
+    : id_model_(id_model),
+      inlining_info_(inlining_info),
+      callback_(callback),
+      force_full_loop_promotion_analysis_(force_full_loop_promotion_analysis) {}
 
 ValGraph& LoopPromotionMapBuilder::idGraph(IdMappingMode mode) {
   return id_model_.idGraph(mode);
@@ -97,21 +101,12 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
 namespace {
 
-// Check if all the domains of each loop group are exactly mapped. If
-// so, the full promotion analysis should not be necessary. Only the
+// Check if each loop group has at most one group of concrete domains. If
+// so, the full promotion analysis should not be necessary since
+// finding the promotion ID is a trivial probelm. Only the
 // loop groups of the loop domains need to be checked as loop
 // promotion does not matter for the other domains.
-bool isLoopGraphUniform(const IdModel& id_model) {
-  std::unordered_set<IterDomain*> all_loop_ids;
-  for (const auto tv : id_model.tvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    for (auto id : tv->getLoopDomain()) {
-      all_loop_ids.emplace(id);
-    }
-  }
-
+bool isLoopGraphAlmostUniform(const IdModel& id_model) {
   for (const auto tv : id_model.tvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -125,23 +120,18 @@ bool isLoopGraphUniform(const IdModel& id_model) {
         continue;
       }
 
-      bool effective_group_found = false;
+      // Even when multiple exact groups are found, if there's only
+      // one concrete group and all the others are broadcast, it's
+      // obvious that the concrete group represents the promotion.
+      bool concrete_group_found = false;
       for (const auto& exact_group : all_exact_groups) {
-        // It should be fine ignore groups consisting of only non-loop
-        // IDs
-        if (std::all_of(
-                exact_group->begin(), exact_group->end(), [&](Val* val) {
-                  return all_loop_ids.count(val->as<IterDomain>()) == 0;
-                })) {
-          continue;
+        if (!exact_group->front()->as<IterDomain>()->isBroadcast()) {
+          if (concrete_group_found) {
+            // multiple concrete groups
+            return false;
+          }
+          concrete_group_found = true;
         }
-
-        if (effective_group_found) {
-          // Multiple groups found
-          return false;
-        }
-
-        effective_group_found = true;
       }
     }
   }
@@ -155,8 +145,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
   // analysis. These are not comprehensive. Should add more conditions
   // if necessary.
-  if (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
-      isLoopGraphUniform(id_model_)) {
+  if (!force_full_loop_promotion_analysis_ &&
+      (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
+       isLoopGraphAlmostUniform(id_model_))) {
     return buildWithNoBroadcast();
   }
 
@@ -965,24 +956,16 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::get(
     IdModel& id_model,
     const StatefulInliningInfo& inlining_info,
-    LoopPromotionMapBuilderCallback* callback) {
-  LoopPromotionMapBuilder builder(id_model, inlining_info, callback);
+    LoopPromotionMapBuilderCallback* callback,
+    bool force_full_loop_promotion_analysis) {
+  LoopPromotionMapBuilder builder(
+      id_model, inlining_info, callback, force_full_loop_promotion_analysis);
   return builder.build();
 }
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     buildWithNoBroadcast() {
   const auto& loop_graph = idGraph(IdMappingMode::LOOP);
-
-  std::unordered_set<IterDomain*> all_used_loop_ids;
-  for (const auto tv : id_model_.tvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    for (auto id : tv->getLoopDomain()) {
-      all_used_loop_ids.emplace(id);
-    }
-  }
 
   std::unordered_map<ValGroup, IterDomain*> map;
   for (const ValGroup& loop_group :
@@ -1002,18 +985,22 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     for (Val* val : *loop_group) {
       IterDomain* loop_id = val->as<IterDomain>();
-      if (!all_used_loop_ids.count(loop_id)) {
-        continue;
-      }
       auto this_num_exprs =
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();
 
-      // First ID
-      if (promotion == nullptr) {
+      // A group is allowed to have one single exact group of concrete
+      // IDs with a broadcast group.
+      if (promotion == nullptr ||
+          (promotion->isBroadcast() && !loop_id->isBroadcast())) {
         is_const = this_is_const;
         promotion = loop_id;
         num_exprs = this_num_exprs;
+        continue;
+      }
+
+      // Ignore broadcast if a concrete ID is already found
+      if (!promotion->isBroadcast() && loop_id->isBroadcast()) {
         continue;
       }
 
@@ -1031,11 +1018,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       num_exprs = this_num_exprs;
     }
 
-    // If promotion is null, it means no ID is actually a loop ID. In
-    // that case, the loop group should not need promotion info
-    if (promotion == nullptr) {
-      continue;
-    }
+    NVF_ERROR(promotion != nullptr);
 
     map.emplace(loop_group, promotion);
   }

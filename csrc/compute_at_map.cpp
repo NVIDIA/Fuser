@@ -824,29 +824,10 @@ void ComputeAtMap::validateAndPropagatePType() {
 }
 
 void ComputeAtMap::allocateIndexVariables() {
-  std::unordered_set<IterDomain*> all_used_loop_ids;
-  for (auto tv : fusion_->allTvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    for (auto id : tv->getLoopDomain()) {
-      all_used_loop_ids.emplace(id);
-    }
-  }
-
   // Run through all disjoint sets registered in loop map,
   //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
-    if (std::all_of(
-            loop_disjoint_set->vector().begin(),
-            loop_disjoint_set->vector().end(),
-            [&](IterDomain* loop_id) {
-              return !all_used_loop_ids.count(loop_id);
-            })) {
-      continue;
-    }
-
     ParallelType ptype = ParallelType::Serial;
 
     // We don't allocate any index variable for domains which

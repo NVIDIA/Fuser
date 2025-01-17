@@ -419,7 +419,6 @@ class VectorizeValidator : public OptInDispatch {
                          graph.toGroups(tv->getMaybeAllocationDomain()),
                          graph.toGroups(std::vector<Val*>{v_id}))
                          .first;
-
     expr_path = reverse(expr_path);
 
     ValGroup cur_group = graph.toGroup(v_id);
@@ -503,8 +502,6 @@ class VectorizeValidator : public OptInDispatch {
         innermost_alloc_id = alloc;
       }
     }
-
-    NVF_ERROR(innermost_alloc_id != nullptr);
 
     return {innermost_alloc_id, dep_alloc_ids};
   }
@@ -762,10 +759,6 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
-
-    if (tv->isFusionInput()) {
-      continue;
-    }
 
     for (const auto i : c10::irange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
@@ -1136,9 +1129,6 @@ void validateSwizzle(Fusion* fusion) {
 
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
