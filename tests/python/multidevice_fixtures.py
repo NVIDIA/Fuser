@@ -51,4 +51,4 @@ def multidevice_test():
     fixture = MultideviceTest()
     yield fixture
     # Sync all ranks after each test for isolation.
-    fixture.communicator.barrier()
+    # fixture.communicator.barrier()

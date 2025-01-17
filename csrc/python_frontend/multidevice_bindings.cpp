@@ -71,11 +71,29 @@ void bindDeviceMesh(py::module& nvfuser) {
       py::arg("device_id"));
 }
 
+void bindDistributedTensor(py::module& nvfuser) {
+  py::class_<DistributedTensor> distributed_tensor(
+      nvfuser, "DistributedTensor");
+  distributed_tensor.def(
+      "local", &DistributedTensor::local, "Returns the local torch.Tensor.");
+  distributed_tensor.def(
+      "mesh",
+      &DistributedTensor::mesh,
+      "Returns the device mesh.",
+      py::return_value_policy::reference);
+  distributed_tensor.def(
+      "axis_sharded_on",
+      &DistributedTensor::axisShardedOn,
+      "Returns the axis sharded on the given parallel type. If the distributed tensor is replicated on that parallel type, returns -1.",
+      py::arg("parallel_type"));
+}
+
 } // namespace
 
 void bindMultidevice(py::module& nvfuser) {
   bindCommunicator(nvfuser);
   bindDeviceMesh(nvfuser);
+  bindDistributedTensor(nvfuser);
 }
 
 } // namespace nvfuser::python_frontend

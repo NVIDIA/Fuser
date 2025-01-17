@@ -7,11 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
 #include <functional>
 #include <iostream>
 #include <unordered_map>
 
+#include <exceptions.h>
+#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_state.h>
 #include <python_frontend/segmentation.h>
 #include <visibility.h>
@@ -193,7 +194,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior
-  NVF_API std::vector<at::Tensor> execute(
+  NVF_API std::vector<DistributedTensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> device,
       bool override_user_schedule,

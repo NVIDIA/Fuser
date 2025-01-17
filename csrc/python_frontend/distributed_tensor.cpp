@@ -1,0 +1,25 @@
+#include <exceptions.h>
+#include <python_frontend/distributed_tensor.h>
+#include <utils.h>
+
+namespace nvfuser::python_frontend {
+
+void DistributedTensor::setAxisIsShardedOn(
+    const int64_t axis,
+    const ParallelType parallel_type) {
+  const auto i = axis_sharded_on_.find(parallel_type);
+  NVF_CHECK(
+      i == axis_sharded_on_.end(),
+      "Parallel type ",
+      parallel_type,
+      " was already used to shard axis ",
+      i->second);
+  axis_sharded_on_[parallel_type] = axis;
+}
+
+int64_t DistributedTensor::axisShardedOn(
+    const ParallelType parallel_type) const {
+  return getOrDefault(axis_sharded_on_, parallel_type, -1L);
+}
+
+} // namespace nvfuser::python_frontend

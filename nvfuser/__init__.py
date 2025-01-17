@@ -198,7 +198,7 @@ class FusionDefinition(_C._FusionDefinition):
         save_repro_inputs=False,
         _enable_options: list[str] = [],
         _disable_options: list[str] = [],
-    ):
+    ) -> list[torch.Tensor | _C.DistributedTensor]:
         """
         Executes an nvFuser set of kernels for a given Fusion
 
@@ -306,8 +306,6 @@ class FusionDefinition(_C._FusionDefinition):
         if hasattr(self, "segments") and len(self.segments) > 0:
             return self._execute_segments(inputs, device=device, profile=profile)
 
-        results = None
-
         try:
             if print_repro:
                 print(self.repro_script_for(inputs))
@@ -316,7 +314,7 @@ class FusionDefinition(_C._FusionDefinition):
                     "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
                 )
 
-            results = self._execute(
+            out_tensors = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -325,7 +323,10 @@ class FusionDefinition(_C._FusionDefinition):
                 _enable_options=_enable_options,
                 _disable_options=_disable_options,
             )
-            return results
+            for i, out_dtensor in enumerate(out_tensors):
+                if out_dtensor.mesh().size() == 0:
+                    out_tensors[i] = out_dtensor.local()
+            return out_tensors
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
             raise
