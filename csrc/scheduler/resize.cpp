@@ -376,13 +376,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
           "Unexpected to have DID-parallelized repeat axis: ",
           static_repeat_info->reshape_repeat_id->toString());
 
-      std::cerr << "Ref before repeat reorder: " << ref_tv->toString() << "\n";
       // [DID, ..., repeat_id, ...]
       //        ^
       //        +--- outermost_pos
       ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{repeat_id_pos, 0}});
-      std::cerr << "Ref after repeat reorder: " << ref_tv->toString() << "\n";
-      std::cerr << "Pos: " << repeat_id_pos << "\n";
       ++outermost_pos;
       // [repeat_id, DID, ...]
       //                   ^
