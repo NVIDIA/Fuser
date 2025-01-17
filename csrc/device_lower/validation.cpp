@@ -432,9 +432,10 @@ class VectorizeValidator : public OptInDispatch {
     // ID. Instead, here, we traverse from the promoted loop IDs to
     // the allocation domain. This should be always able to reach at
     // least the vectorized ID.
+    const auto loop_domain = getLoopIds(load_store, id_model);
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
-                         graph.toGroups(getLoopIds(load_store, id_model)),
+                         graph.toGroups(loop_domain),
                          graph.toGroups(tv->getMaybeAllocationDomain()),
                          /*require_all_to_visited=*/false)
                          .first;
@@ -521,10 +522,23 @@ class VectorizeValidator : public OptInDispatch {
       }
     }
 
-    NVF_ERROR(
-        innermost_alloc_id != nullptr,
-        "No allocation ID for group found: ",
-        nvfuser::toString(cur_group));
+    if (innermost_alloc_id == nullptr) {
+      // Failed to find the innermost allocation ID
+      std::stringstream ss;
+      ss << "Failed to find a corresponding innermost allocation ID of "
+         << tv->toString() << " with vectorized ID of " << v_id->toString()
+         << "\n"
+         << "Vectorized load-store: " << load_store->toString()
+         << "Allocation domain: "
+         << toDelimitedString(tv->getMaybeAllocationDomain()) << "\n"
+         << "Loop domain: " << toDelimitedString(loop_domain) << "\n"
+         << "Current visited group: " << nvfuser::toString(cur_group) << " ("
+         << cur_group->front()->toString() << ")\n";
+      for (auto expr : tv->domain()->allExprs()) {
+        ss << expr->toString();
+      }
+      NVF_THROW(ss.str());
+    }
 
     return {innermost_alloc_id, dep_alloc_ids};
   }
