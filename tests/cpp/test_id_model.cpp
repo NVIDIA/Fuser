@@ -2672,4 +2672,38 @@ TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
   }
 }
 
+// Repro for the shortcut logic based on
+// inlining_info_.p2c_root_broadcast_resolution_map.
+TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = sin(tv2);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+      auto promotion_id = getLoopPromotion(tv->getLoopDomain().at(i), id_model);
+      EXPECT_TRUE(
+          id_model.idGraph(IdMappingMode::EXACT)
+              .disjointValSets()
+              .strictAreMapped(promotion_id, tv3->getLoopDomain().at(i)));
+    }
+  }
+}
+
 } // namespace nvfuser
