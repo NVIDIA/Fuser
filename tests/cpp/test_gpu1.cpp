@@ -2711,7 +2711,7 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
       std::vector<c10::IValue> inputs = {input1};
 
       KernelExecutor ke;
-      if (src_type == DataType::BFloat16 && !deviceMajorMinorCheck(9, 0)) {
+      if (cast_targets == DataType::BFloat16 && !deviceMajorMinorCheck(9, 0)) {
         // This could be coming from BFloat16 support or Float8_xxx support
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, inputs); },
