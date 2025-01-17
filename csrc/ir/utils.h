@@ -779,24 +779,6 @@ TensorView* getTvOutput(const Expr*);
 // Returns the first input of Expr that is a TensorView
 TensorView* getTvInput(const Expr*);
 
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
 // Generates the allocation domain for the given logical domain based on the
 // stride order.
 std::vector<IterDomain*> strideOrderToAllocation(
