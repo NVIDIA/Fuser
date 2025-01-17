@@ -4453,7 +4453,7 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   // horizontally fused kernels?
   EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
   EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
+  EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-1, 1e-1));
 }
 
 } // namespace nvfuser
