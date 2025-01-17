@@ -2715,8 +2715,8 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
         // This could be coming from BFloat16 support or Float8_xxx support
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, inputs); },
-            testing::ThrowsMessage<nvfuser::nvfError>(
-                testing::HasSubstr("Reason: Fusion contains")));
+            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+                "Reason: Fusion contains")));
 #if (CUDA_VERSION >= 12010)
       } else if (!deviceMajorMinorCheck(8, 9)) {
 #elif (CUDA_VERSION >= 11080)

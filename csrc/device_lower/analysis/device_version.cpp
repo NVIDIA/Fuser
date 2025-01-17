@@ -15,8 +15,8 @@ namespace nvfuser {
 
 void MinimumDeviceVersion::dispatch(Val* val) {
   if (val->dtype() == DataType::BFloat16) {
-    // cvt with bf16 only supported with with Hopper (9.0), see
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cvt
+    // cvt with bf16 only supported with with Hopper (9.0)
+    // see https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cvt
     ensureVersion(
         {9, 0},
         "Fusion contains BFloat16 values which was introduced in Hopper (9.0)");
