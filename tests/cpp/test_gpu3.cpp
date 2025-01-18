@@ -8068,7 +8068,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
       continue;
     }
     const auto* ke = exec->as<KernelExecutor>();
-    for (auto expr : ke->fusion()->exprs()) {
+    for (auto expr : ke->kernel()->exprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global);
