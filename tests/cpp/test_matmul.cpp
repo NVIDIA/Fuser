@@ -4511,4 +4511,83 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 5e-1, 5e-1));
 }
 
+TEST_F(
+    HopperMatmulTest,
+    MLPBenchmarkFwdHorizontalFusionNoEpilogue_BroadcastInputs) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  auto tv2 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3f = fusedMultiplySum(tv0, tv1, {2});
+  auto tv3 = castOp(dtype, tv3f);
+  fusion.addOutput(tv3);
+
+  auto tv10f = fusedMultiplySum(tv0, tv2, {2});
+
+  // NOTE: there is a bug in inlining where we cannot map the broadcast dim of
+  // tv0 to the N dims in tv1 or tv2 because tv1 and tv2's N dims cannot be
+  // mapped together. Here we just use them together in an epilogue so that we
+  // can move past that, allowing is to inline as we wish
+  // TODO: Fix this bug so we can perform fusion of matmuls with independent
+  // epilogues.
+  tv10f = add(tv10f, tv3f);
+
+  auto tv10 = castOp(dtype, tv10f);
+  fusion.addOutput(tv10);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto a_ref = at::randn({M, 1, K}, options);
+  auto b_ref = at::randn({1, N, K}, options);
+  auto c_ref = at::randn({1, N, K}, options);
+
+  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
+  auto tv10_ref = at::linear(a_ref.squeeze(), c_ref.squeeze());
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 64);
+  gemm_tile.warp_tile = GemmTile(64, 128, 64);
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 2, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(
+      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
+}
+
 } // namespace nvfuser
