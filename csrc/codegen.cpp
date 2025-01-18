@@ -655,10 +655,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const NamedScalar* ns) final {
+    std::cout << "Named scalar?" << std::endl;
     if (ns->definition() != nullptr &&
         alloc_set_.find(ns) == alloc_set_.end()) {
+      std::cout << "Def: " << ns->definition()->toString() << std::endl;
       code_ << genInline(ns->definition());
     } else {
+      if (ns->definition()) {
+        std::cout << "Else: " << ns->definition()->toString() << std::endl;
+      }
       code_ << genVariableName(ns);
     }
   }
@@ -811,7 +816,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       code_ << " = ";
     }
-
+    // NVF_ERROR(uop->out()->isA<NamedScalar>(), "Cannot inline a named
+    // scalar.");
     if (auto op = inline_op_str(op_type)) {
       code_ << *op << gen(uop->in());
     } else {

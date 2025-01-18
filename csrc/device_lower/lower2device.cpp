@@ -27,6 +27,7 @@
 #include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
+#include <device_lower/pass/rng.h>
 #include <device_lower/pass/unroll.h>
 #include <device_lower/pass/vectorize_welford.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -282,6 +283,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
             generateConditionalFromPredicate},
            {"vectorizeWelford", vectorizeWelford},
            {"allocateCommonScalars", allocateCommonScalars},
+           {"addRNG", addRNG},
            {"insertMagicZero", insertMagicZero},
            {"KIRCleaner", KIRCleaner::cleanUp},
            {"instrumentKernel", instrumentKernel},

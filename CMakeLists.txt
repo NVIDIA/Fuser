@@ -115,6 +115,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/misaligned_vectorization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/replace_size.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/rng.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/unroll.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/vectorize_welford.cpp
@@ -555,6 +556,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu4.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing_ops.cpp
