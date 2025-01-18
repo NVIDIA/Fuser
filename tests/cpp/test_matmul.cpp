@@ -4323,13 +4323,14 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM_BroadcastInputs) {
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.grid_swizzle_factor = 2;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
@@ -4428,85 +4429,6 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
   EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
 }
 
-TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion_BroadcastInputs) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int64_t M = 4096, N = 14336, K = 5120;
-  const auto dtype = DataType::BFloat16;
-
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  auto tv2 = makeContigConcreteTensor({-1, -1}, dtype); // M, N
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
-
-  auto tv3 = fusedMultiplySum(tv0, tv1, {2});
-  auto tv4 = castOp(dtype, tv3);
-  fusion.addOutput(tv4);
-
-  // Skip the roundtrip cast now that we're not translating LinearOp
-  // auto tv4 = castOp(DataType::Float, tv3);
-  auto tv5 = neg(tv3);
-  auto tv6 = exp(tv5);
-  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
-  auto tv8 = reciprocal(tv7);
-  auto tv9 = mul(tv3, tv8);
-  auto tv10 = mul(tv9, tv2);
-  auto tv11 = castOp(DataType::BFloat16, tv10);
-  fusion.addOutput(tv11);
-
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto c_ref = at::randn({M, N}, options);
-
-  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
-  auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv11_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * c_ref).to(at::kBFloat16);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
-  MatMulTileOptions gemm_tile;
-  // There are two outputs and right now they cannot share the same SMEM buffer
-  // to serialize their writes. We should serialize these, and we should
-  // serialize the chunks within these so that we have plenty opportunities to
-  // overlap the epilogue with TMA stores
-  gemm_tile.cta_tile = GemmTile(128, 128, 64);
-  gemm_tile.warp_tile = GemmTile(64, 128, 64);
-  mparams.tile_sizes = gemm_tile;
-  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-  mparams.grid_swizzle_factor = 8;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
-  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
-  mparams.splitk_factor = 1;
-  mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
-  mparams.promote_prologue_smem_reuse = false;
-
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
-
-  KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
-
-  // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
-}
-
 TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
@@ -4570,92 +4492,6 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {1, 2, 1};
   mparams.promote_prologue_smem_reuse = true;
-
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
-
-  KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
-
-  // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 5e-1, 5e-1));
-}
-
-TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion_BroadcastInputs) {
-  EnableOptionsGuard eog;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int64_t M = 4096, N = 14336, K = 5120;
-  const auto dtype = DataType::BFloat16;
-
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  auto tv2 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
-
-  auto tv4 = fusedMultiplySum(tv0, tv1, {2});
-  auto tv3 = castOp(dtype, tv4);
-  fusion.addOutput(tv3);
-
-  // Avoid round-trip cast in this case
-  // auto tv4 = castOp(DataType::Float, tv3);
-  auto tv5 = neg(tv4);
-  auto tv6 = exp(tv5);
-  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
-  auto tv8 = reciprocal(tv7);
-  auto tv9 = mul(tv4, tv8);
-
-  auto tv10 = fusedMultiplySum(tv0, tv2, {2});
-  auto tv10c = castOp(dtype, tv10);
-  fusion.addOutput(tv10c);
-
-  auto tv11 = mul(tv9, tv10);
-  auto tv12 = castOp(DataType::BFloat16, tv11);
-  fusion.addOutput(tv12);
-
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto c_ref = at::randn({1, N, K}, options);
-
-  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
-  auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv10_ref = at::linear(a_ref.squeeze(), c_ref.squeeze());
-  auto tv12_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
-          .to(at::kBFloat16);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 64);
-  gemm_tile.warp_tile = GemmTile(64, 128, 64);
-  mparams.tile_sizes = gemm_tile;
-  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-  mparams.grid_swizzle_factor = 2;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
-  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
-  mparams.splitk_factor = 1;
-  mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
-  mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);

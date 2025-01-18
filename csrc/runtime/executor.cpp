@@ -718,7 +718,9 @@ LaunchParams KernelExecutor::computeLaunchParams(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
       index_type,
-      reduction_broadcast_workspace);
+      reduction_broadcast_workspace)
+    // Add space for a warp-group phase mbarrier
+    + 16;
 
   // Check that requested smem size can be dynamically allocated.
   //  This check is only done once a kernel has been compiled, since
