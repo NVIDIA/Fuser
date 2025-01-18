@@ -427,11 +427,13 @@ class VectorizeValidator : public OptInDispatch {
     // Note that previously this traversal was from the allocation
     // domain to v_id only. It does not work when the allocation
     // domain has a broadcast ID that is promoted to a concrete ID
-    // and then is used to generate v_id. The traversal needs to use
-    // the promoted concrete ID instead of the broadcast allocation
-    // ID. Instead, here, we traverse from the promoted loop IDs to
-    // the allocation domain. This should be always able to reach at
-    // least the vectorized ID.
+    // and then is used to generate v_id. See
+    // LoopDomainSchedulingTest.VecValidationRepro for a concrete
+    // case. The traversal needs to use the promoted concrete ID
+    // instead of the broadcast allocation ID. Instead, here, we
+    // traverse from the promoted loop IDs to the allocation
+    // domain. This should be always able to reach at least the
+    // vectorized ID.
     const auto loop_domain = getLoopIds(load_store, id_model);
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
