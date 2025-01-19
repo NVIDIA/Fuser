@@ -1527,7 +1527,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         ldst, mbarrier_index, for_loops_, rotated_loop_);
 
     // arrive and expect_tx mbarrier
-    Val* state = IrBuilder::create<Val>(DataType::UInt);
+    Val* state = IrBuilder::create<Val>(DataType::UInt64);
     pushBack(IrBuilder::create<kir::Allocate>(
         state, MemoryType::Local, ldst->container()->oneVal()));
     pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
@@ -2160,10 +2160,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
 static Val* matrixDescriptorEncode(Val* x) {
-  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt, x);
-  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt);
+  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
+  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
   auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
-  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt);
+  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
@@ -2176,15 +2176,15 @@ static Val* constructMatrixDescriptor(
   auto or0 = matrixDescriptorEncode(start_address);
   auto or1 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(leading_dim_byte_offset),
-      IrBuilder::create<Val>(16, DataType::UInt));
+      IrBuilder::create<Val>(16, DataType::UInt64));
   auto or2 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(stride_dim_byte_offset),
-      IrBuilder::create<Val>(32, DataType::UInt));
+      IrBuilder::create<Val>(32, DataType::UInt64));
   auto or3 = IrBuilder::lShiftExpr(
-      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt));
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
   auto or4 = IrBuilder::lShiftExpr(
-      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt),
-      IrBuilder::create<Val>(62, DataType::UInt));
+      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt64),
+      IrBuilder::create<Val>(62, DataType::UInt64));
   return IrBuilder::bitwiseOrExpr(
       IrBuilder::bitwiseOrExpr(
           IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
@@ -2444,7 +2444,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(0, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt64),
         getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
         tv,
@@ -2476,7 +2476,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(0, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt64),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,

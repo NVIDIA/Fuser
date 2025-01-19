@@ -632,7 +632,7 @@ class AllocationInserter : public kir::ExprMutator {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
-                                 .dtype(DataType::UInt)
+                                 .dtype(DataType::UInt64)
                                  .contiguity(true)
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
@@ -697,7 +697,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{num_mbarriers})
-                                 .dtype(DataType::UInt)
+                                 .dtype(DataType::UInt64)
                                  .contiguity(true)
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
