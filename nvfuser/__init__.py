@@ -52,11 +52,17 @@ def disable_automatic_serialization():
 
 
 class DistributedTensor(torch.Tensor):
+    """Wraps a _C._DistributedTensor as a torch.Tensor.
+
+    This way, the user can use the underlying local tensor without extra conversion.
+    For example, `torch.testing.assert_close(dtensor, expected_local_tensor)`.
+    """
+
     _dtensor: _C._DistributedTensor
 
     @staticmethod
     def __new__(cls, dtensor: _C._DistributedTensor):
-        t = dtensor.local()
+        t = dtensor.local
         return torch.Tensor._make_wrapper_subclass(
             cls,
             t.shape,
@@ -75,16 +81,21 @@ class DistributedTensor(torch.Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs):
         def unwrap(t):
             if isinstance(t, DistributedTensor):
-                return t._dtensor.local()
+                return t._dtensor.local
             return t
 
         return func(*tree_map(unwrap, args), **tree_map(unwrap, kwargs))
 
     @property
     def mesh(self) -> DeviceMesh:
-        return self._dtensor.mesh()
+        """Returns the device mesh."""
+        return self._dtensor.mesh
 
     def axis_sharded_on(self, parallel_type: ParallelType) -> int:
+        """Returns the axis sharded on the given parallel type.
+
+        If the distributed tensor is replicated on that parallel type, returns -1.
+        """
         return self._dtensor.axis_sharded_on(parallel_type)
 
 
@@ -363,8 +374,8 @@ class FusionDefinition(_C._FusionDefinition):
             )
             out_tensors = []
             for out_dtensor in out_dtensors:
-                if out_dtensor.mesh().size() == 0:
-                    out_tensors.append(out_dtensor.local())
+                if out_dtensor.mesh.size == 0:
+                    out_tensors.append(out_dtensor.local)
                 else:
                     out_tensors.append(DistributedTensor(out_dtensor))
             return out_tensors

@@ -456,24 +456,23 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     debug_output_ = debug_ss.str();
   }
 
+  // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
   out_dtensors.reserve(out_tensors.size());
   if (user_sched == nullptr) {
     FusionKernelRuntime* runtime =
         scheds->auto_gen_schedules->getMostRecentKernelRuntime();
-    NVF_ERROR(runtime != nullptr);
     Fusion* fusion = runtime->fusionSegments()->completeFusion();
-    NVF_ERROR(fusion != nullptr);
 
-    int64_t i = 0;
+    int64_t tensor_index = 0;
     for (Val* out_val : fusion->outputs()) {
       auto* out_tv = out_val->as<TensorView>();
       if (fusion->getOutputAlias(out_tv).hide_output) {
         continue;
       }
 
-      const at::Tensor& out_tensor = out_tensors.at(i);
-      i++;
+      const at::Tensor& out_tensor = out_tensors.at(tensor_index);
+      tensor_index++;
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
       DistributedTensor out_dtensor(out_tensor, mesh);
 
