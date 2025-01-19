@@ -11687,18 +11687,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         mbarrier::arrive(toSmem((&T15[((i47 % 3) + 3LL)])));
       }
     }
-    #pragma unroll
-    for(nvfuser_index_t i60 = 0; i60 < 3; ++i60) {
-      if (((Hopper::electSync(4294967295U) && b22) && b23)) {
-        mbarrier::inval(toSmem((&T15[(i60 + 3LL)])));
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i61 = 0; i61 < 3; ++i61) {
-      if (((Hopper::electSync(4294967295U) && b22) && b23)) {
-        mbarrier::inval(toSmem((&T15[i61])));
-      }
-    }
     Array<__bfloat, 64, 8> T11;
     #pragma unroll
     for(nvfuser_index_t i62 = 0; i62 < 16; ++i62) {
@@ -11717,6 +11705,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         }
       }
     }
+    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
     #pragma unroll
     for(nvfuser_index_t i68 = 0; i68 < 8; ++i68) {
       if ((b37 && (i38 < (-(16 * i68))))) {
@@ -11731,15 +11720,24 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         );
       }
     }
-    __syncthreads();
-    #pragma unroll
+
+    // Epilogue syncthreads are local to each warpgroup
+    // NOTE: we use a label that is non-zero because the default "0" sync is
+    // used for global syncthreads earlier
+    asm volatile("bar.sync %0, %1;"
+                 :
+                 : "r"((uint32_t)threadIdx.y + 1), "r"((uint32_t)128)
+                 : "memory");
+
+#pragma unroll
     for(nvfuser_index_t i69 = 0; i69 < 2; ++i69) {
       asm volatile("fence.proxy.async;\n");
       if (b25) {
+        if ((Hopper::electSync(4294967295U) && b22)) {
         Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr18, (Array<nvfuser_index_t, 2, 1>{(i32 + (64 * i69)), i36}) }), (i17 + (8192 * i69)));
+        }
       }
     }
-    __syncthreads();
     Array<__bfloat, 64, 8> T12;
     #pragma unroll
     for(nvfuser_index_t i70 = 0; i70 < 16; ++i70) {
@@ -11776,17 +11774,17 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         );
       }
     }
-    __syncthreads();
+    asm volatile("bar.sync %0, %1;" : : "r"((uint32_t)threadIdx.y + 1), "r"((uint32_t)128) : "memory");
     #pragma unroll
     for(nvfuser_index_t i77 = 0; i77 < 2; ++i77) {
       asm volatile("fence.proxy.async;\n");
       if (b25) {
+        if ((Hopper::electSync(4294967295U) && b22)) {
         Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr21, (Array<nvfuser_index_t, 2, 1>{(i32 + (64 * i77)), i36}) }), (i20 + (8192 * i77)));
+        }
       }
     }
-    __syncthreads();
     asm volatile("cp.async.bulk.commit_group;\n");
-    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
   }
 }
 }
