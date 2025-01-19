@@ -26,33 +26,51 @@ class RNGInserter : public kir::ExprMutator {
   }
 
  private:
-  Val* rng_subseq;
-  Val* rng_offset;
+  Val* rng_subseq = nullptr;
+  Val* rng_offset = nullptr;
+  const std::vector<Expr*>& exprs;
+
   struct InsertionInfo {
     Scope* scope = nullptr;
     ForLoop* fl = nullptr;
   };
 
-  RNGInserter(const std::vector<Expr*>& exprs) {
-    NVF_ERROR(!exprs.empty());
-    auto neg_1 = IrBuilder::create<Val>(-1, DataType::Index);
-    auto rng_subseq =
-        IrBuilder::create<NamedScalar>("rng_subseq", DataType::Index);
-    auto rng_offset =
-        IrBuilder::create<NamedScalar>("rng_offset", DataType::Index);
-    kir::ExprMutator::registerInsertBefore(
-        exprs.front(),
-        IrBuilder::create<LoadStoreOp>(
-            LoadStoreOpType::Set, rng_subseq, neg_1));
-    kir::ExprMutator::registerInsertBefore(
-        exprs.front(),
-        IrBuilder::create<LoadStoreOp>(
-            LoadStoreOpType::Set, rng_offset, neg_1));
+  RNGInserter(const std::vector<Expr*>& _exprs) : exprs(_exprs) {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
   void handle(RNGOp* rng_op) final {
-    std::cout << rng_op->toString() << std::endl;
+    if (rng_subseq == nullptr) {
+      NVF_ERROR(!exprs.empty());
+      auto neg_1 = IrBuilder::create<Val>(-1, DataType::Index);
+      rng_subseq =
+          IrBuilder::create<NamedScalar>("rng_subseq", DataType::Index);
+      rng_offset =
+          IrBuilder::create<NamedScalar>("rng_offset", DataType::Index);
+      // std::cout << rng_subseq->name() << std::endl;
+      // std::cout << rng_offset->name() << std::endl;
+
+      auto alloc0 = IrBuilder::create<kir::Allocate>(
+          rng_subseq,
+          MemoryType::Local,
+          GpuLower::current()->kernel()->oneVal());
+      auto alloc1 = IrBuilder::create<kir::Allocate>(
+          rng_offset,
+          MemoryType::Local,
+          GpuLower::current()->kernel()->oneVal());
+      auto expr0 = IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set, rng_subseq, neg_1);
+      auto expr1 = IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set, rng_offset, neg_1);
+      // std::cout << expr0->toString() << std::endl;
+      // std::cout << expr1->toString() << std::endl;
+      // std::cout << exprs.front()->toString() << std::endl;
+      kir::ExprMutator::registerInsertBefore(exprs.front(), alloc0, nullptr);
+      kir::ExprMutator::registerInsertBefore(exprs.front(), expr0, nullptr);
+      kir::ExprMutator::registerInsertBefore(exprs.front(), alloc1, nullptr);
+      kir::ExprMutator::registerInsertBefore(exprs.front(), expr1, nullptr);
+    }
+    // std::cout << rng_op->toString() << std::endl;
     // auto linear_index = rng_op->getPhiloxIndex();
     // auto multiple =  rng_op->getPhiloxMultiple();
     // auto rng_subseq = SimplifyingIrBuilder::div(linear_index, multiple);
@@ -104,8 +122,14 @@ std::vector<Expr*> addRNG(const std::vector<Expr*>& exprs) {
   if (!has_rng) {
     return exprs;
   }
-
-  return RNGInserter::insert(exprs);
+  auto exprs_ = RNGInserter::insert(exprs);
+  std::cout << "====================" << std::endl;
+  for (auto expr : exprs_) {
+    std::cout << expr->toString() << std::endl;
+  }
+  std::cout << "====================" << std::endl;
+  // NVF_THROW("throw");
+  return exprs_;
 }
 
 } // namespace nvfuser
