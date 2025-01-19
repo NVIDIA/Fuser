@@ -372,7 +372,8 @@ class FusionDefinition(_C._FusionDefinition):
                 _enable_options=_enable_options,
                 _disable_options=_disable_options,
             )
-            out_tensors = []
+
+            out_tensors: list[torch.Tensor] = []
             for out_dtensor in out_dtensors:
                 if out_dtensor.mesh.size == 0:
                     out_tensors.append(out_dtensor.local)
