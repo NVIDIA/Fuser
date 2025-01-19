@@ -22,8 +22,8 @@ class DistributedTensor {
  public:
   explicit DistributedTensor(
       at::Tensor local_tensor,
-      const DeviceMesh& mesh = DeviceMesh())
-      : local_(local_tensor), mesh_(mesh) {}
+      DeviceMesh mesh = DeviceMesh())
+      : local_(std::move(local_tensor)), mesh_(std::move(mesh)) {}
   DistributedTensor(const DistributedTensor&) = delete;
   DistributedTensor& operator=(const DistributedTensor&) = delete;
   DistributedTensor(DistributedTensor&&) = default;
