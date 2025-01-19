@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import sys
-from typing import Callable, Optional, Union, List  # noqa: F401
+from typing import Callable, Optional, Union, List, Iterable  # noqa: F401
 import warnings
 
 import torch

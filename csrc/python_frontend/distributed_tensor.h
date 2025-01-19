@@ -14,6 +14,9 @@
 
 namespace nvfuser::python_frontend {
 
+// A class that represents a distributed tensor. It wraps a local tensor, a
+// mesh, and a mapping from mesh axes to tensor axes. If the mesh is empty,
+// it degenerates into a non-distributed tensor.
 class DistributedTensor {
  public:
   explicit DistributedTensor(
