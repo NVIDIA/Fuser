@@ -54,8 +54,8 @@ def test_pointwise(multidevice_test):
     sharded_input = multidevice_test.shard_tensor(unsharded_input, 0, mesh)
 
     fd = Model()
-    outputs: list[DistributedTensor] = fd.execute([sharded_input])
-    torch.testing.assert_close(outputs[0].local().cpu(), unsharded_input.relu() * 2)
+    outputs = fd.execute([sharded_input])
+    torch.testing.assert_close(outputs[0].cpu(), unsharded_input.relu() * 2)
     assert outputs[0].axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
@@ -109,7 +109,7 @@ def test_linear(multidevice_test):
     # rtol is the same as the default for fp32. atol is slightly increased.
     assert out_tensors[0].axis_sharded_on(nvfuser.ParallelType.mesh_x) == 0
     torch.testing.assert_close(
-        out_tensors[0].local(), expected_out_tensor, rtol=1.3e-6, atol=1e-3
+        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-3
     )
 
 
@@ -171,7 +171,7 @@ def test_linear_loop_split(multidevice_test):
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
-        out_tensors[0].local(), expected_out_tensor, rtol=1.3e-6, atol=1e-3
+        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-3
     )
 
 
@@ -222,9 +222,7 @@ def test_matmul_allreduce(multidevice_test):
     (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
     # Use the default rtol for half because the output, although being float32,
     # is a straight cast from half.
-    torch.testing.assert_close(
-        in_grad.local().cpu(), expected_in_grad, rtol=1e-3, atol=1e-2
-    )
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
 
 
 class QkvFormat(Enum):
@@ -339,7 +337,6 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
     out, q_grad, k_grad, v_grad = outs
 
     def assert_close(actual, expected):
-        actual = actual.local()
         match qkv_format:
             case QkvFormat.BHSE:
                 assert actual.is_contiguous()
@@ -751,8 +748,8 @@ class TransformerForwardFusion(FusionDefinition):
 def _assert_shape_dtype(
     t: DistributedTensor, expected_sizes: list[int], expected_dtype: torch.dtype
 ) -> None:
-    assert t.local().shape == torch.Size(expected_sizes)
-    assert t.local().dtype == expected_dtype
+    assert t.shape == torch.Size(expected_sizes)
+    assert t.dtype == expected_dtype
 
 
 @pytest.mark.skipif(

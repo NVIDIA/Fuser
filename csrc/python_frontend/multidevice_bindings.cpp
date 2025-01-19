@@ -73,7 +73,7 @@ void bindDeviceMesh(py::module& nvfuser) {
 
 void bindDistributedTensor(py::module& nvfuser) {
   py::class_<DistributedTensor> distributed_tensor(
-      nvfuser, "DistributedTensor");
+      nvfuser, "_DistributedTensor");
   distributed_tensor.def(
       "local", &DistributedTensor::local, "Returns the local torch.Tensor.");
   distributed_tensor.def(
