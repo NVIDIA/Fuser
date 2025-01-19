@@ -11512,6 +11512,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         unsigned i54;
         i54 = i14 + i51;
         mbarrier::waitParity(toSmem((&T25[(i50 % 2)])), (uint32_t)(((i50 / 2) % 2)));
+        asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
         for(nvfuser_index_t i55 = 0; i55 < 4; ++i55) {
           nvfuser_index_t i56;
@@ -11520,7 +11521,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
           i57 = i52 + i56;
           unsigned i58;
           i58 = i53 + i56;
-          asm volatile("wgmma.fence.sync.aligned;\n");
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11608,7 +11608,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
           i61 = i52 + i60;
           unsigned i62;
           i62 = i54 + i60;
-          asm volatile("wgmma.fence.sync.aligned;\n");
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11688,6 +11687,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
              "n"(0)
           );
         }
+        asm volatile("wgmma.commit_group.sync.aligned;\n");
+        asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
         mbarrier::arrive(toSmem((&T25[((i50 % 2) + 2LL)])));
       }
     }
@@ -11703,8 +11704,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         mbarrier::inval(toSmem((&T25[i64])));
       }
     }
-    asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
     Array<__bfloat, 64, 8> T18;
     #pragma unroll
     for(nvfuser_index_t i65 = 0; i65 < 16; ++i65) {
@@ -11742,18 +11741,12 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     for(nvfuser_index_t i72 = 0; i72 < 2; ++i72) {
       asm volatile("fence.proxy.async;\n");
       if (b28) {
+        if ((Hopper::electSync(4294967295U) && b25)) {
         Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr19, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i72)), i39}) }), (i18 + (8192 * i72)));
+        }
       }
     }
     __syncthreads();
-    asm volatile("cp.async.bulk.commit_group;\n");
-    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
-    asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-    asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-    asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
     Array<__bfloat, 64, 8> T20;
     Array<__bfloat, 64, 8> T21;
     #pragma unroll
@@ -11821,7 +11814,9 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     for(nvfuser_index_t i80 = 0; i80 < 2; ++i80) {
       asm volatile("fence.proxy.async;\n");
       if (b28) {
+        if ((Hopper::electSync(4294967295U) && b25)) {
         Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr22, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i80)), i39}) }), (i21 + (8192 * i80)));
+        }
       }
     }
     #pragma unroll
@@ -11843,20 +11838,14 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     for(nvfuser_index_t i82 = 0; i82 < 2; ++i82) {
       asm volatile("fence.proxy.async;\n");
       if (b28) {
+        if ((Hopper::electSync(4294967295U) && b25)) {
         Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr24, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i82)), i39}) }), (i23 + (8192 * i82)));
+        }
       }
     }
     asm volatile("cp.async.bulk.commit_group;\n");
     asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
-    asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   }
-  asm volatile("cp.async.bulk.commit_group;\n");
-  asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
-  asm volatile("cp.async.bulk.commit_group;\n");
-  asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
-  asm volatile("cp.async.bulk.commit_group;\n");
-  asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
 }
 }
 
