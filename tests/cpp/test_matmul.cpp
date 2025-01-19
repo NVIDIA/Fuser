@@ -4552,6 +4552,7 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion_BroadcastInputs) {
   auto a_ref = at::randn({M, 1, K}, options);
   auto b_ref = at::randn({1, N, K}, options);
   auto c_ref = at::randn({1, N, K}, options);
+  clearL2Cache();
 
   auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
   auto tv4_ref = tv3_ref.to(at::kFloat);
@@ -4559,6 +4560,7 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion_BroadcastInputs) {
   auto tv12_ref =
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
           .to(at::kBFloat16);
+  clearL2Cache();
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};

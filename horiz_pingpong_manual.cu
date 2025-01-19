@@ -11461,12 +11461,19 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
       }
     }
     __syncthreads();
+
     if (b26) {
       #pragma unroll
       for(nvfuser_index_t i49 = 0; i49 < 2; ++i49) {
         mbarrier::arrive(toSmem((&T25[(i49 + 2LL)])));
       }
     }
+
+    if (((Hopper::electSync(4294967295U) && b25) && threadIdx.y == 1)) {
+      // Wake math warp group 0 first
+      mbarrier::arrive(toSmem(&math_barriers[0]));
+    }
+
   #pragma unroll 1
   for(nvfuser_index_t i32 = 0; i32 < i7; ++i32) {
     nvfuser_index_t i33;
@@ -11491,10 +11498,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))).set(0);
     if (b27) {
       for(nvfuser_index_t i48 = 0; i48 < 2; ++i48) {
-        if ((Hopper::electSync(4294967295U) && b25)) {
-          mbarrier::arrive(toSmem(&math_barriers[i48]));
-        }
-
         #pragma unroll 1
         for(nvfuser_index_t i44 = 0; i44 < i8; ++i44) {
           uint32_t stages_processed = (i32 * 2 + i48) * i8 + i44;
@@ -11715,7 +11718,13 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
         mbarrier::arrive(toSmem((&T25[(slot + 2LL)])));
       }
+
+    if ((Hopper::electSync(4294967295U) && b25)) {
+      // Wake the other warp group since we're done with the circular buffer
+      // in this math group and are beginning the epilogue
+      mbarrier::arrive(toSmem(&math_barriers[(threadIdx.y + 1) % 2]));
     }
+
     Array<__bfloat, 64, 8> T18;
     #pragma unroll
     for(nvfuser_index_t i65 = 0; i65 < 16; ++i65) {
@@ -11856,6 +11865,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
       }
     }
     asm volatile("cp.async.bulk.commit_group;\n");
+  }
   }
 }
 }
