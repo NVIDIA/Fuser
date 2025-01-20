@@ -724,7 +724,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (hasCompiledKernel()) {
+  if (isCompiled()) {
     validateDynamicSmemSize(dynamic_smem_size);
   }
 
@@ -784,7 +784,7 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
 }
 
 void KernelExecutor::setUsedTVs() {
-  auto used_vals = fusion()->usedMathVals();
+  auto used_vals = kernel()->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
@@ -1128,8 +1128,7 @@ void KernelExecutor::recompileKernel(
 
 int64_t KernelExecutor::getAvailableDynamicSmemSize() {
   NVF_ERROR(
-      hasCompiledKernel(),
-      "Cannot get dynamic smem size unless kernel is compiled");
+      isCompiled(), "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
@@ -1143,8 +1142,7 @@ int64_t KernelExecutor::getAvailableDynamicSmemSize() {
 
 int64_t KernelExecutor::getStaticSmemSize() {
   NVF_ERROR(
-      hasCompiledKernel(),
-      "Cannot get static smem size unless kernel is compiled");
+      isCompiled(), "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
     // Is this really a costly operation worth caching?
@@ -1160,7 +1158,7 @@ int64_t KernelExecutor::getStaticSmemSize() {
 void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
   // If specified, check that dynamic smem size matches what the scheduler
   // expects
-  int64_t expected_dynamic_smem_size = fusion()->expectedDynamicSmemBytes();
+  int64_t expected_dynamic_smem_size = kernel()->expectedDynamicSmemBytes();
   if (expected_dynamic_smem_size >= 0) {
     NVF_ERROR(
         dynamic_smem_size == expected_dynamic_smem_size,
@@ -1185,8 +1183,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t KernelExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      hasCompiledKernel(),
-      "Cannot set dynamic smem size unless kernel is compiled");
+      isCompiled(), "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
@@ -1224,7 +1221,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
-      outputs.empty() || (outputs.size() == fusion()->outputs().size()),
+      outputs.empty() || (outputs.size() == kernel()->outputs().size()),
       __func__,
       " provided number of outputs does not match fusion output");
 
@@ -1279,12 +1276,12 @@ std::vector<at::Tensor> KernelExecutor::run(
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
   // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, fusion());
+  auto expr_eval = executor_utils::bindInputs(args, kernel());
 
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        fusion(), executor_entry->outputs, options_.device, expr_eval);
+        kernel(), executor_entry->outputs, options_.device, expr_eval);
   }
   args.push(outputs);
 
@@ -1563,12 +1560,6 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
-  // When compilation is skipped, avoid serializing cubin because it doesn't
-  // exist. The remaining fields are also not necessary in this case.
-  if (!hasCompiledKernel()) {
-    return serde::CreateKernelExecutorDirect(builder);
-  }
-
   return serde::CreateKernelExecutorDirect(
       builder,
       device_smem_limit_,
@@ -1776,7 +1767,7 @@ void KernelExecutor::deserialize(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
-  NVF_ERROR(hasCompiledKernel(), "Failed to deserialize KernelExecutor");
+  NVF_ERROR(isCompiled(), "Failed to deserialize KernelExecutor");
 }
 
 KernelExecutor::ExecutorEntry KernelExecutor::deserialize(

@@ -72,10 +72,14 @@ enum class PrimDataType {
   Float8_e4m3fn,
   Float8_e5m2,
   // Integral types
-  Int,
+  Char,
+  Short,
   Int32,
-  UInt,
+  Int,
+  Byte, // Following ATen convention
+  UInt16, // Following ATen convention
   UInt32,
+  UInt64,
   Index,
   // Boolean types
   Bool,
@@ -178,11 +182,15 @@ struct DataType {
   static constexpr PrimDataType Half = PrimDataType::Half;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
   static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
-  static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
+  static constexpr PrimDataType Char = PrimDataType::Char;
+  static constexpr PrimDataType Short = PrimDataType::Short;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
-  static constexpr PrimDataType UInt = PrimDataType::UInt;
+  static constexpr PrimDataType Int = PrimDataType::Int;
+  static constexpr PrimDataType Byte = PrimDataType::Byte;
+  static constexpr PrimDataType UInt16 = PrimDataType::UInt16;
   static constexpr PrimDataType UInt32 = PrimDataType::UInt32;
+  static constexpr PrimDataType UInt64 = PrimDataType::UInt64;
   static constexpr PrimDataType Bool = PrimDataType::Bool;
   static constexpr PrimDataType BFloat16 = PrimDataType::BFloat16;
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
@@ -262,10 +270,14 @@ inline bool isIntegralType(DataType dtype) {
         if constexpr (std::is_same_v<T, PrimDataType>) {
           switch (dtype) {
             case DataType::Index:
+            case DataType::Char:
+            case DataType::Short:
             case DataType::Int:
             case DataType::Int32:
-            case DataType::UInt:
+            case DataType::Byte:
+            case DataType::UInt16:
             case DataType::UInt32:
+            case DataType::UInt64:
               return true;
             default:
               return false;
@@ -278,7 +290,8 @@ inline bool isIntegralType(DataType dtype) {
 
 // Returns if the datatype is an unsigned integer type
 inline bool isUnsignedIntegralType(DataType dtype) {
-  return dtype == DataType::UInt || dtype == DataType::UInt32;
+  return dtype == DataType::Byte || dtype == DataType::UInt16 ||
+      dtype == DataType::UInt32 || dtype == DataType::UInt64;
 }
 
 // Returns if the datatype is a pointer type
@@ -386,15 +399,37 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     at::ScalarType::Float8_e5m2,
     at::Float8_e5m2);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Int,
-    at::ScalarType::Long,
-    int64_t);
+    DataType::Char,
+    at::ScalarType::Char,
+    int8_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Short,
+    at::ScalarType::Short,
+    int16_t);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int32,
     at::ScalarType::Int,
     int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt, uint64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt32, uint32_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int,
+    at::ScalarType::Long,
+    int64_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Byte,
+    at::ScalarType::Byte,
+    uint8_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::UInt16,
+    at::ScalarType::UInt16,
+    uint16_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::UInt32,
+    at::ScalarType::UInt32,
+    uint32_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::UInt64,
+    at::ScalarType::UInt64,
+    uint64_t);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Bool,
     at::ScalarType::Bool,
@@ -1006,14 +1041,22 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
       return sizeof(at::Float8_e5m2);
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
-    case DataType::Int:
-      return sizeof(int64_t);
+    case DataType::Char:
+      return sizeof(int8_t);
+    case DataType::Short:
+      return sizeof(int16_t);
     case DataType::Int32:
       return sizeof(int32_t);
-    case DataType::UInt:
-      return sizeof(uint64_t);
+    case DataType::Int:
+      return sizeof(int64_t);
+    case DataType::Byte:
+      return sizeof(uint8_t);
+    case DataType::UInt16:
+      return sizeof(uint16_t);
     case DataType::UInt32:
       return sizeof(uint32_t);
+    case DataType::UInt64:
+      return sizeof(uint64_t);
     case DataType::SMemAddress:
       return sizeof(unsigned);
     default:
