@@ -196,7 +196,8 @@ using OverlapBenchmarkParams = std::tuple<
     /*add_cuStreamWriteValue32=*/bool,
     /*number_of_pgs=*/int64_t,
     /*unfuse_loops=*/bool,
-    /*use_cuda_graph=*/bool>;
+    /*use_cuda_graph=*/bool,
+    DataType>;
 
 class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
  protected:
@@ -233,7 +234,8 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
         add_cuStreamWriteValue32,
         number_of_pgs,
         unfuse_loops,
-        use_cuda_graph] = GetParam();
+        use_cuda_graph,
+        dtype] = GetParam();
 
   GTEST_ASSERT_EQ(M % S, 0);
 
@@ -244,7 +246,7 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
       createStreams(number_of_streams, communicator_->deviceId());
   setCurrentCUDAStream(streams.at(0));
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(communicator_->device());
   auto ta = at::randn({S, M/S,K}, options);
   auto ta_unsharded = at::empty({S, D, M/S,K}, options);
   auto tb = at::randn({K,N}, options);
@@ -361,7 +363,8 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
         add_cuStreamWriteValue32,
         number_of_pgs,
         unfuse_loops,
-        use_cuda_graph] = GetParam();
+        use_cuda_graph,
+        dtype] = GetParam();
 
   if (M % (D * S) != 0) {
     GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
@@ -384,8 +387,8 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* b = makeContigTensor(2); //[K, N]
+  TensorView* a = makeContigTensor(4, dtype); //[S, DIDx(D), M/(S*D), K]
+  TensorView* b = makeContigTensor(2, dtype); //[K, N]
   TensorView* c = matmul(a, b); //[S, D, M/(S*D), N]
 
   fusion->addInput(a);
@@ -408,7 +411,7 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
 
 
   auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(communicator_->device());
   at::Tensor ta_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
   at::Tensor ta = ta_unsharded.slice(
       1, communicator_->deviceId(), communicator_->deviceId() + 1);
@@ -463,7 +466,8 @@ INSTANTIATE_TEST_SUITE_P(
     /*add_cuStreamWriteValue32*/testing::Values(false, true),
     /*number_of_pgs=*/testing::Values(1, 2, 4, 8),
     /*unfuse_loops=*/testing::Values(false, true),
-    /*use_cuda_graph=*/testing::Values(false)), // cuda graphs not supported: ucc does not supports it (segfault) and nccl PG has a "syncStream" that throws
+    /*use_cuda_graph=*/testing::Values(false), // cuda graphs not supported: ucc does not supports it (segfault) and nccl PG has a "syncStream" that throws
+    testing::Values(DataType::Float, DataType::Half, DataType::BFloat16)),
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
@@ -473,6 +477,7 @@ INSTANTIATE_TEST_SUITE_P(
          << "K" << std::get<3>(info.param) << "_"
          << "N" << std::get<4>(info.param) << "_"
          << "Streams" << std::get<5>(info.param) << "_"
+         << /*dtype:*/std::get<10>(info.param) << "_"
          << ((std::get<6>(info.param))? "WithcuStreamWriteValue32_" : "")
          << "Pgs" << std::get<7>(info.param)
          << ((std::get<8>(info.param))? "_unfused" : "")

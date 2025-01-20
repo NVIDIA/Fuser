@@ -9,6 +9,8 @@ M=32768
 K=32768
 N=1024
 
+DTYPE="__half" # float, __bfloat
+
 S=8
 Streams=3
 Pgs=1
@@ -25,7 +27,7 @@ Pgs=1
 # GTEST_PREFIX="OverlapBenchmark.PipelinedAGMatmulBenchmark/"
 # GTEST_PREFIX="DummyOverlapBenchmark.PipelinedAGMatmulBenchmark/"
 GTEST_PREFIX="OverlapBenchmark.PipelinedAGMatmulBenchmarkStreamParallelType/"
-GTEST_POSTFIX="${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}_${cuStreamWrite}Pgs${Pgs}${UNFUSE}${GRAPH}"
+GTEST_POSTFIX="${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}_${DTYPE}_${cuStreamWrite}Pgs${Pgs}${UNFUSE}${GRAPH}"
 # GTEST_POSTFIX="${BACKEND}_M${M}_K${K}_N${N}_L${L}${PRE_COMM}${POST_COMM}"
 export GTEST_FILTER="${GTEST_PREFIX}${GTEST_POSTFIX}"
 echo "gtest filter: $GTEST_FILTER" | tee -a $LOG_FILE_INFO
