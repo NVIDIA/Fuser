@@ -563,41 +563,16 @@ void HostIrEvaluator::handle(LinearOp* linear) {
     return;
   }
 
-  auto squeeze_device_dims = [](at::Tensor& t,
-                              int64_t num_device_dims) -> void {
-    // Record the initial shape for the error message.
-    std::vector<int64_t> shape = t.sizes().vec();
-    for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
-      NVF_CHECK(
-          t.size(0) == 1,
-          "When the weight is >2D, expect its preceding dimensions and "
-          "the bias's preceding dimensions to "
-          "be DID-parallel and therefore size-1: ",
-          shape);
-      t = t.squeeze(0);
-    }
-  };
-
   auto in_at = expr_evaluator_.evaluate(in).as<at::Tensor>();
   auto weight_at = expr_evaluator_.evaluate(weight).as<at::Tensor>();
   auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
   auto out_at = expr_evaluator_.evaluate(out).as<at::Tensor>();
 
-  // The squeezes and unsqueezes are currently required to support a sharded
-  // linear layer. Remove them after #2563.
-  auto num_device_dims = weight_at.dim() - 2;
-  squeeze_device_dims(weight_at, num_device_dims);
   if (linear->has_bias()) {
-    squeeze_device_dims(bias_at, num_device_dims);
-    at::linear_out(out_at, in_at, weight_at, bias_at);
+    at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
-    at::linear_out(out_at, in_at, weight_at);
+    at::linear_out(out_at, in_at, weight_at.squeeze());
   }
-
-  for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
-    out_at = out_at.unsqueeze(0);
-  }
-  expr_evaluator_.bind(out, out_at, /*evaluate_validate=*/false);
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {

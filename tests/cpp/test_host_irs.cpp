@@ -909,7 +909,6 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   hic->addInput(weight);
   hic->addInput(bias);
   hic->addInput(out);
-  hic->addOutput(out);
 
   hic->pushBackTopLevelExprs(linear_op);
 
