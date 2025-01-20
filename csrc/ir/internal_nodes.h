@@ -2269,7 +2269,6 @@ class LinearOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
- private:
   bool has_bias() const {
     return inputs().size() == 3;
   }

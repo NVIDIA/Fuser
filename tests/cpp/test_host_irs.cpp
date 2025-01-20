@@ -849,6 +849,88 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   EXPECT_TRUE(ref_output.allclose(c_tensor));
 }
 
+using LinearHostIrTest = NVFuserTest;
+
+TEST_F(LinearHostIrTest, HostIr) {
+  constexpr int64_t B = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(3);
+  TensorView* weight = makeContigTensor(2);
+  TensorView* bias = makeContigTensor(1);
+  TensorView* out = linear(in, weight, bias);
+
+  hic->addInput(in);
+  hic->addInput(weight);
+  hic->addInput(bias);
+  hic->addOutput(out);
+
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor in_at = at::randn({B, M, K}, options);
+  at::Tensor weight_at = at::randn({N, K}, options);
+  at::Tensor bias_at = at::randn({N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), in_at}, {hie.inputs().at(1), weight_at}, {hie.inputs().at(2), bias_at}};
+
+  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+
+  // validate
+  auto ref_output = at::linear(in_at, weight_at, bias_at);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
+
+TEST_F(LinearHostIrTest, HostIrLinearOut) {
+  constexpr int64_t B = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(3);
+  TensorView* weight = makeContigTensor(2);
+  TensorView* bias = makeContigTensor(1);
+  TensorView* out = makeContigTensor(3);
+
+  auto linear_op = IrBuilder::create<LinearOp>(out, in, weight, bias);
+
+  hic->addInput(in);
+  hic->addInput(weight);
+  hic->addInput(bias);
+  hic->addInput(out);
+  hic->addOutput(out);
+
+  hic->pushBackTopLevelExprs(linear_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor in_at = at::randn({B, M, K}, options);
+  at::Tensor weight_at = at::randn({N, K}, options);
+  at::Tensor bias_at = at::randn({N}, options);
+  at::Tensor out_at = at::empty({B, M, N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), in_at}, {hie.inputs().at(1), weight_at}, {hie.inputs().at(2), bias_at}, {hie.inputs().at(3), out_at}};
+
+  hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  auto ref_output = at::linear(in_at, weight_at, bias_at);
+
+  EXPECT_TRUE(ref_output.allclose(out_at));
+}
+
 using SelectHostIrTestParams = bool;
 using SelectHostIrTest = NVFuserFixtureParamTest<SelectHostIrTestParams>;
 
