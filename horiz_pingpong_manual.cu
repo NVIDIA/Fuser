@@ -11374,7 +11374,7 @@ __device__ __inline__ void ParallelReduce<
 __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfloat, 3, 3> T1, Tensor<__bfloat, 3, 3> T2, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, const __grid_constant__ TensorMap var3, const __grid_constant__ TensorMap var4, const __grid_constant__ TensorMap var5, Tensor<__bfloat, 2, 2> T4, Tensor<__bfloat, 2, 2> T19, Tensor<__bfloat, 2, 2> T14) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
-  constexpr nvfuser_index_t grid_swizzle_factor = 7;
+  constexpr nvfuser_index_t grid_swizzle_factor = 3;
   nvfuser_index_t i6;
   i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), grid_swizzle_factor);
   nvfuser_index_t i7;
@@ -11507,14 +11507,24 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
 
           nvfuser_index_t i45;
           i45 = 16384 * slot;
+
+          nvfuser_index_t k;
+          // ZSwizzle aka lawnmower rasterization. Turn around for the second K loop to increase L2 locality
+          if (false) {
+            k = (i48 == 0) ? i44 : ((i8 - 1) - i44);
+          } else {
+            k = i44;
+          }
+
           nvfuser_index_t i46;
-          i46 = 64 * i44;
+          //i46 = 64 * i44;
+          i46 = 64 * k;
           unsigned i47;
           i47 = i12 + i45;
           if ((Hopper::electSync(4294967295U) && b25)) {
             mbarrier::waitParity(toSmem((&T25[(slot + 2LL)])), this_parity);
             mbarrier::arriveExpectTX(toSmem((&T25[slot])), 16384U);
-            Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i35}), toSmem((&T25[slot])) }), (i10 + i45));
+            Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<nvfuser_index_t, 2, 1>{i46, i35}), toSmem((&T25[slot])) }), (i10 + i45));
             mbarrier::arriveExpectTX(toSmem((&T25[slot])), 8192U);
               Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr11, (Array<nvfuser_index_t, 2, 1>{i46, (i38 + (64 * i48))}), toSmem((&T25[slot])) }), (i47 + (8192 * i48)));
             mbarrier::arriveExpectTX(toSmem((&T25[slot])), 16384U);
