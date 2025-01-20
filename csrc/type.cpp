@@ -948,6 +948,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::ComplexFloat, DataType::Int):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Int):
       return "(int64_t)std::real";
+    case supported_switch_pair(DataType::Index, DataType::Byte):
     case supported_switch_pair(DataType::Char, DataType::Byte):
     case supported_switch_pair(DataType::Short, DataType::Byte):
     case supported_switch_pair(DataType::Int32, DataType::Byte):
@@ -959,6 +960,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Double, DataType::Byte):
     case supported_switch_pair(DataType::Bool, DataType::Byte):
       return "(uint8_t)";
+    case supported_switch_pair(DataType::Index, DataType::UInt16):
     case supported_switch_pair(DataType::Char, DataType::UInt16):
     case supported_switch_pair(DataType::Short, DataType::UInt16):
     case supported_switch_pair(DataType::Int32, DataType::UInt16):
@@ -970,6 +972,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Double, DataType::UInt16):
     case supported_switch_pair(DataType::Bool, DataType::UInt16):
       return "(uint16_t)";
+    case supported_switch_pair(DataType::Index, DataType::UInt32):
     case supported_switch_pair(DataType::Char, DataType::UInt32):
     case supported_switch_pair(DataType::Short, DataType::UInt32):
     case supported_switch_pair(DataType::Int32, DataType::UInt32):
@@ -981,6 +984,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Double, DataType::UInt32):
     case supported_switch_pair(DataType::Bool, DataType::UInt32):
       return "(uint32_t)";
+    case supported_switch_pair(DataType::Index, DataType::UInt64):
     case supported_switch_pair(DataType::Char, DataType::UInt64):
     case supported_switch_pair(DataType::Short, DataType::UInt64):
     case supported_switch_pair(DataType::Int32, DataType::UInt64):
