@@ -11522,7 +11522,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         }
       }
     } else {
-      mbarrier::wait(toSmem(&math_barriers[threadIdx.y]), (uint32_t)(i32 % 2));
+      mbarrier::waitParity(toSmem(&math_barriers[threadIdx.y]), (uint32_t)(i32 % 2));
 
       #pragma unroll 1
       for(nvfuser_index_t i50 = 0; i50 < i8; ++i50) {
@@ -11722,7 +11722,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     if ((Hopper::electSync(4294967295U) && b25)) {
       // Wake the other warp group since we're done with the circular buffer
       // in this math group and are beginning the epilogue
-      mbarrier::arrive(toSmem(&math_barriers[(threadIdx.y + 1) % 2]));
+      mbarrier::arrive(toSmem(&math_barriers[((uint32_t)threadIdx.y + 1) % 2]));
     }
 
     Array<__bfloat, 64, 8> T18;
