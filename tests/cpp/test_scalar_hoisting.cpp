@@ -316,7 +316,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   b7 = i0 < i6;
   float f8;
   f8 = (float)(i6);
-  float T1[1LL];
+  Array<float, 1LL, 1> T1;
   if (b7) {
     T1[0LL]
        = sinf(T0[i0]);
