@@ -18,6 +18,15 @@ namespace nvfuser {
 
 namespace {
 
+std::tuple<Val*, Expr*> createAndAllocNS(
+    std::string name,
+    DataType dtype = DataType::Index) {
+  Val* val = IrBuilder::create<NamedScalar>(name, dtype);
+  auto alloc = IrBuilder::create<kir::Allocate>(
+      val, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
+  return std::make_tuple(val, alloc);
+}
+
 class RNGInserter : public kir::ExprMutator {
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
@@ -28,6 +37,7 @@ class RNGInserter : public kir::ExprMutator {
  private:
   Val* rng_subseq = nullptr;
   Val* rng_offset = nullptr;
+  TensorView* rng_result = nullptr;
   const std::vector<Expr*>& exprs;
 
   struct InsertionInfo {
@@ -39,43 +49,121 @@ class RNGInserter : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
-  void handle(RNGOp* rng_op) final {
+  void handle(RNGOp* rop) final {
+    // Set prologue if not already set
     if (rng_subseq == nullptr) {
       NVF_ERROR(!exprs.empty());
       auto neg_1 = IrBuilder::create<Val>(-1, DataType::Index);
-      rng_subseq =
-          IrBuilder::create<NamedScalar>("rng_subseq", DataType::Index);
-      rng_offset =
-          IrBuilder::create<NamedScalar>("rng_offset", DataType::Index);
-      // std::cout << rng_subseq->name() << std::endl;
-      // std::cout << rng_offset->name() << std::endl;
+      auto subseq_tuple = createAndAllocNS("rng_subseq");
+      kir::ExprMutator::registerInsertBefore(
+          exprs.front(), std::get<1>(subseq_tuple), nullptr);
+      kir::ExprMutator::registerInsertBefore(
+          exprs.front(),
+          IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set, std::get<0>(subseq_tuple), neg_1),
+          nullptr);
 
-      auto alloc0 = IrBuilder::create<kir::Allocate>(
-          rng_subseq,
-          MemoryType::Local,
-          GpuLower::current()->kernel()->oneVal());
-      auto alloc1 = IrBuilder::create<kir::Allocate>(
-          rng_offset,
-          MemoryType::Local,
-          GpuLower::current()->kernel()->oneVal());
-      auto expr0 = IrBuilder::create<LoadStoreOp>(
-          LoadStoreOpType::Set, rng_subseq, neg_1);
-      auto expr1 = IrBuilder::create<LoadStoreOp>(
-          LoadStoreOpType::Set, rng_offset, neg_1);
-      // std::cout << expr0->toString() << std::endl;
-      // std::cout << expr1->toString() << std::endl;
-      // std::cout << exprs.front()->toString() << std::endl;
-      kir::ExprMutator::registerInsertBefore(exprs.front(), alloc0, nullptr);
-      kir::ExprMutator::registerInsertBefore(exprs.front(), expr0, nullptr);
-      kir::ExprMutator::registerInsertBefore(exprs.front(), alloc1, nullptr);
-      kir::ExprMutator::registerInsertBefore(exprs.front(), expr1, nullptr);
+      rng_subseq = std::get<0>(subseq_tuple);
+
+      auto offset_tuple = createAndAllocNS("rng_offset");
+      kir::ExprMutator::registerInsertBefore(
+          exprs.front(), std::get<1>(offset_tuple), nullptr);
+      kir::ExprMutator::registerInsertBefore(
+          exprs.front(),
+          IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set, std::get<0>(offset_tuple), neg_1),
+          nullptr);
+
+      rng_offset = std::get<0>(offset_tuple);
+
+      rng_result = TensorViewBuilder()
+                       .shape(std::vector<int64_t>{4})
+                       .dtype(DataType::UInt64)
+                       .contiguity(true)
+                       .build();
+      rng_result->setMemoryType(MemoryType::Local);
+
+      auto rng_result_alloc =
+          IrBuilder::create<kir::Allocate>(rng_result, MemoryType::Local);
+      kir::ExprMutator::registerInsertBefore(
+          exprs.front(), rng_result_alloc, nullptr);
     }
-    // std::cout << rng_op->toString() << std::endl;
-    // auto linear_index = rng_op->getPhiloxIndex();
-    // auto multiple =  rng_op->getPhiloxMultiple();
+
+    auto index_tuple =
+        createAndAllocNS("liner_index" + std::to_string(rop->name()));
+    kir::ExprMutator::registerInsertBefore(rop, std::get<1>(index_tuple));
+    kir::ExprMutator::registerInsertBefore(
+        rop,
+        IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set,
+            std::get<0>(index_tuple),
+            rop->getPhiloxIndex()));
+
+    auto multiple =
+        IrBuilder::create<Val>(rop->getPhiloxMultiple(), DataType::Index);
+
+    auto rop_subseq_tuple =
+        createAndAllocNS("rng_subseq" + std::to_string(rop->name()));
+    kir::ExprMutator::registerInsertBefore(rop, std::get<1>(rop_subseq_tuple));
+    kir::ExprMutator::registerInsertBefore(
+        rop,
+        IrBuilder::create<BinaryOp>(
+            BinaryOpType::Div,
+            std::get<0>(rop_subseq_tuple),
+            std::get<0>(index_tuple),
+            multiple));
+
+    auto rop_component_tuple =
+        createAndAllocNS("rng_component" + std::to_string(rop->name()));
+    kir::ExprMutator::registerInsertBefore(
+        rop, std::get<1>(rop_component_tuple));
+    kir::ExprMutator::registerInsertBefore(
+        rop,
+        IrBuilder::create<BinaryOp>(
+            BinaryOpType::Mod,
+            std::get<0>(rop_component_tuple),
+            std::get<0>(index_tuple),
+            multiple));
+
+    auto rop_offset_tuple =
+        createAndAllocNS("rng_offset" + std::to_string(rop->name()));
+    kir::ExprMutator::registerInsertBefore(rop, std::get<1>(rop_offset_tuple));
+    kir::ExprMutator::registerInsertBefore(
+        rop,
+        IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set,
+            std::get<0>(rop_offset_tuple),
+            rop->getRNGOffsetVal()));
+
+    kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(SimplifyingIrBuilder::logicalOrExpr(
+            SimplifyingIrBuilder::neExpr(
+                rng_subseq, std::get<0>(rop_subseq_tuple)),
+            SimplifyingIrBuilder::neExpr(
+                rng_offset, std::get<0>(rop_offset_tuple)))));
+    ite->thenBody().push_back(IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, rng_subseq, std::get<0>(rop_subseq_tuple)));
+
+    ite->thenBody().push_back(IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, rng_offset, std::get<0>(rop_offset_tuple)));
+
+    kir::ExprMutator::registerInsertBefore(rop, ite);
+
+    kir::ExprMutator::registerInsertBefore(
+        rop,
+        IrBuilder::create<TernaryOp>(
+            TernaryOpType::Philox,
+            IrBuilder::create<NamedScalar>("rng_result", DataType::Index),
+            rop->getRNGSeedVal(),
+            rng_subseq,
+            rng_offset));
+
+    // auto rop_component =
+    //     createAndAllocNS("rng_component" + std::to_string(rop->name()));
+
     // auto rng_subseq = SimplifyingIrBuilder::div(linear_index, multiple);
     // auto rng_component = SimplifyingIrBuilder::mod(linear_index, multiple);
-    // auto rng_offset = rng_op->getRNGOffsetVal();
+    // auto rng_offset = rop->getRNGOffsetVal();
 
     //  nvfuser_index_t rng_offset215 = (((ptr2 == nullptr) ? i3 : ((*ptr2) +
     //  i3)) / 4LL);

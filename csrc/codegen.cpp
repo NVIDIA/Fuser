@@ -359,8 +359,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
-      // indent() << "nvfuser_index_t rng_subseq = -1;\n";
-      // indent() << "nvfuser_index_t rng_offset = -1;\n";
+      indent() << "nvfuser_index_t rng_subseq = -1;\n";
+      indent() << "nvfuser_index_t rng_offset = -1;\n";
     }
 
     // Do we have any dynamic shared memory buffers?
