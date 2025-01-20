@@ -11377,7 +11377,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
 
 
 #define grid_swizzle_factor 3
-#define load_stages 2
+#define load_stages 3
 
 /* load_stages=2 dump:
    // T22 T23 and T24 are output TMA store smem (indep of load_stages)
@@ -11402,15 +11402,15 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
 // We also need to allocate math_barriers on top of these.
   // Size of each circular buffer is 8192 * load_Stages
 #define T23addr 0
-#define T24addr T23addr + 16384 * 2
-#define T22addr T24addr + 16384 * 2
-#define T17addr T22addr + 16384 * 2
-#define T15addr T17addr + load_stages * 2 * 8192
-#define T16addr T15addr + load_stages * 2 * 8192
-#define T25addr T16addr + load_stages * 2 * 8192
-#define math_barrier_addr T25addr + 4 * 8
-#define total_smem math_barrier_addr + 6 * 8 < 232448
-  static_assert(total_smem); // H200 smem limit
+#define T24addr (T23addr + 8192 * 2)
+#define T22addr (T24addr + 8192 * 2)
+#define T17addr (T22addr + 8192 * 2)
+#define T15addr (T17addr + (load_stages * 2 * 8192))
+#define T16addr (T15addr + (load_stages * 2 * 8192))
+#define T25addr (T16addr + (load_stages * 2 * 8192))
+#define math_barrier_addr (T25addr + (load_stages * 2 * 8))
+#define total_smem math_barrier_addr + (2 * 8)
+  static_assert(total_smem < 232448); // H200 smem limit
 
 
 
@@ -11439,23 +11439,23 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
   i15 = i12 + (8192 * ((nvfuser_index_t)threadIdx.y));
   nvfuser_index_t i16;
   i16 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
-  nvfuser_index_t i17;
-  i17 = 16384 * ((nvfuser_index_t)threadIdx.y);
+  //nvfuser_index_t i17;
+  //i17 = 16384 * ((nvfuser_index_t)threadIdx.y);
   __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + T22addr);
   unsigned i18;
-  i18 = toSmem(T22) + i17;
+  i18 = toSmem(T22);// + i17; // Don't add threadIdx.y term
   const TensorMap* ptr19;
   ptr19 = &var3;
   nvfuser_index_t i20;
   i20 = 64 * ((nvfuser_index_t)threadIdx.y);
   __bfloat* T24 = reinterpret_cast<__bfloat*>(array + smem_offset + T24addr);
   unsigned i21;
-  i21 = toSmem(T24) + i17;
+  i21 = toSmem(T24);// + i17; // Don't add threadIdx.y term
   const TensorMap* ptr22;
   ptr22 = &var4;
   __bfloat* T23 = reinterpret_cast<__bfloat*>(array + smem_offset + T23addr);
   unsigned i23;
-  i23 = toSmem(T23) + i17; // i17 is 16384 * threadIdx.y. We don't need this if we re-use epilogue smem
+  i23 = toSmem(T23);// + i17; // i17 is 16384 * threadIdx.y. We don't need this if we re-use epilogue smem
   const TensorMap* ptr24;
   ptr24 = &var5;
   bool b25;
@@ -11492,10 +11492,10 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
     #pragma unroll
     for(nvfuser_index_t i43 = 0; i43 < load_stages; ++i43) {
       if (((Hopper::electSync(4294967295U) && b25) && b26)) {
-        mbarrier::init(toSmem((&T25[(i43 + 2LL)])), 128U);
+        mbarrier::init(toSmem((&T25[(i43 + load_stages)])), 128U);
       }
     }
-    for(nvfuser_index_t i43 = 0; i43 < load_stages; ++i43) {
+    for(nvfuser_index_t i43 = 0; i43 < 2; ++i43) {
       if (((Hopper::electSync(4294967295U) && b25) && b26)) {
         mbarrier::init(toSmem((&math_barriers[i43])), 1U);
       }
@@ -11505,7 +11505,7 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
     if (b26) {
       #pragma unroll
       for(nvfuser_index_t i49 = 0; i49 < load_stages; ++i49) {
-        mbarrier::arrive(toSmem((&T25[(i49 + 2LL)])));
+        mbarrier::arrive(toSmem((&T25[(i49 + load_stages)])));
       }
     }
 
@@ -11800,7 +11800,9 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
         asm volatile(
           "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
           :
-          :"r"((uint32_t)((toSmem(T22) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i71 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i71 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+          :"r"((uint32_t)((toSmem(T22) + (
+                  //(((nvfuser_index_t)threadIdx.y) * 16384) +
+                  (((i71 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i71 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i71)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i71)]))[1]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i71)]))[2]),
@@ -11872,7 +11874,9 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
         asm volatile(
           "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
           :
-          :"r"((uint32_t)((toSmem(T24) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i79 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i79 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+          :"r"((uint32_t)((toSmem(T24) + (
+                  //(((nvfuser_index_t)threadIdx.y) * 16384) +
+                  (((i79 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i79 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T21[(8 * i79)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T21[(8 * i79)]))[1]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T21[(8 * i79)]))[2]),
@@ -11898,7 +11902,7 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
           :
           :"r"((uint32_t)((toSmem(T23) + (
                   // Don't use separate smem for each math group
-                  (((nvfuser_index_t)threadIdx.y) * 16384) + 
+                  //(((nvfuser_index_t)threadIdx.y) * 16384) + 
                   (((i81 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i81 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T20[(8 * i81)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T20[(8 * i81)]))[1]),
