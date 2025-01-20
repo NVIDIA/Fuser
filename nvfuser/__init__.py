@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import sys
-from typing import Callable, Optional, Union, List, Iterable  # noqa: F401
+from typing import Callable, Iterable
 import warnings
 
 import torch
@@ -610,8 +610,8 @@ class FusionDefinition(_C._FusionDefinition):
 
     def validate(
         self,
-        inputs: List[torch.Tensor],
-        reference_outputs: List[torch.Tensor],
+        inputs: list[torch.Tensor],
+        reference_outputs: list[torch.Tensor],
         kwargs=None,
     ):
         """

@@ -288,7 +288,7 @@ def check_cpp_translation(
             "(A failure here suggests a mismatch in functionality between the original and cloned definitions.)"
         )
         print("Does FusionDefinition supports segmentation?\t", supports_segmentation)
-        print(fd.getReproErrorString("executing", inputs))
+        print(fd._repro_error_str("executing", inputs))
         raise err
 
 
