@@ -14,6 +14,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 
 namespace nvfuser {
 
@@ -30,6 +31,24 @@ std::ostream& HostIrContainer::print(std::ostream& os) const {
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
   return os;
+}
+
+const std::vector<Expr*>& HostIrContainer::topLevelExprs() const {
+  return top_level_exprs_;
+}
+
+void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
+  assertInContainer(expr, "Cannot add expr, ");
+  return top_level_exprs_.push_back(expr);
+}
+
+void HostIrContainer::pushBackKernelExecutor(
+    std::unique_ptr<KernelExecutor> ke) {
+  return kernel_executors_.push_back(std::move(ke));
+}
+
+KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {
+  return kernel_executors_.at(index).get();
 }
 
 } // namespace hir
