@@ -11374,10 +11374,11 @@ __device__ __inline__ void ParallelReduce<
 __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfloat, 3, 3> T1, Tensor<__bfloat, 3, 3> T2, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, const __grid_constant__ TensorMap var3, const __grid_constant__ TensorMap var4, const __grid_constant__ TensorMap var5, Tensor<__bfloat, 2, 2> T4, Tensor<__bfloat, 2, 2> T19, Tensor<__bfloat, 2, 2> T14) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
+  constexpr nvfuser_index_t grid_swizzle_factor = 7;
   nvfuser_index_t i6;
-  i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), 7);
+  i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), grid_swizzle_factor);
   nvfuser_index_t i7;
-  i7 = ceilDiv(((7 * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
+  i7 = ceilDiv(((grid_swizzle_factor * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
   nvfuser_index_t i8;
   i8 = ceilDiv(T0.logical_size[2LL], 64);
   const TensorMap* ptr9;
@@ -11481,11 +11482,11 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     nvfuser_index_t i34;
     i34 = i33 / i6;
     nvfuser_index_t i35;
-    i35 = 128 * (i34 / 7);
+    i35 = 128 * (i34 / grid_swizzle_factor);
     nvfuser_index_t i36;
-    i36 = 896 * (i33 % i6);
+    i36 = (128 * grid_swizzle_factor) * (i33 % i6);
     nvfuser_index_t i37;
-    i37 = 128 * (i34 % 7);
+    i37 = 128 * (i34 % grid_swizzle_factor);
     nvfuser_index_t i38;
     i38 = i36 + i37;
     nvfuser_index_t i39;
