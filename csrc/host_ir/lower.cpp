@@ -374,19 +374,20 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       (expr->isOneOf<MatmulOp, LinearOp>()),
       "Expect a MatmulOp or a LinearOp, but got",
       expr);
-
-  TensorView *tva, *tvb, *tv_bias, *tv_out;
+  TensorView* tva = nullptr;
+  TensorView* tvb = nullptr;
+  TensorView* tv_bias = nullptr;
+  TensorView* tv_out = nullptr;
   if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
     tva = matmul->inA();
     tvb = matmul->inB();
     tv_out = matmul->out();
-  } else if (auto* linear = dynamic_cast<LinearOp*>(expr)) {
+  } else {
+    auto* linear = dynamic_cast<LinearOp*>(expr);
     tva = linear->inA()->as<TensorView>();
     tvb = linear->inB()->as<TensorView>();
     tv_bias = linear->bias()->as<TensorView>();
-    ;
     tv_out = linear->out()->as<TensorView>();
-    ;
     NVF_ERROR(
         !(linear->has_bias() && isSharded(tv_bias)),
         "The bias ",
@@ -475,10 +476,10 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       /*team=*/tva->getDeviceMesh().vector());
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
-  Expr* compute;
+  Expr* compute = nullptr;
   if (expr->isA<MatmulOp>()) {
     compute = IrBuilder::create<MatmulOp>(tv_out_j, tva_allgathered_j, tvb);
-  } else if (expr->isA<LinearOp>()) {
+  } else {
     compute =
         IrBuilder::create<LinearOp>(tv_out_j, tva_allgathered_j, tvb, tv_bias);
   }
