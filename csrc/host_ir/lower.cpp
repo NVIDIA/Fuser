@@ -236,7 +236,7 @@ TODO:
 std::vector<Expr*> HostIrLower::lower(Expr* c) {
   FusionGuard fg(c->fusion());
 
-  if (c->isA<MatmulOp>()) {
+  if (c->isOneOf<MatmulOp, LinearOp>()) {
     return lowerToCollectiveBasedPipelinedGemmComm(c);
   }
 
@@ -342,30 +342,70 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     }
     return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
   } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
-    // For now we only support c = matmul(a,b) when b,c are fully replicated and
-    // a is sharded on axis 1
+    // For now we only support out = matmul(a,b) when b, out are fully
+    // replicated, a is sharded on axis 1, and out i stream-parallelized on axis
+    // 0.
     return !isSharded(matmul->inB()) && !isSharded(matmul->out()) &&
         matmul->inA()->axis(0)->getParallelType() == ParallelType::Serial &&
         getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1 &&
         matmul->out()->axis(0)->getParallelType() == ParallelType::Stream;
+  } else if (auto* linear = dynamic_cast<LinearOp*>(expr)) {
+    // For now we only support out = linear(a, b, bias) when b, bias, and out
+    // are fully replicated, a is sharded on axis 1, and out i
+    // stream-parallelized on axis 0.
+    auto* a = linear->inA()->as<TensorView>();
+    auto* b = linear->inB()->as<TensorView>();
+    auto* bias = linear->bias()->as<TensorView>();
+    ;
+    auto* out = linear->out()->as<TensorView>();
+    ;
+    return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
+        !isSharded(out) &&
+        a->axis(0)->getParallelType() == ParallelType::Serial &&
+        getShardedLogicalAxis(a, ParallelType::DIDx) == 1 &&
+        out->axis(0)->getParallelType() == ParallelType::Stream;
   }
   return false;
 }
 
 std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
     Expr* expr) {
-  auto matmul = expr->as<MatmulOp>();
-  NVF_ERROR(matmul != nullptr, "Expect a MatmulOp, got", expr);
-  TensorView* tva = matmul->inA();
-  TensorView* tvb = matmul->inB();
-  TensorView* tvc = matmul->out();
+  NVF_ERROR(
+      (expr->isOneOf<MatmulOp, LinearOp>()),
+      "Expect a MatmulOp or a LinearOp, but got",
+      expr);
+
+  TensorView *tva, *tvb, *tv_bias, *tv_out;
+  if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
+    tva = matmul->inA();
+    tvb = matmul->inB();
+    tv_out = matmul->out();
+  } else if (auto* linear = dynamic_cast<LinearOp*>(expr)) {
+    tva = linear->inA()->as<TensorView>();
+    tvb = linear->inB()->as<TensorView>();
+    tv_bias = linear->bias()->as<TensorView>();
+    ;
+    tv_out = linear->out()->as<TensorView>();
+    ;
+    NVF_ERROR(
+        !(linear->has_bias() && isSharded(tv_bias)),
+        "The bias ",
+        tv_bias,
+        " is expected to not be sharded");
+  }
+
   NVF_ERROR(
       !isSharded(tvb), "The B operand ", tvb, " is expected to not be sharded");
   NVF_ERROR(
-      !isSharded(tvc),
+      !isSharded(tv_out),
       "The output ",
-      matmul->out(),
+      tv_out,
       " is expected to not be sharded");
+  NVF_ERROR(
+      tv_out->axis(0)->getParallelType() == ParallelType::Stream,
+      "The output ",
+      tv_out,
+      " is expected to be stream-parallelized on axis 0");
   const int64_t sharded_axis_index =
       getShardedLogicalAxis(tva, ParallelType::DIDx);
   IterDomain* stream_axis = tva->axis(0);
@@ -388,9 +428,9 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* allocate_tva_allgathered =
       IrBuilder::create<kir::Allocate>(tva_allgathered, MemoryType::Global);
 
-  tvc->setMemoryType(MemoryType::Global);
-  auto* allocate_tvc =
-      IrBuilder::create<kir::Allocate>(tvc, MemoryType::Global);
+  tv_out->setMemoryType(MemoryType::Global);
+  auto* allocate_tv_out =
+      IrBuilder::create<kir::Allocate>(tv_out, MemoryType::Global);
 
   auto* j =
       IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
@@ -417,14 +457,14 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
-  TensorView* tvc_j = select(tvc, 0, j);
+  TensorView* tv_out_j = select(tv_out, 0, j);
 
   NVF_ERROR(
       tva->hasDeviceMesh(),
       "The matmul's input ",
       tva,
       "is expected to have a DeviceMesh");
-  for (auto tv : {tva_j, tva_allgathered_j, tvc_j}) {
+  for (auto tv : {tva_j, tva_allgathered_j, tv_out_j}) {
     tv->setDeviceMesh(tva->getDeviceMesh());
   }
 
@@ -435,7 +475,13 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       /*team=*/tva->getDeviceMesh().vector());
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
-  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_allgathered_j, tvb);
+  Expr* compute;
+  if (expr->isA<MatmulOp>()) {
+    compute = IrBuilder::create<MatmulOp>(tv_out_j, tva_allgathered_j, tvb);
+  } else if (expr->isA<LinearOp>()) {
+    compute =
+        IrBuilder::create<LinearOp>(tv_out_j, tva_allgathered_j, tvb, tv_bias);
+  }
 
   auto* set_back_original_stream =
       IrBuilder::create<hir::SetCurrentStream>(original_stream);
@@ -447,15 +493,16 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       tva_allgathered_j->definition(),
       communication,
       wait,
-      tvc_j->definition(),
-      mm,
+      tv_out_j->definition(),
+      compute,
       set_back_original_stream,
       sync_stream};
   for (Expr* expr : loop_body) {
     for_loop->body().push_back(expr);
   }
 
-  return {get_current_stream, allocate_tva_allgathered, allocate_tvc, for_loop};
+  return {
+      get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
 }
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
