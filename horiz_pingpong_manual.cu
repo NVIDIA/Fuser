@@ -11374,7 +11374,46 @@ __device__ __inline__ void ParallelReduce<
 __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfloat, 3, 3> T1, Tensor<__bfloat, 3, 3> T2, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, const __grid_constant__ TensorMap var3, const __grid_constant__ TensorMap var4, const __grid_constant__ TensorMap var5, Tensor<__bfloat, 2, 2> T4, Tensor<__bfloat, 2, 2> T19, Tensor<__bfloat, 2, 2> T14) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
-  constexpr nvfuser_index_t grid_swizzle_factor = 3;
+
+
+#define grid_swizzle_factor 3
+#define load_stages 2
+
+/* load_stages=2 dump:
+   // T22 T23 and T24 are output TMA store smem (indep of load_stages)
+Assigned address 0 for T23 with size 16384 * 2 bytes
+Pushing allocation for T24  (mbarriers)
+Assigned address 32768 for T24 with size 16384 * 2 bytes
+Pushing allocation for T22
+Assigned address 65536 for T22 with size 16384 * 2 bytes
+   // T15 T16 and T17 are operand smem
+Pushing allocation for T17
+Assigned address 98304 for T17 with size 16384 * 2 bytes
+Pushing allocation for T15
+Assigned address 131072 for T15 with size 16384 * 2 bytes
+Pushing allocation for T16
+Assigned address 163840 for T16 with size 16384 * 2 bytes
+   // T25 is mbarrier
+Pushing allocation for T25
+Assigned address 196608 for T25 with size 4 * 8 bytes
+*/
+// Diff shows that when load_stages = 3 or 4, we need to change the offsets for
+// T15, T16, but not T17 because it's allocated beneath the other two.
+// We also need to allocate math_barriers on top of these.
+  // Size of each circular buffer is 8192 * load_Stages
+#define T23addr 0
+#define T24addr T23addr + 16384 * 2
+#define T22addr T24addr + 16384 * 2
+#define T17addr T22addr + 16384 * 2
+#define T15addr T17addr + load_stages * 2 * 8192
+#define T16addr T15addr + load_stages * 2 * 8192
+#define T25addr T16addr + load_stages * 2 * 8192
+#define math_barrier_addr T25addr + 4 * 8
+#define total_smem math_barrier_addr + 6 * 8 < 232448
+  static_assert(total_smem); // H200 smem limit
+
+
+
   nvfuser_index_t i6;
   i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), grid_swizzle_factor);
   nvfuser_index_t i7;
@@ -11383,17 +11422,17 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
   i8 = ceilDiv(T0.logical_size[2LL], 64);
   const TensorMap* ptr9;
   ptr9 = &var0;
-  __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + 163840);
+  __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + T16addr);
   unsigned i10;
   i10 = toSmem(T16);
   const TensorMap* ptr11;
   ptr11 = &var1;
-  __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + 131072);
+  __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + T15addr);
   unsigned i12;
   i12 = toSmem(T15);
   const TensorMap* ptr13;
   ptr13 = &var2;
-  __bfloat* T17 = reinterpret_cast<__bfloat*>(array + smem_offset + 98304);
+  __bfloat* T17 = reinterpret_cast<__bfloat*>(array + smem_offset + T17addr);
   unsigned i14;
   i14 = toSmem(T17);
   unsigned i15;
@@ -11402,21 +11441,21 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
   i16 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
   nvfuser_index_t i17;
   i17 = 16384 * ((nvfuser_index_t)threadIdx.y);
-  __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + 65536);
+  __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + T22addr);
   unsigned i18;
   i18 = toSmem(T22) + i17;
   const TensorMap* ptr19;
   ptr19 = &var3;
   nvfuser_index_t i20;
   i20 = 64 * ((nvfuser_index_t)threadIdx.y);
-  __bfloat* T24 = reinterpret_cast<__bfloat*>(array + smem_offset + 32768);
+  __bfloat* T24 = reinterpret_cast<__bfloat*>(array + smem_offset + T24addr);
   unsigned i21;
   i21 = toSmem(T24) + i17;
   const TensorMap* ptr22;
   ptr22 = &var4;
-  __bfloat* T23 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
+  __bfloat* T23 = reinterpret_cast<__bfloat*>(array + smem_offset + T23addr);
   unsigned i23;
-  i23 = toSmem(T23) + i17;
+  i23 = toSmem(T23) + i17; // i17 is 16384 * threadIdx.y. We don't need this if we re-use epilogue smem
   const TensorMap* ptr24;
   ptr24 = &var5;
   bool b25;
@@ -11439,24 +11478,24 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     float T3[64];
     float T10[64];
 
-    uint64_t* T25 = reinterpret_cast<uint64_t*>(array + smem_offset + 196608);
+    uint64_t* T25 = reinterpret_cast<uint64_t*>(array + smem_offset + T25addr);
 
     // We need additional mbarriers for each math group
-    uint64_t* math_barriers = reinterpret_cast<uint64_t*>(array + smem_offset + 196608 + 6 * 8);
+    uint64_t* math_barriers = reinterpret_cast<uint64_t*>(array + smem_offset + math_barrier_addr);
 
     #pragma unroll
-    for(nvfuser_index_t i42 = 0; i42 < 2; ++i42) {
+    for(nvfuser_index_t i42 = 0; i42 < load_stages; ++i42) {
       if (((Hopper::electSync(4294967295U) && b25) && b26)) {
         mbarrier::init(toSmem((&T25[i42])), 3U);
       }
     }
     #pragma unroll
-    for(nvfuser_index_t i43 = 0; i43 < 2; ++i43) {
+    for(nvfuser_index_t i43 = 0; i43 < load_stages; ++i43) {
       if (((Hopper::electSync(4294967295U) && b25) && b26)) {
         mbarrier::init(toSmem((&T25[(i43 + 2LL)])), 128U);
       }
     }
-    for(nvfuser_index_t i43 = 0; i43 < 2; ++i43) {
+    for(nvfuser_index_t i43 = 0; i43 < load_stages; ++i43) {
       if (((Hopper::electSync(4294967295U) && b25) && b26)) {
         mbarrier::init(toSmem((&math_barriers[i43])), 1U);
       }
@@ -11465,7 +11504,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
 
     if (b26) {
       #pragma unroll
-      for(nvfuser_index_t i49 = 0; i49 < 2; ++i49) {
+      for(nvfuser_index_t i49 = 0; i49 < load_stages; ++i49) {
         mbarrier::arrive(toSmem((&T25[(i49 + 2LL)])));
       }
     }
@@ -11499,11 +11538,11 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))).set(0);
     if (b27) {
       for(nvfuser_index_t i48 = 0; i48 < 2; ++i48) {
-        #pragma unroll 1
+        #pragma unroll (load_stages - 1)
         for(nvfuser_index_t i44 = 0; i44 < i8; ++i44) {
           uint32_t stages_processed = (i32 * 2 + i48) * i8 + i44;
-          nvfuser_index_t slot = stages_processed % 2;
-          uint32_t this_parity = (stages_processed / 2) % 2;
+          nvfuser_index_t slot = stages_processed % load_stages;
+          uint32_t this_parity = (stages_processed / load_stages) % 2;
 
           nvfuser_index_t i45;
           i45 = 16384 * slot;
@@ -11522,7 +11561,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
           unsigned i47;
           i47 = i12 + i45;
           if ((Hopper::electSync(4294967295U) && b25)) {
-            mbarrier::waitParity(toSmem((&T25[(slot + 2LL)])), this_parity);
+            mbarrier::waitParity(toSmem((&T25[(slot + load_stages)])), this_parity);
             mbarrier::arriveExpectTX(toSmem((&T25[slot])), 16384U);
             Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<nvfuser_index_t, 2, 1>{i46, i35}), toSmem((&T25[slot])) }), (i10 + i45));
             mbarrier::arriveExpectTX(toSmem((&T25[slot])), 8192U);
@@ -11535,11 +11574,11 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
     } else {
       mbarrier::waitParity(toSmem(&math_barriers[threadIdx.y]), (uint32_t)(i32 % 2));
 
-      #pragma unroll 1
+      #pragma unroll (load_stages - 1)
       for(nvfuser_index_t i50 = 0; i50 < i8; ++i50) {
         uint32_t stages_processed = (i32 * 2 + threadIdx.y) * i8 + i50;
-        nvfuser_index_t slot = stages_processed % 2;
-        uint32_t this_parity = (stages_processed / 2) % 2;
+        nvfuser_index_t slot = stages_processed % load_stages;
+        uint32_t this_parity = (stages_processed / load_stages) % 2;
 
         nvfuser_index_t i51;
         i51 = 16384 * slot;
@@ -11727,7 +11766,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         }
         asm volatile("wgmma.commit_group.sync.aligned;\n");
         asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-        mbarrier::arrive(toSmem((&T25[(slot + 2LL)])));
+        mbarrier::arrive(toSmem((&T25[(slot + load_stages)])));
       }
 
     if ((Hopper::electSync(4294967295U) && b25)) {
@@ -11857,7 +11896,10 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
         asm volatile(
           "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
           :
-          :"r"((uint32_t)((toSmem(T23) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i81 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i81 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+          :"r"((uint32_t)((toSmem(T23) + (
+                  // Don't use separate smem for each math group
+                  (((nvfuser_index_t)threadIdx.y) * 16384) + 
+                  (((i81 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i81 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T20[(8 * i81)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T20[(8 * i81)]))[1]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T20[(8 * i81)]))[2]),
