@@ -551,9 +551,8 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   TensorView* bias = linear->bias()->as<TensorView>();
   TensorView* out = linear->out()->as<TensorView>();
   NVF_ERROR(
-      expr_evaluator_.isKnown(in)
-        && expr_evaluator_.isKnown(weight)
-        && (!linear->has_bias() || expr_evaluator_.isKnown(bias)),
+      expr_evaluator_.isKnown(in) && expr_evaluator_.isKnown(weight) &&
+          (!linear->has_bias() || expr_evaluator_.isKnown(bias)),
       "Inputs of the Linear Op ",
       linear->toString(),
       "must be precomputed before being retrieved");

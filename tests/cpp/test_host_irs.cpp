@@ -879,7 +879,9 @@ TEST_F(LinearHostIrTest, HostIr) {
   at::Tensor weight_at = at::randn({N, K}, options);
   at::Tensor bias_at = at::randn({N}, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {hie.inputs().at(0), in_at}, {hie.inputs().at(1), weight_at}, {hie.inputs().at(2), bias_at}};
+      {hie.inputs().at(0), in_at},
+      {hie.inputs().at(1), weight_at},
+      {hie.inputs().at(2), bias_at}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
 
@@ -920,7 +922,10 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   at::Tensor bias_at = at::randn({N}, options);
   at::Tensor out_at = at::empty({B, M, N}, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {hie.inputs().at(0), in_at}, {hie.inputs().at(1), weight_at}, {hie.inputs().at(2), bias_at}, {hie.inputs().at(3), out_at}};
+      {hie.inputs().at(0), in_at},
+      {hie.inputs().at(1), weight_at},
+      {hie.inputs().at(2), bias_at},
+      {hie.inputs().at(3), out_at}};
 
   hie.runWithInput(concrete_input_buffers);
 
