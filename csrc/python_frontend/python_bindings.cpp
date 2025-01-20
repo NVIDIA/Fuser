@@ -23,7 +23,6 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <mma_type.h>
-#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -997,7 +996,13 @@ void initNvFuserPythonBindings(PyObject* module) {
     return ss.str();
   });
   tensor_class.def_property_readonly(
-      "ndim", [](Tensor& self) { return self.dims; });
+      "ndim",
+      [](Tensor& self) { return self.dims; },
+      "Returns the rank of the tensor.");
+  tensor_class.def_property_readonly(
+      "index",
+      [](Tensor& self) { return self.index; },
+      "Returns the index of the tensor as in FusionDefinition.sched.tensors().");
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
@@ -1012,25 +1017,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
   scalar_class.def(pybind11::self == pybind11::self);
   scalar_class.def(pybind11::self != pybind11::self);
-
-  py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
-  device_mesh_class.def(py::init<std::vector<int64_t>>());
-  device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
-    std::stringstream ss;
-    ss << self;
-    return ss.str();
-  });
-  device_mesh_class.def(
-      "shard_tensor",
-      [](const DeviceMesh& self,
-         at::Tensor tensor,
-         const int64_t axis,
-         int64_t device_id) -> at::Tensor {
-        return shardTensor(tensor, axis, self, device_id);
-      },
-      py::arg("tensor"),
-      py::arg("axis"),
-      py::arg("device_id"));
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
@@ -3617,7 +3603,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   bindSchedule(fusion_def);
 
-  bindCommunicator(nvfuser);
+  bindMultidevice(nvfuser);
 }
 
 void cleanup() {

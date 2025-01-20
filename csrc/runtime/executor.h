@@ -140,7 +140,7 @@ class KernelExecutor : public ExecutorAbstract {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
-  // Function to query whether compilation was attempted for a `KernelExecutor`
+  // Returns whether this `KernelExecutor` has a compiled kernel to execute.
   bool isCompiled() const override {
     if (compiledKernel()) {
       return true;

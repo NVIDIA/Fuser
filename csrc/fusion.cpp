@@ -419,6 +419,8 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
   }
   os << "} // %kernel\n";
 
+  os << std::flush;
+
   return os;
 }
 
@@ -431,6 +433,8 @@ void Fusion::printKernel(const CompileParams& compile_params) {
   GpuLower lower(this, compile_params);
   lower.run();
   debug() << codegen::generateCudaKernel(lower.kernel());
+
+  debug() << std::flush;
 }
 
 std::unordered_map<
@@ -538,6 +542,8 @@ void Fusion::printMath(bool from_outputs_only) {
     debug() << expr;
   }
   debug() << "} // %kernel_math \n\n";
+
+  debug() << std::flush;
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {

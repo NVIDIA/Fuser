@@ -334,10 +334,7 @@ void clearMemorySpace(Fusion* fusion);
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(
-    Fusion* fusion,
-    bool unroll,
-    bool propagate_allocation = false);
+std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
@@ -747,6 +744,10 @@ inline int64_t nLogicalDims(const TensorView* tv) {
   }
   return tv_n_dims;
 }
+
+// Reorer the loop domain of a given tensor to align with a given list of
+// reference IDs. Non-matching loop IDs are placed outermost positions.
+void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
