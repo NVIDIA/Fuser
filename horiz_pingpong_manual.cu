@@ -11377,7 +11377,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfl
 
 
 #define grid_swizzle_factor 3
-#define load_stages 3
+#define load_stages 4
 
 /* load_stages=2 dump:
    // T22 T23 and T24 are output TMA store smem (indep of load_stages)
@@ -11403,7 +11403,7 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
   // Size of each circular buffer is 8192 * load_Stages
 #define T23addr 0
 #define T24addr (T23addr + 8192 * 2)
-#define T22addr (T24addr + 8192 * 2)
+#define T22addr T24addr //(T24addr + 8192 * 2)
 #define T17addr (T22addr + 8192 * 2)
 #define T15addr (T17addr + (load_stages * 2 * 8192))
 #define T16addr (T15addr + (load_stages * 2 * 8192))
@@ -11868,6 +11868,9 @@ Assigned address 196608 for T25 with size 4 * 8 bytes
         }
       }
     }
+    // Wait for first TMA so that we can re-use its smem
+    asm volatile("cp.async.bulk.commit_group;\n");
+    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
     #pragma unroll
     for(nvfuser_index_t i79 = 0; i79 < 8; ++i79) {
       if ((b40 && (i41 < (-(16 * i79))))) {
