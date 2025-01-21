@@ -11374,6 +11374,24 @@ __device__ __inline__ void ParallelReduce<
 
 #define grid_swizzle_factor 3
 
+#define compute_tough_epilogue_output false
+
+#define load_stages 3
+ // T20-T22 are used for the TMA stores
+#define T22addr 0
+ // T22 is the difficult epilogue output, so if that's disabled, just set the offset below to 0
+#define T20addr T22addr + 16384 * 2 * 0
+#define T21addr T20addr + 16384 * 2
+ // T14-T16 are circular buffers for operands
+#define T16addr T21addr + 16384 * 2
+#define T14addr T16addr + load_stages * 8192 * 2
+#define T15addr T14addr + load_stages * 8192 * 2
+ // T23 is mbarriers
+#define T23addr T15addr + load_stages * 8192 * 2
+
+// 227 KiB is smem on H200
+static_assert(T23addr + load_stages * 2 * 8 <= 227 * 1024);
+
 __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3>& T1, Tensor<__bfloat, 3, 3>& T2, const TensorMap& var0, const TensorMap& var1, const TensorMap& var2, const TensorMap& var3, const TensorMap& var4, const TensorMap& var5, Tensor<__bfloat, 2, 2>& T4, Tensor<__bfloat, 2, 2>& T11, Tensor<__bfloat, 2, 2>& T13) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
@@ -11385,22 +11403,22 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
   i8 = ceilDiv(T0.logical_size[2LL], 64);
   const TensorMap* ptr9;
   ptr9 = &var0;
-  __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + 163840);
+  __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + T15addr);
   unsigned i10;
   i10 = toSmem(T15);
   const TensorMap* ptr11;
   ptr11 = &var1;
-  __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + 131072);
+  __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + T14addr);
   unsigned i12;
   i12 = toSmem(T14);
   const TensorMap* ptr13;
   ptr13 = &var2;
-  __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + 98304);
+  __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + T16addr);
   unsigned i14;
   i14 = toSmem(T16);
-  __bfloat* T21 = reinterpret_cast<__bfloat*>(array + smem_offset + 65536);
-  __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + 32768);
-  __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
+  __bfloat* T21 = reinterpret_cast<__bfloat*>(array + smem_offset + T21addr);
+  __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + T20addr);
+  __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + T22addr);
   bool b25;
   b25 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
   float T3[64];
@@ -11409,7 +11427,7 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
     asm volatile("wgmma.fence.sync.aligned;\n");
     asm volatile("fence.proxy.async;\n");
 
-    uint64_t* T23 = reinterpret_cast<uint64_t*>(array + smem_offset + 196608);
+    uint64_t* T23 = reinterpret_cast<uint64_t*>(array + smem_offset + T23addr);
     __syncthreads();
 
   #pragma unroll 1
@@ -11458,13 +11476,13 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   i7 = ceilDiv(((grid_swizzle_factor * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
   nvfuser_index_t i8;
   i8 = ceilDiv(T0.logical_size[2LL], 64);
-  __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + 163840);
+  __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + T15addr);
   unsigned i10;
   i10 = toSmem(T15);
-  __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + 131072);
+  __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + T14addr);
   unsigned i12;
   i12 = toSmem(T14);
-  __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + 98304);
+  __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + T16addr);
   unsigned i14;
   i14 = toSmem(T16);
   unsigned i15;
@@ -11473,19 +11491,19 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   i16 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
   nvfuser_index_t i17;
   i17 = 16384 * ((nvfuser_index_t)threadIdx.y);
-  __bfloat* T21 = reinterpret_cast<__bfloat*>(array + smem_offset + 65536);
+  __bfloat* T21 = reinterpret_cast<__bfloat*>(array + smem_offset + T21addr);
   unsigned i18;
   i18 = toSmem(T21) + i17;
   const TensorMap* ptr19;
   ptr19 = &var3;
   nvfuser_index_t i20;
   i20 = 64 * ((nvfuser_index_t)threadIdx.y);
-  __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + 32768);
+  __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + T20addr);
   unsigned i21;
   i21 = toSmem(T20) + i17;
   const TensorMap* ptr22;
   ptr22 = &var4;
-  __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
+  __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + T22addr);
   unsigned i23;
   i23 = toSmem(T22) + i17;
   const TensorMap* ptr24;
@@ -11508,7 +11526,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
     asm volatile("wgmma.fence.sync.aligned;\n");
     asm volatile("fence.proxy.async;\n");
 
-    uint64_t* T23 = reinterpret_cast<uint64_t*>(array + smem_offset + 196608);
+    uint64_t* T23 = reinterpret_cast<uint64_t*>(array + smem_offset + T23addr);
     #pragma unroll
     for(nvfuser_index_t i42 = 0; i42 < 2; ++i42) {
       if (((Hopper::electSync(4294967295U) && b25) && b26)) {
@@ -11830,7 +11848,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         }
       }
     }
-    if (true) {
+    if (compute_tough_epilogue_output) {
       Array<__bfloat, 64, 8> T19;
       #pragma unroll
       for(nvfuser_index_t i78 = 0; i78 < 16; ++i78) {

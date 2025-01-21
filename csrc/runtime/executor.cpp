@@ -714,11 +714,12 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
   }
 
-  const auto dynamic_smem_size = computeSharedMemory(
+  const int64_t dynamic_smem_size = 227 * 1024 - 1;
+    /*computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
       index_type,
-      reduction_broadcast_workspace);
+      reduction_broadcast_workspace);*/
 
   // Check that requested smem size can be dynamically allocated.
   //  This check is only done once a kernel has been compiled, since
