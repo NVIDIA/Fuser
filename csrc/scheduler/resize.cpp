@@ -26,6 +26,8 @@
 
 #include <memory>
 
+#include <fstream>
+
 namespace nvfuser {
 
 namespace {
@@ -474,6 +476,23 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   fusion->print();
   std::cout << std::endl;
 
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << tv->toString() << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString();
+    }
+    std::cerr << "---\n";
+  }
+
+  {
+    IdModel idg(fusion, false);
+    idg.buildExactGraph();
+    std::ofstream ofs("exact_graph_before_ref_prop.dot", std::ofstream::trunc);
+    auto dot_string = idg.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled to workaround the resize propagation
   // issue. This may not work if there's a tensor that is reshaped
@@ -522,7 +541,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::scheduleLoopDomainsLike(
         fusion->allTvs(),
         ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true);
+        /*update_loop_domain_only=*/true,
+        IdMappingMode::BROADCAST);
   }
 
   if (vec_factor > 1) {

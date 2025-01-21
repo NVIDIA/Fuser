@@ -79,6 +79,12 @@ bool hasNonUniqueBcast(Fusion* fusion, bool check_static_size) {
               return true;
             }
           }
+
+          std::cerr << "Concretized to multiple IDs but same extents: "
+                    << id->toString() << " -> "
+                    << toDelimitedString(
+                           concretize_info.allConcretizedDomains(id))
+                    << "\n";
         } else {
           return true;
         }
