@@ -887,12 +887,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     switch (op_type) {
       case RNGOpType::UniformRange:
       case RNGOpType::NormalGeneral: {
+        // Used for range or mean/std dev
         auto parameters = rop->getParameters();
         NVF_ERROR(parameters.size() == 2);
         code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
         break;
       }
       default:;
+    }
+    code_ << ");\n";
+  }
+
+  void handle(const kir::RNGOp* rop) final {
+    auto op_type = rop->getRNGOpType();
+    indent() << gen(rop->output(0)) << " = " << op_type;
+    if (needFloatSuffix(op_type)) {
+      if (rop->dtype() == DataType::Float) {
+        code_ << "f";
+      } else if (rop->dtype() == DataType::BFloat16) {
+        code_ << "_bfloat";
+      } else if (rop->dtype() == DataType::Half) {
+        code_ << "_half";
+      }
+      // Generate other datatypes in double
+    }
+    code_ << "(" << gen(rop->input(0));
+    for (auto inp_i : c10::irange(1, rop->inputs().size())) {
+      code_ << ", " << gen(rop->input(inp_i));
     }
     code_ << ");\n";
   }

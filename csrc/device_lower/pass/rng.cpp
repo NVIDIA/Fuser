@@ -78,7 +78,7 @@ class RNGInserter : public kir::ExprMutator {
 
       rng_result = TensorViewBuilder()
                        .shape(std::vector<int64_t>{4})
-                       .dtype(DataType::UInt64)
+                       .dtype(DataType::UInt32)
                        .contiguity(true)
                        .build();
       rng_result->setMemoryType(MemoryType::Local);
@@ -90,7 +90,7 @@ class RNGInserter : public kir::ExprMutator {
     }
 
     auto index_tuple =
-        createAndAllocNS("liner_index" + std::to_string(rop->name()));
+        createAndAllocNS("linear_index" + std::to_string(rop->name()));
     kir::ExprMutator::registerInsertBefore(rop, std::get<1>(index_tuple));
     kir::ExprMutator::registerInsertBefore(
         rop,
@@ -146,8 +146,8 @@ class RNGInserter : public kir::ExprMutator {
         TernaryOpType::Philox,
         rng_result,
         rop->getRNGSeedVal(),
-        rng_subseq,
-        rng_offset));
+        std::get<0>(rop_subseq_tuple),
+        std::get<0>(rop_offset_tuple)));
 
     ite->thenBody().push_back(IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, rng_subseq, std::get<0>(rop_subseq_tuple)));
@@ -156,6 +156,30 @@ class RNGInserter : public kir::ExprMutator {
         LoadStoreOpType::Set, rng_offset, std::get<0>(rop_offset_tuple)));
 
     kir::ExprMutator::registerInsertBefore(rop, ite);
+    Expr* new_rng_op;
+    if (rop->inputs().size() == 4) {
+      new_rng_op = IrBuilder::create<kir::RNGOp>(
+          rop->output(0),
+          rng_result,
+          std::get<0>(rop_component_tuple),
+          rop->dtype(),
+          rop->getRNGOpType(),
+          std::vector<Val*>{rop->input(2), rop->input(3)});
+      kir::ExprMutator::registerInsertBefore(rop, new_rng_op);
+    } else if (rop->inputs().size() == 2) {
+      new_rng_op = IrBuilder::create<kir::RNGOp>(
+          rop->output(0),
+          rng_result,
+          std::get<0>(rop_component_tuple),
+          rop->dtype(),
+          rop->getRNGOpType());
+      kir::ExprMutator::registerReplace(rop, new_rng_op);
+    } else {
+      NVF_THROW(
+          "Unexpected number of inputs: ",
+          rop->inputs().size(),
+          " for RNG operation.");
+    }
   }
 
   std::vector<InsertionInfo> insertion_list_;
