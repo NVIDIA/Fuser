@@ -564,10 +564,10 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
   auto in_at = expr_evaluator_.evaluate(in).as<at::Tensor>();
   auto weight_at = expr_evaluator_.evaluate(weight).as<at::Tensor>();
-  auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
   auto out_at = expr_evaluator_.evaluate(out).as<at::Tensor>();
 
   if (linear->has_bias()) {
+    auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
     at::linear_out(out_at, in_at, weight_at.squeeze());
