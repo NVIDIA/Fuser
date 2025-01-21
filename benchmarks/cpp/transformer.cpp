@@ -21,6 +21,7 @@ using namespace nvfuser;
 
 constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
 constexpr double kParamScale = 0.02;
+constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0;
 constexpr int64_t warmup_itrs = 10, num_itrs = 10;
 
 namespace {
@@ -73,7 +74,7 @@ void forward_transformer(Communicator* communicator, bool profile) {
       shardTensor(mlp_w1, 1, mesh, communicator).unsqueeze(0),
       mlp_b1};
 
-  DistributedTransformer model = DistributedTransformer(D, B, E, H, S);
+  DistributedTransformer model = DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.forward(dtype);
   cudaSetDevice(communicator->deviceId());
 
@@ -117,7 +118,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator->device());
-  auto x = at::randn({B * S, E}, options).to(at::kFloat);
+  auto x = at::randn({B * S, E}, options);
   auto ln0_w = at::randn(E, options).to(at::kFloat);
   auto ln0_b = at::randn(E, options).to(at::kFloat);
   auto mha_w0 = at::randn({3 * E, E}, options) * kParamScale;
@@ -128,7 +129,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto ln1_b = at::randn(E, options).to(at::kFloat);
   auto mlp_w0 = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b0 = at::randn({4 * E}, options) * kParamScale;
-  auto grad = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
+  auto grad = at::randn({B * S, E}, options) * kParamScale;
   auto mlp_w1 = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
@@ -144,8 +145,8 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto ln1_mean = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln1_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
   auto mha_linear1 = at::rand({B * S, E}, options).to(at::kFloat);
-  auto mha_linear0 = at::rand({B * S, E}, options).to(at::kFloat); // mha linear0
-  auto mlp_linear1 = at::rand({B * S, E}, options).to(at::kFloat); // mlp linear1
+  auto mha_linear0 = at::rand({B * S, 3 * E}, options); // mha linear0    shape of mha linear0 = [B * S, 3 * E]
+  auto mlp_linear1 = at::rand({B * S, 4 * E}, options); // mlp linear1     mlp linear1 = [B * S, 4 * E]
 
   std::vector<c10::IValue> at_inputs = {
       x,
@@ -173,7 +174,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
       shardTensor(mlp_linear1, 1, mesh, communicator).unsqueeze(0)
     };
 
-  DistributedTransformer model = DistributedTransformer(D, B, E, H, S);
+  DistributedTransformer model = DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.backward(dtype);
   std::vector<at::Tensor> outputs;
 
