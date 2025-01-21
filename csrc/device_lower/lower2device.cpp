@@ -283,7 +283,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
             generateConditionalFromPredicate},
            {"vectorizeWelford", vectorizeWelford},
            {"allocateCommonScalars", allocateCommonScalars},
-           {"addRNG", addRNG},
+          //  {"addRNG", addRNG},
            {"insertMagicZero", insertMagicZero},
            {"KIRCleaner", KIRCleaner::cleanUp},
            {"instrumentKernel", instrumentKernel},

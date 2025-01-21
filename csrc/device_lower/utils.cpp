@@ -173,7 +173,8 @@ bool isTvOp(const Expr* expr) {
           kir::GridBroadcast,
           kir::GridWelford,
           kir::GroupedGridWelford,
-          kir::VectorizedWelfordOp>())) {
+          kir::VectorizedWelfordOp,
+          kir::RNGOp>())) {
     return true;
   }
   return false;
@@ -545,6 +546,32 @@ class ReplaceExprInput : private kir::ExprMutator {
   void handle(RNGOp* node) final {
     // RNGOp has no input
     return;
+  }
+
+  void handle(kir::RNGOp* node) final {
+    auto replaced_inputs = getMaybeInputReplacementMap(node);
+    if (replaced_inputs.has_value()) {
+      kir::RNGOp* replacement;
+      if (node->inputs().size() == 4) {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType(),
+            std::vector<Val*>{
+                replaced_inputs->at(node->input(2)),
+                replaced_inputs->at(node->input(3))});
+      } else {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType());
+      }
+      registerReplaceWithPredicate(node, replacement);
+    }
   }
 
   void handle(ReductionOp* node) final {

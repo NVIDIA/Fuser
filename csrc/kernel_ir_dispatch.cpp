@@ -91,7 +91,6 @@ void ConstIrVisitor::handle(const IfThenElse* ite) {
 
 std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
   if (insertions_.empty() && replacements_.empty() && removal_.empty()) {
-    std::cout << "ExprMutator::Empty" << std::endl;
     return exprs_;
   }
 
@@ -133,7 +132,6 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
     }
   } else {
     for (auto insertion_info : insertions_) {
-      std::cout << "ExprMutator::run_insertion" << std::endl;
       run_insertion(insertion_info);
     }
   }
@@ -175,12 +173,6 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
   insertions_.clear();
   replacements_.clear();
 
-  std::cout << "------------" << std::endl;
-  for (auto expr : exprs_) {
-    std::cout << expr->toString() << std::endl;
-  }
-  std::cout << "------------" << std::endl;
-
   return exprs_;
 }
 
@@ -216,7 +208,6 @@ void ExprMutator::registerInsertBefore(
     Expr* reference,
     Expr* new_expr,
     Scope* scope) {
-  std::cout << "Register insert before" << std::endl;
   registerMutation(reference, new_expr, scope, MutationMode::BEFORE);
 }
 

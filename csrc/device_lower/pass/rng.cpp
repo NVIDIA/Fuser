@@ -156,9 +156,8 @@ class RNGInserter : public kir::ExprMutator {
         LoadStoreOpType::Set, rng_offset, std::get<0>(rop_offset_tuple)));
 
     kir::ExprMutator::registerInsertBefore(rop, ite);
-    Expr* new_rng_op;
     if (rop->inputs().size() == 4) {
-      new_rng_op = IrBuilder::create<kir::RNGOp>(
+      auto new_rng_op = IrBuilder::create<kir::RNGOp>(
           rop->output(0),
           rng_result,
           std::get<0>(rop_component_tuple),
@@ -167,13 +166,13 @@ class RNGInserter : public kir::ExprMutator {
           std::vector<Val*>{rop->input(2), rop->input(3)});
       kir::ExprMutator::registerInsertBefore(rop, new_rng_op);
     } else if (rop->inputs().size() == 2) {
-      new_rng_op = IrBuilder::create<kir::RNGOp>(
+      auto new_rng_op = IrBuilder::create<kir::RNGOp>(
           rop->output(0),
           rng_result,
           std::get<0>(rop_component_tuple),
           rop->dtype(),
           rop->getRNGOpType());
-      kir::ExprMutator::registerReplace(rop, new_rng_op);
+      kir::ExprMutator::registerInsertBefore(rop, new_rng_op);
     } else {
       NVF_THROW(
           "Unexpected number of inputs: ",
@@ -191,24 +190,17 @@ std::vector<Expr*> addRNG(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::addRNG");
   // Check if magic zero was even used, if not we don't have to define it or
   // update it.
-  const auto gpu_lower = GpuLower::current();
-  auto kernel = gpu_lower->kernel();
-  const bool has_rng = std::any_of(
-      kernel->exprs().begin(), kernel->exprs().end(), [](Expr* expr) {
+  auto kernel_exprs = GpuLower::current()->kernel()->exprs();
+  const bool has_rng =
+      std::any_of(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
         return expr->isA<RNGOp>();
       });
 
   if (!has_rng) {
     return exprs;
   }
-  auto exprs_ = RNGInserter::insert(exprs);
-  std::cout << "====================" << std::endl;
-  for (auto expr : exprs_) {
-    std::cout << expr->toString() << std::endl;
-  }
-  std::cout << "====================" << std::endl;
-  // NVF_THROW("throw");
-  return exprs_;
+
+  return RNGInserter::insert(exprs);
 }
 
 } // namespace nvfuser
