@@ -89,6 +89,22 @@ struct __align__(1) __e4m3 {
   uint8_t __x;
 };
 
+// NOTE [ fp8 cast optimization ]
+//
+// For simplicity, we only provided fp8 <-> fp32 cast implementation, while
+// relying on any other fp cast in the form of target_fp <-> fp32 <-> fp8.
+// This avoids the complication of handling hardware specific instructions on
+// various compute capabilities.
+// But this simplicity could come at the cost of performance. In cuda_fp8.hpp,
+// 1. bf16 -> fp8 is done via bf16 -> float -> fp8
+// 2. fp16 -> fp8 is done with a conditional
+//    # if (> sm_89)
+//    fp16 -> fp8
+//    # else
+//    fp16 -> fp32 -> fp8
+//    # endif
+// 3. fp64 -> fp8 is handled explicitly as bitwise operations.
+// TODO consider cuda_fp8.hpp for performance optimized cast.
 __device__ __inline__ __e4m3 __float2e4m3(const float f) {
   constexpr float f_const_zero = 0.f;
   unsigned short _tmp_buffer;
@@ -232,6 +248,7 @@ struct __align__(1) __e5m2 {
   uint8_t __x;
 };
 
+// see NOTE [ fp8 cast optimization ]
 __device__ __inline__ __e5m2 __float2e5m2(const float f) {
   constexpr float f_const_zero = 0.f;
   unsigned short _tmp_buffer;
