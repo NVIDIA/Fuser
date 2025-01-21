@@ -13,14 +13,17 @@ __device__ unsigned int mulhilo32(
   return a * b;
 }
 
-__device__ Array<uint32_t, 4> single_round(Array<uint32_t, 4> ctr, Array<uint32_t, 2> key) {
+__device__ Array<uint32_t, 4> single_round(
+    Array<uint32_t, 4> ctr,
+    Array<uint32_t, 2> key) {
   constexpr unsigned long kPhiloxSA = 0xD2511F53;
   constexpr unsigned long kPhiloxSB = 0xCD9E8D57;
   unsigned int hi0;
   unsigned int hi1;
   unsigned int lo0 = mulhilo32(kPhiloxSA, ctr[0], &hi0);
   unsigned int lo1 = mulhilo32(kPhiloxSB, ctr[2], &hi1);
-  Array<uint32_t, 4> ret = {hi1 ^ ctr[1] ^ key[0], lo1, hi0 ^ ctr[3] ^ key[1], lo0};
+  Array<uint32_t, 4> ret = {
+      hi1 ^ ctr[1] ^ key[0], lo1, hi0 ^ ctr[3] ^ key[1], lo0};
   return ret;
 }
 
@@ -85,17 +88,21 @@ __device__ double uniform(unsigned int x, unsigned int y) {
   return result == 1.0 ? 0.0 : result;
 }
 
-__device__ double rng_uniform(const Array<uint32_t, 4>& rng_result, int rng_component) {
+__device__ double rng_uniform(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return uniform(
-      rng_result[rng_component * 2],
-      rng_result[rng_component * 2 + 1]);
+      rng_result[rng_component * 2], rng_result[rng_component * 2 + 1]);
 }
 
-__device__ float rng_uniformf(const Array<uint32_t, 4>& rng_result, int rng_component) {
+__device__ float rng_uniformf(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return uniformf(rng_result[rng_component]);
 }
 
-__device__ __half rng_uniform_half(const Array<uint32_t, 4>& rng_result, int rng_component) {
+__device__ __half
+rng_uniform_half(const Array<uint32_t, 4>& rng_result, int rng_component) {
   return uniform_half(rng_result[rng_component]);
 }
 
@@ -177,7 +184,11 @@ __device__ double rng_normal_standard(
     const Array<uint32_t, 4>& rng_result,
     int rng_component) {
   return normal(
-      rng_result[0], rng_result[1], rng_result[2], rng_result[3], rng_component);
+      rng_result[0],
+      rng_result[1],
+      rng_result[2],
+      rng_result[3],
+      rng_component);
 }
 
 __device__ float rng_normal_standardf(
@@ -189,16 +200,18 @@ __device__ float rng_normal_standardf(
       rng_component);
 }
 
-__device__ __half
-rng_normal_standard_half(const Array<uint32_t, 4>& rng_result, int rng_component) {
+__device__ __half rng_normal_standard_half(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return __float2half(normalf(
       rng_result[rng_component / 2 * 2],
       rng_result[1 + rng_component / 2 * 2],
       rng_component));
 }
 
-__device__ __bfloat
-rng_normal_standard_bfloat(const Array<uint32_t, 4>& rng_result, int rng_component) {
+__device__ __bfloat rng_normal_standard_bfloat(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return __float2bfloat(normalf(
       rng_result[rng_component / 2 * 2],
       rng_result[1 + rng_component / 2 * 2],
