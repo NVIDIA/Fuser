@@ -474,7 +474,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       const at::Tensor& out_tensor = out_tensors.at(tensor_index);
       tensor_index++;
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      DistributedTensor out_dtensor(out_tensor, mesh);
+      DistributedTensor& out_dtensor =
+          out_dtensors.emplace_back(out_tensor, mesh);
 
       if (mesh.size() > 0) {
         for (const ParallelType parallel_type : kParallelTypeDIDs) {
@@ -484,8 +485,6 @@ std::vector<DistributedTensor> FusionDefinition::execute(
           }
         }
       }
-
-      out_dtensors.push_back(std::move(out_dtensor));
     }
     NVF_ERROR(out_dtensors.size() == out_tensors.size());
   } else {

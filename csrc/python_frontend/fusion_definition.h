@@ -193,7 +193,24 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void finalizeMultideviceSchedule();
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
-  //! Executes a fusion if a valid definition or cache lookup occurred prior
+  //! Executes a fusion if a valid definition or cache lookup occurred prior.
+  //!
+  //! This method returns a list of `DistributedTensor`s. Each
+  //! `DistributedTensor` is either the local view of a distributed tensor
+  //! (when the mesh is non-empty) or a non-distributed tensor
+  //! (when the mesh is empty).
+  //!
+  //! Alternatives considered:
+  //! 1. Return std::vector<std::variant<at::Tensor, DistributedTensor>>.
+  //! Because DistributedTensor can also represent a non-distributed tensor, I
+  //! chose the current API for simplicity -- C++ is more verbose than Python
+  //! when dealing with dynamic types.
+  //! 2. Return std::variant<std::vector<at::Tensor>,
+  //! std::vector<DistributedTensor>>. Same reason.
+  //! 3. Store output shardings (i.e. the mesh and the mesh-to-tenseor-axis
+  //! mapping) to a field of FusionDefinition and retrieve it using another
+  //! method. This would be similar to getDebugOutput. I didn't choose that
+  //! because it introduced a new state in the class that could get out of sync.
   NVF_API std::vector<DistributedTensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> device,

@@ -198,7 +198,7 @@ class FusionDefinition(_C._FusionDefinition):
         save_repro_inputs=False,
         _enable_options: list[str] = [],
         _disable_options: list[str] = [],
-    ) -> list[torch.Tensor]:
+    ) -> list[torch.Tensor | DistributedTensor]:
         """
         Executes an nvFuser set of kernels for a given Fusion
 
@@ -314,7 +314,7 @@ class FusionDefinition(_C._FusionDefinition):
                     "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
                 )
 
-            out_tensors: Iterable[DistributedTensor] = self._execute(
+            out_tensors: list[DistributedTensor] = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
