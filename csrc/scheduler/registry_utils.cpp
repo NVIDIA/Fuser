@@ -59,13 +59,29 @@ bool checkPatternEquivalence(
 // different extents, meaning we don't know in the kernel if the dimension is
 // being broadcasted to one size multiple times or different sizes. This is a
 // hard to optimize problem and likely indicates we shouldn't be fusing.
-bool hasNonUniqueBcast(Fusion* fusion) {
+bool hasNonUniqueBcast(Fusion* fusion, bool check_static_size) {
   ConcretizedBroadcastDomains concretize_info(fusion);
 
   for (auto tv : fusion->allTvs()) {
     for (auto id : tv->getMaybeRootDomain()) {
       if (concretize_info.maybeNonUniquelyConcretized(id)) {
-        return true;
+        if (check_static_size) {
+          int64_t static_size = -1;
+          for (auto concrete_id : concretize_info.allConcretizedDomains(id)) {
+            if (!concrete_id->extent()->isConstInt()) {
+              return true;
+            }
+            auto this_static_size =
+                concrete_id->extent()->evaluate().as<int64_t>();
+            if (static_size == -1) {
+              static_size = this_static_size;
+            } else if (static_size != this_static_size) {
+              return true;
+            }
+          }
+        } else {
+          return true;
+        }
       }
     }
   }

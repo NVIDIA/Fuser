@@ -2988,6 +2988,7 @@ bool canOmitPadPredicate(const PadOp* pad) {
       auto init_val = pred_info.getInitValue(tv_to_check);
       if (init_val == nullptr) {
         // Can't determine if it's safe to omit without an init value
+        std::cerr << "No init val\n";
         return false;
       }
 
@@ -2998,11 +2999,13 @@ bool canOmitPadPredicate(const PadOp* pad) {
           pad_val->value() == init_val->value();
 
       if (!initialized_to_same_value) {
+        std::cerr << "Not initialized to same val\n";
         return false;
       }
 
       if (!PaddingConsistencyAnalysis::paddedConsistently(
               tv_to_check, resize_expr_groups)) {
+        std::cerr << "Not consistently padded\n";
         return false;
       }
     }
