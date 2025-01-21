@@ -23,37 +23,26 @@ constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
 constexpr double kParamScale = 0.02;
 constexpr int64_t warmup_itrs = 10, num_itrs = 10;
 
+namespace {
 at::Tensor shardTensor(
     at::Tensor tensor,
-    int64_t axis,
+    const int64_t axis,
     const DeviceMesh& mesh,
-    Communicator* communicator_) {
-  const auto device_id = communicator_->deviceId();
-  auto i = mesh.idxOf(device_id);
-  auto extent = tensor.size(axis);
-  auto nslices = mesh.size();
-  NVF_CHECK(
-      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
-  auto stride = extent / nslices;
-  i = (i < 0) ? 0 : i;
-  auto slice = tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
-  // Temporary until https://github.com/NVIDIA/Fuser/issues/2563. Adds DIDx
-  // axis in front representing the sharded extent of the tensor.
-  if (stride > 1) {
-    slice = slice.unsqueeze(0);
-  }
-  return slice;
+    Communicator* communicator) {
+  const auto device_id = communicator->deviceId();
+  return nvfuser::shardTensor(tensor, axis, mesh, device_id);
 }
+} // namespace
 
-void forward_transformer(Communicator* communicator_, bool profile) {
-  int64_t D = communicator_->size();
+void forward_transformer(Communicator* communicator, bool profile) {
+  int64_t D = communicator->size();
   auto dtype = DataType::BFloat16;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   const auto mesh = DeviceMesh::createForNumDevices(D);
   const auto options =
-      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+      at::TensorOptions().dtype(at_dtype).device(communicator->device());
 
-  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto x_ = at::randn({B * S, E}, options);
   auto ln0_w_ = at::randn(E, options).to(at::kFloat);
   auto ln0_b_ = at::randn(E, options).to(at::kFloat);
   auto mha_w0_ = at::randn({3 * E, E}, options) * kParamScale;
@@ -67,26 +56,26 @@ void forward_transformer(Communicator* communicator_, bool profile) {
   auto mlp_w1_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
-  std::vector<c10::IValue> inputs = {
+  std::vector<c10::IValue> at_inputs = {
       x_,
       ln0_w_,
       ln0_b_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator_)
+      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator)
           .view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_)
+      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator)
           .view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh, communicator_),
+      shardTensor(mha_w1_, 1, mesh, communicator).unsqueeze(0),
       mha_b1_,
       ln1_w_,
       ln1_b_,
-      shardTensor(mlp_w0_, 0, mesh, communicator_),
-      shardTensor(mlp_b0_, 0, mesh, communicator_),
-      shardTensor(mlp_w1_, 1, mesh, communicator_),
+      shardTensor(mlp_w0_, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_b0_, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_w1_, 1, mesh, communicator).unsqueeze(0),
       mlp_b1_};
 
   DistributedTransformer model = DistributedTransformer(D, B, E, H, S);
   auto fec = model.forward(dtype);
-  cudaSetDevice(communicator_->deviceId());
+  cudaSetDevice(communicator->deviceId());
 
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
@@ -99,7 +88,7 @@ void forward_transformer(Communicator* communicator_, bool profile) {
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
     }
-    auto outputs = fec->runFusionWithInputs(inputs);
+    auto outputs = fec->runFusionWithInputs(at_inputs);
     cudaDeviceSynchronize();
     // cudaDeviceSynchronize is not blocking until kernels are finished on all
     // devices except 0
@@ -116,18 +105,18 @@ void forward_transformer(Communicator* communicator_, bool profile) {
       std::chrono::duration_cast<std::chrono::microseconds>(end - start)
           .count() /
       (double)num_itrs / 1000.0;
-  std::cout << communicator_->deviceId() << ": Average forward time "
+  std::cout << communicator->deviceId() << ": Average forward time "
             << foward_time << "ms" << std::endl;
 }
 
-void backward_transformer(Communicator* communicator_, bool profile) {
+void backward_transformer(Communicator* communicator, bool profile) {
   auto dtype = DataType::BFloat16;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
-  int64_t D = communicator_->size();
+  int64_t D = communicator->size();
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
   const auto options =
-      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+      at::TensorOptions().dtype(at_dtype).device(communicator->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
   auto ln0_w_ = at::randn(E, options).to(at::kFloat);
   auto ln0_b_ = at::randn(E, options).to(at::kFloat);
@@ -159,19 +148,19 @@ void backward_transformer(Communicator* communicator_, bool profile) {
   std::vector<c10::IValue> inputs = {
       x_,
       grad_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator_)
+      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator)
           .view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_)
+      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator)
           .view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh, communicator_),
-      shardTensor(mlp_w0_, 0, mesh, communicator_),
-      shardTensor(mlp_b0_, 0, mesh, communicator_),
-      shardTensor(mlp_w1_, 1, mesh, communicator_),
+      shardTensor(mha_w1_, 1, mesh, communicator),
+      shardTensor(mlp_w0_, 0, mesh, communicator),
+      shardTensor(mlp_b0_, 0, mesh, communicator),
+      shardTensor(mlp_w1_, 1, mesh, communicator),
       mlp_b1_,
       mlp_dropout_mask,
       mha_dropout_mask,
-      shardTensor(sdpa_output, 1, mesh, communicator_),
-      shardTensor(sdpa_logsum_exp, 1, mesh, communicator_),
+      shardTensor(sdpa_output, 1, mesh, communicator),
+      shardTensor(sdpa_logsum_exp, 1, mesh, communicator),
       sdpa_seed,
       sdpa_offset,
       ln1_w_,
@@ -188,7 +177,7 @@ void backward_transformer(Communicator* communicator_, bool profile) {
   auto fec = model.backward(dtype);
   std::vector<at::Tensor> outputs;
 
-  cudaSetDevice(communicator_->deviceId());
+  cudaSetDevice(communicator->deviceId());
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
     if (i == warmup_itrs) {
@@ -217,15 +206,15 @@ void backward_transformer(Communicator* communicator_, bool profile) {
       std::chrono::duration_cast<std::chrono::microseconds>(end - start)
           .count() /
       (double)num_itrs / 1000.0;
-  std::cout << communicator_->deviceId() << ": Average backward time "
+  std::cout << communicator->deviceId() << ": Average backward time "
             << backward_time << "ms" << std::endl;
 }
 
 int main(int argc, char** argv) {
   // using this is as a flag for when to profile
   bool profile = argc > 1;
-  auto communicator_ = &Communicator::getInstance();
-  forward_transformer(communicator_, profile);
-  communicator_->barrier();
-  backward_transformer(communicator_, profile);
+  auto communicator = &Communicator::getInstance();
+  forward_transformer(communicator, profile);
+  //communicator->barrier();
+  //backward_transformer(communicator, profile);
 }
