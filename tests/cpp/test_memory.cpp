@@ -2973,4 +2973,64 @@ INSTANTIATE_TEST_SUITE_P(
       return os.str();
     });
 
+TEST_F(TMATest, CpAsyncBulk1D) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // cp.async.bulk copies 1D data and allows more than 256 elements
+  // cp.async.bulk.tensor.nd copies n-d data and each dimension must <= 256
+  // using CpAsyncBulkTensorTile will trigger the following error:
+  // boxDim array, which specifies number of elements to be traversed along each
+  // of the tensorRank dimensions, must be non-zero and less than or equal to
+  // 256. box_dim_val = 512
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv2b = tv2->cacheBefore();
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv1a->setMemoryType(MemoryType::Shared);
+
+  tv2->merge(0);
+  tv2->split(0, 512);
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  // Propagate common parallel dimensions
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  /// TIDx for computation, Bulk for load
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2b->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // ComputeAt
+  inlineMost();
+
+  fusion->printMath();
+
+  constexpr int dim0 = 16384, dim1 = 16384;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  // Compile with KernelExecutor directly to avoid scheduling
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

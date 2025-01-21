@@ -2648,58 +2648,76 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       consumer_tv->toString());
   const TMAInfo& tma_info =
       GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
-
-  ValGroups groups_to_index = tma_info.getTMADomain();
-
-  // TensorIndexer needs IterDomain instead of ValGroup to work around
-  // the resize indexing issue
-  std::vector<IterDomain*> ids_to_index;
-  ids_to_index.reserve(groups_to_index.size());
-  const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
-                                   : producer_tv->domain()->allIDs();
-  for (const auto& group : groups_to_index) {
-    auto it = std::find_if(
-        tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
-          return group->has(gmem_id);
-        });
-    if (it != tma_all_ids.end()) {
-      ids_to_index.push_back(*it);
-    } else {
-      ids_to_index.push_back(group->front()->as<IterDomain>());
-    }
-  }
-
-  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer =
-      indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
-
   int64_t dim = (int64_t)tma_info.dims().size();
-  auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
-  auto descriptor = tma_info.tensorMap();
-  Val* index = nullptr;
-  if (is_load) {
-    std::stringstream ss;
-    ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
-    index = IrBuilder::structExpr(
-        {{"descriptor", IrBuilder::addressExpr(descriptor)},
-         {"coordinate", coordinate},
-         {"mbarrier", mbarrier}},
-        ss.str());
-  } else {
-    std::stringstream ss;
-    ss << "Hopper::CpAsyncBulkTensorTileS2GIndex<" << dim << ">";
-    index = IrBuilder::structExpr(
-        {{"descriptor", IrBuilder::addressExpr(descriptor)},
-         {"coordinate", coordinate}},
-        ss.str());
-  }
-
-  index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-
   Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
       DataType::UInt32, tma_info.tileSizeBytes());
   expected_bytes =
       GpuLower::current()->commonScalarMap().hoistScalar(expected_bytes, loops);
+  Val* index = nullptr;
+
+  // 1D TMA without tensor map
+  if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
+    if (is_load) {
+      std::stringstream ss;
+      ss << "Hopper::CpAsyncBulkG2SIndex";
+      auto gmem_address = getProducerIndex(
+          producer_tv, consumer_tv, loops, rotated_loops, {}, true);
+      index = IrBuilder::structExpr(
+          {{"raw_gmem_addr", gmem_address},
+           {"bytes", expected_bytes},
+           {"mbarrier", mbarrier}},
+          ss.str());
+    } else {
+      NVF_ERROR(true, "S2G not implemented yet.")
+    }
+  } else {
+    // ND TMA with tensor map
+    ValGroups groups_to_index = tma_info.getTMADomain();
+    // TensorIndexer needs IterDomain instead of ValGroup to work around
+    // the resize indexing issue
+    std::vector<IterDomain*> ids_to_index;
+    ids_to_index.reserve(groups_to_index.size());
+    const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                     : producer_tv->domain()->allIDs();
+    for (const auto& group : groups_to_index) {
+      auto it = std::find_if(
+          tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
+            return group->has(gmem_id);
+          });
+      if (it != tma_all_ids.end()) {
+        ids_to_index.push_back(*it);
+      } else {
+        ids_to_index.push_back(group->front()->as<IterDomain>());
+      }
+    }
+
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    auto indices_inner_to_outer =
+        indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+
+    auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
+    auto descriptor = tma_info.tensorMap();
+    if (is_load) {
+      std::stringstream ss;
+      ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
+      index = IrBuilder::structExpr(
+          {{"descriptor", IrBuilder::addressExpr(descriptor)},
+           {"coordinate", coordinate},
+           {"mbarrier", mbarrier}},
+          ss.str());
+    } else {
+      std::stringstream ss;
+      ss << "Hopper::CpAsyncBulkTensorTileS2GIndex<" << dim << ">";
+      index = IrBuilder::structExpr(
+          {{"descriptor", IrBuilder::addressExpr(descriptor)},
+           {"coordinate", coordinate}},
+          ss.str());
+    }
+  }
+
+  index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
   auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
       SimplifyingIrBuilder::modExpr(
           expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),

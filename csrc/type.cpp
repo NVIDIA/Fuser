@@ -846,6 +846,8 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "StMatrix";
     case LoadStoreOpType::CpAsync:
       return "CpAsync";
+    case LoadStoreOpType::CpAsyncBulk:
+      return "CpAsyncBulk";
     case LoadStoreOpType::CpAsyncBulkTensorTile:
       return "CpAsyncBulkTensorTile";
     default:

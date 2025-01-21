@@ -222,19 +222,41 @@ inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
   return CpAsyncBulkTileType::NotACpAsyncBulkTile;
 }
 
+enum class CpAsyncBulkType { G2S, S2G, NotACpAsyncBulk };
+
+inline CpAsyncBulkType getCpAsyncBulkType(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+      if (getTv(ldst->in())->getMemoryType() == MemoryType::Global &&
+          getTv(ldst->out())->getMemoryType() == MemoryType::Shared) {
+        return CpAsyncBulkType::G2S;
+      } else if (
+          getTv(ldst->in())->getMemoryType() == MemoryType::Shared &&
+          getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
+        return CpAsyncBulkType::S2G;
+      } else {
+        NVF_THROW("Invalid CpAsyncBulkType");
+      }
+    }
+  }
+  return CpAsyncBulkType::NotACpAsyncBulk;
+}
 } // namespace
 
 bool isCpAsyncBulk(const Expr* expr) {
   return getCpAsyncBulkTileType(expr) !=
-      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+      CpAsyncBulkTileType::NotACpAsyncBulkTile ||
+      getCpAsyncBulkType(expr) != CpAsyncBulkType::NotACpAsyncBulk;
 }
 
 bool isCpAsyncBulkLoad(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S ||
+      getCpAsyncBulkType(expr) == CpAsyncBulkType::G2S;
 }
 
 bool isCpAsyncBulkStore(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G ||
+      getCpAsyncBulkType(expr) == CpAsyncBulkType::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
