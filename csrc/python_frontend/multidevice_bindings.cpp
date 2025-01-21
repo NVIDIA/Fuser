@@ -77,13 +77,22 @@ void bindDeviceMesh(py::module& nvfuser) {
 
 void bindDistributedTensor(py::module& nvfuser) {
   py::class_<DistributedTensor> distributed_tensor(
-      nvfuser, "_DistributedTensor");
-  distributed_tensor.def_property_readonly("local", &DistributedTensor::local);
+      nvfuser, "DistributedTensor");
   distributed_tensor.def_property_readonly(
-      "mesh", &DistributedTensor::mesh, py::return_value_policy::reference);
+      "local", &DistributedTensor::local, "Returns the local tensor.");
+  distributed_tensor.def_property_readonly(
+      "mesh",
+      &DistributedTensor::mesh,
+      "Returns the device mesh.",
+      py::return_value_policy::reference);
   distributed_tensor.def(
       "axis_sharded_on",
       &DistributedTensor::axisShardedOn,
+      R"(
+      Returns the axis sharded on the given parallel type.
+
+      If the distributed tensor is replicated on that parallel type, returns -1.
+      )",
       py::arg("parallel_type"));
 }
 

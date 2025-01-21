@@ -17,6 +17,7 @@ void DistributedTensor::setAxisIsShardedOn(
     const int64_t axis,
     const ParallelType parallel_type) {
   NVF_CHECK(isParallelTypeDeviceDim(parallel_type));
+  NVF_CHECK(mesh_.size() > 0, "Cannot shard a non-distributed tensor.");
   const auto i = axis_sharded_on_.find(parallel_type);
   NVF_CHECK(
       i == axis_sharded_on_.end(),

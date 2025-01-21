@@ -10,7 +10,6 @@ from typing import Callable, Iterable
 import warnings
 
 import torch
-from torch.utils._pytree import tree_map
 
 # This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
 pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
@@ -49,54 +48,6 @@ def disable_automatic_serialization():
     import atexit
 
     atexit.unregister(_C.serialize)
-
-
-class DistributedTensor(torch.Tensor):
-    """Wraps a _C._DistributedTensor as a torch.Tensor.
-
-    This way, the user can use the underlying local tensor without extra conversion.
-    For example, `torch.testing.assert_close(dtensor, expected_local_tensor)`.
-    """
-
-    _dtensor: _C._DistributedTensor
-
-    @staticmethod
-    def __new__(cls, dtensor: _C._DistributedTensor):
-        t = dtensor.local
-        return torch.Tensor._make_wrapper_subclass(
-            cls,
-            t.shape,
-            strides=t.stride(),
-            storage_offset=t.storage_offset(),
-            device=t.device,
-            layout=t.layout,
-            requires_grad=t.requires_grad,
-            dtype=t.dtype,
-        )
-
-    def __init__(self, dtensor: _C._DistributedTensor):
-        self._dtensor = dtensor
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        def unwrap(t):
-            if isinstance(t, DistributedTensor):
-                return t._dtensor.local
-            return t
-
-        return func(*tree_map(unwrap, args), **tree_map(unwrap, kwargs))
-
-    @property
-    def mesh(self) -> DeviceMesh:
-        """Returns the device mesh."""
-        return self._dtensor.mesh
-
-    def axis_sharded_on(self, parallel_type: ParallelType) -> int:
-        """Returns the axis sharded on the given parallel type.
-
-        If the distributed tensor is replicated on that parallel type, returns -1.
-        """
-        return self._dtensor.axis_sharded_on(parallel_type)
 
 
 class FusionDefinition(_C._FusionDefinition):
@@ -363,7 +314,7 @@ class FusionDefinition(_C._FusionDefinition):
                     "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
                 )
 
-            out_dtensors: Iterable[_C.DistributedTensor] = self._execute(
+            out_tensors: Iterable[DistributedTensor] = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -372,13 +323,9 @@ class FusionDefinition(_C._FusionDefinition):
                 _enable_options=_enable_options,
                 _disable_options=_disable_options,
             )
-
-            out_tensors: list[torch.Tensor] = []
-            for out_dtensor in out_dtensors:
-                if out_dtensor.mesh.size == 0:
-                    out_tensors.append(out_dtensor.local)
-                else:
-                    out_tensors.append(DistributedTensor(out_dtensor))
+            for i, out_tensor in enumerate(out_tensors):
+                if out_tensor.mesh.size == 0:
+                    out_tensors[i] = out_tensor.local
             return out_tensors
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))

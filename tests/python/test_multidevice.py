@@ -55,7 +55,7 @@ def test_pointwise(multidevice_test):
 
     fd = Model()
     (output,) = fd.execute([sharded_input])
-    torch.testing.assert_close(output.cpu(), unsharded_input.relu() * 2)
+    torch.testing.assert_close(output.local.cpu(), unsharded_input.relu() * 2)
     assert output.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
@@ -108,7 +108,9 @@ def test_linear(multidevice_test):
     ]
     # rtol is the same as the default for fp32. atol is slightly increased.
     assert out_tensor.axis_sharded_on(nvfuser.ParallelType.mesh_x) == 0
-    torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
+    torch.testing.assert_close(
+        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
+    )
 
 
 @pytest.mark.mpi
@@ -168,7 +170,9 @@ def test_linear_loop_split(multidevice_test):
     )
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
     # rtol is the same as the default for fp32. atol is slightly increased.
-    torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
+    torch.testing.assert_close(
+        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
+    )
 
 
 @pytest.mark.mpi
@@ -218,7 +222,9 @@ def test_matmul_allreduce(multidevice_test):
     (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
     # Use the default rtol for half because the output, although being float32,
     # is a straight cast from half.
-    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
+    torch.testing.assert_close(
+        in_grad.local.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2
+    )
 
 
 class QkvFormat(Enum):
@@ -332,15 +338,15 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
     )
     out, q_grad, k_grad, v_grad = outs
 
-    def assert_close(actual, expected):
+    def assert_close(actual: nvfuser.DistributedTensor, expected: torch.Tensor):
         match qkv_format:
             case QkvFormat.BHSE:
-                assert actual.is_contiguous()
+                assert actual.local.is_contiguous()
             case QkvFormat.BSHE:
-                assert actual.transpose(2, 3).is_contiguous()
+                assert actual.local.transpose(2, 3).is_contiguous()
 
         # Use the default rtol for bfloat16 and a relaxed atol.
-        torch.testing.assert_close(actual, expected, rtol=1.6e-2, atol=1e-2)
+        torch.testing.assert_close(actual.local, expected, rtol=1.6e-2, atol=1e-2)
 
     assert_close(out, head_parallelize(expected_out))
     assert_close(q_grad, head_parallelize(expected_q_grad))
@@ -742,10 +748,10 @@ class TransformerForwardFusion(FusionDefinition):
 # TODO(#2962): validate the numbers as well. Currently, the numbers are off
 # by a lot, making comparison infeasible.
 def _assert_shape_dtype(
-    t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
+    t: nvfuser.DistributedTensor, expected_sizes: list[int], expected_dtype: torch.dtype
 ) -> None:
-    assert t.shape == torch.Size(expected_sizes)
-    assert t.dtype == expected_dtype
+    assert t.local.shape == torch.Size(expected_sizes)
+    assert t.local.dtype == expected_dtype
 
 
 @pytest.mark.skipif(
