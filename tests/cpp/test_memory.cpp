@@ -3004,7 +3004,6 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   TransformPropagator propagator(tv2);
   MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
-  // Propagate common parallel dimensions
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   scheduler_utils::parallelizeAllLike(tv2);
 
@@ -3013,18 +3012,13 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   tv2b->axis(-1)->parallelize(ParallelType::TIDx);
   tv0a->axis(-1)->parallelize(ParallelType::Bulk);
   tv1a->axis(-1)->parallelize(ParallelType::Bulk);
-
-  // ComputeAt
   inlineMost();
-
-  fusion->printMath();
 
   constexpr int dim0 = 16384, dim1 = 16384;
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
   at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
 
-  // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
   ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
   auto outputs = ke.run({at_tv0, at_tv1});

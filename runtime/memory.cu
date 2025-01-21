@@ -112,20 +112,6 @@ __device__ inline void cpAsyncBulkG2S(
         "r"(src.mbarrier)
       : "memory");
 }
-// __device__ inline void cpAsyncBulkG2S(
-//   uint32_t smem_addr,   // Shared memory address
-//   const void* raw_gmem_addr,   // Global memory address
-//   uint32_t bytes,       // Number of bytes to copy
-//   uint32_t mbarrier     // Memory barrier for synchronization
-// ) {
-//   asm volatile(
-//       "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes
-//       [%0], [%1], %2, [%3];\n"
-//       :
-//       : "r"(smem_addr), "l"(raw_gmem_addr), "r"(bytes), "r"(mbarrier)
-//       : "memory"
-//   );
-// }
 
 template <int dim>
 struct CpAsyncBulkTensorTileG2SIndex {

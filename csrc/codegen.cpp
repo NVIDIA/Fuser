@@ -1469,7 +1469,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             "Vectorized store/load requires input and output datatypes match.");
       }
 
-      // dispatch cp.async.bulk.{tensor.tile}
+      // dispatch cp.async.bulk.{tensor}
       if (optype == LoadStoreOpType::CpAsyncBulk ||
           optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
         genCpAsyncBulkMaybeTensorTile(ldst);
