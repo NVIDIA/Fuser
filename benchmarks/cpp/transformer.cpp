@@ -42,36 +42,36 @@ void forward_transformer(Communicator* communicator, bool profile) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator->device());
 
-  auto x_ = at::randn({B * S, E}, options);
-  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
-  auto mha_w0_ = at::randn({3 * E, E}, options) * kParamScale;
-  auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
-  auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
-  auto mha_b1_ = at::randn({E}, options) * kParamScale;
-  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
-  auto mlp_w0_ = at::randn({4 * E, E}, options) * kParamScale;
-  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto mlp_w1_ = at::randn({E, 4 * E}, options) * kParamScale;
-  auto mlp_b1_ = at::randn({E}, options) * kParamScale;
+  auto x = at::randn({B * S, E}, options);
+  auto ln0_w = at::randn(E, options).to(at::kFloat);
+  auto ln0_b = at::randn(E, options).to(at::kFloat);
+  auto mha_w0 = at::randn({3 * E, E}, options) * kParamScale;
+  auto mha_b0 = at::randn({3 * E}, options) * kParamScale;
+  auto mha_w1 = at::randn({E, E}, options) * kParamScale;
+  auto mha_b1 = at::randn({E}, options) * kParamScale;
+  auto ln1_w = at::randn(E, options).to(at::kFloat);
+  auto ln1_b = at::randn(E, options).to(at::kFloat);
+  auto mlp_w0 = at::randn({4 * E, E}, options) * kParamScale;
+  auto mlp_b0 = at::randn({4 * E}, options) * kParamScale;
+  auto mlp_w1 = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
   std::vector<c10::IValue> at_inputs = {
-      x_,
-      ln0_w_,
-      ln0_b_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator)
+      x,
+      ln0_w,
+      ln0_b,
+      shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator)
           .view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator)
+      shardTensor(mha_b0.view({3, E}), 1, mesh, communicator)
           .view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh, communicator).unsqueeze(0),
-      mha_b1_,
-      ln1_w_,
-      ln1_b_,
-      shardTensor(mlp_w0_, 0, mesh, communicator).unsqueeze(0),
-      shardTensor(mlp_b0_, 0, mesh, communicator).unsqueeze(0),
-      shardTensor(mlp_w1_, 1, mesh, communicator).unsqueeze(0),
-      mlp_b1_};
+      shardTensor(mha_w1, 1, mesh, communicator).unsqueeze(0),
+      mha_b1,
+      ln1_w,
+      ln1_b,
+      shardTensor(mlp_w0, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_b0, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_w1, 1, mesh, communicator).unsqueeze(0),
+      mlp_b1};
 
   DistributedTransformer model = DistributedTransformer(D, B, E, H, S);
   auto fec = model.forward(dtype);
@@ -117,20 +117,20 @@ void backward_transformer(Communicator* communicator, bool profile) {
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator->device());
-  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
-  auto mha_w0_ = at::randn({3 * E, E}, options) * kParamScale;
-  auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
-  auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
-  auto mha_b1_ = at::randn({E}, options) * kParamScale;
-  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
-  auto mlp_w0_ = at::randn({4 * E, E}, options) * kParamScale;
-  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
-  auto mlp_w1_ = at::randn({E, 4 * E}, options) * kParamScale;
-  auto mlp_b1_ = at::randn({E}, options) * kParamScale;
+  auto x = at::randn({B * S, E}, options).to(at::kFloat);
+  auto ln0_w = at::randn(E, options).to(at::kFloat);
+  auto ln0_b = at::randn(E, options).to(at::kFloat);
+  auto mha_w0 = at::randn({3 * E, E}, options) * kParamScale;
+  auto mha_b0 = at::randn({3 * E}, options) * kParamScale;
+  auto mha_w1 = at::randn({E, E}, options) * kParamScale;
+  auto mha_b1 = at::randn({E}, options) * kParamScale;
+  auto ln1_w = at::randn(E, options).to(at::kFloat);
+  auto ln1_b = at::randn(E, options).to(at::kFloat);
+  auto mlp_w0 = at::randn({4 * E, E}, options) * kParamScale;
+  auto mlp_b0 = at::randn({4 * E}, options) * kParamScale;
+  auto grad = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
+  auto mlp_w1 = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
   // Recomputed tensors
   auto mlp_dropout_mask = at::rand({B * S, E}, options).lt(1.0 - 0.1);
@@ -144,34 +144,34 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto ln1_mean = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln1_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
   auto mha_linear1 = at::rand({B * S, E}, options).to(at::kFloat);
+  auto mha_linear0 = at::rand({B * S, E}, options).to(at::kFloat); // mha linear0
+  auto mlp_linear1 = at::rand({B * S, E}, options).to(at::kFloat); // mlp linear1
 
-  std::vector<c10::IValue> inputs = {
-      x_,
-      grad_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator)
-          .view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator)
-          .view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh, communicator),
-      shardTensor(mlp_w0_, 0, mesh, communicator),
-      shardTensor(mlp_b0_, 0, mesh, communicator),
-      shardTensor(mlp_w1_, 1, mesh, communicator),
-      mlp_b1_,
+  std::vector<c10::IValue> at_inputs = {
+      x,
+      grad,
+      shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator).view({1, 3 * E / D, E}),
+      shardTensor(mha_w1, 1, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_w0, 0, mesh, communicator).unsqueeze(0),
+      shardTensor(mlp_w1, 1, mesh, communicator).unsqueeze(0),
       mlp_dropout_mask,
       mha_dropout_mask,
-      shardTensor(sdpa_output, 1, mesh, communicator),
-      shardTensor(sdpa_logsum_exp, 1, mesh, communicator),
+      shardTensor(sdpa_output, 1, mesh, communicator).unsqueeze(0),
+      shardTensor(sdpa_logsum_exp, 1, mesh, communicator).unsqueeze(0),
       sdpa_seed,
       sdpa_offset,
-      ln1_w_,
-      ln1_b_,
+      ln1_w,
+      ln1_b,
       ln1_mean,
       ln1_rstd,
-      ln0_w_,
-      ln0_b_,
+      ln0_w,
+      ln0_b,
       ln0_mean,
       ln0_rstd,
-      mha_linear1};
+      shardTensor(mha_linear0, 1, mesh, communicator).unsqueeze(0),
+      mha_linear1.to(at::kFloat),
+      shardTensor(mlp_linear1, 1, mesh, communicator).unsqueeze(0)
+    };
 
   DistributedTransformer model = DistributedTransformer(D, B, E, H, S);
   auto fec = model.backward(dtype);
@@ -186,7 +186,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
     }
-    outputs = fec->runFusionWithInputs(inputs);
+    outputs = fec->runFusionWithInputs(at_inputs);
     cudaDeviceSynchronize();
     // cudaDeviceSynchronize is not blocking until kernels are finished on all
     // devices except 0
@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
   // using this is as a flag for when to profile
   bool profile = argc > 1;
   auto communicator = &Communicator::getInstance();
-  forward_transformer(communicator, profile);
+  //forward_transformer(communicator, profile);
   //communicator->barrier();
-  //backward_transformer(communicator, profile);
+  backward_transformer(communicator, profile);
 }
