@@ -127,6 +127,7 @@ enum class DisableOption {
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
   Nvtx, //! Disable NVTX instrumentation
+  PadPredicateElimination, //! Disable elimination of pad where predicates
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
