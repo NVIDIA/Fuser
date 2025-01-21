@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import sys
-from typing import Callable, Iterable
+from typing import Callable
 import warnings
 
 import torch
