@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -94,7 +94,7 @@ void forward_transformer(Communicator* communicator, bool profile) {
     // cudaDeviceSynchronize is not blocking until kernels are finished on all
     // devices except 0
     // TODO: are we not waiting until all kernels are appended to the stream?
-    std::cout << outputs[0][0][0] << std::endl;
+    //std::cout << outputs[0][0][0] << std::endl;
 
     if (i > warmup_itrs && profile) {
       nvtxRangePop();
@@ -145,8 +145,8 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto ln1_mean = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln1_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
   auto mha_linear1 = at::rand({B * S, E}, options).to(at::kFloat);
-  auto mha_linear0 = at::rand({B * S, 3 * E}, options); // mha linear0    shape of mha linear0 = [B * S, 3 * E]
-  auto mlp_linear1 = at::rand({B * S, 4 * E}, options); // mlp linear1     mlp linear1 = [B * S, 4 * E]
+  auto mha_linear0 = at::rand({B * S, 3 * E}, options);
+  auto mlp_linear1 = at::rand({B * S, 4 * E}, options);
 
   std::vector<c10::IValue> at_inputs = {
       x,
@@ -192,7 +192,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
     // cudaDeviceSynchronize is not blocking until kernels are finished on all
     // devices except 0
     // TODO: are we not waiting until all kernels are appended to the stream?
-    std::cout << outputs[0][0][0][0] << std::endl;
+    //std::cout << outputs[0][0][0][0] << std::endl;
 
     if (i > warmup_itrs && profile) {
       nvtxRangePop();
@@ -212,10 +212,9 @@ void backward_transformer(Communicator* communicator, bool profile) {
 }
 
 int main(int argc, char** argv) {
-  // using this is as a flag for when to profile
   bool profile = argc > 1;
   auto communicator = &Communicator::getInstance();
-  //forward_transformer(communicator, profile);
-  //communicator->barrier();
+  forward_transformer(communicator, profile);
+  communicator->barrier();
   backward_transformer(communicator, profile);
 }
