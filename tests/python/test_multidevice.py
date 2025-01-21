@@ -284,6 +284,90 @@ def test_matmul_loop_split(multidevice_test):
     )
 
 
+@pytest.mark.mpi
+def test_matmul_allreduce_loop_split(multidevice_test):
+    d, b, s, e = multidevice_test.size, 1, 2, 2
+    mesh = nvfuser.DeviceMesh(range(d))
+    
+    class Model(FusionDefinition):
+        def definition(self) -> None:
+            # A pattern appeared in the backprop of the first linear layer in
+            # Transformer's MLP.
+            self.inp = self.define_tensor(
+                [b * s, d * e], contiguity=True, dtype=DataType.Half
+            )
+            self.weight = self.define_tensor(
+                [d * e, e], contiguity=True, dtype=DataType.Half
+            )
+            self.out = self.ops.matmul(self.inp, self.weight)            
+            # in_grad = self.ops.sum(in_grad, [0])
+            # in_grad = self.ops.reshape(in_grad, [b, s, e])
+            # in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
+            self.add_output(self.out)
+            
+        def multidevice_schedule(self) -> None:
+            for t in [self.inp, self.weight, self.out]:
+                self.sched._set_device_mesh(t, mesh)
+            
+            # Shard K for inp (M, K)
+            self.sched.split(self.inp, -1, d, False)
+            self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
+            self.sched.reorder(self.inp, {-2: 0})
+            self.sched.set_allocation_as_loop(self.inp)
+            
+            # Shard K for weight (K, N)
+            self.sched.split(self.weight, 0, d, False)
+            self.sched.parallelize(self.weight, 0, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.weight)
+            
+            # [i{M}, i{N}, r{K}]
+            self.sched.split(self.out, -1, d, False)
+            # [i{M}, i{N}, r{d}, r{K//d}]
+            self.local_out = self.sched.rfactor(self.out, dims=[-1])
+            # local_out = [i{M}, i{N}, i{d}, r{K//d}]
+            # out = [i{M}, i{N}, r{d}]
+            self.sched._set_device_mesh(self.local_out, mesh)
+            self.sched.parallelize(self.local_out, -2, nvfuser.ParallelType.mesh_x)
+            self.sched.reorder(self.local_out, {-2: 0})
+            self.sched.set_allocation_as_loop(self.local_out)
+            
+            self.sched.parallelize(self.out, -1, nvfuser.ParallelType.mesh_x)
+            self.sched.reorder(self.out, {-1: 0})
+            self.sched.set_allocation_as_loop(self.out)
+            
+            print(self.sched.to_string(self.inp))
+            print(self.sched.to_string(self.weight))
+            print(self.sched.to_string(self.local_out))
+            print(self.sched.to_string(self.out))              
+
+    rank = multidevice_test.rank
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
+    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
+    sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
+    sharded_weight = multidevice_test.shard_tensor(unsharded_weight, 0, mesh)
+    
+    # expected_out = (
+    #     (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
+    # )
+
+    # out_grad = (
+    #     unsharded_out_grad.view([b * s, d, e])
+    #     .permute([1, 0, 2])
+    #     .contiguous()[rank : rank + 1]
+    # )
+    # weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
+
+    fd = Model()
+    out = fd.execute([sharded_inp, sharded_weight])
+    print (out[0])
+    
+    # Use the default rtol for half because the output, although being float32,
+    # is a straight cast from half.
+    # torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
+    
 class QkvFormat(Enum):
     BHSE = auto()
     BSHE = auto()

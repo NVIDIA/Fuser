@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <ops/composite.h>
 #include <ops/utils.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
@@ -1559,4 +1560,41 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   ASSERT_TRUE(at::equal(t.t(), outputs[0]));
 }
 
+TEST_F(Tutorial, ShardedMatmulK) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t d=2, m=2, k=4, n=2;
+  TensorView* tv0 = makeSymbolicTensor(2); 
+  TensorView* tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  TensorView* tv2 = matmul(tv0, tv1); // [i{M}, i{N}, i{K}]
+  tv2->split(-1, d); // [i{M}, i{N}, r{K//d}, r{d}]
+  tv2->reorder({{-1, 0}}); // [r{d}, i{M}, i{N}, r{K//d}]
+  TensorView* tv3 = tv2->rFactor({-1});
+  // tv3 [i{d}, i{M}, i{N}, r{K//d}] = matmul (tv0 [i{M}, i{K}], tv1[i{K}, i{N}])
+  // tv2 [r{d}, i{M}, i{N}] = tv3 [i{d}, i{M}, i{N}, r{K//d}]
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
+
+  if (verbose_) {
+    fusion.print();
+    fusion.printMath();
+    fusion.printKernel();
+  }
+
+  // Let's run the scheduled fusion
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor a = at::randn({m, k}, options);
+  at::Tensor b = at::randn({k, n}, options);
+  std::vector<c10::IValue> aten_inputs = {a, b};
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  std::vector<at::Tensor> outputs = ke.run(aten_inputs);
+  debug() << outputs[0] << std::endl;
+  debug() << outputs[1] << std::endl;
+  // testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
