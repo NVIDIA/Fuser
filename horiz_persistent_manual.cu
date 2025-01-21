@@ -11396,43 +11396,11 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
   __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + 98304);
   unsigned i14;
   i14 = toSmem(T16);
-  unsigned i15;
-  i15 = i12 + (8192 * ((nvfuser_index_t)threadIdx.y));
-  nvfuser_index_t i16;
-  i16 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
-  nvfuser_index_t i17;
-  i17 = 16384 * ((nvfuser_index_t)threadIdx.y);
   __bfloat* T21 = reinterpret_cast<__bfloat*>(array + smem_offset + 65536);
-  unsigned i18;
-  i18 = toSmem(T21) + i17;
-  const TensorMap* ptr19;
-  ptr19 = &var3;
-  nvfuser_index_t i20;
-  i20 = 64 * ((nvfuser_index_t)threadIdx.y);
   __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + 32768);
-  unsigned i21;
-  i21 = toSmem(T20) + i17;
-  const TensorMap* ptr22;
-  ptr22 = &var4;
   __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
-  unsigned i23;
-  i23 = toSmem(T22) + i17;
-  const TensorMap* ptr24;
-  ptr24 = &var5;
   bool b25;
   b25 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
-  bool b26;
-  b26 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
-  bool b27;
-  b27 = ((nvfuser_index_t)threadIdx.y) == 2;
-  bool b28;
-  b28 = ((nvfuser_index_t)threadIdx.y) < 2;
-  nvfuser_index_t i29;
-  i29 = ((nvfuser_index_t)threadIdx.x) / 4;
-  nvfuser_index_t i30;
-  i30 = ((8 + (16 * (i29 / 8))) + (i29 % 8)) + i20;
-  nvfuser_index_t i31;
-  i31 = (9 - T1.logical_size[1LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4));
   float T3[64];
   float T10[64];
 
@@ -11440,26 +11408,7 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
     asm volatile("fence.proxy.async;\n");
 
     uint64_t* T23 = reinterpret_cast<uint64_t*>(array + smem_offset + 196608);
-    #pragma unroll
-    for(nvfuser_index_t i42 = 0; i42 < 2; ++i42) {
-      if (((Hopper::electSync(4294967295U) && b25) && b26)) {
-        mbarrier::init(toSmem((&T23[i42])), 3U);
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i43 = 0; i43 < 2; ++i43) {
-      if (((Hopper::electSync(4294967295U) && b25) && b26)) {
-        mbarrier::init(toSmem((&T23[(i43 + 2LL)])), 256U);
-      }
-    }
     __syncthreads();
-
-    if (b28) {
-      #pragma unroll
-      for(nvfuser_index_t i46 = 0; i46 < 2; ++i46) {
-        mbarrier::arrive(toSmem((&T23[(i46 + 2LL)])));
-      }
-    }
 
   #pragma unroll 1
   for(nvfuser_index_t i32 = 0; i32 < i7; ++i32) {
@@ -11475,15 +11424,8 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
     i37 = 128 * (i34 % 2);
     nvfuser_index_t i38;
     i38 = i36 + i37;
-    nvfuser_index_t i39;
-    i39 = (i20 + i36) + i37;
-    bool b40;
-    b40 = b28 && (((i30 + i36) + i37) < T0.logical_size[0LL]);
-    nvfuser_index_t i41;
-    i41 = i31 + i35;
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))).set(0);
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))).set(0);
-    if (b27) {
       #pragma unroll 1
       for(nvfuser_index_t i44 = 0; i44 < i8; ++i44) {
         uint32_t stages_processed = i32 * i8 + i44;
@@ -11502,353 +11444,6 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
           Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i35}), toSmem((&T23[slot])) }), (i14 + i45));
         }
       }
-    } else {
-      #pragma unroll 1
-      for(nvfuser_index_t i47 = 0; i47 < i8; ++i47) {
-        uint32_t stages_processed = i32 * i8 + i47;
-        nvfuser_index_t slot = stages_processed % 2;
-        uint32_t this_parity = (stages_processed / 2) % 2;
-
-        nvfuser_index_t i48;
-        i48 = 16384 * slot;
-        unsigned i49;
-        i49 = i15 + i48;
-        unsigned i50;
-        i50 = i10 + i48;
-        unsigned i51;
-        i51 = i14 + i48;
-        mbarrier::waitParity(toSmem((&T23[slot])), (uint32_t)(((i47 / 2) % 2)));
-        asm volatile("wgmma.fence.sync.aligned;\n");
-        #pragma unroll
-        for(nvfuser_index_t i52 = 0; i52 < 4; ++i52) {
-          nvfuser_index_t i53;
-          i53 = 32 * i52;
-          unsigned i54;
-          i54 = i49 + i53;
-          unsigned i55;
-          i55 = i50 + i53;
-          asm volatile(
-            "{\n"
-            "  .reg .pred p0; \n"
-            "  setp.ne.b32 p0, %66, 0;\n"
-            "  wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63}, %64, %65, p0, %67, %68, %69, %70;\n"
-            "}\n"
-            :"+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[0]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[1]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[2]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[3]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[4]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[5]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[6]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[7]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[8]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[9]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[10]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[11]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[12]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[13]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[14]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[15]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[16]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[17]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[18]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[19]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[20]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[21]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[22]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[23]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[24]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[25]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[26]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[27]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[28]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[29]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[30]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[31]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[32]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[33]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[34]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[35]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[36]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[37]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[38]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[39]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[40]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[41]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[42]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[43]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[44]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[45]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[46]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[47]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[48]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[49]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[50]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[51]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[52]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[53]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[54]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[55]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[56]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[57]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[58]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[59]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[60]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[61]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[62]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[63])
-            :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i54)) >> 4ULL))),
-             "l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i55)) >> 4ULL))),
-             "n"((uint32_t)(true)),
-             "n"(1),
-             "n"(1),
-             "n"(0),
-             "n"(0)
-          );
-        }
-        #pragma unroll
-        for(nvfuser_index_t i56 = 0; i56 < 4; ++i56) {
-          nvfuser_index_t i57;
-          i57 = 32 * i56;
-          unsigned i58;
-          i58 = i49 + i57;
-          unsigned i59;
-          i59 = i51 + i57;
-          asm volatile(
-            "{\n"
-            "  .reg .pred p0; \n"
-            "  setp.ne.b32 p0, %66, 0;\n"
-            "  wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63}, %64, %65, p0, %67, %68, %69, %70;\n"
-            "}\n"
-            :"+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[0]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[1]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[2]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[3]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[4]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[5]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[6]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[7]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[8]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[9]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[10]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[11]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[12]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[13]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[14]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[15]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[16]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[17]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[18]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[19]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[20]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[21]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[22]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[23]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[24]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[25]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[26]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[27]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[28]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[29]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[30]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[31]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[32]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[33]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[34]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[35]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[36]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[37]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[38]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[39]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[40]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[41]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[42]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[43]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[44]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[45]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[46]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[47]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[48]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[49]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[50]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[51]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[52]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[53]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[54]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[55]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[56]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[57]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[58]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[59]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[60]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[61]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[62]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[63])
-            :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i58)) >> 4ULL))),
-             "l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i59)) >> 4ULL))),
-             "n"((uint32_t)(true)),
-             "n"(1),
-             "n"(1),
-             "n"(0),
-             "n"(0)
-          );
-        }
-        asm volatile("wgmma.commit_group.sync.aligned;\n");
-        asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-        mbarrier::arrive(toSmem((&T23[(slot + 2LL)])));
-      }
-    }
-    Array<__bfloat, 64, 8> T18;
-    #pragma unroll
-    for(nvfuser_index_t i62 = 0; i62 < 16; ++i62) {
-      nvfuser_index_t i63;
-      i63 = 4 * i62;
-      #pragma unroll
-      for(nvfuser_index_t i64 = 0; i64 < 2; ++i64) {
-        nvfuser_index_t i65;
-        i65 = i63 + (2 * i64);
-        #pragma unroll
-        for(nvfuser_index_t i66 = 0; i66 < 2; ++i66) {
-          nvfuser_index_t i67;
-          i67 = i65 + i66;
-          T18[i67]
-             = __float2bfloat(T10[i67]);
-        }
-      }
-    }
-    // Wait for previous tile's TMAs to finish before we start writing this tile's smem
-    asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
-    #pragma unroll
-    for(nvfuser_index_t i68 = 0; i68 < 8; ++i68) {
-      if ((b40 && (i41 < (-(16 * i68))))) {
-        asm volatile(
-          "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
-          :
-          :"r"((uint32_t)((toSmem(T21) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i68 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i68 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[0]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[1]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[2]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[3])
-        );
-      }
-    }
-    __syncthreads();
-    #pragma unroll
-    for(nvfuser_index_t i69 = 0; i69 < 2; ++i69) {
-      asm volatile("fence.proxy.async;\n");
-      if (b28) {
-        if ((Hopper::electSync(4294967295U) && b25)) {
-        Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr19, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i69)), i39}) }), (i18 + (8192 * i69)));
-        }
-      }
-    }
-    // Compute next epilogue while TMA is in flight
-    Array<__bfloat, 64, 8> T17;
-    #pragma unroll
-    for(nvfuser_index_t i70 = 0; i70 < 16; ++i70) {
-      nvfuser_index_t i71;
-      i71 = 4 * i70;
-      #pragma unroll
-      for(nvfuser_index_t i72 = 0; i72 < 2; ++i72) {
-        nvfuser_index_t i73;
-        i73 = i71 + (2 * i72);
-        #pragma unroll
-        for(nvfuser_index_t i74 = 0; i74 < 2; ++i74) {
-          nvfuser_index_t i75;
-          i75 = i73 + i74;
-          T17[i75]
-             = __float2bfloat(T3[i75]);
-        }
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i76 = 0; i76 < 8; ++i76) {
-      if ((b40 && (i41 < (-(16 * i76))))) {
-        asm volatile(
-          "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
-          :
-          :"r"((uint32_t)((toSmem(T20) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i76 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i76 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[0]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[1]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[2]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[3])
-        );
-      }
-    }
-    __syncthreads();
-    #pragma unroll
-    for(nvfuser_index_t i77 = 0; i77 < 2; ++i77) {
-      asm volatile("fence.proxy.async;\n");
-      if (b28) {
-        if ((Hopper::electSync(4294967295U) && b25)) {
-        Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr22, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i77)), i39}) }), (i21 + (8192 * i77)));
-        }
-      }
-    }
-    Array<__bfloat, 64, 8> T19;
-    #pragma unroll
-    for(nvfuser_index_t i78 = 0; i78 < 16; ++i78) {
-      nvfuser_index_t i79;
-      i79 = 4 * i78;
-      #pragma unroll
-      for(nvfuser_index_t i80 = 0; i80 < 2; ++i80) {
-        nvfuser_index_t i81;
-        i81 = i79 + (2 * i80);
-        #pragma unroll
-        for(nvfuser_index_t i82 = 0; i82 < 2; ++i82) {
-          nvfuser_index_t i83;
-          i83 = i81 + i82;
-          float T5[1];
-          T5[0]
-             = -T3[i83];
-          float T6[1];
-          T6[0]
-             = expf(T5[0]);
-          float T7[1];
-          T7[0]
-            = 1.000000000e+00f
-            + T6[0];
-          float T8[1];
-          T8[0]
-             = reciprocal(T7[0]);
-          float T9[1];
-          T9[0]
-            = T3[i83]
-            * T8[0];
-          float T12[1];
-          T12[0]
-            = T9[0]
-            * T10[i83];
-          T19[i83]
-             = __float2bfloat(T12[0]);
-        }
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i84 = 0; i84 < 8; ++i84) {
-      if ((b40 && (i41 < (-(16 * i84))))) {
-        asm volatile(
-          "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
-          :
-          :"r"((uint32_t)((toSmem(T22) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i84 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i84 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[0]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[1]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[2]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[3])
-        );
-      }
-    }
-    __syncthreads();
-    #pragma unroll
-    for(nvfuser_index_t i85 = 0; i85 < 2; ++i85) {
-      asm volatile("fence.proxy.async;\n");
-      if (b28) {
-        if ((Hopper::electSync(4294967295U) && b25)) {
-        Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr24, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i85)), i39}) }), (i23 + (8192 * i85)));
-        }
-      }
-    }
-    asm volatile("cp.async.bulk.commit_group;\n");
   }
 }
 
@@ -11861,18 +11456,12 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   i7 = ceilDiv(((2 * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
   nvfuser_index_t i8;
   i8 = ceilDiv(T0.logical_size[2LL], 64);
-  const TensorMap* ptr9;
-  ptr9 = &var0;
   __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + 163840);
   unsigned i10;
   i10 = toSmem(T15);
-  const TensorMap* ptr11;
-  ptr11 = &var1;
   __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + 131072);
   unsigned i12;
   i12 = toSmem(T14);
-  const TensorMap* ptr13;
-  ptr13 = &var2;
   __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + 98304);
   unsigned i14;
   i14 = toSmem(T16);
@@ -11903,8 +11492,6 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   b25 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
   bool b26;
   b26 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
-  bool b27;
-  b27 = ((nvfuser_index_t)threadIdx.y) == 2;
   bool b28;
   b28 = ((nvfuser_index_t)threadIdx.y) < 2;
   nvfuser_index_t i29;
@@ -11934,12 +11521,10 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
     }
     __syncthreads();
 
-    if (b28) {
       #pragma unroll
       for(nvfuser_index_t i46 = 0; i46 < 2; ++i46) {
         mbarrier::arrive(toSmem((&T23[(i46 + 2LL)])));
       }
-    }
 
   #pragma unroll 1
   for(nvfuser_index_t i32 = 0; i32 < i7; ++i32) {
@@ -11953,8 +11538,6 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
     i36 = 256 * (i33 % i6);
     nvfuser_index_t i37;
     i37 = 128 * (i34 % 2);
-    nvfuser_index_t i38;
-    i38 = i36 + i37;
     nvfuser_index_t i39;
     i39 = (i20 + i36) + i37;
     bool b40;
@@ -11963,26 +11546,6 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
     i41 = i31 + i35;
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))).set(0);
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))).set(0);
-    if (b27) {
-      #pragma unroll 1
-      for(nvfuser_index_t i44 = 0; i44 < i8; ++i44) {
-        uint32_t stages_processed = i32 * i8 + i44;
-        nvfuser_index_t slot = stages_processed % 2;
-        uint32_t this_parity = (stages_processed / 2) % 2;
-
-        nvfuser_index_t i45;
-        i45 = 16384 * slot;
-        if ((Hopper::electSync(4294967295U) && b25)) {
-          mbarrier::waitParity(toSmem((&T23[(slot + 2LL)])), this_parity);
-          mbarrier::arriveExpectTX(toSmem((&T23[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i35}), toSmem((&T23[slot])) }), (i10 + i45));
-          mbarrier::arriveExpectTX(toSmem((&T23[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr11, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i38}), toSmem((&T23[slot])) }), (i12 + i45));
-          mbarrier::arriveExpectTX(toSmem((&T23[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i35}), toSmem((&T23[slot])) }), (i14 + i45));
-        }
-      }
-    } else {
       #pragma unroll 1
       for(nvfuser_index_t i47 = 0; i47 < i8; ++i47) {
         uint32_t stages_processed = i32 * i8 + i47;
@@ -12177,7 +11740,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
         mbarrier::arrive(toSmem((&T23[(slot + 2LL)])));
       }
-    }
+
     Array<__bfloat, 64, 8> T18;
     #pragma unroll
     for(nvfuser_index_t i62 = 0; i62 < 16; ++i62) {
@@ -12212,7 +11775,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         );
       }
     }
-    __syncthreads();
+    asm volatile("bar.sync 1, %0;" : : "r"((uint32_t)256) : "memory");
     #pragma unroll
     for(nvfuser_index_t i69 = 0; i69 < 2; ++i69) {
       asm volatile("fence.proxy.async;\n");
@@ -12255,7 +11818,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         );
       }
     }
-    __syncthreads();
+    asm volatile("bar.sync 1, %0;" : : "r"((uint32_t)256) : "memory");
     #pragma unroll
     for(nvfuser_index_t i77 = 0; i77 < 2; ++i77) {
       asm volatile("fence.proxy.async;\n");
@@ -12318,7 +11881,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         );
       }
     }
-    __syncthreads();
+    asm volatile("bar.sync 1, %0;" : : "r"((uint32_t)256) : "memory");
     #pragma unroll
     for(nvfuser_index_t i85 = 0; i85 < 2; ++i85) {
       asm volatile("fence.proxy.async;\n");
