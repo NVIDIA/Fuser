@@ -2935,7 +2935,9 @@ bool canOmitPadPredicate(const PadOp* pad) {
                 SliceOp,
                 CatOp,
                 ViewOp,
-                UnaryOp>()) {
+                UnaryOp,
+                BinaryOp,
+                PadOp>()) {
           std::cerr << "Unsupported op: " << tv_expr->toString();
           return false;
         }
@@ -2945,8 +2947,24 @@ bool canOmitPadPredicate(const PadOp* pad) {
         // negative zero is different from the positive zero, which
         // matters for bitwise-or based concat
         if (auto uop = dynamic_cast<UnaryOp*>(tv_expr)) {
-          if (uop->getUnaryOpType() != UnaryOpType::Cast) {
+          if (uop->getUnaryOpType() != UnaryOpType::Cast &&
+              uop->getUnaryOpType() != UnaryOpType::Neg) {
             std::cerr << "Unsupported op: " << tv_expr->toString();
+            return false;
+          }
+        }
+
+        if (auto bop = dynamic_cast<BinaryOp*>(tv_expr)) {
+          if (bop->getBinaryOpType() != BinaryOpType::Add &&
+              bop->getBinaryOpType() != BinaryOpType::Mul) {
+            std::cerr << "Unsupported op: " << tv_expr->toString();
+            return false;
+          }
+        }
+
+        if (auto preceding_pad = dynamic_cast<PadOp*>(tv_expr)) {
+          if (!preceding_pad->value()->sameAs(pad_val)) {
+            std::cerr << "Different pad val: " << preceding_pad->toString();
             return false;
           }
         }

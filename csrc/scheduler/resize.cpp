@@ -87,12 +87,14 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+#if 0
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }
+#endif
 
   // For now, the resize scheduler is only allowed for a limited set
   // of fusion patterns. The restrictions are planned to be
