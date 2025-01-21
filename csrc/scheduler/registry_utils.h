@@ -29,7 +29,7 @@ bool checkPatternEquivalence(
 // different extents, meaning we don't know in the kernel if the dimension is
 // being broadcasted to one size multiple times or different sizes. This is a
 // hard to optimize problem and likely indicates we shouldn't be fusing.
-bool hasNonUniqueBcast(Fusion* fusion);
+bool hasNonUniqueBcast(Fusion* fusion, bool check_static_size = false);
 
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(

@@ -86,7 +86,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (registry_utils::hasNonUniqueBcast(fusion)) {
+  if (registry_utils::hasNonUniqueBcast(fusion, /*check_static_size=*/true)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
@@ -472,7 +472,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::scheduleLoopDomainsLike(
         fusion->allTvs(),
         ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true);
+        /*update_loop_domain_only=*/true,
+        IdMappingMode::BROADCAST);
   }
 
   if (vec_factor > 1) {

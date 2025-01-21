@@ -31,7 +31,8 @@ namespace scheduler_tools {
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom,
-    bool update_loop_domain_only = false);
+    bool update_loop_domain_only = false,
+    IdMappingMode id_mapping_mode = IdMappingMode::EXACT);
 
 // Replay a transform expr on the loop domain of each of the given
 // tensors. If the replay direction is specified, the expr is replayed
