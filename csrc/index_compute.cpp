@@ -29,6 +29,7 @@
 #include <transform_replay.h>
 
 #include <memory>
+#include "ir/builder.h"
 
 namespace nvfuser {
 
@@ -2672,6 +2673,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto indices_inner_to_outer =
       indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+  // These are the box coordinates of the TMA box, which must be of type
+  // int32_t. Possible overflow in each of these dims should be checked
+  // elsewhere.
+  for (size_t i : c10::irange(indices_inner_to_outer.size())) {
+    indices_inner_to_outer[i] = SimplifyingIrBuilder::maybeCastExpr(
+        DataType::Int32, indices_inner_to_outer[i]);
+  }
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
