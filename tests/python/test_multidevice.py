@@ -223,6 +223,63 @@ def test_matmul_allreduce(multidevice_test):
     torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
 
 
+@pytest.mark.mpi
+def test_matmul_loop_split(multidevice_test):
+    class Model(FusionDefinition):
+        def __init__(self, num_devices, batch, sequence, hidden):
+            super().__init__()
+            self._num_devices = num_devices
+            self._batch = batch
+            self._sequence = sequence
+            self._hidden = hidden
+
+        def definition(self):
+            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
+            self.inp = self.define_tensor([b, s, e])
+            self.weight = self.define_tensor([e, d * e])
+            self.out = self.ops.matmul(self.inp, self.weight)
+            self.add_output(self.out)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.weight, self.out]:
+                self.sched._set_device_mesh(t, mesh)
+
+            # Shard N for weight (K, N)
+            self.sched.split(self.weight, -1, d, False)
+            self.sched.parallelize(self.weight, -2, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.weight)
+
+            # Output of linear: {.., i{M}, i{N}, r{K}}
+            # Shard N -> axis(-2)
+            self.sched.split(self.out, -2, d, False)
+            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.out)
+
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    rank = multidevice_test.rank
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    b, s, e = 2, 1024, 768
+    inp_tensor = torch.randn(b, s, e, device="cuda")
+    unsharded_weight_tensor = torch.randn(e, d * e)
+    sharded_weight_tensor = multidevice_test.shard_tensor(
+        unsharded_weight_tensor, -1, mesh
+    )
+
+    fd = Model(d, b, s, e)
+    out_tensors = fd.execute([inp_tensor, sharded_weight_tensor])
+
+    # [b, s, d*e]
+    unsharded_out_tensor = torch.matmul(inp_tensor.cpu(), unsharded_weight_tensor)
+    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    # rtol is the same as the default for fp32. atol is slightly increased.
+    torch.testing.assert_close(
+        out_tensors[0], expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
+    )
+
+
 class QkvFormat(Enum):
     BHSE = auto()
     BSHE = auto()
