@@ -90,7 +90,7 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
       }
     }
     if (i >= warmup_itrs && profile) {
-      nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
+      nvtxRangePush(("FwdIteration" + std::to_string(i)).c_str());
     }
     auto outputs = fec->runFusionWithInputs(at_inputs);
     cudaDeviceSynchronize();
@@ -99,7 +99,7 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
     // TODO: are we not waiting until all kernels are appended to the stream?
     //std::cout << outputs[0][0][0] << std::endl;
 
-    if (i > warmup_itrs && profile) {
+    if (i >= warmup_itrs && profile) {
       nvtxRangePop();
     }
   }
@@ -188,7 +188,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
       start = std::chrono::high_resolution_clock::now();
     }
     if (i >= warmup_itrs && profile) {
-      nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
+      nvtxRangePush(("BwdIteration" + std::to_string(i)).c_str());
     }
     outputs = fec->runFusionWithInputs(at_inputs);
     cudaDeviceSynchronize();
@@ -197,7 +197,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
     // TODO: are we not waiting until all kernels are appended to the stream?
     //std::cout << outputs[0][0][0][0] << std::endl;
 
-    if (i > warmup_itrs && profile) {
+    if (i >= warmup_itrs && profile) {
       nvtxRangePop();
     }
   }
