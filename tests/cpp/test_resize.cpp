@@ -4155,8 +4155,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputs) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -4245,8 +4244,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape1) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -4331,8 +4329,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -4441,8 +4438,7 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -4648,7 +4644,7 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
   Fusion* scheduled_fusion =
-      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())->fusion();
+      runtime->executors().at(0)->as<KernelExecutor>()->kernel();
   checkLoopDomainEquivalence(
       scheduled_fusion->outputs().at(0)->as<TensorView>());
 }
@@ -4788,8 +4784,7 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs5) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -4978,8 +4973,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -5122,8 +5116,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -5310,8 +5303,7 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }
@@ -5412,8 +5404,7 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
         runtime->schedulerHeuristics()->heuristicsList().front();
     EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
     Fusion* scheduled_fusion =
-        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
-            ->fusion();
+        runtime->executors().at(0)->as<KernelExecutor>()->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
   }

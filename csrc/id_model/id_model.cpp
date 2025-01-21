@@ -754,7 +754,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   }
 }
 
-ValGraph& IdModel::buildLoopGraph() {
+ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
   // Make sure the depedent graphs are already built
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -767,7 +767,10 @@ ValGraph& IdModel::buildLoopGraph() {
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   loop_promotion_map_ = LoopPromotionMapBuilder::get(
-      *this, inlining_info, loop_promotion_map_builder_callback_);
+      *this,
+      inlining_info,
+      loop_promotion_map_builder_callback_,
+      force_full_loop_promotion_analysis);
 
   // New domains are added. Make sure there's still no self mapping in
   // the loop domains

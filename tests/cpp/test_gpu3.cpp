@@ -8068,7 +8068,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
       continue;
     }
     const auto* ke = exec->as<KernelExecutor>();
-    for (auto expr : ke->fusion()->exprs()) {
+    for (auto expr : ke->kernel()->exprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global);
@@ -9347,6 +9347,41 @@ TEST_F(NVFuserTest, RepeatBroadcastAndNonBroadcast) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, CastPrecision) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = castOp(DataType::BFloat16, tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(tv3);
+
+  auto tv4 = castOp(DataType::Int, tv3);
+  fusion.addOutput(tv4);
+
+  auto tv1_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+      tv1->definition()->as<UnaryOp>());
+  ASSERT_TRUE(tv1_precision.has_value());
+  EXPECT_EQ(tv1_precision->first, 2);
+  EXPECT_EQ(tv1_precision->second, 4);
+
+  auto tv2_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+      tv2->definition()->as<UnaryOp>());
+  ASSERT_TRUE(tv2_precision.has_value());
+  EXPECT_EQ(tv2_precision->first, 4);
+  EXPECT_EQ(tv2_precision->second, 2);
+
+  // Precision of type Index is not possible to determine until lowering
+  auto tv4_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+      tv4->definition()->as<UnaryOp>());
+  ASSERT_FALSE(tv4_precision.has_value());
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
