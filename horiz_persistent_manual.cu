@@ -11828,66 +11828,68 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         }
       }
     }
-    Array<__bfloat, 64, 8> T19;
-    #pragma unroll
-    for(nvfuser_index_t i78 = 0; i78 < 16; ++i78) {
-      nvfuser_index_t i79;
-      i79 = 4 * i78;
+    if (true) {
+      Array<__bfloat, 64, 8> T19;
       #pragma unroll
-      for(nvfuser_index_t i80 = 0; i80 < 2; ++i80) {
-        nvfuser_index_t i81;
-        i81 = i79 + (2 * i80);
+      for(nvfuser_index_t i78 = 0; i78 < 16; ++i78) {
+        nvfuser_index_t i79;
+        i79 = 4 * i78;
         #pragma unroll
-        for(nvfuser_index_t i82 = 0; i82 < 2; ++i82) {
-          nvfuser_index_t i83;
-          i83 = i81 + i82;
-          float T5[1];
-          T5[0]
-             = -T3[i83];
-          float T6[1];
-          T6[0]
-             = expf(T5[0]);
-          float T7[1];
-          T7[0]
-            = 1.000000000e+00f
-            + T6[0];
-          float T8[1];
-          T8[0]
-             = reciprocal(T7[0]);
-          float T9[1];
-          T9[0]
-            = T3[i83]
-            * T8[0];
-          float T12[1];
-          T12[0]
-            = T9[0]
-            * T10[i83];
-          T19[i83]
-             = __float2bfloat(T12[0]);
+        for(nvfuser_index_t i80 = 0; i80 < 2; ++i80) {
+          nvfuser_index_t i81;
+          i81 = i79 + (2 * i80);
+          #pragma unroll
+          for(nvfuser_index_t i82 = 0; i82 < 2; ++i82) {
+            nvfuser_index_t i83;
+            i83 = i81 + i82;
+            float T5[1];
+            T5[0]
+               = -T3[i83];
+            float T6[1];
+            T6[0]
+               = expf(T5[0]);
+            float T7[1];
+            T7[0]
+              = 1.000000000e+00f
+              + T6[0];
+            float T8[1];
+            T8[0]
+               = reciprocal(T7[0]);
+            float T9[1];
+            T9[0]
+              = T3[i83]
+              * T8[0];
+            float T12[1];
+            T12[0]
+              = T9[0]
+              * T10[i83];
+            T19[i83]
+               = __float2bfloat(T12[0]);
+          }
         }
       }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i84 = 0; i84 < 8; ++i84) {
-      if ((b40 && (i41 < (-(16 * i84))))) {
-        asm volatile(
-          "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
-          :
-          :"r"((uint32_t)((toSmem(T22) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i84 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i84 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[0]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[1]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[2]),
-           "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[3])
-        );
+      #pragma unroll
+      for(nvfuser_index_t i84 = 0; i84 < 8; ++i84) {
+        if ((b40 && (i41 < (-(16 * i84))))) {
+          asm volatile(
+            "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
+            :
+            :"r"((uint32_t)((toSmem(T22) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i84 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i84 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+             "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[0]),
+             "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[1]),
+             "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[2]),
+             "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[3])
+          );
+        }
       }
-    }
-    asm volatile("bar.sync 1, %0;" : : "r"((uint32_t)256) : "memory");
-    #pragma unroll
-    for(nvfuser_index_t i85 = 0; i85 < 2; ++i85) {
-      asm volatile("fence.proxy.async;\n");
-      if (b28) {
-        if ((Hopper::electSync(4294967295U) && b25)) {
-        Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr24, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i85)), i39}) }), (i23 + (8192 * i85)));
+      asm volatile("bar.sync 1, %0;" : : "r"((uint32_t)256) : "memory");
+      #pragma unroll
+      for(nvfuser_index_t i85 = 0; i85 < 2; ++i85) {
+        asm volatile("fence.proxy.async;\n");
+        if (b28) {
+          if ((Hopper::electSync(4294967295U) && b25)) {
+          Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr24, (Array<nvfuser_index_t, 2, 1>{(i35 + (64 * i85)), i39}) }), (i23 + (8192 * i85)));
+          }
         }
       }
     }
