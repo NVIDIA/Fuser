@@ -11487,10 +11487,12 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   i14 = toSmem(T16);
   unsigned i15;
   i15 = i12 + (8192 * ((nvfuser_index_t)threadIdx.y));
+  i15 = __shfl_sync(0xffffffff, i15, 0);
   nvfuser_index_t i16;
   i16 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
   nvfuser_index_t i17;
   i17 = 16384 * ((nvfuser_index_t)threadIdx.y);
+  i17 = __shfl_sync(0xffffffff, i17, 0);
   __bfloat* T21 = reinterpret_cast<__bfloat*>(array + smem_offset + T21addr);
   unsigned i18;
   i18 = toSmem(T21) + i17;
@@ -11498,6 +11500,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   ptr19 = &var3;
   nvfuser_index_t i20;
   i20 = 64 * ((nvfuser_index_t)threadIdx.y);
+  i20 = __shfl_sync(0xffffffff, i20, 0);
   __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + T20addr);
   unsigned i21;
   i21 = toSmem(T20) + i17;
@@ -11510,10 +11513,13 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   ptr24 = &var5;
   bool b25;
   b25 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
+  b25 = __shfl_sync(0xffffffff, b25, 0);
   bool b26;
   b26 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
+  b26 = __shfl_sync(0xffffffff, b26, 0);
   bool b28;
   b28 = ((nvfuser_index_t)threadIdx.y) < 2;
+  b28 = __shfl_sync(0xffffffff, b28, 0);
   nvfuser_index_t i29;
   i29 = ((nvfuser_index_t)threadIdx.x) / 4;
   nvfuser_index_t i30;
@@ -11578,18 +11584,22 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         i49 = i15 + i48;
         unsigned i50;
         i50 = i10 + i48;
-        unsigned i51;
-        i51 = i14 + i48;
-        mbarrier::waitParity(toSmem((&T23[slot])), (uint32_t)(((i47 / 2) % 2)));
+        //unsigned i51;
+        //i51 = i14 + i48;
+        mbarrier::waitParity(toSmem((&T23[slot])), this_parity);
         asm volatile("wgmma.fence.sync.aligned;\n");
+        //#pragma unroll
+        //for(nvfuser_index_t i52 = 0; i52 < 4; ++i52) {
+          //nvfuser_index_t i53;
+          //i53 = 32 * i52;
         #pragma unroll
-        for(nvfuser_index_t i52 = 0; i52 < 4; ++i52) {
-          nvfuser_index_t i53;
-          i53 = 32 * i52;
+        for(nvfuser_index_t i53 = 0; i53 < 128; i53 += 32) {
           unsigned i54;
           i54 = i49 + i53;
           unsigned i55;
           i55 = i50 + i53;
+          uint64_t i54pred = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i54)) >> 4ULL));
+          uint64_t i55pred = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i55)) >> 4ULL));
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11660,14 +11670,15 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[61]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[62]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[63])
-            :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i54)) >> 4ULL))),
-             "l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i55)) >> 4ULL))),
+            :"l"(i54pred),
+             "l"(i55pred),
              "n"((uint32_t)(true)),
              "n"(1),
              "n"(1),
              "n"(0),
              "n"(0)
           );
+          /*
         }
         #pragma unroll
         for(nvfuser_index_t i56 = 0; i56 < 4; ++i56) {
@@ -11677,6 +11688,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
           i58 = i49 + i57;
           unsigned i59;
           i59 = i51 + i57;
+          */
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11747,8 +11759,8 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[61]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[62]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[63])
-            :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i58)) >> 4ULL))),
-             "l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i59)) >> 4ULL))),
+            :"l"(i54pred),
+             "l"(i55pred),
              "n"((uint32_t)(true)),
              "n"(1),
              "n"(1),
