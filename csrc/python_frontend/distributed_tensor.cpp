@@ -8,6 +8,7 @@
 
 #include <exceptions.h>
 #include <python_frontend/distributed_tensor.h>
+#include <type.h>
 #include <utils.h>
 
 namespace nvfuser::python_frontend {
@@ -15,6 +16,7 @@ namespace nvfuser::python_frontend {
 void DistributedTensor::setAxisIsShardedOn(
     const int64_t axis,
     const ParallelType parallel_type) {
+  NVF_CHECK(isParallelTypeDeviceDim(parallel_type));
   const auto i = axis_sharded_on_.find(parallel_type);
   NVF_CHECK(
       i == axis_sharded_on_.end(),
