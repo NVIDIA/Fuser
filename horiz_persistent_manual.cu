@@ -11372,13 +11372,15 @@ __device__ __inline__ void ParallelReduce<
 
 } // namespace fused_reduction
 
+#define grid_swizzle_factor 3
+
 __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3>& T1, Tensor<__bfloat, 3, 3>& T2, const TensorMap& var0, const TensorMap& var1, const TensorMap& var2, const TensorMap& var3, const TensorMap& var4, const TensorMap& var5, Tensor<__bfloat, 2, 2>& T4, Tensor<__bfloat, 2, 2>& T11, Tensor<__bfloat, 2, 2>& T13) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i6;
-  i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), 2);
+  i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), grid_swizzle_factor);
   nvfuser_index_t i7;
-  i7 = ceilDiv(((2 * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
+  i7 = ceilDiv(((grid_swizzle_factor * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
   nvfuser_index_t i8;
   i8 = ceilDiv(T0.logical_size[2LL], 64);
   const TensorMap* ptr9;
@@ -11417,11 +11419,11 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
     nvfuser_index_t i34;
     i34 = i33 / i6;
     nvfuser_index_t i35;
-    i35 = 128 * (i34 / 2);
+    i35 = 128 * (i34 / grid_swizzle_factor);
     nvfuser_index_t i36;
-    i36 = 256 * (i33 % i6);
+    i36 = (128 * grid_swizzle_factor) * (i33 % i6);
     nvfuser_index_t i37;
-    i37 = 128 * (i34 % 2);
+    i37 = 128 * (i34 % grid_swizzle_factor);
     nvfuser_index_t i38;
     i38 = i36 + i37;
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))).set(0);
@@ -11451,9 +11453,9 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i6;
-  i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), 2);
+  i6 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), grid_swizzle_factor);
   nvfuser_index_t i7;
-  i7 = ceilDiv(((2 * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
+  i7 = ceilDiv(((grid_swizzle_factor * (ceilDiv(T1.logical_size[1LL], 128))) * i6), 132);
   nvfuser_index_t i8;
   i8 = ceilDiv(T0.logical_size[2LL], 64);
   __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + 163840);
@@ -11533,11 +11535,11 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
     nvfuser_index_t i34;
     i34 = i33 / i6;
     nvfuser_index_t i35;
-    i35 = 128 * (i34 / 2);
+    i35 = 128 * (i34 / grid_swizzle_factor);
     nvfuser_index_t i36;
-    i36 = 256 * (i33 % i6);
+    i36 = (128 * grid_swizzle_factor) * (i33 % i6);
     nvfuser_index_t i37;
-    i37 = 128 * (i34 % 2);
+    i37 = 128 * (i34 % grid_swizzle_factor);
     nvfuser_index_t i39;
     i39 = (i20 + i36) + i37;
     bool b40;
