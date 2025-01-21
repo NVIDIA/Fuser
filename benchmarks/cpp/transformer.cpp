@@ -35,8 +35,11 @@ at::Tensor shardTensor(
 }
 } // namespace
 
-void forward_transformer(Communicator* communicator, bool profile) {
+void forward_transformer(Communicator* communicator, bool profile, bool sequence_parallel) {
   int64_t D = communicator->size();
+  if (D == 1) {
+    std::cout << "Sequence parallel requires >1 devices, D=" << D << std::endl;
+  }
   auto dtype = DataType::BFloat16;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   const auto mesh = DeviceMesh::createForNumDevices(D);
@@ -58,7 +61,7 @@ void forward_transformer(Communicator* communicator, bool profile) {
   auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
   std::vector<c10::IValue> at_inputs = {
-      x,
+      sequence_parallel ? shardTensor(x, 0, mesh, communicator).unsqueeze(0) : x,
       ln0_w,
       ln0_b,
       shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator)
@@ -75,7 +78,7 @@ void forward_transformer(Communicator* communicator, bool profile) {
       mlp_b1};
 
   DistributedTransformer model = DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
-  auto fec = model.forward(dtype);
+  auto fec = model.forward(dtype, sequence_parallel);
   cudaSetDevice(communicator->deviceId());
 
   auto start = std::chrono::high_resolution_clock::now();
@@ -212,9 +215,14 @@ void backward_transformer(Communicator* communicator, bool profile) {
 }
 
 int main(int argc, char** argv) {
-  bool profile = argc > 1;
+  bool profile = false;
+  bool sequence_parallel = false;
+  if (argc == 3) {
+    profile = (bool)atoi(argv[1]);
+    sequence_parallel = (bool)atoi(argv[2]);
+  }
   auto communicator = &Communicator::getInstance();
-  forward_transformer(communicator, profile);
+  forward_transformer(communicator, profile, sequence_parallel);
   communicator->barrier();
   backward_transformer(communicator, profile);
 }
