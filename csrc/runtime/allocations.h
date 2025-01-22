@@ -59,7 +59,7 @@ void fillTensorWithNan(at::Tensor& t);
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
-    ExpressionEvaluator& expr_eval);
+    const ExpressionEvaluator& expr_eval);
 
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateTensor(
