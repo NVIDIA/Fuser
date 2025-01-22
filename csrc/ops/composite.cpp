@@ -710,11 +710,12 @@ TensorView* embedding_fwd(
   if (norm_type == nullptr) {
     norm_type = IrBuilder::create<Val>(2.0, DataType::Double);
   }
+  
   if (scale_grad_by_freq == nullptr) {
-    scale_grad_by_freq = IrBuilder::create<Val>(false, DataType::Bool);
+    scale_grad_by_freq = input->fusion()->falseVal();
   }
   if (sparse == nullptr) {
-    sparse = IrBuilder::create<Val>(false, DataType::Bool);
+    sparse = input->fusion()->falseVal();
   }
   IrBuilder::create<EmbeddingFwdOp>(
       output,
