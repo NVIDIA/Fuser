@@ -4544,7 +4544,9 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     auto sharded_axis = getShardedLogicalAxis(out(), ParallelType::DIDx);
     return {matmul_out.unsqueeze(sharded_axis)};
   }
-  NVF_CHECK(!(isSharded(out())), "Non-trivial stride order is not supported with multidevice sharding.");
+  NVF_CHECK(
+      !(isSharded(out())),
+      "Non-trivial stride order is not supported with multidevice sharding.");
   auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
   strided_matmul_out = strided_matmul_out.copy_(matmul_out);
   return {strided_matmul_out};
