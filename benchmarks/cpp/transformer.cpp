@@ -87,6 +87,7 @@ void forward_transformer(
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
     if (i == warmup_itrs) {
+      cudaDeviceSynchronize();
       start = std::chrono::high_resolution_clock::now();
       if (profile) {
         cudaProfilerStart();
@@ -96,10 +97,12 @@ void forward_transformer(
       nvtxRangePush(("FwdIteration" + std::to_string(i)).c_str());
     }
     auto outputs = fec->runFusionWithInputs(at_inputs);
+
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
     }
   }
+  cudaDeviceSynchronize();
   auto end = std::chrono::high_resolution_clock::now();
 
   double foward_time =
@@ -183,16 +186,19 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
     if (i == warmup_itrs) {
+      cudaDeviceSynchronize();
       start = std::chrono::high_resolution_clock::now();
     }
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("BwdIteration" + std::to_string(i)).c_str());
     }
     outputs = fec->runFusionWithInputs(at_inputs);
+
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
     }
   }
+  cudaDeviceSynchronize();
   auto end = std::chrono::high_resolution_clock::now();
   if (profile) {
     cudaProfilerStop();
