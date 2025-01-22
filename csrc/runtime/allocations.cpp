@@ -207,9 +207,6 @@ void setFillAllocationWithNan(bool value) {
 
 void fillTensorWithNan(at::Tensor& t) {
   switch (t.scalar_type()) {
-    case at::ScalarType::Byte:
-      t.fill_(0xFF);
-      break;
     case at::ScalarType::Char:
       t.fill_(0x7F);
       break;
@@ -221,6 +218,18 @@ void fillTensorWithNan(at::Tensor& t) {
       break;
     case at::ScalarType::Long:
       t.fill_(0x7FFFFFFFFFFFFFFFL);
+      break;
+    case at::ScalarType::Byte:
+      t.fill_(0xFF);
+      break;
+    case at::ScalarType::UInt16:
+      t.fill_(0xFFFF);
+      break;
+    case at::ScalarType::UInt32:
+      t.fill_(0xFFFFFFFF);
+      break;
+    case at::ScalarType::UInt64:
+      t.fill_(0xFFFFFFFFFFFFFFFFL);
       break;
     case at::ScalarType::Bool:
       t.fill_(true);

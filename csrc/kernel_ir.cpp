@@ -100,7 +100,7 @@ TensorIndex::TensorIndex(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
           index->dtype() ==
-              DataType::UInt /*For matrix descriptor for hopper MMA*/,
+              DataType::UInt64 /*For matrix descriptor for hopper MMA*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -577,7 +577,7 @@ MBarrierArrive::MBarrierArrive(
   NVF_ERROR(passkey.ir_container_ != nullptr);
   addInput(mbarrier);
   if (state != nullptr) {
-    NVF_CHECK(state->dtype() == DataType::UInt);
+    NVF_CHECK(state->dtype() == DataType::UInt64);
     addOutput(state);
   }
 }
@@ -606,7 +606,7 @@ MBarrierArriveExpectTx::MBarrierArriveExpectTx(
   addInput(mbarrier);
   addInput(tx_count);
   if (state != nullptr) {
-    NVF_CHECK(state->dtype() == DataType::UInt);
+    NVF_CHECK(state->dtype() == DataType::UInt64);
     addOutput(state);
   }
 }
@@ -627,7 +627,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
 MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(state->dtype() == DataType::UInt);
+  NVF_CHECK(state->dtype() == DataType::UInt64);
   addInput(mbarrier);
   addInput(state);
 }

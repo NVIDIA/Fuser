@@ -141,8 +141,14 @@ std::pair<double, double> getTolerance(
         return {abs_tol * 10.0, abs_tol * 0.01 * 10.0};
       }
     }
-    case DataType::Int:
+    case DataType::Char:
+    case DataType::Short:
     case DataType::Int32:
+    case DataType::Int:
+    case DataType::Byte:
+    case DataType::UInt16:
+    case DataType::UInt32:
+    case DataType::UInt64:
     case DataType::Index:
     case DataType::Bool:
       return {0.0, 0.0};
