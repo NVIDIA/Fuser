@@ -864,9 +864,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         BinaryOpType::Add, this_mma->init(), consumer, producer);
   } else if (auto this_matmul = dynamic_cast<MatmulOp*>(definition())) {
     IrBuilder::create<MatmulOp>(
-        producer,
-        this_matmul->inA(),
-        this_matmul->inB());
+        producer, this_matmul->inA(), this_matmul->inB());
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add, IrBuilder::create<Val>(0.0), consumer, producer);
   } else {
