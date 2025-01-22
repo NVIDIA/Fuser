@@ -35,11 +35,13 @@ class FusionDefinitionWrapper:
         """Wraps a function that defines a fusion without `multidevice_schedule`."""
         self._define_fusion = define_fusion
 
-    def __call__(self, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
+    def _create_fusion_definition(
+        self, in_dtensors: Iterable[DTensor]
+    ) -> FusionDefinition:
         define_fn = self._define_fusion
 
         class Model(FusionDefinition):
-            def definition(self):
+            def definition(self) -> None:
                 define_fn(self)
 
             def _find_tensor_by_index(self, index: int) -> nvfuser.Tensor:
@@ -48,7 +50,7 @@ class FusionDefinitionWrapper:
                         return t
                 return None
 
-            def multidevice_schedule(self):
+            def multidevice_schedule(self) -> None:
                 for in_tensor_index, in_dtensor in zip(self.inputs(), in_dtensors):
                     in_tensor = self._find_tensor_by_index(in_tensor_index)
 
@@ -70,13 +72,19 @@ class FusionDefinitionWrapper:
                             in_tensor, dim, nvfuser.ParallelType.mesh_x
                         )
 
+        return Model()
+
+    def __call__(self, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
+        fusion_def = self._create_fusion_definition(in_dtensors)
+
         in_tensors = [in_dtensor.to_local() for in_dtensor in in_dtensors]
-        model = Model()
-        out_tensors = model.execute(in_tensors)
+        out_tensors = fusion_def.execute(in_tensors)
 
         for i, out_tensor in enumerate(out_tensors):
             if isinstance(out_tensor, nvfuser.DistributedTensor):
-                mesh = dist.device_mesh.init_device_mesh("cuda", [out_tensor.mesh.size])
+                mesh = dist.device_mesh.init_device_mesh(
+                    "cuda", (out_tensor.mesh.size,)
+                )
                 placements: list[Placement] = []
                 for parallel_type in [nvfuser.ParallelType.mesh_x]:
                     axis: int = out_tensor.axis_sharded_on(parallel_type)
