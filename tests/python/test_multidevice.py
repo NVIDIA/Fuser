@@ -335,7 +335,7 @@ def test_matmul_allreduce_loop_split(multidevice_test):
     expected_out = torch.matmul(unsharded_inp, unsharded_weight)
 
     fd = Model()
-    (out, ) = fd.execute([sharded_inp, sharded_weight])
+    (out,) = fd.execute([sharded_inp, sharded_weight])
 
     torch.testing.assert_close(out.local.cpu(), expected_out, rtol=1e-3, atol=1e-2)
 

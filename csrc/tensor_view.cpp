@@ -866,7 +866,10 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
     IrBuilder::create<MatmulOp>(
         producer, this_matmul->inA(), this_matmul->inB());
     IrBuilder::create<ReductionOp>(
-        BinaryOpType::Add, IrBuilder::create<Val>(0.0), consumer, producer);
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
     NVF_THROW("RFactor: unsupported tensor definition");
   }

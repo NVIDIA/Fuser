@@ -4538,36 +4538,39 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto b = inputs.at(1).as<at::Tensor>();
 
   auto matmul_out = at::matmul(a, b);
+
+  // When the contracting dimension is sharded, each device has a partial
+  // matmul output and is followed by an allreduce. For loop split, this is
+  // represented as an rfactored reduction. The local matmul logical domain
+  // after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze the
+  // rfactored DID axis to correctly bind with the logical domain. See
+  // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+  auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(out_logical.size())) {
+    if (!out_logical.at(idx)->isRFactorProduct() ||
+        !out_logical.at(idx)->isDeviceDim()) {
+      continue;
+    }
+    if (rfactor_did_idx != -1) {
+      NVF_THROW(
+          "Expected only 1 rfactored DID iterdomain, found atleast 2 in ",
+          out_logical);
+    }
+    rfactor_did_idx = (int64_t)idx;
+  }
+
+  if (rfactor_did_idx != -1) {
+    matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
+  }
+
   const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
-  if (meta_out.is_contiguous()) {
-    // When the contracting dimension is sharded, each device has a partial
-    // matmul output and is followed by an allreduce. For loop split, this is
-    // represented as an rfactored reduction. The local matmul logical domain
-    // after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze the
-    // rfactored DID axis to correctly bind with the logical domain. See
-    // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
-    std::vector<int64_t> rfactor_did_idx;
-    auto out_logical = out()->getLogicalDomain();
-    for (auto idx : c10::irange(out_logical.size())) {
-      if (out_logical.at(idx)->isRFactorProduct() &&
-          out_logical.at(idx)->isDeviceDim()) {
-        rfactor_did_idx.push_back(idx);
-      }
-    }
-    if (rfactor_did_idx.empty()) {
-      return {matmul_out};
-    }
 
-    NVF_ERROR(
-        rfactor_did_idx.size() == 1,
-        "Expected only 1 rfactored DID iterdomain, got: ",
-        rfactor_did_idx.size());
-    return {matmul_out.unsqueeze(rfactor_did_idx.front())};
+  if (meta_out.is_contiguous()) {
+    return {matmul_out};
   }
-  NVF_CHECK(
-      !(isSharded(out())),
-      "Non-trivial stride order is not supported with multidevice sharding.");
+
   auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
   strided_matmul_out = strided_matmul_out.copy_(matmul_out);
   return {strided_matmul_out};
