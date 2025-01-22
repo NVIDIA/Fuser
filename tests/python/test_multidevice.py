@@ -291,8 +291,6 @@ def test_matmul_allreduce_loop_split(multidevice_test):
     
     class Model(FusionDefinition):
         def definition(self) -> None:
-            # A pattern appeared in the backprop of the first linear layer in
-            # Transformer's MLP.
             self.inp = self.define_tensor(
                 [b * s, d * e], contiguity=True, dtype=DataType.Half
             )
@@ -300,19 +298,15 @@ def test_matmul_allreduce_loop_split(multidevice_test):
                 [d * e, e], contiguity=True, dtype=DataType.Half
             )
             self.out = self.ops.matmul(self.inp, self.weight)            
-            # in_grad = self.ops.sum(in_grad, [0])
-            # in_grad = self.ops.reshape(in_grad, [b, s, e])
-            # in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
             self.add_output(self.out)
             
         def multidevice_schedule(self) -> None:
-            for t in [self.inp, self.weight, self.out]:
+            for t in [self.inp, self.weight]:
                 self.sched._set_device_mesh(t, mesh)
             
             # Shard K for inp (M, K)
             self.sched.split(self.inp, -1, d, False)
             self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.reorder(self.inp, {-2: 0})
             self.sched.set_allocation_as_loop(self.inp)
             
             # Shard K for weight (K, N)
@@ -325,15 +319,9 @@ def test_matmul_allreduce_loop_split(multidevice_test):
             # [i{M}, i{N}, r{d}, r{K//d}]
             self.local_out = self.sched.rfactor(self.out, dims=[-1])
             # local_out = [i{M}, i{N}, i{d}, r{K//d}]
-            # out = [i{M}, i{N}, r{d}]
+            # out = [i{M}, i{N}]
             self.sched._set_device_mesh(self.local_out, mesh)
-            self.sched.parallelize(self.local_out, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.reorder(self.local_out, {-2: 0})
-            self.sched.set_allocation_as_loop(self.local_out)
-            
-            self.sched.parallelize(self.out, -1, nvfuser.ParallelType.mesh_x)
-            self.sched.reorder(self.out, {-1: 0})
-            self.sched.set_allocation_as_loop(self.out)
+            self.sched.parallelize(self.local_out, -2, nvfuser.ParallelType.mesh_x)            
             
             print(self.sched.to_string(self.inp))
             print(self.sched.to_string(self.weight))

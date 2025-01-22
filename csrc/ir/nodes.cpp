@@ -17,6 +17,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
 #include <transform_iter.h>
@@ -4540,8 +4541,10 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
   if (meta_out.is_contiguous()) {
-    return {matmul_out};
+    auto sharded_axis = getShardedLogicalAxis(out(), ParallelType::DIDx);
+    return {matmul_out.unsqueeze(sharded_axis)};
   }
+  NVF_CHECK(!(isSharded(out())), "Non-trivial stride order is not supported with multidevice sharding.");
   auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
   strided_matmul_out = strided_matmul_out.copy_(matmul_out);
   return {strided_matmul_out};
