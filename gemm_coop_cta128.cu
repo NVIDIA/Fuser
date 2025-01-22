@@ -11373,7 +11373,7 @@ __device__ __inline__ void ParallelReduce<
 } // namespace fused_reduction
 
 
-#define grid_swizzle_factor 11
+#define grid_swizzle_factor 16
 #define load_stages 6
 
 #define cta_m 128
@@ -11419,13 +11419,14 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
   __bfloat* T5 = reinterpret_cast<__bfloat*>(array + T5addr);
   unsigned i7;
   i7 = toSmem(T5);
+  uint64_t i7adj = 4611686293305294848ULL + (uint64_t)(i7 >> 4);
   const TensorMap* ptr8;
   ptr8 = &var1;
   __bfloat* T4 = reinterpret_cast<__bfloat*>(array + T4addr);
   unsigned i9;
   i9 = toSmem(T4);
-  unsigned i10;
-  i10 = i9 + (8192 * ((nvfuser_index_t)threadIdx.y));
+  uint64_t i10;
+  i10 = 4611686293305294848ULL + ((i9 + (8192 * ((nvfuser_index_t)threadIdx.y))) >> 4ULL);
   nvfuser_index_t i11;
   i11 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
   __bfloat* T7 = reinterpret_cast<__bfloat*>(array + T7addr);
@@ -11479,11 +11480,11 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
     nvfuser_index_t i24;
     i24 = i23 / i3;
     nvfuser_index_t i25;
-    i25 = 128 * (i24 / 11);
+    i25 = 128 * (i24 / grid_swizzle_factor);
     nvfuser_index_t i26;
     i26 = (grid_swizzle_factor * 128) * (i23 % i3);
     nvfuser_index_t i27;
-    i27 = 128 * (i24 % 11);
+    i27 = 128 * (i24 % grid_swizzle_factor);
     nvfuser_index_t i28;
     i28 = i26 + i27;
     nvfuser_index_t i29;
@@ -11519,21 +11520,19 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
         uint32_t this_parity = (stages_processed / load_stages) % 2;
 
         nvfuser_index_t i38;
-        i38 = 16384 * slot;
-        unsigned i39;
+        i38 = 1024 * slot;
+        uint64_t i39;
         i39 = i10 + i38;
-        unsigned i40;
-        i40 = i7 + i38;
+        uint64_t i40;
+        i40 = i7adj + i38;
         mbarrier::waitParity(toSmem((&T8[slot])), this_parity);
         asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
-        for(nvfuser_index_t i41 = 0; i41 < 4; ++i41) {
-          nvfuser_index_t i42;
-          i42 = 32 * i41;
-          unsigned i43;
-          i43 = i39 + i42;
-          unsigned i44;
-          i44 = i40 + i42;
+        for(nvfuser_index_t i41 = 0; i41 < 8; i41 += 2) {
+          uint64_t i43desc;
+          i43desc = i39 + i41;
+          uint64_t i44desc;
+          i44desc = i40 + i41;
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11604,8 +11603,8 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[61]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[62]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[63])
-            :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i43)) >> 4ULL))),
-             "l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i44)) >> 4ULL))),
+            :"l"(i43desc),
+             "l"(i44desc),
              "n"((uint32_t)(true)),
              "n"(1),
              "n"(1),
@@ -11654,7 +11653,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
       asm volatile("fence.proxy.async;\n");
       #pragma unroll
       for(nvfuser_index_t i54 = 0; i54 < 2; ++i54) {
-        if (b18) {
+        if ((Hopper::electSync(4294967295U) && b15)) {
           Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i25 + (64 * i54)), i29}) }), (i12 + (8192 * i54)));
         }
       }
