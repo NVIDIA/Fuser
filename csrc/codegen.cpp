@@ -351,7 +351,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& kernel_summary = kernel_->summary();
 
     if (kernel_summary.has_philox_op) {
-      indent() << "uint4 rng_result;\n";
+      indent() << "Array<uint32_t, 4> rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
     }
