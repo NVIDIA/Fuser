@@ -63,6 +63,7 @@ class GridWelford;
 class GroupedGridWelford;
 class AllocateFusedReduction;
 class RNGOp;
+class StringInsert;
 
 // Expr container
 
@@ -1484,6 +1485,25 @@ class RNGOp : public Expr {
   DataType dtype() const {
     return attribute<DataType>(1);
   }
+};
+
+class StringInsert : public Expr {
+ public:
+  using Expr::Expr;
+
+  StringInsert(
+      IrBuilderPasskey,
+      std::string instruction);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override {return instruction_ + "\n";};
+  std::string toInlineString(int indent_size = 0) const override {return instruction_;};
+
+  const char* getOpString() const override {
+    return "/*MANUAL_INSTRUCTION*/";
+  }
+  std::string instruction_ = "";
 };
 
 } // namespace kir

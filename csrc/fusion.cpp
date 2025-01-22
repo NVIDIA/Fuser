@@ -710,18 +710,6 @@ Expr* Fusion::definition(const Val* val) const {
   return val->definition();
 }
 
-// Indicate to kernel to set itself up to generate random numbers
-bool Fusion::isStochastic() const {
-  for (auto expr : exprs()) {
-    if (expr->isA<RNGOp>()) {
-      // Note that RNGOps without seed is not stochastic since the random seed
-      // and offset are given as Vals.
-      return !expr->as<RNGOp>()->isDeterministic();
-    }
-  }
-  return false;
-}
-
 std::vector<Val*> Fusion::getTerminatingOutputs() const {
   FUSER_PERF_SCOPE("getTerminatingOutputs");
 

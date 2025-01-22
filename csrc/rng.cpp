@@ -86,6 +86,7 @@ std::vector<PolymorphicValue> kir::GetRNGSeedAndOffsetFromHost::evaluate(
     outputs.emplace_back(philox_engine_inputs.offset_.ptr);
     outputs.emplace_back((int64_t)philox_engine_inputs.offset_intragraph_);
   } else {
+    std::cout<<"ELSE"<<std::endl;
     outputs.emplace_back((int64_t*)nullptr);
     outputs.emplace_back((int64_t)philox_engine_inputs.seed_.val);
     outputs.emplace_back((int64_t*)nullptr);

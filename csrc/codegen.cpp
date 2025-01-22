@@ -850,17 +850,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle (const kir::StringInsert* sio) final {
+    code_ << sio->toString();
+  }
+
   void handle(const RNGOp* rop) final {
     // // TODO: NVF_ERROR that the scheduler correctly creates an
     // // innermost ID of size 4 (float) or size 2 (double)?
     // auto index = genInline(rop->getPhiloxIndex());
     // int multiple = rop->getPhiloxMultiple();
-    // indent() << "nvfuser_index_t linear_index" << rop->name() << " = " << index
+    // indent() << "nvfuser_index_t linear_index" << rop->name() << " = " <<
+    // index
     //          << ";\n";
     // indent() << "nvfuser_index_t rng_subseq" << rop->name() << " = linear_index"
     //          << rop->name() << " / " << multiple << ";\n";
     // indent() << "nvfuser_index_t rng_component" << rop->name()
-    //          << " = linear_index" << rop->name() << " % " << multiple << ";\n";
+    //          << " = linear_index" << rop->name() << " % " << multiple <<
+    //          ";\n";
     // indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
     //          << genInline(rop->getRNGOffsetVal()) << ";\n";
     // indent() << "if (rng_subseq != rng_subseq" << rop->name()
@@ -896,6 +902,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     //   default:;
     // }
     // code_ << ");\n";
+
+    // code_ << "if(threadIdx.x == 0 && blockIdx.x == 0) {printf(\"%d, %d\\n\", rng_subseq82, rng_offset82); printf(\"%u, %u, %u, %u,\\n\", rng_result[0], rng_result[1], rng_result[2], rng_result[3]);}\n";
+
   }
 
   void handle(const kir::RNGOp* rop) final {

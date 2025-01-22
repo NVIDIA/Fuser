@@ -1557,5 +1557,11 @@ std::string RNGOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
+StringInsert::StringInsert(
+      IrBuilderPasskey passkey,
+      std::string instruction): Expr(passkey), instruction_(instruction){
+}
+NVFUSER_DEFINE_CLONE_AND_CREATE(StringInsert)
+
 } // namespace kir
 } // namespace nvfuser

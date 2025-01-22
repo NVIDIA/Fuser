@@ -50,9 +50,26 @@ class RNGInserter : public kir::ExprMutator {
   }
 
   void handle(RNGOp* rop) final {
-    // Set prologue if not already set
-    if (rng_subseq == nullptr) {
       NVF_ERROR(!exprs.empty());
+
+    // Set prologue if not already set
+    if (rng_result == nullptr) {
+        auto print = IrBuilder::create<kir::StringInsert>("if(threadIdx.x == 0 && blockIdx.x == 0) printf(\"%p, %p, %lld, %lld\\n\", ptr1, ptr3, i2, i4);\n");
+        kir::ExprMutator::registerInsertBefore(
+          exprs.front(), print, nullptr);
+        
+      rng_result = TensorViewBuilder()
+                       .shape(std::vector<int64_t>{4})
+                       .dtype(DataType::UInt32)
+                       .contiguity(true)
+                       .build();
+      rng_result->setMemoryType(MemoryType::Local);
+
+      auto rng_result_alloc =
+          IrBuilder::create<kir::Allocate>(rng_result, MemoryType::Local);
+      kir::ExprMutator::registerInsertBefore(
+          exprs.front(), rng_result_alloc, nullptr);
+
       auto neg_1 = IrBuilder::create<Val>(-1, DataType::Index);
       auto subseq_tuple = createAndAllocNS("rng_subseq");
       kir::ExprMutator::registerInsertBefore(
@@ -75,18 +92,6 @@ class RNGInserter : public kir::ExprMutator {
           nullptr);
 
       rng_offset = std::get<0>(offset_tuple);
-
-      rng_result = TensorViewBuilder()
-                       .shape(std::vector<int64_t>{4})
-                       .dtype(DataType::UInt32)
-                       .contiguity(true)
-                       .build();
-      rng_result->setMemoryType(MemoryType::Local);
-
-      auto rng_result_alloc =
-          IrBuilder::create<kir::Allocate>(rng_result, MemoryType::Local);
-      kir::ExprMutator::registerInsertBefore(
-          exprs.front(), rng_result_alloc, nullptr);
     }
 
     auto index_tuple =
@@ -179,6 +184,8 @@ class RNGInserter : public kir::ExprMutator {
           rop->inputs().size(),
           " for RNG operation.");
     }
+    auto print2 = IrBuilder::create<kir::StringInsert>("if(threadIdx.x == 0 && blockIdx.x == 0) {printf(\"%d, %d\\n\", rng_subseq82, rng_offset82); printf(\"%u, %u, %u, %u,\\n\", T3[0], T3[1], T3[2], T3[3]);}\n");
+            kir::ExprMutator::registerInsertBefore(rop, print2);
   }
 
   std::vector<InsertionInfo> insertion_list_;

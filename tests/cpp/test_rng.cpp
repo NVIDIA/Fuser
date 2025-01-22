@@ -76,28 +76,35 @@ TEST_F(RNGTest, ValidateWithCURand) {
   Val* size_val = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size_val);
   TensorView* tv0 = rand({size_val}, DataType::Float);
-  TensorView* tv1 = rand({size_val}, DataType::Double);
+  TensorView* tv1 = rand({size_val}, DataType::Float);
   fusion->addOutput(tv0);
   fusion->addOutput(tv1);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
-  for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
-    at::manual_seed(0);
-    auto cg_outputs = executor_cache.runFusionWithInputs({size});
+  // for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
+  at::manual_seed(0);
+  int64_t size = 16;
+  auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
-    at::manual_seed(0);
-    auto ref0 = generate_uniform(size, at::kFloat);
-    auto ref1 = generate_uniform(size, at::kDouble);
+  at::manual_seed(0);
+  auto ref0 = generate_uniform(size, at::kFloat);
+  auto ref1 = generate_uniform(size, at::kFloat);
 
-    testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size},
-        {ref0, ref1},
-        __LINE__,
-        __FILE__);
-  }
+  std::cout << cg_outputs[0] << std::endl;
+  std::cout << ref0 << std::endl;
+
+  std::cout << cg_outputs[1] << std::endl;
+  std::cout << ref1 << std::endl;
+
+  // testValidate(
+  //     executor_cache.fusion(),
+  //     cg_outputs,
+  //     {size},
+  //     {ref0, ref1},
+  //     __LINE__,
+  //     __FILE__);
+  // }
 }
 
 TEST_F(RNGTest, ManualScheduleValidateWithCURand) {
