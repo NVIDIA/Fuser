@@ -251,20 +251,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return val_to_name_.at(v);
   }
 
-  // If the variable is an aligned array, append ".array" to use the reguar
-  // array. This avoid the type mismatch in template functions when one of the
-  // arguments is an aligned array (Array<T,N>) while the other is a regular
-  // array T[N].
-  std::string genVariableNameConvertAlignedArray(Val* v) {
-    TensorView* tv = nullptr;
-    if (v->isA<kir::TensorIndex>()) {
-      tv = v->as<kir::TensorIndex>()->view();
-    } else if (v->isA<TensorView>()) {
-      tv = v->as<TensorView>();
-    }
-    return genVariableName(v);
-  }
-
   // Generates the kernel function declaration
   void genDeclaration(
       const std::string& kernel_name,
@@ -1987,8 +1973,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg(genVariableNameConvertAlignedArray(output));
-    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg(genVariableName(output));
+    func_args.arg(genVariableName(input));
     func_args.arg(genReductionOp(op_type, data_type));
     func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
@@ -2530,14 +2516,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // outputs
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(0)));
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(1)));
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(2)));
+    func_args.arg(genVariableName(output.get(0)));
+    func_args.arg(genVariableName(output.get(1)));
+    func_args.arg(genVariableName(output.get(2)));
     // inputs
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(0)));
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
-        .append("[0]");
+    func_args.arg(genVariableName(input.get(0)));
+    func_args.arg(genVariableName(input.get(1)));
+    func_args.arg(genVariableName(input.get(2))).append("[0]");
     // block_dim
     func_args.arg(genComputeBlockDim());
 
@@ -2907,8 +2892,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(num_grouped_iterations);
 
     ArgumentBuilder func_args;
-    func_args.arg(genVariableNameConvertAlignedArray(output->view()));
-    func_args.arg(genVariableNameConvertAlignedArray(input->view()));
+    func_args.arg(genVariableName(output->view()));
+    func_args.arg(genVariableName(input->view()));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
@@ -3152,9 +3137,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << "Array<" << buffer_dtype << ", " << genInline(size)
                    << ", " << (va.find(tv) != va.end() ? va.at(tv) : 1) << "> "
                    << genVariableName(tv) << ";\n";
-          if (va.find(tv) != va.end()) {
-            aligned_array_of_regs_.insert(tv);
-          }
         } break;
         default:
           NVF_THROW("Unexpected memory type");
