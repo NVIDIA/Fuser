@@ -13,7 +13,6 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <ops/composite.h>
 #include <ops/utils.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
