@@ -11584,8 +11584,8 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         i49 = i15 + i48;
         unsigned i50;
         i50 = i10 + i48;
-        //unsigned i51;
-        //i51 = i14 + i48;
+        unsigned i51;
+        i51 = i14 + i48;
         mbarrier::waitParity(toSmem((&T23[slot])), this_parity);
         asm volatile("wgmma.fence.sync.aligned;\n");
         //#pragma unroll
@@ -11598,8 +11598,11 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
           i54 = i49 + i53;
           unsigned i55;
           i55 = i50 + i53;
-          uint64_t i54pred = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i54)) >> 4ULL));
-          uint64_t i55pred = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i55)) >> 4ULL));
+          unsigned i59;
+          i59 = i51 + i53;
+          uint64_t i54desc = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i54)) >> 4ULL));
+          uint64_t i55desc = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i55)) >> 4ULL));
+          uint64_t i59desc = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i59)) >> 4ULL));
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11670,8 +11673,8 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[61]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[62]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T3[0]))[63])
-            :"l"(i54pred),
-             "l"(i55pred),
+            :"l"(i54desc),
+             "l"(i55desc),
              "n"((uint32_t)(true)),
              "n"(1),
              "n"(1),
@@ -11759,8 +11762,8 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[61]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[62]),
              "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T10[0]))[63])
-            :"l"(i54pred),
-             "l"(i55pred),
+            :"l"(i54desc),
+             "l"(i59desc),
              "n"((uint32_t)(true)),
              "n"(1),
              "n"(1),
