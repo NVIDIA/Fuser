@@ -77,7 +77,7 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
       shardTensor(mlp_w1, 1, mesh, communicator).unsqueeze(0),
       mlp_b1};
 
-  DistributedTransformer model = DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
+  DistributedTransformer model(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.forward(dtype, sequence_parallel);
   cudaSetDevice(communicator->deviceId());
 
