@@ -11937,12 +11937,12 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
 }
 
 
-__global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfloat, 3, 3> T1, Tensor<__bfloat, 3, 3> T2, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, const __grid_constant__ TensorMap var3, const __grid_constant__ TensorMap var4, const __grid_constant__ TensorMap var5, Tensor<__bfloat, 2, 2> T4, Tensor<__bfloat, 2, 2> T11, Tensor<__bfloat, 2, 2> T13) {
+__global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfloat, 3, 3> T1, Tensor<__bfloat, 3, 3> T2, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, const __grid_constant__ TensorMap var3, const __grid_constant__ TensorMap var4, const __grid_constant__ TensorMap var5, Tensor<__bfloat, 2, 2> T4, Tensor<__bfloat, 2, 2> T11, Tensor<__bfloat, 2, 2> T13) {
   if (threadIdx.y == 2) {
-    asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n"::"n"(56));
+    asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n"::"n"(40));
     dma(T0, T1, T2, var0, var1, var2, var3, var4, var5, T4, T11, T13);
   } else {
-    asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n"::"n"(224));
+    asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n"::"n"(232));
     math(T0, T1, T2, var0, var1, var2, var3, var4, var5, T4, T11, T13);
   }
 }
