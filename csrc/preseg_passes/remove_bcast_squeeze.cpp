@@ -61,21 +61,6 @@ AxisOps squeezeToAxisOps(SqueezeOp* squeeze) {
   return ops;
 }
 
-//! Checks whether this is a simple Set of a TensorView. If not, then this might
-//! represent a scalar set, or a segment_set.
-bool isSimpleTVSet(Expr* expr) {
-  auto* ldst = dynamic_cast<LoadStoreOp*>(expr);
-  if (ldst == nullptr) {
-    return false;
-  }
-  auto in_tv = dynamic_cast<TensorView*>(ldst->in());
-  auto out_tv = dynamic_cast<TensorView*>(ldst->out());
-  return ldst->opType() == LoadStoreOpType::Set && in_tv != nullptr &&
-      out_tv != nullptr
-      // The hasRoot() check is to prevent picking up Set.Permute ops here
-      && !ldst->out()->as<TensorView>()->hasRoot();
-}
-
 //! This defines the types of operations that are eligible for simplification in
 //! this pass.
 bool isReplaceableExpr(Expr* expr) {
@@ -86,12 +71,12 @@ bool isReplaceableExpr(Expr* expr) {
     return false;
   }
   return expr->isA<BroadcastOp>() || expr->isA<SqueezeOp>() ||
-      isSimpleTVSet(expr);
+      ir_utils::isSimpleTVSet(expr);
 }
 
 //! Convert a LoadStoreOp to an AxisOps of all PRESERVE ops
 AxisOps setToAxisOps(LoadStoreOp* ldst) {
-  NVF_ERROR(isSimpleTVSet(ldst));
+  NVF_ERROR(ir_utils::isSimpleTVSet(ldst));
   return AxisOps(
       TensorDomain::noReductions(
           ldst->in()->as<TensorView>()->getLogicalDomain())

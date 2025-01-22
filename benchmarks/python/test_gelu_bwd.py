@@ -4,7 +4,13 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    unary_bwd_torch,
+    with_executor,
+    DEFAULT_EXECUTORS,
+)
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
@@ -89,7 +95,7 @@ def test_gelu_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, grads, bias])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_gelu_bwd_baseline_benchmark(
@@ -111,6 +117,6 @@ def test_gelu_bwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs, grads],
+        [outputs, grads, *fwd_inputs],
         iobytes=gelu_bwd_iobytes(size, dtype),
     )

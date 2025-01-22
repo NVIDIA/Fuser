@@ -18,12 +18,14 @@
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
+#include <runtime/allocations.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
 
 #include <c10/util/irange.h>
+#include <torch/nn/options/embedding.h>
 
 #include <complex>
 #include <iterator>
@@ -4508,39 +4510,6 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   return {at::cat(unpadded_inputs, concat_dim)};
 }
 
-namespace {
-
-// Given a tensorview, compute the strides according to the allocation domain
-// for re-striding the corresponding ATen tensor.
-std::vector<int64_t> computeStrides(
-    TensorView* tv,
-    const c10::IntArrayRef sizes) {
-  const auto& logical_domain = tv->getLogicalDomain();
-  const auto& allocation_domain = tv->getMaybeAllocationDomain();
-
-  std::optional<std::vector<int64_t>> out_order = ir_utils::computePermutation(
-      TensorDomain::noReductions(logical_domain),
-      TensorDomain::noReductions(allocation_domain));
-  NVF_CHECK(
-      out_order.has_value(),
-      "Valid permute from logical to allocation domain was not found.");
-
-  auto rank = sizes.size();
-  std::vector<int64_t> sorted_strides(rank);
-  auto permuted_sizes = ir_utils::applyPermutation(sizes.vec(), *out_order);
-  sorted_strides[rank - 1] = 1;
-  for (int64_t idx = (int64_t)rank - 2; idx >= 0; idx--) {
-    sorted_strides[idx] = permuted_sizes[idx + 1] * sorted_strides[idx + 1];
-  }
-  // Rearrange the strides in correct order of allocation
-  std::vector<int64_t> strides(rank);
-  for (auto idx : c10::irange(rank)) {
-    strides[out_order.value()[idx]] = sorted_strides[idx];
-  }
-  return strides;
-}
-} // namespace
-
 MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
     : Expr(passkey) {
   addOutput(out);
@@ -4569,13 +4538,12 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto b = inputs.at(1).as<at::Tensor>();
 
   auto matmul_out = at::matmul(a, b);
-  if (ir_utils::hasTrivialAllocationDomain(out())) {
+  const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
+  auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
+  if (meta_out.is_contiguous()) {
     return {matmul_out};
   }
-  auto matmul_sizes = matmul_out.sizes();
-  auto strides = computeStrides(out(), matmul_sizes);
-  auto strided_matmul_out =
-      at::empty_strided(matmul_sizes, strides, a.options());
+  auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
   strided_matmul_out = strided_matmul_out.copy_(matmul_out);
   return {strided_matmul_out};
 }
@@ -5337,4 +5305,94 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       slice_last_dim(grad_value)};
 }
 
+EmbeddingFwdOp::EmbeddingFwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse)
+    : Expr(passkey) {
+  addOutput(output);
+
+  addInput(input);
+  addInput(weight);
+  addInput(norm_type);
+  addInput(scale_grad_by_freq);
+  addInput(sparse);
+  if (padding_idx != nullptr) {
+    addInput(padding_idx);
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
+  }
+  if (max_norm != nullptr) {
+    addInput(max_norm);
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingFwdOp)
+
+std::string EmbeddingFwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = embedding(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << weight()->toString() << ",\n";
+  if (padding_idx() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          padding_idx = " << padding_idx()->toString() << ",\n";
+  }
+  if (max_norm() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          max_norm = " << max_norm()->toString() << ",\n";
+  }
+  indent(ss, indent_size + 1)
+      << "          norm_type = " << norm_type()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          scale_grad_by_freq = "
+      << scale_grad_by_freq()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          sparse = " << sparse()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string EmbeddingFwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
+  auto norm_type = inputs.at(2).as<double>();
+  auto scale_grad_by_freq = inputs.at(3).as<bool>();
+  auto sparse = inputs.at(4).as<bool>();
+  std::optional<int64_t> padding_idx = std::nullopt;
+  if (has_padding_idx()) {
+    padding_idx = inputs.at(5).as<int64_t>();
+  }
+  std::optional<double> max_norm = std::nullopt;
+  if (has_max_norm()) {
+    auto idx = 5 + has_padding_idx();
+    max_norm = inputs.at(idx).as<double>();
+  }
+
+  namespace F = torch::nn::functional;
+  return {F::embedding(
+      input,
+      weight,
+      F::EmbeddingFuncOptions()
+          .padding_idx(padding_idx)
+          .max_norm(max_norm)
+          .norm_type(norm_type)
+          .scale_grad_by_freq(scale_grad_by_freq)
+          .sparse(sparse))};
+}
 } // namespace nvfuser

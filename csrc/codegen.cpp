@@ -204,10 +204,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
         // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
         return "LL";
-      case DataType::UInt:
-        return "ULL";
       case DataType::UInt32:
         return "U";
+      case DataType::UInt64:
+        return "ULL";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
