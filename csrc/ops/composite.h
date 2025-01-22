@@ -118,4 +118,13 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* philox_offset,
     Val* scale);
 
+TensorView* embedding_fwd(
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse);
+
 } // namespace nvfuser
