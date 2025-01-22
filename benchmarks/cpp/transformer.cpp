@@ -177,8 +177,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
       mha_linear1.to(at::kFloat),
       shardTensor(mlp_linear1, 1, mesh, communicator).unsqueeze(0)};
 
-  DistributedTransformer model =
-      DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
+  DistributedTransformer model(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.backward(dtype);
   std::vector<at::Tensor> outputs;
 
