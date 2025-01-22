@@ -53,6 +53,10 @@ void replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr);
+
 template <typename FilterType, typename Iterator>
 class FilterIterator {
  public:
@@ -772,24 +776,6 @@ int64_t getOperationCount(Val* val);
 // Create a ForLoop IR node that represents:
 //   for (int i = 0; i < size; i++)
 ForLoop* createRangeLoop(int64_t size);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
 
 // Returns the first output of Expr that is a TensorView
 TensorView* getTvOutput(const Expr*);

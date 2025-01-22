@@ -144,7 +144,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
-    ExpressionEvaluator& expr_eval) {
+    const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 
   // Allocate should be provided for intermediates. We just need to
@@ -207,9 +207,6 @@ void setFillAllocationWithNan(bool value) {
 
 void fillTensorWithNan(at::Tensor& t) {
   switch (t.scalar_type()) {
-    case at::ScalarType::Byte:
-      t.fill_(0xFF);
-      break;
     case at::ScalarType::Char:
       t.fill_(0x7F);
       break;
@@ -221,6 +218,18 @@ void fillTensorWithNan(at::Tensor& t) {
       break;
     case at::ScalarType::Long:
       t.fill_(0x7FFFFFFFFFFFFFFFL);
+      break;
+    case at::ScalarType::Byte:
+      t.fill_(0xFF);
+      break;
+    case at::ScalarType::UInt16:
+      t.fill_(0xFFFF);
+      break;
+    case at::ScalarType::UInt32:
+      t.fill_(0xFFFFFFFF);
+      break;
+    case at::ScalarType::UInt64:
+      t.fill_(0xFFFFFFFFFFFFFFFFL);
       break;
     case at::ScalarType::Bool:
       t.fill_(true);
@@ -401,7 +410,7 @@ namespace {
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Forward traverse split from allocation to logical. Needs to, for example,
@@ -518,7 +527,7 @@ class ForwardTraverseFromAllocToLogical {
  public:
   ForwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -538,7 +547,7 @@ class ForwardTraverseFromAllocToLogical {
 // transformations.
 class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Backward traverse split from allocation to logical. Needs to, for example,
@@ -642,7 +651,7 @@ class BackwardTraverseFromAllocToLogical {
  public:
   BackwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -671,7 +680,7 @@ class BackwardTraverseFromAllocToLogical {
 at::Tensor transformFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
-    ExpressionEvaluator& ee) {
+    const ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
   // Ignore reductions because reductions does not exist in tensor's definition
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
@@ -706,7 +715,7 @@ at::Tensor transformFromAllocationToLogical(
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
-    ExpressionEvaluator& expr_eval) {
+    const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
   // Fusion outputs do not come with Allocate and
   // need to be allocated while taking expanded broadcasts into

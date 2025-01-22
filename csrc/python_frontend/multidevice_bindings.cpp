@@ -51,14 +51,18 @@ void bindCommunicator(py::module& nvfuser) {
 }
 
 void bindDeviceMesh(py::module& nvfuser) {
-  py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
-  device_mesh_class.def(py::init<std::vector<int64_t>>());
-  device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
+  py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh");
+  device_mesh.def(py::init<std::vector<int64_t>>());
+  device_mesh.def("__repr__", [](const DeviceMesh& self) {
     std::stringstream ss;
     ss << self;
     return ss.str();
   });
-  device_mesh_class.def(
+  device_mesh.def_property_readonly(
+      "size",
+      [](const DeviceMesh& self) -> int64_t { return self.size(); },
+      "Returns the size of the mesh.");
+  device_mesh.def(
       "shard_tensor",
       [](const DeviceMesh& self,
          at::Tensor tensor,
@@ -71,11 +75,33 @@ void bindDeviceMesh(py::module& nvfuser) {
       py::arg("device_id"));
 }
 
+void bindDistributedTensor(py::module& nvfuser) {
+  py::class_<DistributedTensor> distributed_tensor(
+      nvfuser, "DistributedTensor");
+  distributed_tensor.def_property_readonly(
+      "local", &DistributedTensor::local, "Returns the local tensor.");
+  distributed_tensor.def_property_readonly(
+      "mesh",
+      &DistributedTensor::mesh,
+      "Returns the device mesh.",
+      py::return_value_policy::reference);
+  distributed_tensor.def(
+      "axis_sharded_on",
+      &DistributedTensor::axisShardedOn,
+      R"(
+      Returns the axis sharded on the given parallel type.
+
+      If the distributed tensor is replicated on that parallel type, returns -1.
+      )",
+      py::arg("parallel_type"));
+}
+
 } // namespace
 
 void bindMultidevice(py::module& nvfuser) {
   bindCommunicator(nvfuser);
   bindDeviceMesh(nvfuser);
+  bindDistributedTensor(nvfuser);
 }
 
 } // namespace nvfuser::python_frontend
