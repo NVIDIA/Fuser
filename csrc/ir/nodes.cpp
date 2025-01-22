@@ -4541,8 +4541,23 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
   if (meta_out.is_contiguous()) {
-    auto sharded_axis = getShardedLogicalAxis(out(), ParallelType::DIDx);
-    return {matmul_out.unsqueeze(sharded_axis)};
+    std::vector<int64_t> rfactor_did_idx;
+    auto out_logical = out()->getLogicalDomain();
+    for (auto idx : c10::irange(out_logical.size())) {
+      if (out_logical.at(idx)->isRFactorProduct() &&
+          out_logical.at(idx)->isDeviceDim()) {
+        rfactor_did_idx.push_back(idx);
+      }
+    }
+    if (rfactor_did_idx.empty()) {
+      return {matmul_out};
+    }
+
+    NVF_ERROR(
+        rfactor_did_idx.size() == 1,
+        "Expected only 1 rfactored DID iterdomain, got: ",
+        rfactor_did_idx.size());
+    return {matmul_out.unsqueeze(rfactor_did_idx.front())};
   }
   NVF_CHECK(
       !(isSharded(out())),
