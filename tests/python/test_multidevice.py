@@ -280,7 +280,7 @@ def test_matmul_loop_split(multidevice_test):
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
+        out_tensor.local, expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
     )
 
 
