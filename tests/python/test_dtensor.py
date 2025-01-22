@@ -58,9 +58,8 @@ class FusionDefinitionWrapper:
                     assert (
                         in_dtensor.device_mesh.ndim == 1
                     ), "nvFuser's Python API only supports 1D meshes."
-                    mesh = nvfuser.DeviceMesh(
-                        in_dtensor.device_mesh.mesh.tolist()
-                    )
+                    mesh = nvfuser.DeviceMesh(in_dtensor.device_mesh.mesh.tolist())
+
                     self.sched._set_device_mesh(in_tensor, mesh)
 
                     # Parallelize.
