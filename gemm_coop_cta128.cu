@@ -11374,11 +11374,40 @@ __device__ __inline__ void ParallelReduce<
 
 
 #define grid_swizzle_factor 11
-#define load_stages 4
+#define load_stages 6
+
+#define cta_m 128
+#define cta_n 128
+#define cta_k 64
+
+#define a_stage_bytes (2 * cta_m * cta_k)
+#define b_stage_bytes (2 * cta_n * cta_k)
+#define output_bytes (2 * cta_m * cta_n)
+
+/*
+Pushing allocation for T7
+Assigned address 0 for T7 with size 16384 * 2 bytes
+Pushing allocation for T4
+Assigned address 32768 for T4 with size 32768 * 2 bytes
+Pushing allocation for T5
+Assigned address 98304 for T5 with size 32768 * 2 bytes
+Pushing allocation for T8
+Assigned address 163840 for T8 with size 8 * 8 bytes
+Popping allocation for T8 which has assigned address 163840
+*/
+// T7 = TMA store of output
+#define T7addr 0
+// T4 = A operand circ buffer
+#define T4addr (T7addr + output_bytes)
+// T5 = B operand circ buffer
+#define T5addr (T4addr + a_stage_bytes * load_stages)
+// T8 = mbarriers
+#define T8addr (T5addr + b_stage_bytes * load_stages)
+#define total_smem (T8addr + load_stages * 2 * 8)
+static_assert(total_smem <= 227 * 1024);
 
 __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 3, 3> T0, Tensor<__bfloat, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, Tensor<__bfloat, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
-  const unsigned smem_offset = 0;
   nvfuser_index_t i3;
   i3 = ceilDiv((ceilDiv(T0.logical_size[0LL], 128)), grid_swizzle_factor);
   nvfuser_index_t i4;
@@ -11387,19 +11416,19 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
   i5 = ceilDiv(T0.logical_size[2LL], 64);
   const TensorMap* ptr6;
   ptr6 = &var0;
-  __bfloat* T5 = reinterpret_cast<__bfloat*>(array + smem_offset + 98304);
+  __bfloat* T5 = reinterpret_cast<__bfloat*>(array + T5addr);
   unsigned i7;
   i7 = toSmem(T5);
   const TensorMap* ptr8;
   ptr8 = &var1;
-  __bfloat* T4 = reinterpret_cast<__bfloat*>(array + smem_offset + 32768);
+  __bfloat* T4 = reinterpret_cast<__bfloat*>(array + T4addr);
   unsigned i9;
   i9 = toSmem(T4);
   unsigned i10;
   i10 = i9 + (8192 * ((nvfuser_index_t)threadIdx.y));
   nvfuser_index_t i11;
   i11 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
-  __bfloat* T7 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
+  __bfloat* T7 = reinterpret_cast<__bfloat*>(array + T7addr);
   unsigned i12;
   i12 = toSmem(T7) + (16384 * ((nvfuser_index_t)threadIdx.y));
   const TensorMap* ptr13;
@@ -11422,7 +11451,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
   i21 = (9 - T1.logical_size[1LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4));
     asm volatile("wgmma.fence.sync.aligned;\n");
     asm volatile("fence.proxy.async;\n");
-    uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 163840);
+    uint64_t* T8 = reinterpret_cast<uint64_t*>(array + T8addr);
     #pragma unroll
     for(nvfuser_index_t i32 = 0; i32 < load_stages; ++i32) {
       if (((Hopper::electSync(4294967295U) && b15) && b16)) {
@@ -11466,7 +11495,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
     float T2[64];
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))).set(0);
     if (b17) {
-      #pragma unroll 3
+      #pragma unroll (load_stages - 1)
       for(nvfuser_index_t i34 = 0; i34 < i5; ++i34) {
         uint32_t stages_processed = i22 * i5 + i34;
         nvfuser_index_t slot = stages_processed % load_stages;
@@ -11475,7 +11504,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
         nvfuser_index_t i35;
         i35 = 16384 * slot;
         if ((Hopper::electSync(4294967295U) && b15)) {
-          mbarrier::waitParity(toSmem((&T8[(slot + 4LL)])), this_parity);
+          mbarrier::waitParity(toSmem((&T8[(slot + load_stages)])), this_parity);
           mbarrier::arriveExpectTX(toSmem((&T8[slot])), 16384U);
           Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr6, (Array<nvfuser_index_t, 2, 1>{(64 * i34), i25}), toSmem((&T8[slot])) }), (i7 + i35));
           mbarrier::arriveExpectTX(toSmem((&T8[slot])), 16384U);
