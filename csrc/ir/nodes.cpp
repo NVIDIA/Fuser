@@ -4541,6 +4541,12 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
   if (meta_out.is_contiguous()) {
+    // When the contracting dimension is sharded, each device has a partial
+    // matmul output and is followed by an allreduce. For loop split, this is
+    // represented as an rfactored reduction. The local matmul logical domain
+    // after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze the
+    // rfactored DID axis to correctly bind with the logical domain. See
+    // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
     std::vector<int64_t> rfactor_did_idx;
     auto out_logical = out()->getLogicalDomain();
     for (auto idx : c10::irange(out_logical.size())) {
