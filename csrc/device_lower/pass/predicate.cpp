@@ -237,8 +237,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt);
+        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
         Val* full_mask_val =
             IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
 

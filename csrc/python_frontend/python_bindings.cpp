@@ -3601,6 +3601,59 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("scale").none(true) = py::none(),
       py::return_value_policy::reference);
 
+  nvf_ops.def(
+      "embedding_fwd",
+      [](FusionDefinition::Operators& self,
+         Tensor input,
+         Tensor weight,
+         std::optional<Scalar> padding_idx,
+         std::optional<Scalar> max_norm,
+         std::optional<Scalar> norm_type,
+         std::optional<Scalar> scale_grad_by_freq,
+         std::optional<Scalar> sparse) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.embedding_fwd");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = input.dims + 1;
+        Tensor output = fd->defineTensor(/*dims=*/ndims);
+
+        auto padding_idx_state = padding_idx.has_value()
+            ? fd->recordingState(padding_idx.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto max_norm_state = max_norm.has_value()
+            ? fd->recordingState(max_norm.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto norm_type_state = norm_type.has_value()
+            ? fd->recordingState(norm_type.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto scale_grad_by_freq_state = scale_grad_by_freq.has_value()
+            ? fd->recordingState(scale_grad_by_freq.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto sparse_state = sparse.has_value()
+            ? fd->recordingState(sparse.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+        fd->defineRecord(new EmbeddingFwdOpRecord(
+            {fd->recordingState(input()),
+             fd->recordingState(weight()),
+             padding_idx_state,
+             max_norm_state,
+             norm_type_state,
+             scale_grad_by_freq_state,
+             sparse_state},
+            {fd->recordingState(output())}));
+        return output;
+      },
+      py::arg("input"),
+      py::arg("weight"),
+      py::arg("padding_idx").none(true) = py::none(),
+      py::arg("max_norm").none(true) = py::none(),
+      py::arg("norm_type").none(true) = py::none(),
+      py::arg("scale_grad_by_freq").none(true) = py::none(),
+      py::arg("sparse").none(true) = py::none(),
+      py::return_value_policy::reference);
+
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);

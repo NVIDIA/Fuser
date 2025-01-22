@@ -4,7 +4,13 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch, with_executor
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    unary_bwd_torch,
+    with_executor,
+    DEFAULT_EXECUTORS,
+)
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 from .torch_ops import huggingface_attn
@@ -108,7 +114,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [grads, attn, dropout_mask])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_huggingface_attn_bwd_baseline_benchmark(
@@ -138,6 +144,6 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs, grads],
+        [outputs, grads, *fwd_inputs],
         iobytes=huggingface_attn_bwd_iobytes(size, dtype),
     )

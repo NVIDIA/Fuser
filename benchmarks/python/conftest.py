@@ -102,7 +102,7 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(session, config, items):
     """
     The baseline benchmarks use `executor` parameter with
-    values ["eager", "torchcompile", "thunder"] that are optionally
+    values ["eager", "torchcompile", "thunder", "thunder-torchcompile"] that are optionally
     run using `--benchmark-{executor}` flag. They are skipped by
     default.
     """
