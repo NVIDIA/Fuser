@@ -165,6 +165,17 @@ void UnrollPass::dispatch(Expr* expr) {
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }
+      std::cout << "UnrollPass::pred: " << pred->toInlineString() << std::endl;      
+      
+    }
+
+    if(ir_utils::isCpAsyncBulk(expr)) {
+      std::cout << "UnrollPass::expr: " << expr->toString() << std::endl;
+      pred = IrBuilder::create<kir::Predicate>(PredicateType::ElectSync);
+      // auto mbarrier_init = GpuLower::current()->ldstMBarrierInitMap().at(expr);
+      // auto mbarrier_init_predicate = mbarrier_init->withPredicate(pred);
+      // expr_with_predicate = expr_with_predicate->withPredicate(IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+      // registerReplace(expr, expr_with_predicate);
     }
 
     // Try to use inline predicate if possible.

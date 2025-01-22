@@ -733,6 +733,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
               ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
               ->withPredicate(ldst->predicate());
 
+      std::cout << "hasCircularBufferLoad new_ldst: " << new_ldst->toString() << std::endl;
+
       // Create mbarrier_arrive_tx_. Note that mbarrier_arrive_tx_ is created
       // here when we are processing a cpAsyncBulk load expression, but added to
       // the cloned loop body by addTmaLoadBlock either here or later when we
@@ -928,7 +930,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   kir::MBarrierArriveExpectTx* createRawMbarrierArriveExpectTx(
       LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
-
+    std::cout << "createRawMbarrierArriveExpectTx" << std::endl;
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =

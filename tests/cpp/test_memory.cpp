@@ -3000,7 +3000,7 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   tv1a->setMemoryType(MemoryType::Shared);
 
   tv2->merge(0);
-  tv2->split(0, 512);
+  tv2->split(0, 256);
   TransformPropagator propagator(tv2);
   MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 

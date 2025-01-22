@@ -223,6 +223,15 @@ class GpuLower : public NonCopyable {
     return ldst_mbarrier_map_;
   }
 
+
+  std::unordered_map<const Expr*, Expr*>& ldstMBarrierInitMap() {
+    return ldst_mbarrier_init_map_;
+  }
+
+  const std::unordered_map<const Expr*, Expr*>& ldstMBarrierInitMap() const {
+    return ldst_mbarrier_init_map_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -364,6 +373,9 @@ class GpuLower : public NonCopyable {
 
   // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+
+  // For each ldst expr, map to it mbarr init expr
+  std::unordered_map<const Expr*, Expr*> ldst_mbarrier_init_map_;
 
   // Keep track of validations needed at runtime. For example, a pair of
   //! "extent mod split_factor == 0" and an error message for divisibility check

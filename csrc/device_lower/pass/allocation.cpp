@@ -642,7 +642,11 @@ class AllocationInserter : public kir::ExprMutator {
               DataType::UInt32,
               lower_utils::getNumThreadsInTensorView(
                   expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
+      
+      auto* pred_mbarrier_init = mbarrier_init->withPredicate(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      // auto sync_init = IrBuilder::create<kir::BlockSync>();
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
       auto sync_inval = IrBuilder::create<kir::BlockSync>();
@@ -651,11 +655,13 @@ class AllocationInserter : public kir::ExprMutator {
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
       Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(expr, mbarrier_alloc, expr_scope);
-      registerInsertBefore(expr, mbarrier_init, expr_scope);
-      registerInsertBefore(expr, sync_init, expr_scope);
+      registerInsertBefore(expr, pred_mbarrier_init, expr_scope);
+      // registerInsertBefore(expr, sync_init, expr_scope);
       registerInsertAfter(expr, mbarrier_inval, expr_scope);
       registerInsertAfter(expr, sync_inval, expr_scope);
       GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+      GpuLower::current()->ldstMBarrierInitMap()[expr] = mbarrier_init;
+      std::cout << "Allocating barrier for expr:" << expr->toString() << std::endl;
     }
   }
 
