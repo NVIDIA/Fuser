@@ -11421,6 +11421,7 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
   __bfloat* T22 = reinterpret_cast<__bfloat*>(array + smem_offset + T22addr);
   bool b25;
   b25 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
+  b25 = __shfl_sync(0xffffffff, b25, 0);
   float T3[64];
   float T10[64];
 
@@ -11454,14 +11455,16 @@ __device__ __inline__ void dma(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 3
 
         nvfuser_index_t i45;
         i45 = 16384 * slot;
+
+        nvfuser_index_t i44times64 = 64 * i44;
         if ((Hopper::electSync(4294967295U) && b25)) {
           mbarrier::waitParity(toSmem((&T23[(slot + 2LL)])), this_parity);
           mbarrier::arriveExpectTX(toSmem((&T23[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i35}), toSmem((&T23[slot])) }), (i10 + i45));
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<nvfuser_index_t, 2, 1>{i44times64, i35}), toSmem((&T23[slot])) }), (i10 + i45));
           mbarrier::arriveExpectTX(toSmem((&T23[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr11, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i38}), toSmem((&T23[slot])) }), (i12 + i45));
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr11, (Array<nvfuser_index_t, 2, 1>{i44times64, i38}), toSmem((&T23[slot])) }), (i12 + i45));
           mbarrier::arriveExpectTX(toSmem((&T23[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(64 * i44), i35}), toSmem((&T23[slot])) }), (i14 + i45));
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{i44times64, i35}), toSmem((&T23[slot])) }), (i14 + i45));
         }
       }
   }
@@ -11477,17 +11480,18 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   nvfuser_index_t i8;
   i8 = ceilDiv(T0.logical_size[2LL], 64);
   __bfloat* T15 = reinterpret_cast<__bfloat*>(array + smem_offset + T15addr);
-  unsigned i10;
-  i10 = toSmem(T15);
+  uint64_t i10;
+  i10 = 4611686293305294848ULL + (uint64_t)(toSmem(T15) >> 4U);
   __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + T14addr);
   unsigned i12;
   i12 = toSmem(T14);
   __bfloat* T16 = reinterpret_cast<__bfloat*>(array + smem_offset + T16addr);
-  unsigned i14;
-  i14 = toSmem(T16);
-  unsigned i15;
-  i15 = i12 + (8192 * ((nvfuser_index_t)threadIdx.y));
-  i15 = __shfl_sync(0xffffffff, i15, 0);
+  uint64_t i14;
+  i14 = 4611686293305294848ULL + (uint64_t)(toSmem(T16) >> 4);
+  nvfuser_index_t TIDy = (nvfuser_index_t)threadIdx.y;
+  TIDy = __shfl_sync(0xffffffff, TIDy, 0);
+  uint64_t i15;
+  i15 = 4611686293305294848ULL + (uint64_t)((i12 >> 4U) + (512 * TIDy));
   nvfuser_index_t i16;
   i16 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) + ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
   nvfuser_index_t i17;
@@ -11499,7 +11503,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   const TensorMap* ptr19;
   ptr19 = &var3;
   nvfuser_index_t i20;
-  i20 = 64 * ((nvfuser_index_t)threadIdx.y);
+  i20 = 64 * TIDy;
   i20 = __shfl_sync(0xffffffff, i20, 0);
   __bfloat* T20 = reinterpret_cast<__bfloat*>(array + smem_offset + T20addr);
   unsigned i21;
@@ -11515,10 +11519,10 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
   b25 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
   b25 = __shfl_sync(0xffffffff, b25, 0);
   bool b26;
-  b26 = ((nvfuser_index_t)threadIdx.y) == 0ULL;
+  b26 = TIDy == 0ULL;
   b26 = __shfl_sync(0xffffffff, b26, 0);
   bool b28;
-  b28 = ((nvfuser_index_t)threadIdx.y) < 2;
+  b28 = TIDy < 2;
   b28 = __shfl_sync(0xffffffff, b28, 0);
   nvfuser_index_t i29;
   i29 = ((nvfuser_index_t)threadIdx.x) / 4;
@@ -11578,13 +11582,13 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         nvfuser_index_t slot = stages_processed % 2;
         uint32_t this_parity = (stages_processed / 2) % 2;
 
-        nvfuser_index_t i48;
-        i48 = 16384 * slot;
-        unsigned i49;
+        uint64_t i48;
+        i48 = 1024 * slot;
+        uint64_t i49;
         i49 = i15 + i48;
-        unsigned i50;
+        uint64_t i50;
         i50 = i10 + i48;
-        unsigned i51;
+        uint64_t i51;
         i51 = i14 + i48;
         mbarrier::waitParity(toSmem((&T23[slot])), this_parity);
         asm volatile("wgmma.fence.sync.aligned;\n");
@@ -11593,16 +11597,16 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
           //nvfuser_index_t i53;
           //i53 = 32 * i52;
         #pragma unroll
-        for(nvfuser_index_t i53 = 0; i53 < 128; i53 += 32) {
-          unsigned i54;
+        for(nvfuser_index_t i53 = 0; i53 < 8; i53 += 2) {
+          uint64_t i54;
           i54 = i49 + i53;
-          unsigned i55;
+          uint64_t i55;
           i55 = i50 + i53;
-          unsigned i59;
+          uint64_t i59;
           i59 = i51 + i53;
-          uint64_t i54desc = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i54)) >> 4ULL));
-          uint64_t i55desc = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i55)) >> 4ULL));
-          uint64_t i59desc = (4611686293305294848ULL | ((262143ULL & (uint64_t)(i59)) >> 4ULL));
+          uint64_t i54desc = i54;
+          uint64_t i55desc = i55;
+          uint64_t i59desc = i59;
           asm volatile(
             "{\n"
             "  .reg .pred p0; \n"
@@ -11802,7 +11806,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         asm volatile(
           "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
           :
-          :"r"((uint32_t)((toSmem(T21) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i68 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i68 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+          :"r"((uint32_t)((toSmem(T21) + ((TIDy * 16384) + (((i68 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i68 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[1]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T18[(8 * i68)]))[2]),
@@ -11845,7 +11849,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
         asm volatile(
           "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
           :
-          :"r"((uint32_t)((toSmem(T20) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i76 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i76 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+          :"r"((uint32_t)((toSmem(T20) + ((TIDy * 16384) + (((i76 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i76 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[0]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[1]),
            "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T17[(8 * i76)]))[2]),
@@ -11909,7 +11913,7 @@ __device__ __inline__ void math(Tensor<__bfloat, 3, 3>& T0, Tensor<__bfloat, 3, 
           asm volatile(
             "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
             :
-            :"r"((uint32_t)((toSmem(T22) + ((((nvfuser_index_t)threadIdx.y) * 16384) + (((i84 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i84 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
+            :"r"((uint32_t)((toSmem(T22) + ((TIDy * 16384) + (((i84 / 4) * 8192) + ((i16 * 128) + (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) + ((i84 % 4) * 2)) ^ (i16 % 8)) * 16))))))),
              "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[0]),
              "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[1]),
              "r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T19[(8 * i84)]))[2]),
