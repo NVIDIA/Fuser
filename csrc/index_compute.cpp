@@ -2669,7 +2669,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
            {"mbarrier", mbarrier}},
           ss.str());
     } else {
-      NVF_ERROR(true, "S2G not implemented yet.")
+      NVF_THROW("S2G for CpAsyncBulk is not implemented yet.")
     }
   } else {
     // ND TMA with tensor map
