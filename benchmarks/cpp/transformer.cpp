@@ -35,9 +35,12 @@ at::Tensor shardTensor(
 }
 } // namespace
 
-void forward_transformer(Communicator* communicator, bool profile, bool sequence_parallel) {
+void forward_transformer(
+    Communicator* communicator,
+    bool profile,
+    bool sequence_parallel) {
   int64_t D = communicator->size();
-  if (D == 1) {
+  if (sequence_parallel && D == 1) {
     std::cout << "Sequence parallel requires >1 devices, D=" << D << std::endl;
   }
   auto dtype = DataType::BFloat16;
@@ -61,7 +64,8 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
   auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
   std::vector<c10::IValue> at_inputs = {
-      sequence_parallel ? shardTensor(x, 0, mesh, communicator).unsqueeze(0) : x,
+      sequence_parallel ? shardTensor(x, 0, mesh, communicator).unsqueeze(0)
+                        : x,
       ln0_w,
       ln0_b,
       shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator)
@@ -79,7 +83,6 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
 
   DistributedTransformer model(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.forward(dtype, sequence_parallel);
-  cudaSetDevice(communicator->deviceId());
 
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
@@ -93,12 +96,6 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
       nvtxRangePush(("FwdIteration" + std::to_string(i)).c_str());
     }
     auto outputs = fec->runFusionWithInputs(at_inputs);
-    cudaDeviceSynchronize();
-    // cudaDeviceSynchronize is not blocking until kernels are finished on all
-    // devices except 0
-    // TODO: are we not waiting until all kernels are appended to the stream?
-    //std::cout << outputs[0][0][0] << std::endl;
-
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
     }
@@ -106,9 +103,9 @@ void forward_transformer(Communicator* communicator, bool profile, bool sequence
   auto end = std::chrono::high_resolution_clock::now();
 
   double foward_time =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
           .count() /
-      (double)num_itrs / 1000.0;
+      (double)num_itrs;
   std::cout << communicator->deviceId() << ": Average forward time "
             << foward_time << "ms" << std::endl;
 }
@@ -154,7 +151,8 @@ void backward_transformer(Communicator* communicator, bool profile) {
   std::vector<c10::IValue> at_inputs = {
       x,
       grad,
-      shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator).view({1, 3 * E / D, E}),
+      shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator)
+          .view({1, 3 * E / D, E}),
       shardTensor(mha_w1, 1, mesh, communicator).unsqueeze(0),
       shardTensor(mlp_w0, 0, mesh, communicator).unsqueeze(0),
       shardTensor(mlp_w1, 1, mesh, communicator).unsqueeze(0),
@@ -174,10 +172,10 @@ void backward_transformer(Communicator* communicator, bool profile) {
       ln0_rstd,
       shardTensor(mha_linear0, 1, mesh, communicator).unsqueeze(0),
       mha_linear1.to(at::kFloat),
-      shardTensor(mlp_linear1, 1, mesh, communicator).unsqueeze(0)
-    };
+      shardTensor(mlp_linear1, 1, mesh, communicator).unsqueeze(0)};
 
-  DistributedTransformer model = DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
+  DistributedTransformer model =
+      DistributedTransformer(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.backward(dtype);
   std::vector<at::Tensor> outputs;
 
@@ -191,12 +189,6 @@ void backward_transformer(Communicator* communicator, bool profile) {
       nvtxRangePush(("BwdIteration" + std::to_string(i)).c_str());
     }
     outputs = fec->runFusionWithInputs(at_inputs);
-    cudaDeviceSynchronize();
-    // cudaDeviceSynchronize is not blocking until kernels are finished on all
-    // devices except 0
-    // TODO: are we not waiting until all kernels are appended to the stream?
-    //std::cout << outputs[0][0][0][0] << std::endl;
-
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
     }
@@ -207,9 +199,9 @@ void backward_transformer(Communicator* communicator, bool profile) {
   }
 
   double backward_time =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
           .count() /
-      (double)num_itrs / 1000.0;
+      (double)num_itrs;
   std::cout << communicator->deviceId() << ": Average backward time "
             << backward_time << "ms" << std::endl;
 }
