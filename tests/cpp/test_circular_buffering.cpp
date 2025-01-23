@@ -16,6 +16,102 @@
 
 namespace nvfuser {
 
+TEST_F(NVFuserTest, TMAPointwisePipelineBaseline) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::BFloat16;
+  TensorView* tv0 = makeContigTensor(2, dtype);
+  TensorView* tv1 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = castOp(dtype, tv2);
+  fusion->addOutput(tv3);
+
+  constexpr int64_t tensor_outer_dim = 8192;
+  constexpr int64_t tensor_inner_dim = 8192;
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = t0 + t1;
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, TMAPointwisePipeline) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t tensor_outer_dim = 8192;
+  constexpr int64_t tensor_inner_dim = 8192;
+
+  const auto dtype = DataType::BFloat16;
+  TensorView* tv0 = makeContigTensor(2, dtype);
+  TensorView* tv1 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = castOp(dtype, tv2);
+  fusion->addOutput(tv3);
+
+  // Use TMA to load TV0 into shared memory
+  TensorView* tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  // Use TMA to load TV1 into shared memory
+  TensorView* tv5 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv5->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv3;
+
+  // Constants
+  constexpr int64_t bulk_inner_dim = 256;
+  constexpr int64_t number_of_stages = 2;
+  constexpr int64_t prefetch_distance = 1;
+
+  tv4->split(-1, bulk_inner_dim);
+  tv5->split(-1, bulk_inner_dim);
+  tv4->axis(-1)->parallelize(ParallelType::Bulk);
+  tv5->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // [M, N] -> [M, N/bulk, bulk]
+  reference->split(-1, bulk_inner_dim);
+  reference->split(-1, 2);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-2)->parallelize(ParallelType::TIDx);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Set computeAt position
+  inlineMost();
+
+  // Circular Buffer with TMA loads
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+  tv4->circularBuffer(number_of_stages, prefetch_distance);
+
+  tv5->axis(0)->parallelize(ParallelType::BIDx);
+  tv5->axis(2)->parallelize(ParallelType::Bulk);
+  tv5->circularBuffer(number_of_stages, prefetch_distance);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = t0 + t1;
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
