@@ -106,6 +106,7 @@ enum class EnableOption {
   ResizeScheduler, //! Enable the resize scheduler
   StaticFusionCount, //! Enable using single static count in kernel name
   WarnRegisterSpill, //! Enable warnings of register spill
+  HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };
 

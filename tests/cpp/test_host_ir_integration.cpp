@@ -57,6 +57,21 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   EXPECT_TRUE(outputs[0].equal(t0));
 }
 
+TEST_F(HostIrIntegrationTest, HostIrCodepath) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  fusion.addInput(in);
+
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
+  //EXPECT_TRUE(outputs[0].equal(t0));
+}
+
 } // namespace hir
 
 } // namespace nvfuser

@@ -165,6 +165,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"resize_scheduler", EnableOption::ResizeScheduler},
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
+          {"host_ir_lowering", EnableOption::HostIrLowering},
       };
   return available_options;
 }
