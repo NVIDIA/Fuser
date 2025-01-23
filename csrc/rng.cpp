@@ -18,7 +18,6 @@ namespace nvfuser {
 
 std::tuple<Val*, Val*, kir::GetRNGSeedAndOffsetFromHost*>
 getRNGSeedAndOffsetFromHost() {
-  std::cout<<"kir::GetRNGSeedAndOffsetFromHost"<<std::endl;
   // Note [CUDA graph capture and RNG seed and offset]
   // This is how we handle RNG seeds and offsets in PyTorch. In PyTorch,
   // depending on whether we are running under CUDA graph capture or not, the
@@ -65,14 +64,12 @@ getRNGSeedAndOffsetFromHost() {
   //   4 * num_rng_ops
   offset =
       IrBuilder::divExpr(offset, IrBuilder::create<Val>(4L, DataType::Int));
-  std::cout<<"OFFSET DEF: "<<offset->definition()->toInlineString()<<std::endl;
   return std::make_tuple(seed, offset, expr);
 }
 
 std::vector<PolymorphicValue> kir::GetRNGSeedAndOffsetFromHost::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-      std::cout<<"kir::GetRNGSeedAndOffsetFromHost::evaluate"<<std::endl;
   at::PhiloxCudaState philox_engine_inputs;
   auto gen = at::cuda::detail::getDefaultCUDAGenerator();
   {
@@ -89,7 +86,6 @@ std::vector<PolymorphicValue> kir::GetRNGSeedAndOffsetFromHost::evaluate(
     outputs.emplace_back(philox_engine_inputs.offset_.ptr);
     outputs.emplace_back((int64_t)philox_engine_inputs.offset_intragraph_);
   } else {
-    std::cout<<"ELSE"<<std::endl;
     outputs.emplace_back((int64_t*)nullptr);
     outputs.emplace_back((int64_t)philox_engine_inputs.seed_.val);
     outputs.emplace_back((int64_t*)nullptr);

@@ -54,10 +54,6 @@ class RNGInserter : public kir::ExprMutator {
 
     // Set prologue if not already set
     if (rng_result == nullptr) {
-        auto print = IrBuilder::create<kir::StringInsert>("if(threadIdx.x == 0 && blockIdx.x == 0) printf(\"%p, %p, %lld, %lld\\n\", ptr1, ptr3, i2, i4);\n");
-        kir::ExprMutator::registerInsertBefore(
-          exprs.front(), print, nullptr);
-        
       rng_result = TensorViewBuilder()
                        .shape(std::vector<int64_t>{4})
                        .dtype(DataType::UInt32)
@@ -184,8 +180,6 @@ class RNGInserter : public kir::ExprMutator {
           rop->inputs().size(),
           " for RNG operation.");
     }
-    auto print2 = IrBuilder::create<kir::StringInsert>("if(threadIdx.x == 0 && blockIdx.x == 0) {printf(\"%d, %d\\n\", rng_subseq82, rng_offset82); printf(\"%u, %u, %u, %u,\\n\", T3[0], T3[1], T3[2], T3[3]);}\n");
-            kir::ExprMutator::registerInsertBefore(rop, print2);
   }
 
   std::vector<InsertionInfo> insertion_list_;

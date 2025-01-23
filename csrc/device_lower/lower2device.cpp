@@ -214,7 +214,6 @@ std::tuple<Val*, Val*, kir::GetRNGSeedAndOffsetFromHost*>
 getRNGSeedAndOffsetFromHost();
 
 void assignRNGOffset(Fusion* fusion) {
-  std::cout<<"Assign"<<std::endl;
   Val* seed = nullptr;
   Val* first_offset = nullptr;
   kir::GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
@@ -222,7 +221,6 @@ void assignRNGOffset(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (auto rop = dynamic_cast<RNGOp*>(expr)) {
       if (!rop->isDeterministic()) {
-        std::cout<<"is deterministic"<<std::endl;
         if (seed == nullptr) {
           std::tie(seed, first_offset, getseed_op) =
               getRNGSeedAndOffsetFromHost();
