@@ -4547,17 +4547,17 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
   auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
   int64_t rfactor_did_idx = -1;
-  for (auto idx : c10::irange(out_logical.size())) {
+  for (auto idx : c10::irange(static_cast<int64_t>(out_logical.size()))) {
     if (!out_logical.at(idx)->isRFactorProduct() ||
         !out_logical.at(idx)->isDeviceDim()) {
       continue;
     }
     if (rfactor_did_idx != -1) {
       NVF_THROW(
-          "Expected only 1 rfactored DID iterdomain, found atleast 2 in ",
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
           out_logical);
     }
-    rfactor_did_idx = (int64_t)idx;
+    rfactor_did_idx = idx;
   }
 
   if (rfactor_did_idx != -1) {

@@ -327,8 +327,8 @@ def test_matmul_allreduce_loop_split(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
-    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
+    unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half)
+    unsharded_weight = torch.randn(d * e, e, dtype=torch.half)
     sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
     sharded_weight = multidevice_test.shard_tensor(unsharded_weight, 0, mesh)
 
