@@ -162,7 +162,7 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
       ordered_exprs.pushBack(expr_g);
     }
 
-    NVF_ERROR(ordered_exprs.size() == expr_path.size());
+    NVF_ERROR(ordered_exprs.size() == (int64_t)expr_path.size());
 
     if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
       std::unordered_set<ValGroup> visited;
