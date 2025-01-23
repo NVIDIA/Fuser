@@ -164,7 +164,7 @@ class RNGInserter : public kir::ExprMutator {
           std::get<0>(rop_component_tuple),
           rop->dtype(),
           rop->getRNGOpType(),
-          std::vector<Val*>{rop->input(2), rop->input(3)});
+          std::vector<Val*>{rop->getParameters()[0], rop->getParameters()[1]});
       kir::ExprMutator::registerInsertBefore(rop, new_rng_op);
     } else if (rop->inputs().size() == 2) {
       auto new_rng_op = IrBuilder::create<kir::RNGOp>(
