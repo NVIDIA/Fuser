@@ -11373,6 +11373,33 @@ __device__ __inline__ void ParallelReduce<
 } // namespace fused_reduction
 
 
+template<int num_stages>
+struct StageIterator {
+  uint32_t slot;
+
+  __device__ __inline__ void operator++() {
+    ++slot;
+    if (slot == num_stages) {
+      slot = 0;
+    }
+  }
+};
+
+template<int num_stages>
+struct StageIteratorWithParity {
+  uint32_t slot;
+  uint32_t parity;
+
+  //! Increment the stage. When we wrap around to 0, flip the parity bit.
+  __device__ __inline__ void operator++() {
+    ++slot;
+    if (slot == num_stages) {
+      slot = 0;
+      parity ^= 0b1;
+    }
+  }
+};
+
 #define grid_swizzle_factor 16
 #define load_stages 6
 
@@ -11479,6 +11506,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
         mbarrier::arrive(toSmem((&T8[(i36 + load_stages)])));
       }
     }
+  StageIteratorWithParity<load_stages> producer_iter{0, 0};
   #pragma unroll 1
   for(nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
     nvfuser_index_t i23;
@@ -11502,20 +11530,17 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
     float T2[64];
     ((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))).set(0);
     if (b17) {
-      #pragma unroll (load_stages - 1)
-      for(nvfuser_index_t i34 = 0; i34 < i5; ++i34) {
-        uint32_t stages_processed = i22 * i5 + i34;
-        nvfuser_index_t slot = stages_processed % load_stages;
-        uint32_t this_parity = (stages_processed / load_stages) % 2;
-
-        nvfuser_index_t i35;
-        i35 = 16384 * slot;
-        if ((Hopper::electSync(4294967295U) && b15)) {
-          mbarrier::waitParity(toSmem((&T8[(slot + load_stages)])), this_parity);
-          mbarrier::arriveExpectTX(toSmem((&T8[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr6, (Array<nvfuser_index_t, 2, 1>{(64 * i34), i25}), toSmem((&T8[slot])) }), (i7 + i35));
-          mbarrier::arriveExpectTX(toSmem((&T8[slot])), 16384U);
-          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr8, (Array<nvfuser_index_t, 2, 1>{(64 * i34), i28}), toSmem((&T8[slot])) }), (i9 + i35));
+      if ((Hopper::electSync(4294967295U) && b15)) {
+        #pragma unroll (load_stages - 1)
+        for(nvfuser_index_t i34 = 0; i34 < i5; ++i34) {
+          nvfuser_index_t i35;
+          i35 = 16384 * producer_iter.slot;
+          mbarrier::waitParity(toSmem((&T8[(producer_iter.slot + load_stages)])), producer_iter.parity);
+          mbarrier::arriveExpectTX(toSmem((&T8[producer_iter.slot])), 16384U);
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr6, (Array<nvfuser_index_t, 2, 1>{(64 * i34), i25}), toSmem((&T8[producer_iter.slot])) }), (i7 + i35));
+          mbarrier::arriveExpectTX(toSmem((&T8[producer_iter.slot])), 16384U);
+          Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr8, (Array<nvfuser_index_t, 2, 1>{(64 * i34), i28}), toSmem((&T8[producer_iter.slot])) }), (i9 + i35));
+          ++producer_iter;
         }
       }
     } else {
@@ -11523,41 +11548,100 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
       // We allow up to this many MMA stages to be in flight at all times
       // This follows the cutlas approach seen here:
       // https://github.com/NVIDIA/cutlass/blob/b78588d1630aa6643bf021613717bafb705df4ef/include/cutlass/gemm/collective/sm90_mma_tma_gmma_ss_warpspecialized.hpp#L481
-      // TODO: We should probably verify that i5 >= STAGES_IN_FLIGHT during lowering
+      // TODO: We should probably verify that i5 >= STAGES_IN_FLIGHT during execution
 #define STAGES_IN_FLIGHT 1
       static_assert(STAGES_IN_FLIGHT < 8); // limitation comes from wgmma.wait_group.sync.aligned
-
-      struct StageIterator {
-        uint32_t slot;
-
-        __device__ __inline__ void operator++() {
-          ++slot;
-          if (slot == load_stages) {
-            slot = 0;
-          }
-        }
-      };
-
-      struct StageIteratorWithParity {
-        uint32_t slot;
-        uint32_t parity;
-
-        //! Increment the stage. When we wrap around to 0, flip the parity bit.
-        __device__ __inline__ void operator++() {
-          ++slot;
-          if (slot == load_stages) {
-            slot = 0;
-            parity ^= 0b1;
-          }
-        }
-      };
 
       uint32_t stages_processed = i22 * i5;
       uint32_t initial_slot = stages_processed % load_stages;
       uint32_t initial_parity = (stages_processed / load_stages) % 2;
 
-      StageIteratorWithParity read_iter{initial_slot, initial_parity};
-      StageIterator release_iter{initial_slot};
+      StageIteratorWithParity<load_stages> read_iter{initial_slot, initial_parity};
+      StageIterator<load_stages> release_iter{initial_slot};
+
+#define GEMM() \
+  uint64_t i43desc; \
+  i43desc = i39 + i41; \
+  uint64_t i44desc; \
+  i44desc = i40 + i41; \
+  asm volatile( \
+    "{\n" \
+    "  .reg .pred p0; \n" \
+    "  setp.ne.b32 p0, %66, 0;\n" \
+    "  wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63}, %64, %65, p0, %67, %68, %69, %70;\n" \
+    "}\n" \
+    :"+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[0]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[1]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[2]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[3]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[4]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[5]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[6]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[7]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[8]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[9]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[10]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[11]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[12]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[13]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[14]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[15]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[16]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[17]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[18]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[19]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[20]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[21]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[22]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[23]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[24]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[25]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[26]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[27]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[28]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[29]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[30]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[31]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[32]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[33]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[34]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[35]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[36]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[37]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[38]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[39]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[40]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[41]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[42]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[43]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[44]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[45]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[46]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[47]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[48]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[49]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[50]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[51]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[52]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[53]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[54]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[55]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[56]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[57]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[58]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[59]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[60]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[61]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[62]), \
+     "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[63]) \
+    :"l"(i43desc), \
+     "l"(i44desc), \
+     "n"((uint32_t)(true)), \
+     "n"(1), \
+     "n"(1), \
+     "n"(0), \
+     "n"(0) \
+  );
 
       #pragma unroll
       for(nvfuser_index_t i37 = 0; i37 < STAGES_IN_FLIGHT; ++i37) {
@@ -11575,88 +11659,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
         asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
         for(nvfuser_index_t i41 = 0; i41 < 8; i41 += 2) {
-          uint64_t i43desc;
-          i43desc = i39 + i41;
-          uint64_t i44desc;
-          i44desc = i40 + i41;
-          asm volatile(
-            "{\n"
-            "  .reg .pred p0; \n"
-            "  setp.ne.b32 p0, %66, 0;\n"
-            "  wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63}, %64, %65, p0, %67, %68, %69, %70;\n"
-            "}\n"
-            :"+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[0]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[1]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[2]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[3]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[4]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[5]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[6]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[7]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[8]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[9]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[10]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[11]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[12]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[13]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[14]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[15]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[16]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[17]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[18]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[19]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[20]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[21]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[22]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[23]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[24]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[25]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[26]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[27]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[28]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[29]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[30]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[31]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[32]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[33]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[34]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[35]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[36]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[37]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[38]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[39]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[40]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[41]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[42]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[43]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[44]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[45]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[46]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[47]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[48]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[49]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[50]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[51]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[52]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[53]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[54]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[55]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[56]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[57]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[58]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[59]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[60]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[61]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[62]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[63])
-            :"l"(i43desc),
-             "l"(i44desc),
-             "n"((uint32_t)(true)),
-             "n"(1),
-             "n"(1),
-             "n"(0),
-             "n"(0)
-          );
+          GEMM();
         }
         asm volatile("wgmma.commit_group.sync.aligned;\n");
       }
@@ -11677,88 +11680,7 @@ __global__ __launch_bounds__(384) void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat,
         asm volatile("wgmma.fence.sync.aligned;\n");
         #pragma unroll
         for(nvfuser_index_t i41 = 0; i41 < 8; i41 += 2) {
-          uint64_t i43desc;
-          i43desc = i39 + i41;
-          uint64_t i44desc;
-          i44desc = i40 + i41;
-          asm volatile(
-            "{\n"
-            "  .reg .pred p0; \n"
-            "  setp.ne.b32 p0, %66, 0;\n"
-            "  wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63}, %64, %65, p0, %67, %68, %69, %70;\n"
-            "}\n"
-            :"+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[0]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[1]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[2]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[3]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[4]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[5]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[6]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[7]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[8]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[9]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[10]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[11]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[12]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[13]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[14]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[15]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[16]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[17]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[18]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[19]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[20]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[21]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[22]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[23]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[24]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[25]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[26]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[27]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[28]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[29]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[30]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[31]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[32]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[33]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[34]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[35]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[36]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[37]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[38]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[39]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[40]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[41]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[42]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[43]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[44]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[45]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[46]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[47]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[48]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[49]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[50]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[51]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[52]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[53]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[54]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[55]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[56]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[57]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[58]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[59]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[60]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[61]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[62]),
-             "+f"((*reinterpret_cast<Array<float, 64, 1>*>(&T2[0]))[63])
-            :"l"(i43desc),
-             "l"(i44desc),
-             "n"((uint32_t)(true)),
-             "n"(1),
-             "n"(1),
-             "n"(0),
-             "n"(0)
-          );
+          GEMM();
         }
         asm volatile("wgmma.commit_group.sync.aligned;\n");
 
