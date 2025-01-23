@@ -41,6 +41,12 @@ class LoopPromotionMapBuilderCallback {
   // Called after Step 3 with the final loop promotion map
   virtual void postStep5(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
+
+  virtual ExprGroups updateOrderedExprGroupsForPropagation(
+      const ExprGroups& ordered_exprs,
+      const ValGraph& graph) {
+    return ordered_exprs;
+  }
 };
 
 class LoopPromotionMapBuilder {
@@ -64,6 +70,8 @@ class LoopPromotionMapBuilder {
       const StatefulInliningInfo& inlining_info,
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
+
+  ExprGroups getOrderedExprGroupsForPropagation(const ValGraph& graph);
 
   std::unordered_map<ValGroup, IterDomain*> build();
 

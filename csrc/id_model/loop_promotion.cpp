@@ -10,6 +10,7 @@
 #include <id_model/to_string.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <options.h>
 #include <val_graph_visitor.h>
 
 namespace nvfuser {
@@ -140,6 +141,56 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
 }
 
 } // namespace
+
+ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
+    const ValGraph& graph) {
+  ExprGroups ordered_exprs;
+
+  if (getenv("LEGACY")) {
+    ValGraphStmtSort iel_stmt_sort(graph);
+    ordered_exprs = iel_stmt_sort.exprs();
+  } else {
+    auto expr_path = ValGraphBFS::getExprGroupsBetween(
+                         graph,
+                         graph.getTerminatingInputs(),
+                         graph.disjointValSets().disjointSets(),
+                         /*require_all_to_visited=*/true,
+                         Direction::Forward)
+                         .first;
+
+    for (const auto& [expr_g, _] : expr_path) {
+      ordered_exprs.pushBack(expr_g);
+    }
+
+    NVF_ERROR(ordered_exprs.size() == expr_path.size());
+
+    if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+      std::unordered_set<ValGroup> visited;
+      for (const ValGroup& terminating_input : graph.getTerminatingInputs()) {
+        visited.emplace(terminating_input);
+      }
+
+      for (const ExprGroup& expr : ordered_exprs) {
+        for (const ValGroup& inp_group : graph.inputGroups(expr)) {
+          NVF_ERROR(
+              visited.count(inp_group),
+              "Invalid traversal order at ",
+              nvfuser::toString(expr));
+        }
+        for (const ValGroup& out_group : graph.outputGroups(expr)) {
+          visited.emplace(out_group);
+        }
+      }
+    }
+  }
+
+  if (callback_) {
+    ordered_exprs =
+        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, graph);
+  }
+
+  return ordered_exprs;
+}
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
@@ -611,9 +662,10 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
-  ValGraphStmtSort iel_stmt_sort(iel_graph);
 
-  for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
+  ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(iel_graph);
+
+  for (const auto& iel_expr : ordered_exprs) {
     NVF_ERROR(!iel_expr->empty());
     const std::vector<ValGroup> iel_inp_groups =
         iel_graph.inputGroups(iel_expr);
@@ -796,7 +848,13 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
 
     for (const ExprGroup& use_group : graph.getUses(group_to_visit)) {
       for (const ValGroup& output_group : graph.outputGroups(use_group)) {
-        if (covered_ids[output_group].pushBack(covered_ids.at(group_to_visit))) {
+        bool initial_info = covered_ids.find(output_group) == covered_ids.end();
+        bool anything_added =
+            covered_ids[output_group].pushBack(covered_ids.at(group_to_visit));
+        // Note that we need to propagate even when anything_added is
+        // false when this is the initial setting of the coverage info
+        // of this group
+        if (initial_info || anything_added) {
           groups_to_visit.push_back(output_group);
         }
       }
@@ -901,7 +959,10 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   ValGroups loop_group_covered_ids;
   for (const ValGroup& exact_group : exact_groups) {
     auto covered_it = exact_covered_ids.find(exact_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
+    NVF_ERROR(
+        covered_it != exact_covered_ids.end(),
+        "No covered group info for ",
+        nvfuser::toString(exact_group));
     loop_group_covered_ids.pushBack(covered_it->second);
   }
 
