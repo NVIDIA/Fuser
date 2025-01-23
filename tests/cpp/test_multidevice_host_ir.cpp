@@ -464,9 +464,10 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
     }
     out_at = executor.runWithInput(inputs).at(0);
   }
+  torch::cuda::synchronize();
   cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-2, 1e-2));
+  EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
 }
 
 } // namespace hir

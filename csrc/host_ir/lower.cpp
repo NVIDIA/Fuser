@@ -356,9 +356,7 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     auto* a = linear->inA()->as<TensorView>();
     auto* b = linear->inB()->as<TensorView>();
     auto* bias = linear->bias()->as<TensorView>();
-    ;
     auto* out = linear->out()->as<TensorView>();
-    ;
     return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
         !isSharded(out) &&
         a->axis(0)->getParallelType() == ParallelType::Serial &&
@@ -383,7 +381,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
     tvb = matmul->inB();
     tv_out = matmul->out();
   } else {
-    auto* linear = dynamic_cast<LinearOp*>(expr);
+    auto* linear = expr->as<LinearOp>();
     tva = linear->inA()->as<TensorView>();
     tvb = linear->inB()->as<TensorView>();
     tv_bias = linear->bias()->as<TensorView>();
