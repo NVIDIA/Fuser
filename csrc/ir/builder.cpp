@@ -684,7 +684,7 @@ namespace {
 
 //! Compares a to b if they are both const scalars convertible to double
 std::partial_ordering compareScalars(Val* a, Val* b) {
-  if (ir_utils::isFunctional(a) || ir_utils::isFunctional(b)) {
+  if (!ir_utils::isFunctional(a) || !ir_utils::isFunctional(b)) {
     return std::partial_ordering::unordered;
   }
   ExpressionEvaluator ee;
