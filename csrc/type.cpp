@@ -684,6 +684,8 @@ static const char* ternary_op_type2string(TernaryOpType t) {
       return "threshold";
     case TernaryOpType::Where:
       return "where";
+    case TernaryOpType::Philox:
+      return "philox";
     default:
       NVF_THROW("Unexpected TernaryOpType");
   }

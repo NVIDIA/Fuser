@@ -96,10 +96,6 @@ class KernelIrScanner : private IrVisitor {
     }
   }
 
-  void handle(RNGOp* rng_op) final {
-    summary_.has_philox_op = true;
-  }
-
   void handle(TensorIndex* tensor_index) final {
     const auto tv = tensor_index->view();
     const auto domain = tv->domain();
