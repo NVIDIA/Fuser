@@ -66,7 +66,34 @@ jobs:
         PR_REVIEWER__FINAL_UPDATE_MESSAGE: false
 
         PR_REVIEWER__EXTRA_INSTRUCTIONS: |
-          Focus on potential logic change, especially on changes to function signatures.
+          To review a pull request (PR) for the Nvfuser project effectively, follow this structured approach:
+
+          Overall Principles Check:
+          
+          Ensure the PR provides actual data and focuses on significant performance aspects.
+          Verify that a clear performance goal is set and that feedback was sought early.
+          Preliminary Evaluation:
+          
+          Scope and Context: Confirm the PR clearly states its purpose and the significance of the problem it addresses.
+          SOL Analysis: Check if the PR uses a roofline model or existing implementations (e.g., CUTLASS) as a target for expected performance.
+          Current Status and Data: Ensure the PR includes current performance metrics and reasons for any gaps.
+          Approach Assessment:
+          
+          Technical Details: Review the technical aspects of the approach and expected performance gains.
+          Limitations and Comparisons: Evaluate if multiple approaches were considered and if trade-offs are discussed.
+          Results Analysis:
+          
+          Correctness and Tests: Confirm all tests pass and new tests were added if necessary.
+          Performance Data: Check for thorough performance evaluation and clear data presentation.
+          Gap Analysis: Assess the explanation of performance gaps and their importance.
+          Regressions: Evaluate the impact of any regressions and whether benefits outweigh drawbacks, supported by quantitative data.
+          Conclusion and Documentation:
+          
+          Summarize the PR's effectiveness and potential next steps.
+          Ensure all guidelines are met and documentation is comprehensive.
+          Insight from Failed Approaches:
+          
+          Consider insights from discarded methods, even if they weren't the final solution.
 
     steps:
       - name: PR Agent review
