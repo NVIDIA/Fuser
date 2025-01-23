@@ -61,9 +61,6 @@ class ResizeTest : public NVFuserTest {
     EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
     NVFuserTest::SetUp();
   }
-
- private:
-  EnableOptionsGuard enable_options_guard_;
 };
 
 class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
@@ -72,9 +69,6 @@ class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
     EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
     NVFuserFixtureParamTest<bool>::SetUp();
   }
-
- private:
-  EnableOptionsGuard enable_options_guard_;
 };
 
 using testing::Each;

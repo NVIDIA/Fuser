@@ -155,6 +155,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
           {"id_model", EnableOption::IdModel},
+          {"id_model_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
           {"kernel_db", EnableOption::KernelDb},
           {"kernel_debug", EnableOption::KernelDebug},
