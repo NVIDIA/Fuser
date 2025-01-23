@@ -414,12 +414,23 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    int64_t run_order_id = 0;
     for (auto& executor : executors_) {
       if (auto raw_ke = dynamic_cast<KernelExecutor*>(executor.get())) {
         executor.release();
         std::unique_ptr<KernelExecutor> ke(raw_ke);
         hic_->pushBackKernelExecutor(std::move(ke));
+
+        auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+
+        IrCloner ir_cloner(hic_.get());
+        auto hic_in = ir_cloner.clone(group_to_run->inputs());
+        auto hic_out = ir_cloner.clone(group_to_run->outputs());
+        auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
+            0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
+        hic_->pushBackTopLevelExprs(launch_kernel);
       }
+      run_order_id++;
     }
   }
 
