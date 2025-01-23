@@ -63,22 +63,49 @@ void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
   }
 }
 
-std::tuple<int64_t, int64_t, int64_t> getThreadsPerBlockPerSmAndSmCount() {
-  auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  return {
-      dev_prop->maxThreadsPerBlock,
-      dev_prop->maxThreadsPerMultiProcessor,
-      dev_prop->multiProcessorCount};
-}
-
-int64_t getMaxUnroll(
+// The returned value is the product of vectorization_factor and
+// reduction_unroll_factor for 2d inner reduction heuristics. The estimation is
+// based on properties of the fusion and hardware memory bandwidth.
+int64_t getVectUnroll(
     const int64_t max_input_dtype_size,
-    const int64_t n_tensor_inputs) {
-  return ceilDiv(
+    const int64_t max_vectorize_factor,
+    const int64_t n_tensor_inputs,
+    const int64_t target_threads_per_sm,
+    const bool has_mufu_computation) {
+  // empirical value, derived from A100 & H100
+  int64_t vect_factor = ceilDiv(
       // Available unrolling based on size of data type
       (int64_t)16 / max_input_dtype_size,
       // Reduce unrolling if we have many inputs, start reduction at 4 inputs
       scheduler_utils::lastPow2(std::max(n_tensor_inputs >> 2, (int64_t)1)));
+
+  // If has computation uses mufu units, thread local computation is already
+  // expensive, don't need further unroll. This is opposite to pointwise
+  // scheduler where extra unroll is beneficial if we have expensive ops. Why?
+  // Probably because the reduction after pointwise ops is already expensive
+  // enough to hide the memory access latency of other blocks.
+  if (has_mufu_computation) {
+    return vect_factor;
+  }
+
+  int64_t required_bytes_in_flight =
+      scheduler_utils::getRequiredBytesInFlight();
+  int64_t required_bytes_per_thread =
+      ceilDiv(required_bytes_in_flight, target_threads_per_sm);
+  int64_t bytes_per_element = max_input_dtype_size * n_tensor_inputs;
+  int64_t unroll_vect = ceilDiv(required_bytes_per_thread, bytes_per_element);
+
+  // prioritize vectorization over unrolling
+  vect_factor = std::min(vect_factor, scheduler_utils::lastPow2(unroll_vect));
+
+  // When fully vectorized, unroll by at least 2 to provide some
+  // instruction level parallelism. This is for A100-40G whose bandwidth is much
+  // lower and won't need unroll if only based on bytes in flight.
+  int64_t unroll_factor = 1;
+  if (vect_factor == max_vectorize_factor) {
+    unroll_factor = std::max(2L, ceilDiv(unroll_vect, vect_factor));
+  }
+  return unroll_factor * vect_factor;
 }
 
 int64_t getL1L2WarpSize(
@@ -118,185 +145,134 @@ int64_t getL1L2WarpSize(
   return std::min(warp_size_based_on_l1, warp_size_based_on_l2);
 }
 
-std::tuple<int64_t, int64_t, int64_t> getTargetThreadsBlocksIterations(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t n_tensor_inputs,
-    const int64_t max_input_dtype_size,
-    const int64_t sm_count,
-    const int64_t max_threads_per_sm,
-    const int64_t max_unroll,
-    const int64_t min_warp_size) {
-  // Initialization
-  int64_t target_blocks = 1;
-  int64_t target_unroll = 1;
-  int64_t target_iterations = 1;
-
-  // Try to set a minmum amount of work for each thread, as cross thread
-  // communication is slow so it shouldn't be done for every element in the
-  // reduction.
-  int64_t min_target_iterations =
-      std::max((int64_t)32 / (int64_t)max_input_dtype_size, (int64_t)1);
-
-  // Start trying to break parallelization up across threads,
-  // unrolling/iterations, and blocks.
-
-  // target_threads_in_block is the cap on a thread block, the minimum is based
-  // on min_warp_size
-  int64_t target_threads_in_block = std::max(
-      min_warp_size, ceilDiv(total_reduction_numel, min_target_iterations));
-
-  // If we have one warp per block, check if that's enough to saturate the SMs
-  const int64_t n_elems = total_reduction_numel * total_iteration_numel;
-  target_blocks = ceilDiv(n_elems, min_warp_size);
-
-  // If we have more than a wave of blocks, put parallelism into unrolling and
-  // target iterations
-  if (target_blocks > sm_count) {
-    auto available_unroll =
-        std::max(n_elems / (min_warp_size * sm_count), (int64_t)1);
-
-    // Spread across unrolling and iterations, want a balance of the two so flip
-    // back and forth to alternate adding to them.
-    bool flip = true;
-
-    while (available_unroll > 1 &&
-           (target_unroll < max_unroll ||
-            // Prefer unrolling
-            target_iterations < max_unroll)) {
-      if (target_unroll * 2 <= max_unroll && flip) {
-        target_unroll *= 2;
-      }
-
-      if (target_iterations * 2 <= max_unroll && !flip) {
-        target_iterations *= 2;
-      }
-
-      available_unroll = std::max(
-          n_elems /
-              (min_warp_size * sm_count * target_unroll * target_iterations),
-          (int64_t)1);
-
-      flip = !flip;
-    }
-
-    // Recompute target blocks
-    target_blocks =
-        ceilDiv(n_elems, min_warp_size * target_unroll * target_iterations);
-  }
-
-  // Cap target blocks to 4 waves
-  target_blocks = std::min(target_blocks, sm_count * 4);
-
-  if (target_blocks * target_unroll * target_iterations < n_elems) {
-    // targetting 4 waves, so try to use a quarter of available threads
-    target_threads_in_block = std::min(
-        ceilDiv(n_elems, target_blocks * target_unroll),
-        ceilDiv(max_threads_per_sm, (int64_t)4));
-  }
-
-  // Round up to nearest warp.
-  if (target_threads_in_block % min_warp_size != 0) {
-    target_threads_in_block +=
-        min_warp_size - target_threads_in_block % min_warp_size;
-  }
-  return {target_threads_in_block, target_blocks, target_iterations};
-}
-
+// Parallelization strategy:
+// [] indicates optional
+// Reduction dim: Serial, [BIDx or unroll], TIDx, Vect
+// Iteration dim: Serial, BIDy, [TIDy], [unroll]
 std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
-    const size_t max_vectorize_factor) {
-  // Set some targets for parallelization
-  auto [threads_per_block, threads_per_sm, sm_count] =
-      getThreadsPerBlockPerSmAndSmCount();
-  auto const max_unroll = getMaxUnroll(max_input_dtype_size, n_tensor_inputs);
+    const int64_t max_vectorize_factor,
+    const bool has_mufu_computation) {
+  // Get device properties
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t threads_per_warp = dev_prop->warpSize;
+  const int64_t max_threads_per_block = dev_prop->maxThreadsPerBlock;
+  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
+  const int64_t sm_count = dev_prop->multiProcessorCount;
+  const int64_t target_threads_per_sm = max_threads_per_sm / 2;
+
   const int64_t min_warp_size = getL1L2WarpSize(
       total_reduction_numel,
       total_iteration_numel,
       n_tensor_inputs,
       max_input_dtype_size);
-  auto [target_threads_in_block, target_blocks, target_iterations] =
-      getTargetThreadsBlocksIterations(
-          total_reduction_numel,
-          total_iteration_numel,
-          n_tensor_inputs,
-          max_input_dtype_size,
-          sm_count,
-          threads_per_sm,
-          max_unroll,
-          min_warp_size);
 
-  // Parallelization strategy:
-  // [] indicates optional
-  // Reduction dim: Serial, [grdim], TIDx, Vect
-  // Iteration dim: Serial, godim, [TIDy]
+  // Set target_vect_unroll
+  auto target_vect_unroll = getVectUnroll(
+      max_input_dtype_size,
+      max_vectorize_factor,
+      n_tensor_inputs,
+      target_threads_per_sm,
+      has_mufu_computation);
+
+  // redu = [i-remainder, i-Unroll, TIDx, Vect]
+  int64_t inner_unroll = 1, bdimx = 1, vect_factor = 1;
+  auto getInnerRemainder = [&]() {
+    return ceilDiv(
+        ceilDiv(total_reduction_numel / vect_factor, bdimx), inner_unroll);
+  };
 
   // Max vectorization factor
-  int64_t vect_factor = std::min(
-      scheduler_utils::lastPow2(max_unroll), (int64_t)max_vectorize_factor);
+  vect_factor = std::min(
+      scheduler_utils::lastPow2(target_vect_unroll),
+      (int64_t)max_vectorize_factor);
+  const int64_t four_warps = 4 * threads_per_warp;
+  int64_t target_inner_unroll = target_vect_unroll / vect_factor;
   int64_t after_vect = total_reduction_numel / vect_factor;
 
-  // Set bdimx and bdimy
-  // Prioritize set bdimx to max threads in block
-  // Put what is left to bdimy
-  int64_t bdimx =
-      std::min(std::max(after_vect, min_warp_size), target_threads_in_block);
-  // If we're not just barely covering the dimension, round to a more friendly
-  // number
-  if (bdimx * vect_factor != total_reduction_numel) {
-    // Round bdimx down to multiple of warp size or power 2
-    if (bdimx < min_warp_size) {
-      bdimx = scheduler_utils::lastPow2(bdimx);
-    } else {
-      bdimx = bdimx - bdimx % min_warp_size;
+  // Empirical CTA size, both values allow thread uses 255 registers, so we
+  // don't need to set maxrregcount which may affect occupancy since it is
+  // derived by assuming one block per sm. This is due to the fact that when
+  // maxrregcount is set, the compiler are more aggressive in register
+  // allocation. When has expensive ops, use a smaller CTA size for higher
+  // opportunity to reach higher occupancy.
+  int64_t target_threads_per_block = has_mufu_computation ? 128 : 256;
+
+  // When iteration dim is small, the number of blocks is small since each block
+  // reduces one row (if iteration dim is extremely small, may do grid reduction
+  // where multiple blocks are used for one rwo). Then, we need a large CTA size
+  // to saturate SMs. But don't go over max_threads_per_block / 2 to reduce
+  // communication cost and allow more than 1 block per SM.
+  int64_t max_blocks = total_iteration_numel;
+  int64_t min_threads_per_block = scheduler_utils::roundUpPow2(
+      ceilDiv(target_threads_per_sm * sm_count, max_blocks));
+  min_threads_per_block =
+      std::min(min_threads_per_block, max_threads_per_block / 2);
+  target_threads_per_block =
+      std::max(target_threads_per_block, min_threads_per_block);
+
+  // Put inner remainder to bdimx, but don't go over 4 warps
+  // to leave some room for unrolling.
+  bdimx = std::max(getInnerRemainder(), min_warp_size);
+  bdimx = std::min(bdimx, four_warps);
+
+  // Put inner remainder to unroll, but don't go over target_inner_unroll
+  inner_unroll = std::min(getInnerRemainder(), target_inner_unroll);
+
+  // Put inner remainder to bdimx, but don't go over target_threads_per_block
+  bdimx = std::min(ceilDiv(after_vect, inner_unroll), target_threads_per_block);
+
+  // if unroll can't cover the whole reduction, adjust bdimx and unroll to
+  // remove quantization effect. e.g. at 20736, vect = 8, bdimx = 512, unroll =
+  // 5, then iteration = 1.01, the 2nd iteration only has 1% effective threads.
+  // Check all possible bdimx and unroll, choose the one with smallest remainder
+  if (getInnerRemainder() > 1) {
+    int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
+    int64_t current_remainder = after_vect_bdimx % inner_unroll;
+    for (auto tmp_bdimx = four_warps; tmp_bdimx <= target_threads_per_block;
+         tmp_bdimx += min_warp_size) {
+      after_vect_bdimx = ceilDiv(after_vect, tmp_bdimx);
+      for (auto factor = target_inner_unroll; factor > 1; factor--) {
+        int64_t remainder = after_vect_bdimx % factor;
+        if (remainder == 0) {
+          inner_unroll = factor;
+          bdimx = tmp_bdimx;
+          break;
+        }
+        if (remainder < current_remainder) {
+          current_remainder = remainder;
+          inner_unroll = factor;
+          bdimx = tmp_bdimx;
+        }
+      }
     }
   }
-  int64_t bdimy = std::max(target_threads_in_block / bdimx, (int64_t)1);
-  // If we don't have a full warp and have an unroll factor, move unroll into
-  // bdimx
-  if (bdimx * bdimy < min_warp_size && vect_factor > 1) {
-    bdimx = std::min(
-        std::max(total_reduction_numel, min_warp_size),
-        target_threads_in_block);
-    vect_factor = std::min(ceilDiv(total_reduction_numel, bdimx), max_unroll);
-    bdimy = std::max(target_threads_in_block / bdimx, (int64_t)1);
-  }
 
-  // set iteration blocks and iteration unroll
-  int64_t godim = ceilDiv(total_iteration_numel, bdimy);
-  int64_t remainder_in_reduction =
-      ceilDiv(total_reduction_numel, bdimx * vect_factor * target_iterations);
-  // If we haven't gotten to the max_unroll case, try to take it out of the
-  // iteration domain
-  int64_t iter_unroll_factor = 1;
-  if (vect_factor < max_unroll) {
-    // Don't go over a combined inner/outer unroll of max_unroll
-    auto unroll_available = ceilDiv(max_unroll, vect_factor);
+  // Set iteration dims, iter = [BIDy, o-Unroll, TIDy]
+  // outer unroll is not used since test shows lower performance compared with
+  // inner unroll because the lack of a iteration domain grouped warp
+  // reduction. So each block needs to call warp reduction [o-Unroll] times.
+  int64_t bdimy = 1, outer_unroll = 1, godim = 1;
 
-    if (unroll_available > 1 && godim > 2 * sm_count) {
-      unroll_available =
-          std::min(unroll_available, ceilDiv(godim, 2 * sm_count));
-      iter_unroll_factor = unroll_available;
-    }
-  }
-  godim = ceilDiv(total_iteration_numel, bdimy * iter_unroll_factor);
+  // fill bdimy, but don't go over target_threads_per_block
+  bdimy = std::min(total_iteration_numel, target_threads_per_block / bdimx);
 
-  // set reduction blocks, grdim
+  // Put what is left to godim
+  godim = ceilDiv(ceilDiv(total_iteration_numel, bdimy), outer_unroll);
+
+  // When iteration dim is small, may have unused SMs, to increase SM usage
+  // needs to shift from block reduction to grid reduction.
   int64_t grdim = 1;
-  constexpr int64_t kEight = 8;
-  // Cross grid reduction if we haven't hit our target blocks, and we have manyr
-  // reduction elements.
-  if ((godim < target_blocks && remainder_in_reduction >= 0) ||
-      (remainder_in_reduction >= kEight)) {
-    grdim = remainder_in_reduction;
+  while (godim * grdim * 2 <= sm_count && getInnerRemainder() / grdim >= 2) {
+    grdim *= 2;
   }
 
-  // Try to do some cleanup of ragged waves on device
-  if ( // If we have less than 8 waves of blocks
-      grdim * godim < sm_count * kEight &&
+  // For grid reduction, try to do some cleanup of ragged waves on device
+  if (grdim > 1 && // If we have less than 8 waves of blocks
+      grdim * godim < sm_count * 8 &&
       // And we don't have an even divisible number of blocks
       (grdim * godim) % sm_count != 0 &&
       // And we have more than one wave
@@ -316,9 +292,9 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   if (grdim > 1) {
     // Grid reductions do not support unrolling iteration dimension, revert if
     // set. Recalculate godim.
-    if (iter_unroll_factor) {
-      iter_unroll_factor = 1;
-      godim = ceilDiv(total_iteration_numel, bdimy * iter_unroll_factor);
+    if (outer_unroll) {
+      outer_unroll = 1;
+      godim = ceilDiv(total_iteration_numel, bdimy * outer_unroll);
     }
     // This could mess up parallelization which could be redone, but that would
     // require iterating over this entire function.
@@ -331,7 +307,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->cross_grid_inner_reduction = grdim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
-  bool pad_bdimx = bdimx > 16 && bdimx * bdimy < threads_per_block;
+  bool pad_bdimx = bdimx > 16 && bdimx * bdimy < max_threads_per_block;
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
 
   if (rparams->pad_inner_reduction_to_warp) {
@@ -342,15 +318,14 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
         ? bdimx
         : bdimx + min_warp_size - bdimx % min_warp_size;
   }
-
   rparams->unroll_factor_inner_reduction = vect_factor;
+  rparams->unroll_factor_top_of_vectorization = inner_unroll;
   rparams->vectorize_inner_reduction = vect_factor > 1;
-
   if (rparams->multiple_reds_per_blk) {
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   }
 
-  rparams->unroll_factor_iter_dom = iter_unroll_factor;
+  rparams->unroll_factor_iter_dom = outer_unroll;
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
@@ -366,6 +341,10 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
 
     rparams->grid_dim_iter_dom = ParallelType::BIDy;
     if (godim > scheduler_utils::y_grid_limit) {
+      NVF_ERROR(
+          false,
+          "Shouldn't do grid reduction when the iteration dimension is larger than y_grid_limit. iteration dim: ",
+          total_iteration_numel);
       rparams->split_grid_dim_iter_dom_outer = true;
       gdimy = scheduler_utils::y_grid_limit;
     }
@@ -390,7 +369,11 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     debug() << "\n===== Inner 2D Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "target_vect_unroll: " << target_vect_unroll << "\n"
             << "vectorize_factor: " << vect_factor << "\n"
+            << "inner_unroll: " << inner_unroll << "\n"
+            << "outer_unroll: " << outer_unroll << "\n"
+            << "inner iteration: " << getInnerRemainder() << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "block(" << bdimx << ", " << bdimy << ", " << 1 << ")"
@@ -406,7 +389,8 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
     const int64_t inner_most_dimension_numel,
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool has_mufu_computation) {
   // Set some targets for parallelization
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
@@ -808,7 +792,8 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
           total_iteration_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
-          vectorize_factor);
+          vectorize_factor,
+          has_mufu_computation);
     }
   }
 
@@ -1315,7 +1300,8 @@ std::unique_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool has_mufu_computation) {
   // WARNING: Current device for codegen may not be the target device
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t sm_count = (int64_t)dev_prop->multiProcessorCount;
@@ -1327,20 +1313,34 @@ std::unique_ptr<ReductionParams> outerReductionHeuristic(
   // for memory-bound kernels. However, it increases register pressure and may
   // lead to lower occupancy which is bad for compute-bound kernels. In most
   // cases, the scheduler uses 512 threads and to reach an occupancy of 50%,
-  // each thread can use up to 64 registers, here only 8 registers are reserved
-  // for unroll and vectorization. The fused ops can have 48 registers for other
-  // purposes. Test shows it leads to 50% occupancy for outer reduction without
-  // fused ops and 50% occupancy for gelu backward which fused 21 ops including
-  // the expensive tanh op. Further tuning of this heuristic can utilize the
-  // cost of the fused ops.
-  const int64_t buffer_reg_count = 8L;
+  // each thread can use up to 64 registers, here only 8 or 32 registers are
+  // reserved for unroll and vectorization. The fused ops can have 56 or 32
+  // registers for other purposes. Test shows it leads to 50% occupancy for
+  // outer reduction without fused ops and 50% occupancy for gelu backward which
+  // fused 21 ops including the expensive tanh op.
+  int64_t buffer_reg_count, input_factor;
+  if (has_mufu_computation) {
+    // when we have expensive ops, computation cost of each thread is already
+    // high, prioritize thread level parallelism, 8 registers are reserved for
+    // unroll and vectorization, the corresponding unroll factor is 2 if fully
+    // vectorized by 16 bytes. when there are more than 4 inputs, reduce to 1.
+    buffer_reg_count = 8L;
+    input_factor = (int64_t)n_tensor_inputs >> 2;
+  } else {
+    // when there is no expensive op, prioritize instruction level parallelism,
+    // 32 registers are reserved for unroll and vectorization, the corresponding
+    // unroll factor is 8 if fully vectorized by 16 bytes. Gradually reduce
+    // unroll factor if we have many inputs, e.g. 2 inputs -> unroll by 4; 3 or
+    // 4 inputs -> unroll by 2; 5, 6, 7 or 8 inputs -> unroll by 1.
+    buffer_reg_count = 32L;
+    input_factor = n_tensor_inputs;
+  }
   auto const max_unroll = ceilDiv(
       // Available unrolling based on size of data type
       buffer_reg_count * scheduler_utils::bytes_per_register /
           (int64_t)max_input_dtype_size,
-      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
-      scheduler_utils::lastPow2(
-          std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
+      // Reduce unrolling if we have many inputs
+      scheduler_utils::lastPow2(std::max(input_factor, (int64_t)1)));
 
   // block or grid reduction heuristic
   auto grid_params = getGridOuterReduction(
@@ -1377,7 +1377,8 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
     const bool fastest_dim_reduction,
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool has_mufu_computation) {
   if (fastest_dim_reduction) {
     if (total_reduction_numel == inner_most_dimension_numel) {
       return inner2dReductionHeuristic(
@@ -1385,7 +1386,8 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
           total_iteration_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
-          vectorize_factor);
+          vectorize_factor,
+          has_mufu_computation);
     } else {
       return inner3dReductionHeuristic(
           total_reduction_numel,
@@ -1393,7 +1395,8 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
           inner_most_dimension_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
-          vectorize_factor);
+          vectorize_factor,
+          has_mufu_computation);
     }
 
   } else {
@@ -1403,7 +1406,8 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
         total_iteration_numel,
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
-        vectorize_factor);
+        vectorize_factor,
+        has_mufu_computation);
   }
 }
 
@@ -1492,6 +1496,8 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, 1l);
 
+  bool has_mufu_computation = scheduler_utils::hasExpensiveMUFUops(fusion);
+
   auto heuristic = reductionHeuristic(
       properties.total_reduction_numel,
       properties.total_iteration_numel,
@@ -1499,7 +1505,8 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
       properties.fastest_dim_reduction,
       n_tensor_inputs,
       max_dtype_size,
-      vectorize_factor);
+      vectorize_factor,
+      has_mufu_computation);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
