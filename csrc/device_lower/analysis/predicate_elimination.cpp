@@ -570,7 +570,7 @@ class PredicateChcker : public IterVisitor {
   //   in the indexing pass.
   // For details on zero loops, see indexMapFromTV in
   //  lower index pass.
-  std::vector<Val*> getZeroLeafIds(const TensorView* tv) const {
+  std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
     NVF_ERROR(
         tv->getMemoryType() == MemoryType::Local ||
             tv->getMemoryType() == MemoryType::Shared,
@@ -655,7 +655,7 @@ class PredicateChcker : public IterVisitor {
       if (split_logical.empty()) {
         continue;
       }
-      const auto zero_loop_ids = getZeroLeafIds(output);
+      const auto zero_loop_ids = getZeroLoopIds(output);
       if (zero_loop_ids.empty()) {
         RECORD_AND_RETURN(true);
       }
