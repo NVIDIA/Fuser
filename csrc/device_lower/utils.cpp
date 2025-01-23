@@ -552,7 +552,7 @@ class ReplaceExprInput : private kir::ExprMutator {
   void handle(kir::RNGOp* node) final {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
-      kir::RNGOp* replacement;
+      kir::RNGOp* replacement = nullptr;
       if (node->inputs().size() == 4) {
         replacement = IrBuilder::create<kir::RNGOp>(
             node->output(0),

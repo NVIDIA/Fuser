@@ -29,6 +29,7 @@ std::tuple<Val*, Expr*> createAndAllocNS(
 
 class RNGInserter : public kir::ExprMutator {
  public:
+  using kir::ExprMutator::handle;
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
     RNGInserter inserter(exprs);
     return inserter.exprs_;
