@@ -718,6 +718,7 @@ namespace {
 // Returns for each ValGroup in provided IdGraph what the input ValGroups are
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
 // at RFactor ValGroups.
+#if 0
 std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     const ValGraph& graph) {
   // Map from an exact iter domain group, to all the exact iter domain groups it
@@ -762,6 +763,49 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
 
   return covered_ids;
 }
+#else
+std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
+    const ValGraph& graph) {
+  // Map from an exact iter domain group, to all the exact iter domain groups it
+  // covers
+  std::unordered_map<ValGroup, ValGroups> covered_ids;
+
+  std::deque<ValGroup> groups_to_visit;
+
+  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
+    // Initialize inputs
+    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
+    if (id_group_defs.empty()) {
+      covered_ids[id_group] = {id_group};
+      groups_to_visit.push_back(id_group);
+    }
+
+    // Initialize broadcast groups to empty since broadcast domains
+    // don't matter for indexing
+    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+          return id->as<IterDomain>()->isBroadcast();
+        })) {
+      covered_ids[id_group] = {};
+      groups_to_visit.push_back(id_group);
+    }
+  }
+
+  while (!groups_to_visit.empty()) {
+    auto group_to_visit = groups_to_visit.front();
+    groups_to_visit.pop_front();
+
+    for (const ExprGroup& use_group : graph.getUses(group_to_visit)) {
+      for (const ValGroup& output_group : graph.outputGroups(use_group)) {
+        if (covered_ids[output_group].pushBack(covered_ids.at(group_to_visit))) {
+          groups_to_visit.push_back(output_group);
+        }
+      }
+    }
+  }
+
+  return covered_ids;
+}
+#endif
 
 }; // namespace
 
