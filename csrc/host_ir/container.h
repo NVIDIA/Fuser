@@ -43,7 +43,7 @@ class HostIrContainer final : public Fusion {
   }
 
   void pushBackKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
-    return kernel_executors_.push_back(std::move(ke));
+    kernel_executors_.push_back(std::move(ke));
   }
 
   KernelExecutor* getKernelExecutor(int64_t index) const {

@@ -143,6 +143,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
   NVF_CHECK(maybe_heuristics.has_value());
   heuristics_ = std::move(maybe_heuristics.value());
+  hic_ = std::make_unique<nvfuser::hir::HostIrContainer>();
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -411,6 +412,17 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         thread_pool_error_message,
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
+
+  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    for (auto& executor : executors_) {
+      if (auto raw_ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+        executor.release();
+        std::unique_ptr<KernelExecutor> ke(raw_ke);
+        hic_->pushBackKernelExecutor(std::move(ke));
+      }
+    }
+  }
+
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
   }

@@ -14,6 +14,7 @@
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_cache_utils.h>
+#include <host_ir/container.h>
 
 #include <mutex>
 #include <vector>
@@ -177,6 +178,9 @@ class FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
+
+  //! Host IR container
+  std::unique_ptr<nvfuser::hir::HostIrContainer> hic_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion
