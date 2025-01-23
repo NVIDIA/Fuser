@@ -203,39 +203,43 @@ bool isCpAsyncOp(const Expr* expr) {
 
 namespace {
 
-enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+enum class CpAsyncBulkMode { G2S, S2G, NotACpAsyncBulk };
 
-inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
+inline CpAsyncBulkMode getCpAsyncBulkMode(const Expr* expr) {
+  // Attempt to cast to LoadStoreOp
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      if (getTv(ldst->in())->getMemoryType() == MemoryType::Global &&
-          getTv(ldst->out())->getMemoryType() == MemoryType::Shared) {
-        return CpAsyncBulkTileType::G2S;
+    // Check if opType is either CpAsyncBulk or CpAsyncBulkTensorTile
+    auto op_type = ldst->opType();
+    if (op_type == LoadStoreOpType::CpAsyncBulk ||
+        op_type == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      // Check memory types
+      auto in_mem = getTv(ldst->in())->getMemoryType();
+      auto out_mem = getTv(ldst->out())->getMemoryType();
+      if (in_mem == MemoryType::Global && out_mem == MemoryType::Shared) {
+        return CpAsyncBulkMode::G2S;
       } else if (
-          getTv(ldst->in())->getMemoryType() == MemoryType::Shared &&
-          getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
-        return CpAsyncBulkTileType::S2G;
+          in_mem == MemoryType::Shared && out_mem == MemoryType::Global) {
+        return CpAsyncBulkMode::S2G;
       } else {
-        NVF_THROW("Invalid CpAsyncBulkTileType");
+        NVF_THROW("Invalid memory types for CpAsyncBulk or CpAsyncBulkTile");
       }
     }
   }
-  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+  return CpAsyncBulkMode::NotACpAsyncBulk;
 }
 
 } // namespace
 
 bool isCpAsyncBulk(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) !=
-      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+  return getCpAsyncBulkMode(expr) != CpAsyncBulkMode::NotACpAsyncBulk;
 }
 
 bool isCpAsyncBulkLoad(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+  return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::G2S;
 }
 
 bool isCpAsyncBulkStore(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
+  return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
