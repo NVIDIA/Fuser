@@ -571,16 +571,11 @@ class PredicateChcker : public IterVisitor {
   // For details on zero loops, see indexMapFromTV in
   //  lower index pass.
   std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
-    NVF_ERROR(
-        tv->getMemoryType() == MemoryType::Local ||
-            tv->getMemoryType() == MemoryType::Shared,
-        "Local or shared memory tensor is assumed: ",
-        tv->toString());
-    bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
     std::vector<Val*> zero_loop_ids;
     for (const auto i : c10::irange(tv->nDims())) {
       auto loop_id = tv->axis(i);
-      if (is_shared_mem && loop_id->isThreadDim()) {
+      if (ir_utils::isMemorySharedAcross(
+              tv->getMemoryType(), loop_id->getParallelType())) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share
         //  of the shared mem space.
@@ -592,7 +587,8 @@ class PredicateChcker : public IterVisitor {
           i < tv->getComputeAtPosition() ||
           // Parallel axes on local mem is zero loop.
           // Grid axes on shared mem is zero loop.
-          loop_id->isThread() ||
+          ir_utils::isMemoryPartitionedAcross(
+              tv->getMemoryType(), loop_id->getParallelType()) ||
           // Mma axes, similar to vectorization, are
           //  implicit in hardware intrinsics, and thus
           //  will be treated as a zero loop.
