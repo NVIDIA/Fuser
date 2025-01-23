@@ -175,6 +175,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     initStringStreamFormat(code_);
   }
 
+  // aligned array of registers used in the kernel
+  std::unordered_set<Val*> aligned_array_of_regs_;
+
   using kir::ConstIrVisitor::handle;
 
   void initStringStreamFormat(std::stringstream& ss) {
@@ -262,7 +265,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else if (v->isA<TensorView>()) {
       tv = v->as<TensorView>();
     }
-    return genVariableName(v);
+    if (tv &&
+        (aligned_array_of_regs_.count(tv) ||
+         tv->getMemoryType() == MemoryType::Local)) {
+      return genVariableName(tv).append(".array");
+    } else {
+      return genVariableName(v);
+    }
   }
 
   // Generates the kernel function declaration
@@ -3127,6 +3136,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
                  << genInline(size) << ", " << alias_alignment << ">*>(&"
                  << genVariableName(alias_tv) << ");\n";
+        if (alloc->memoryType() == MemoryType::Local) {
+          aligned_array_of_regs_.insert(tv);
+        }
+      }
+      // If the original allocation is aligned, its aliasing tv should also
+      // be aligned due to auto type derivation. For example, in test
+      // `CombinedSchedulerTest.LayerNormBackward/dtype_float_batch_216_hidden_65536`
+      // we have: `Array<float, 4, 4> T32; auto& T29 = T32;`
+      // Compiler treats `T29` as aligned array instead of regular array, when
+      // passing `T29` to a runtime function, should use `T29.array` instead of
+      // `T29`.
+      if (aligned_array_of_regs_.count(alias_tv) > 0) {
+        aligned_array_of_regs_.insert(tv);
       }
     } else {
       // Standard Memory Allocation
