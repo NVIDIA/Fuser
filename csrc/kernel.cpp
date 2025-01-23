@@ -96,7 +96,7 @@ class KernelIrScanner : private IrVisitor {
     }
   }
 
-  // HERE
+  // TODO: Remove
   void handle(nvfuser::RNGOp* rng_op) final {
     summary_.has_philox_op = true;
   }

@@ -2001,10 +2001,6 @@ class NVF_API NamedScalar : public Val {
         p == ParallelType::BIDz);
   }
 
-  bool isParallelScalar() const {
-    return isGridDim() || isBlockDim() || isBlockIdx() || isThreadIdx();
-  }
-
   //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
   //! WARNING: Only works with Fusion container at the moment
   static NamedScalar* getParallelDim(ParallelType p_type);

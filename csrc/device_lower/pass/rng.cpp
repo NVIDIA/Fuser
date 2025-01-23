@@ -50,7 +50,7 @@ class RNGInserter : public kir::ExprMutator {
   }
 
   void handle(RNGOp* rop) final {
-      NVF_ERROR(!exprs.empty());
+    NVF_ERROR(!exprs.empty());
 
     // Set prologue if not already set
     if (rng_result == nullptr) {

@@ -43,7 +43,7 @@ struct KernelSummary {
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
 
-  // HERE
+  // TODO: Remove
   //! Indicate the need to generate random numbers
   bool has_philox_op = false;
 

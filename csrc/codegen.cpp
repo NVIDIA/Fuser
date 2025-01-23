@@ -358,7 +358,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Generates setup code which is executed before the kernel body
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
-
+    // TODO: Remove
     // if (kernel_summary.has_philox_op) {
     //   indent() << "Array<uint32_t, 4> rng_result;\n";
     //   indent() << "nvfuser_index_t rng_subseq = -1;\n";
@@ -850,11 +850,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
-  void handle (const kir::StringInsert* sio) final {
+  void handle(const kir::StringInsert* sio) final {
     code_ << sio->toString();
   }
 
   void handle(const RNGOp* rop) final {
+    // // TODO: NVF_THROW("RNGOp should be lowered to kir::RNGOp");
     // // TODO: NVF_ERROR that the scheduler correctly creates an
     // // innermost ID of size 4 (float) or size 2 (double)?
     // auto index = genInline(rop->getPhiloxIndex());
@@ -862,7 +863,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // indent() << "nvfuser_index_t linear_index" << rop->name() << " = " <<
     // index
     //          << ";\n";
-    // indent() << "nvfuser_index_t rng_subseq" << rop->name() << " = linear_index"
+    // indent() << "nvfuser_index_t rng_subseq" << rop->name() << " =
+    // linear_index"
     //          << rop->name() << " / " << multiple << ";\n";
     // indent() << "nvfuser_index_t rng_component" << rop->name()
     //          << " = linear_index" << rop->name() << " % " << multiple <<
@@ -903,8 +905,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // }
     // code_ << ");\n";
 
-    // code_ << "if(threadIdx.x == 0 && blockIdx.x == 0) {printf(\"%d, %d\\n\", rng_subseq82, rng_offset82); printf(\"%u, %u, %u, %u,\\n\", rng_result[0], rng_result[1], rng_result[2], rng_result[3]);}\n";
-
+    // code_ << "if(threadIdx.x == 0 && blockIdx.x == 0) {printf(\"%d, %d\\n\",
+    // rng_subseq82, rng_offset82); printf(\"%u, %u, %u, %u,\\n\",
+    // rng_result[0], rng_result[1], rng_result[2], rng_result[3]);}\n";
   }
 
   void handle(const kir::RNGOp* rop) final {

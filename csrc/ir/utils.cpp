@@ -1401,7 +1401,7 @@ bool isFunctional(const Val* v) {
       return false;
     }
   }
-  if(dynamic_cast<kir::GetRNGSeedAndOffsetFromHost*>(def)){
+  if (dynamic_cast<kir::GetRNGSeedAndOffsetFromHost*>(def)) {
     return false;
   }
   return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
