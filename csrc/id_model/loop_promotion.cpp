@@ -761,52 +761,6 @@ namespace {
 // Returns for each ValGroup in provided IdGraph what the input ValGroups are
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
 // at RFactor ValGroups.
-#if 0
-std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-    const ValGraph& graph) {
-  // Map from an exact iter domain group, to all the exact iter domain groups it
-  // covers
-  std::unordered_map<ValGroup, ValGroups> covered_ids;
-
-  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
-    // Initialize inputs
-    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
-    if (id_group_defs.empty()) {
-      covered_ids[id_group] = {id_group};
-    }
-
-    // Initialize broadcast groups to empty since broadcast domains
-    // don't matter for indexing
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
-          return id->as<IterDomain>()->isBroadcast();
-        })) {
-      covered_ids[id_group] = {};
-    }
-  }
-
-  ValGraphStmtSort exact_stmt_sort(graph);
-
-  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
-    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
-
-    ValGroups covered;
-    for (const ValGroup& inp_group : input_groups) {
-      covered.pushBack(covered_ids.at(inp_group));
-    }
-
-    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
-      // Note that pushBack must be used instead of just
-      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
-      // exact expr groups and may have different coverage groups depending on
-      // the expr groups. For example, this can happen with reshape or resize.
-      // See test LoopPromotionCoverage for a concrete example.
-      covered_ids[output_group].pushBack(covered);
-    }
-  }
-
-  return covered_ids;
-}
-#else
 std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     const ValGraph& graph) {
   // Map from an exact iter domain group, to all the exact iter domain groups it
@@ -854,7 +808,6 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
 
   return covered_ids;
 }
-#endif
 
 }; // namespace
 
