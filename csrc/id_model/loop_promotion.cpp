@@ -660,9 +660,6 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
-  // In order to make this traversal work, the traversal order must be
-  // topologically sorted.
-
   ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(iel_graph);
 
   for (const auto& iel_expr : ordered_exprs) {
