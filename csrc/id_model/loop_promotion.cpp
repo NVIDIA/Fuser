@@ -144,42 +144,36 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
 
 ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
     const ValGraph& graph) {
+  auto expr_path = ValGraphBFS::getExprGroupsBetween(
+                       graph,
+                       graph.getTerminatingInputs(),
+                       graph.disjointValSets().disjointSets(),
+                       /*require_all_to_visited=*/true,
+                       Direction::Forward)
+                       .first;
+
   ExprGroups ordered_exprs;
+  for (const auto& [expr_g, _] : expr_path) {
+    ordered_exprs.pushBack(expr_g);
+  }
 
-  if (getenv("LEGACY")) {
-    ValGraphStmtSort iel_stmt_sort(graph);
-    ordered_exprs = iel_stmt_sort.exprs();
-  } else {
-    auto expr_path = ValGraphBFS::getExprGroupsBetween(
-                         graph,
-                         graph.getTerminatingInputs(),
-                         graph.disjointValSets().disjointSets(),
-                         /*require_all_to_visited=*/true,
-                         Direction::Forward)
-                         .first;
+  NVF_ERROR(ordered_exprs.size() == (int64_t)expr_path.size());
 
-    for (const auto& [expr_g, _] : expr_path) {
-      ordered_exprs.pushBack(expr_g);
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    std::unordered_set<ValGroup> visited;
+    for (const ValGroup& terminating_input : graph.getTerminatingInputs()) {
+      visited.emplace(terminating_input);
     }
 
-    NVF_ERROR(ordered_exprs.size() == (int64_t)expr_path.size());
-
-    if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
-      std::unordered_set<ValGroup> visited;
-      for (const ValGroup& terminating_input : graph.getTerminatingInputs()) {
-        visited.emplace(terminating_input);
+    for (const ExprGroup& expr : ordered_exprs) {
+      for (const ValGroup& inp_group : graph.inputGroups(expr)) {
+        NVF_ERROR(
+            visited.count(inp_group),
+            "Invalid traversal order at ",
+            nvfuser::toString(expr));
       }
-
-      for (const ExprGroup& expr : ordered_exprs) {
-        for (const ValGroup& inp_group : graph.inputGroups(expr)) {
-          NVF_ERROR(
-              visited.count(inp_group),
-              "Invalid traversal order at ",
-              nvfuser::toString(expr));
-        }
-        for (const ValGroup& out_group : graph.outputGroups(expr)) {
-          visited.emplace(out_group);
-        }
+      for (const ValGroup& out_group : graph.outputGroups(expr)) {
+        visited.emplace(out_group);
       }
     }
   }

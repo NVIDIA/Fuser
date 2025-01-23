@@ -42,6 +42,8 @@ class LoopPromotionMapBuilderCallback {
   virtual void postStep5(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
 
+  // Allow to modify the ordering of Expr groups to traverse for the
+  // IEL propagation
   virtual ExprGroups updateOrderedExprGroupsForPropagation(
       const ExprGroups& ordered_exprs,
       const ValGraph& graph) {
@@ -71,6 +73,36 @@ class LoopPromotionMapBuilder {
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
 
+  // Returns an ordered list of all Expr groups of a given graph for
+  // traversing from terminating inputs to consumer Val groups. If the
+  // graph is not cyclic, it is topologically orderred. When cyclic,
+  // it's still topologically orderred but as if all the back edges
+  // were dropped. Thus, any info accumulated within a cycle won't be
+  // propagated back to the node where the back edge connects. This
+  // should not be a problem for the promotion analysis as the
+  // information gathered within a cycle of ID and expr groups should
+  // not affect the promotion.
+  //
+  // For example, suppose we have a graph of 5 Val groups, connected as:
+  //
+  //   i0 -> i1  ->  i2 -> i3
+  //          ^       |
+  //          |- i4 <-+
+  //
+  //  (Edges: i0->i1, i1->i2, i2->i3, i2->i4, i4->i1)
+  //
+  // Suppose each edge corresponds to an expression.
+  //
+  // This function will return expressions ordered as:
+  //
+  // i0->i1, i1->i2, i2->i3, i2->i4
+  //
+  // i0 is the terminating input. We start propagating promotion info
+  // from i0 to i1, which is then propagated to i2. From there, we
+  // propagate to i3 and i4. Notice that the i4->i1 expr is not
+  // included, thus any additional info from i2 to i4 is not
+  // propagated back to i1, which should be fine for this loop
+  // promotion analysis.
   ExprGroups getOrderedExprGroupsForPropagation(const ValGraph& graph);
 
   std::unordered_map<ValGroup, IterDomain*> build();
