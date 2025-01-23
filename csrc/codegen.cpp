@@ -265,7 +265,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else if (v->isA<TensorView>()) {
       tv = v->as<TensorView>();
     }
-    if (tv && aligned_array_of_regs_.count(tv)) {
+    if (tv &&
+        (aligned_array_of_regs_.count(tv) ||
+         tv->getMemoryType() == MemoryType::Local)) {
       return genVariableName(tv).append(".array");
     } else {
       return genVariableName(v);
@@ -358,7 +360,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& kernel_summary = kernel_->summary();
 
     if (kernel_summary.has_philox_op) {
-      indent() << "uint4 rng_result;\n";
+      indent() << "Array<uint32_t, 4> rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
     }
@@ -3169,14 +3171,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
+          indent() << "Array<" << buffer_dtype << ", " << genInline(size)
+                   << ", " << (va.find(tv) != va.end() ? va.at(tv) : 1) << "> "
+                   << genVariableName(tv) << ";\n";
           if (va.find(tv) != va.end()) {
-            indent() << "Array<" << buffer_dtype << ", " << genInline(size)
-                     << ", " << va.at(tv) << "> " << genVariableName(tv)
-                     << ";\n";
             aligned_array_of_regs_.insert(tv);
-          } else {
-            indent() << buffer_dtype << " " << genVariableName(tv) << "["
-                     << genInline(size) << "];\n";
           }
         } break;
         default:
