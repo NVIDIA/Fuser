@@ -611,6 +611,16 @@ if(BUILD_TEST)
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
+if(BUILD_TEST)
+  set(MULTIDEVICE_TEST_KERNELS "${NVFUSER_TESTS}_multidevice_kernels")
+  add_library(${MULTIDEVICE_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/multidevice_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${MULTIDEVICE_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${MULTIDEVICE_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} codegen_internal)
+  target_include_directories(${MULTIDEVICE_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+endif()
+
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
@@ -669,8 +679,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_gpu_comms.cpp
   )
-  add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" ${MULTIDEVICE_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_multidevice)
 
   set(MULTIDEVICE_TUTORIAL_SRCS)

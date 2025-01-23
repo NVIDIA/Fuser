@@ -48,4 +48,6 @@ class MultiDeviceTest : public NVFuserTest {
   void waitForDebuggerAtRank(DeviceIdxType rank);
 };
 
+__global__ void DummyMultiDeviceKernel();
+
 } // namespace nvfuser
