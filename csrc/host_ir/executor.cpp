@@ -545,6 +545,35 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   }
 }
 
+void HostIrEvaluator::handle(LinearOp* linear) {
+  TensorView* in = linear->inA()->as<TensorView>();
+  TensorView* weight = linear->inB()->as<TensorView>();
+  TensorView* bias = linear->bias()->as<TensorView>();
+  TensorView* out = linear->out()->as<TensorView>();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(in) && expr_evaluator_.isKnown(weight) &&
+          (!linear->has_bias() || expr_evaluator_.isKnown(bias)),
+      "Inputs of the Linear Op ",
+      linear->toString(),
+      "must be precomputed before being retrieved");
+
+  if (!expr_evaluator_.isKnown(out)) {
+    unhandled(linear);
+    return;
+  }
+
+  auto in_at = expr_evaluator_.evaluate(in).as<at::Tensor>();
+  auto weight_at = expr_evaluator_.evaluate(weight).as<at::Tensor>();
+  auto out_at = expr_evaluator_.evaluate(out).as<at::Tensor>();
+
+  if (linear->has_bias()) {
+    auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
+    at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
+  } else {
+    at::linear_out(out_at, in_at, weight_at.squeeze());
+  }
+}
+
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
