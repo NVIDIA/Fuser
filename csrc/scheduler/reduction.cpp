@@ -792,7 +792,7 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
           total_iteration_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
-          vectorize_factor,
+          (int64_t)vectorize_factor,
           has_mufu_computation);
     }
   }
@@ -1318,7 +1318,7 @@ std::unique_ptr<ReductionParams> outerReductionHeuristic(
   // registers for other purposes. Test shows it leads to 50% occupancy for
   // outer reduction without fused ops and 50% occupancy for gelu backward which
   // fused 21 ops including the expensive tanh op.
-  int64_t buffer_reg_count, input_factor;
+  int64_t buffer_reg_count = 0L, input_factor = 0L;
   if (has_mufu_computation) {
     // when we have expensive ops, computation cost of each thread is already
     // high, prioritize thread level parallelism, 8 registers are reserved for
@@ -1386,7 +1386,7 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
           total_iteration_numel,
           (int64_t)n_tensor_inputs,
           (int64_t)max_input_dtype_size,
-          vectorize_factor,
+          (int64_t)vectorize_factor,
           has_mufu_computation);
     } else {
       return inner3dReductionHeuristic(
