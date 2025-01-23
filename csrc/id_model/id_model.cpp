@@ -286,6 +286,7 @@ namespace {
 // In Exact and AlmostExact graphs, for all IDs of a group that have
 // static extents, they should be equal.
 void checkStaticExtentGroups(const ValGraph& graph) {
+  std::stringstream err_msg;
   for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
     std::optional<int64_t> known_static_extent;
     for (const auto val : *group) {
@@ -296,19 +297,19 @@ void checkStaticExtentGroups(const ValGraph& graph) {
 
       auto extent_int = id->extent()->evaluate().as<int64_t>();
       if (known_static_extent.has_value()) {
-        NVF_ERROR(
-            known_static_extent.value() == extent_int,
-            "Different static extents found in an ID group: ",
-            known_static_extent.value(),
-            " and ",
-            extent_int,
-            " in ",
-            nvfuser::toString(group));
+        if (known_static_extent.value() != extent_int) {
+          err_msg << "Different static extents found in an ID group: "
+                  << known_static_extent.value() << " and " << extent_int
+                  << " in {" << toDelimitedString(group->vector()) << "}\n";
+          break;
+        }
       } else {
         known_static_extent = extent_int;
       }
     }
   }
+
+  NVF_ERROR(err_msg.str().empty(), err_msg.str());
 }
 } // namespace
 
@@ -421,13 +422,15 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    // Size-one domains should be broadcast, so just checking
-    // isBroadcast should be sufficient, but just in case if there's
-    // any missing conversion to broadcast
-    if (merge->inner()->isBroadcast() || merge->inner()->extent()->isOneInt()) {
+    // Note that broacast IDs may have extents larger than 1, thus
+    // merge->inner()->isBroadcast() is not a sufficient condition to
+    // check. Merging a non-broadcast ID with such a broadcast ID
+    // result in a non-broadcast ID with extent multiplied by the
+    // broadcast extent.
+    if (merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->isBroadcast() || merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
