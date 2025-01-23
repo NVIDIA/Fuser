@@ -273,6 +273,7 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/python_frontend/distributed_tensor.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
