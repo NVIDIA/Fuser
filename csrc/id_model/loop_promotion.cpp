@@ -656,7 +656,7 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
   ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(iel_graph);
 
-  for (const auto& iel_expr : ordered_exprs) {
+  for (const ExprGroup& iel_expr : ordered_exprs) {
     NVF_ERROR(!iel_expr->empty());
     const std::vector<ValGroup> iel_inp_groups =
         iel_graph.inputGroups(iel_expr);
