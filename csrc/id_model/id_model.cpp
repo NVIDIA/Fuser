@@ -282,6 +282,36 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   return id_graph;
 }
 
+namespace {
+// In Exact and AlmostExact graphs, for all IDs of a group that have
+// static extents, they should be equal.
+void checkStaticExtentGroups(const ValGraph& graph) {
+  for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
+    std::optional<int64_t> known_static_extent;
+    for (const auto val : *group) {
+      auto id = val->as<IterDomain>();
+      if (!id->extent()->isConstScalar()) {
+        continue;
+      }
+
+      auto extent_int = id->extent()->evaluate().as<int64_t>();
+      if (known_static_extent.has_value()) {
+        NVF_ERROR(
+            known_static_extent.value() == extent_int,
+            "Different static extents found in an ID group: ",
+            known_static_extent.value(),
+            " and ",
+            extent_int,
+            " in ",
+            nvfuser::toString(group));
+      } else {
+        known_static_extent = extent_int;
+      }
+    }
+  }
+}
+} // namespace
+
 ValGraph& IdModel::buildExactGraph() {
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
@@ -376,6 +406,10 @@ ValGraph& IdModel::buildExactGraph() {
   }
 
   graph.validateConsistency();
+
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    checkStaticExtentGroups(graph);
+  }
 
   return graph;
 }
@@ -484,6 +518,10 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    checkStaticExtentGroups(almost_exact_graph);
+  }
 
   return almost_exact_graph;
 }
