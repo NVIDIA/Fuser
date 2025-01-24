@@ -14,7 +14,7 @@
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_cache_utils.h>
-#include <host_ir/container.h>
+#include <host_ir/executor.h>
 
 #include <mutex>
 #include <vector>
@@ -164,7 +164,7 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
+  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg, nvfuser::hir::HostIrContainer* hic);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
@@ -179,8 +179,8 @@ class FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
-  //! Host IR container
-  std::unique_ptr<nvfuser::hir::HostIrContainer> hic_;
+  //! Host IR Evaluator
+  std::unique_ptr<nvfuser::hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion
@@ -239,3 +239,4 @@ class FusionKernelRuntime {
 };
 
 } // namespace nvfuser
+

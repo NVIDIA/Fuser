@@ -143,7 +143,6 @@ FusionKernelRuntime::FusionKernelRuntime(
   auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
   NVF_CHECK(maybe_heuristics.has_value());
   heuristics_ = std::move(maybe_heuristics.value());
-  hic_ = std::make_unique<nvfuser::hir::HostIrContainer>();
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -334,6 +333,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionProfiler::startCompile();
   }
 
+  // host ir
+  std::unique_ptr<nvfuser::hir::HostIrContainer> hic;
+  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    hic = std::make_unique<nvfuser::hir::HostIrContainer>();
+    hic->reserveKernelExecutors(num_groups); // Some indices will be empty
+  }
+
   std::atomic<bool> detect_exception_in_thread_pool{false};
   std::string thread_pool_error_message;
   std::mutex thread_pool_error_message_mutex;
@@ -363,8 +369,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-      compileKernel(group_runtime_inputs, group_to_run);
+      compileKernel(group_runtime_inputs, group_to_run, hic.get());
     } else {
+      nvfuser::hir::HostIrContainer *hic_p = hic.get();
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
@@ -372,12 +379,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             group_to_run,
                             &detect_exception_in_thread_pool,
                             &thread_pool_error_message,
-                            &thread_pool_error_message_mutex]() {
+                            &thread_pool_error_message_mutex,
+                            hic_p]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-          compileKernel(group_runtime_inputs, group_to_run);
+          compileKernel(group_runtime_inputs, group_to_run, hic_p);
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
@@ -412,26 +420,30 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         thread_pool_error_message,
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
-
+/*
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
     int64_t run_order_id = 0;
     for (auto& executor : executors_) {
       if (auto raw_ke = dynamic_cast<KernelExecutor*>(executor.get())) {
         executor.release();
         std::unique_ptr<KernelExecutor> ke(raw_ke);
-        hic_->pushBackKernelExecutor(std::move(ke));
+        hic->pushBackKernelExecutor(std::move(ke));
 
         auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
 
-        IrCloner ir_cloner(hic_.get());
+        IrCloner ir_cloner(hic.get());
         auto hic_in = ir_cloner.clone(group_to_run->inputs());
         auto hic_out = ir_cloner.clone(group_to_run->outputs());
         auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
             0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
-        hic_->pushBackTopLevelExprs(launch_kernel);
+        hic->pushBackTopLevelExprs(launch_kernel);
       }
       run_order_id++;
     }
+  }
+*/
+  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    hie_ = std::make_unique<nvfuser::hir::HostIrEvaluator>(std::move(hic));
   }
 
   if (isProfilerEnabled()) {
@@ -695,7 +707,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
 void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
+    SegmentedGroup* sg,
+    nvfuser::hir::HostIrContainer* hic) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
@@ -718,17 +731,35 @@ void FusionKernelRuntime::compileKernel(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
 
-  // Initialize associated executors
-  executors_[group_id] = ExecutorDispatch::makeExecutor(
-      fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    // if it's a kernel executor, compile the segment and append to hic
+    // otherwise, push the segment's exprs directly to the hic
+    if (!HostIrExecutor::supported(fusion_to_run.get()) && !ExprEvalExecutor::supported(fusion_to_run.get())) {
+      NVF_ERROR(
+          KernelExecutor::supported(fusion_to_run.get()),
+          "Fusion not supported by any executor type");
+      auto ke = std::make_unique<KernelExecutor>();
+      ke->compile(fusion_to_run.get(), args, heuristic_params->lparams, heuristic_params->cparams, heuristic_params->scheduler_type);
+      hic->setKernelExecutor(group_id, std::move(ke));
+    } else {
+      // push back segment's exprs into the container as top level expressions
+      for (auto *expr : fusion_to_run->exprs()) {
+        hic->pushBackTopLevelExprs(expr);
+      }
+    }
+  } else {
+    // Initialize associated executors
+    executors_[group_id] = ExecutorDispatch::makeExecutor(
+        fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
 
-  ExecutorDispatch::compile(
-      executors_.at(group_id).get(),
-      fusion_to_run.get(),
-      args,
-      heuristic_params->lparams,
-      heuristic_params->cparams,
-      heuristic_params->scheduler_type);
+    ExecutorDispatch::compile(
+        executors_.at(group_id).get(),
+        fusion_to_run.get(),
+        args,
+        heuristic_params->lparams,
+        heuristic_params->cparams,
+        heuristic_params->scheduler_type);
+  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
@@ -749,3 +780,4 @@ const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::
 }
 
 } // namespace nvfuser
+

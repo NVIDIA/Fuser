@@ -46,6 +46,14 @@ class HostIrContainer final : public Fusion {
     kernel_executors_.push_back(std::move(ke));
   }
 
+  void reserveKernelExecutors(std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
+    kernel_executors_.reserve(sz);
+  }
+
+  void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke) {
+    kernel_executors_[index] = std::move(ke);
+  }
+
   KernelExecutor* getKernelExecutor(int64_t index) const {
     return kernel_executors_.at(index).get();
   }
@@ -61,3 +69,4 @@ class HostIrContainer final : public Fusion {
 } // namespace hir
 
 } // namespace nvfuser
+
