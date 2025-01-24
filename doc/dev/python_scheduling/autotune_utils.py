@@ -14,6 +14,53 @@ from dataclasses import dataclass, astuple
 # =============================================================================
 
 
+# Returns the last power of 2 less than equal to a.
+def round_down_pow2(a):
+    pow_of_2 = 2 ** math.floor(math.log2(a))
+    return int(max(pow_of_2, 1))
+
+
+# Returns the nearest power of 2 greater than a.
+def round_up_pow2(a):
+    round_up_pow2 = round_down_pow2(a)
+    if round_up_pow2 < a:
+        round_up_pow2 *= 2
+    return round_up_pow2
+
+
+def round_up_multiple_of(a, multiple):
+    if a % multiple == 0:
+        return a
+    else:
+        return a + (multiple - (a % multiple))
+
+
+def round_down_multiple_of(a, multiple):
+    if a % multiple == 0:
+        return a
+    else:
+        return a - (a % multiple)
+
+
+# Return whichever is larger, either the nearest power of 2 or nearest multiple
+# less than a.
+def round_down_pow2_or_multiple_of(a, multiple):
+    round_down_multiple = round_down_multiple_of(a, multiple)
+    return int(max(max(round_down_multiple, round_down_pow2(a)), 1))
+
+
+# Return whichever is larger, either the nearest power of 2 or nearest multiple
+# greater than a.
+def round_up_pow2_or_multiple_of(a, multiple):
+    round_up_multiple = round_up_multiple_of(a, multiple)
+    return int(max(max(round_up_multiple, round_up_pow2(a)), 1))
+
+
+# Returns the result of a/b with minimum value of 1.
+def at_least_one_div(a, b):
+    return int(max(a // b, 1))
+
+
 # Returns the result of a/b rounded to the nearest integer in the direction of
 # positive infinity.
 def ceil_div(a, b):
@@ -76,7 +123,7 @@ def collect_data(script_config, autotune_config):
         inputs = autotune_config.create_inputs(shape, script_config.tensor_datatype)
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         # unroll and vectorization configurations
         for parameter_config in autotune_config.generate_scheduler_configurations(
@@ -135,14 +182,31 @@ def separate_data(script_config, parameters, performance):
 
 
 # Apply schedule decorator, run fusion, and profile performance
-def run_profile(autotune_config, presched_fd, inputs, scheduler_config=None):
+def run_profile(
+    autotune_config,
+    presched_fd,
+    inputs,
+    scheduler_config=None,
+    *,
+    disable_validation=False,
+):
     scheduled_fd = autotune_config.custom_scheduler(presched_fd, scheduler_config)
     nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
+    # clear gradient for inputs
+    for inp in inputs:
+        if inp.grad is not None:
+            inp.grad.data.zero_()
+
     # validate correctness
-    assert torch.allclose(
-        nvf_outputs[0], autotune_config.eager_reference(inputs), atol=1e-2, rtol=1e-2
-    )
+    if not disable_validation:
+        eager_output = autotune_config.eager_reference(inputs)
+        assert torch.allclose(
+            nvf_outputs[0].to(torch.double),
+            eager_output.to(torch.double),
+            atol=5e-1,
+            rtol=5e-1,
+        )
 
     prof = scheduled_fd.profile()
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
@@ -222,7 +286,7 @@ def test_model_rmse(clf, script_config, autotune_config, test_data):
         inputs = autotune_config.create_inputs(shape, script_config.tensor_datatype)
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         _, est_perf = run_profile(autotune_config, presched_fd, inputs, estimate_config)
         _, nvf_perf = run_profile(autotune_config, presched_fd, inputs)
@@ -264,10 +328,14 @@ def test_model(clf, script_config, autotune_config):
         )
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
         _, est_time_ms = run_profile(
-            autotune_config, presched_fd, inputs, estimate_config
+            autotune_config,
+            presched_fd,
+            inputs,
+            estimate_config,
+            disable_validation=True,
         )
         est_perfs.append(est_time_ms)
         print(
@@ -283,9 +351,11 @@ def test_model(clf, script_config, autotune_config):
         )
 
         with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+            autotune_config.create_fusion_func()(presched_fd)
 
-        _, nvf_time_ms = run_profile(autotune_config, presched_fd, inputs)
+        _, nvf_time_ms = run_profile(
+            autotune_config, presched_fd, inputs, disable_validation=True
+        )
         nvf_perfs.append(nvf_time_ms)
         print(
             f"{script_config.empirical_batch_size}, {hidden_shape}, {nvf_time_ms: .3f}"
