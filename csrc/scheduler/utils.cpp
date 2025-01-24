@@ -2739,6 +2739,164 @@ void reorderTensorLike(
   target_tv->reorder(old2new);
 }
 
-} // namespace scheduler_utils
+namespace {
+// Class to handle expensive operations information and calculation of unroll
+// factors
+class ExpensiveOpInfo {
+ public:
+  ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
+  void analyzeFusion(Fusion* fusion) {
+    for (auto expr : fusion->exprs()) {
+      if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
+        switch (unary->getUnaryOpType()) {
+          case UnaryOpType::Tanh:
+            n_tanh_++;
+            break;
+          case UnaryOpType::Exp:
+            n_exp_++;
+            break;
+          case UnaryOpType::Reciprocal:
+            n_reciprocal_++;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+  }
 
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ExpensiveOpInfo: {";
+    ss << "n_tanh: " << n_tanh_ << ", ";
+    ss << "n_exp: " << n_exp_ << ", ";
+    ss << "n_reciprocal: " << n_reciprocal_ << "}";
+    return ss.str();
+  }
+
+  int64_t getComputationCostFactor() const {
+    auto factor =
+        n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
+    factor = std::max(factor, 1);
+
+    // capped at 4 to avoid excessive unrolling which may lead to high register
+    // usage and low occupancy.
+    factor = std::min(factor, 4);
+    return factor;
+  }
+
+ private:
+  // Number of each expensive operation in the fusion
+  int n_tanh_;
+  int n_exp_;
+  int n_reciprocal_;
+
+  // Empirical factors to consider the cost of each operation
+  static constexpr int f_tanh_ = 4;
+  static constexpr int f_exp_ = 1;
+  static constexpr int f_reciprocal_ = 1;
+};
+} // namespace
+
+int64_t getComputationCostFactor(Fusion* fusion) {
+  ExpensiveOpInfo info;
+  info.analyzeFusion(fusion);
+  return info.getComputationCostFactor();
+}
+
+// Calculate hardware bandwidth and required bytes in flight based on
+// little's law. bytes_in_flight = bandwidth * latency
+int64_t getRequiredBytesInFlight() {
+  // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
+  constexpr float empirical_gmem_latency = 9.5e-9;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)dev_prop->memoryClockRate * 1000.f;
+  return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
+}
+
+namespace {
+// Function to get the number of CUDA cores per SM.
+// convert {major, minor} to hex number and check the map.
+int getCoresPerSM(int major, int minor) {
+  int sm_version = (major << 4) + minor;
+  std::unordered_map<int, int> cores_per_sm_map = {
+      {0x30, 192},
+      {0x32, 192},
+      {0x35, 192},
+      {0x37, 192},
+      {0x50, 128},
+      {0x52, 128},
+      {0x53, 128},
+      {0x60, 64},
+      {0x61, 128},
+      {0x62, 128},
+      {0x70, 64},
+      {0x72, 64},
+      {0x75, 64},
+      {0x80, 64},
+      {0x86, 128},
+      {0x87, 128},
+      {0x89, 128},
+      {0x90, 128},
+      {0xa0, 128}};
+  auto it = cores_per_sm_map.find(sm_version);
+  if (it != cores_per_sm_map.end()) {
+    return it->second;
+  }
+  NVF_THROW("Unknown GPU architecture: ", major, ".", minor);
+  return 128;
+}
+} // namespace
+// Compute bandwidth flops ratio, return true if it's higher than
+// the reference value of 0.07. It returns true for B100/200 and A100.
+// Returns false for H100. The reference value is based on test of softmax,
+// layer norm, and rms norm. Treating A100 as high bandwidth to flops ratio
+// leads to better performance for softmax and dropout fused with layer norm
+// or rms norm, but caused minor regressions for layer norm or rms norm alone.
+bool isHighBandwidthFlopsRatio() {
+  // B200          , 8.192e12 B/s, 7.47e13 flops, ratio = 0.1096
+  // A100-PCIe-80GB, 1.935e12 B/s, 1.95e13 flops, ratio = 0.0993
+  // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
+  // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
+  constexpr float reference_ratio = 0.07f;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  // bandwidth
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)dev_prop->memoryClockRate * 1000.f;
+  // fp32 cuda core flops
+  const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
+  const int flops_per_cycle = 2;
+  float flops = (float)dev_prop->clockRate * 1000.f *
+      (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
+      (float)flops_per_cycle;
+
+  float bandwidth_flops_ratio = hardware_bandwidth / flops;
+  return bandwidth_flops_ratio > reference_ratio;
+}
+
+bool hasExpensiveMUFUops(Fusion* fusion) {
+  const std::unordered_set<UnaryOpType> expensive_unary_ops{
+      UnaryOpType::Exp,
+      UnaryOpType::Tanh,
+      UnaryOpType::Reciprocal,
+      UnaryOpType::Rsqrt,
+      UnaryOpType::Log,
+      UnaryOpType::Log10,
+      UnaryOpType::Log2,
+      UnaryOpType::Sin,
+      UnaryOpType::Cos};
+
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<UnaryOp>()) {
+      if (auto unary = expr->as<UnaryOp>()) {
+        if (expensive_unary_ops.count(unary->getUnaryOpType())) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+} // namespace scheduler_utils
 } // namespace nvfuser
