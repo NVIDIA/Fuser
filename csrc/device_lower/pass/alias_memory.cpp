@@ -2081,6 +2081,8 @@ void assignSharedMemoryAllocations(
       continue;
     }
     auto alloc = alloc_info->alloc_expr;
+    // TODO: fix
+    alloc->setAddress(alloc->fusion()->zeroVal());
     NVF_ERROR(
         alloc->address(),
         "Unaliased allocation for shared memory tensor ",

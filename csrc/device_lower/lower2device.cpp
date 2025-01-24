@@ -599,6 +599,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
+
+  tmemInfo() = computeTMemInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {

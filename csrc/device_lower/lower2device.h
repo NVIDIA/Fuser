@@ -14,6 +14,7 @@
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
+#include <device_lower/analysis/tensor_memory.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -268,6 +269,14 @@ class GpuLower : public NonCopyable {
     return consumer_to_tma_info_;
   }
 
+  const TensorMemoryInfo& tmemInfo() const {
+    return tmem_info_;
+  }
+
+  TensorMemoryInfo& tmemInfo() {
+    return tmem_info_;
+  }
+
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -364,6 +373,9 @@ class GpuLower : public NonCopyable {
 
   // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+
+  // Information about tensor memory usage
+  TensorMemoryInfo tmem_info_;
 
   // Keep track of validations needed at runtime. For example, a pair of
   //! "extent mod split_factor == 0" and an error message for divisibility check
