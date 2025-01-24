@@ -131,8 +131,8 @@ bool isLoopGraphUniform(const IdModel& id_model) {
 
 } // namespace
 
-ValGroups LoopPromotionMapBuilder::getPropagationInputGroups(
-    const ValGraph& graph) const {
+ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
+    const ValGraph& exact_graph) const {
   const std::unordered_set<TensorView*> included_tvs{
       id_model_.tvs().begin(), id_model_.tvs().end()};
 
@@ -163,7 +163,7 @@ ValGroups LoopPromotionMapBuilder::getPropagationInputGroups(
   for (const auto tv : id_model_.tvs()) {
     for (const auto maybe_root_id : tv->getMaybeRootDomain()) {
       if (!non_input_ids.count(maybe_root_id)) {
-        input_groups.pushBack(graph.toGroup(maybe_root_id));
+        input_groups.pushBack(exact_graph.toGroup(maybe_root_id));
       }
     }
   }
@@ -172,40 +172,56 @@ ValGroups LoopPromotionMapBuilder::getPropagationInputGroups(
 }
 
 ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
-    const ValGraph& graph) {
-  std::cerr << "getOrderedExprGroupsForPropagation\n";
+    const ValGraph& iel_graph) {
+  // Similar to computeCoveredGroups, we first need to find which
+  // groups to use as starting groups of propagation. Unlike
+  // computeCoveredGroups, which uses the Exact graph, here, since the IEL
+  // graph is used, getInputGroupsOfExactGraph cannot be used as
+  // is.
+  //
+  // Instead, we first get the inputs of the Exact graph. For the
+  // IEL propagation, any IEL group that has an ID that is included
+  // in any of the input groups of the exact graph is used as an input.
 
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
 
-  // const auto input_groups = getPropagationInputGroups(graph);
-  const auto exact_input_groups = getPropagationInputGroups(exact_graph);
+  const auto exact_input_groups = getInputGroupsOfExactGraph(exact_graph);
 
-  ValGroups input_groups;
-  for (const ValGroup& iel_val_group : graph.disjointValSets().disjointSets()) {
-    if (exact_input_groups.has(exact_graph.toGroup(iel_val_group->front()))) {
-      input_groups.pushBack(iel_val_group);
-    }
+  ValGroups iel_input_groups;
+  for (const ValGroup& exact_input_group : exact_input_groups) {
+    iel_input_groups.pushBack(iel_graph.toGroups(*exact_input_group));
   }
 
-  std::cerr << "Inputs: " << nvfuser::toString(input_groups) << "\n";
-
-  {
-    std::ofstream ofs("iel_graph.dot", std::ofstream::trunc);
-    auto dot_string = graph.toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
-  }
-  {
-    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-    auto dot_string = exact_graph.toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
-  }
-
+  // From the input groups, find the propagation path. Note that not
+  // all of the groups may be reachable from the inputs because this
+  // is an IEL graph. For example, suppose there's a cyclic exact
+  // graph:
+  //
+  //  {i0, i1} <-> {i2, i3}
+  //
+  // where each of i0, i1, i2 and i3 corresponds to an ID. Suppose
+  // these IDs are used by resize as:
+  //
+  // Resize: i0 -> i2
+  // Resize: i3 -> i1
+  //
+  // Since i0 and i1 are mapped, and i2 and i3 are mapped, the graph
+  // ends up having a cycle as indicated above.
+  //
+  // In the IEL graph, if i0 and i1 are not inlined together, and also
+  // i2 and i3 are not, then:
+  //
+  // {i0} -> {i2}
+  // {i3} -> {i1}
+  //
+  // Suppose `{i0, i1}` is the input group of the exact graph. The
+  // inputs of the IEL graph would be {i0} and {i1}. When traversing
+  // from these two groups, while {i2} is reachable, {i3} is not,
+  // which should not matter for the IEL promotion propagation.
   auto expr_path = ValGraphBFS::getExprGroupsBetween(
-                       graph,
-                       input_groups,
-                       graph.disjointValSets().disjointSets(),
+                       iel_graph,
+                       iel_input_groups,
+                       iel_graph.disjointValSets().disjointSets(),
                        /*require_all_to_visited=*/false,
                        Direction::Forward)
                        .first;
@@ -219,26 +235,26 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
 
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     std::unordered_set<ValGroup> visited;
-    for (const ValGroup& input_group : input_groups) {
+    for (const ValGroup& input_group : iel_input_groups) {
       visited.emplace(input_group);
     }
 
     for (const ExprGroup& expr : ordered_exprs) {
-      for (const ValGroup& inp_group : graph.inputGroups(expr)) {
+      for (const ValGroup& inp_group : iel_graph.inputGroups(expr)) {
         NVF_ERROR(
             visited.count(inp_group),
             "Invalid traversal order at ",
             nvfuser::toString(expr));
       }
-      for (const ValGroup& out_group : graph.outputGroups(expr)) {
+      for (const ValGroup& out_group : iel_graph.outputGroups(expr)) {
         visited.emplace(out_group);
       }
     }
   }
 
   if (callback_) {
-    ordered_exprs =
-        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, graph);
+    ordered_exprs = callback_->updateOrderedExprGroupsForPropagation(
+        ordered_exprs, iel_graph);
   }
 
   return ordered_exprs;
@@ -817,14 +833,10 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
 
   std::deque<ValGroup> groups_to_visit;
 
-  ValGroups input_groups = getPropagationInputGroups(graph);
-
-  std::cerr << "Inputs: " << nvfuser::toString(input_groups) << "\n";
+  ValGroups input_groups = getInputGroupsOfExactGraph(graph);
 
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
-    // const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
-    // if (id_group_defs.empty()) {
     if (input_groups.has(id_group)) {
       covered_ids[id_group] = {id_group};
       groups_to_visit.push_back(id_group);
@@ -856,14 +868,6 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
           groups_to_visit.push_back(output_group);
         }
       }
-    }
-  }
-
-  {
-    std::cerr << "Covered IDs\n";
-    for (const auto& [g, gg] : covered_ids) {
-      std::cerr << nvfuser::toString(g) << " -> " << nvfuser::toString(gg)
-                << "\n";
     }
   }
 
