@@ -826,7 +826,7 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
 // at RFactor ValGroups.
 std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
-    computeCoveredGroups(const ValGraph& graph, const IdModel& id_model) const {
+    computeCoveredGroups(const ValGraph& graph) const {
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
@@ -881,7 +881,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) const {
   const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
-      computeCoveredGroups(idGraph(IdMappingMode::EXACT), id_model_);
+      computeCoveredGroups(idGraph(IdMappingMode::EXACT));
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =

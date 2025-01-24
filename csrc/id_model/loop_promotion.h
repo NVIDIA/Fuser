@@ -74,8 +74,7 @@ class LoopPromotionMapBuilder {
       bool force_full_loop_promotion_analysis = false);
 
   std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-      const ValGraph& graph,
-      const IdModel& id_model) const;
+      const ValGraph& graph) const;
 
   // Given an Exact graph, get val groups that should be used as
   // starting groups when propagating promotion info. For non-cyclic
