@@ -3032,7 +3032,16 @@ TEST_F(TMATest, CpAsyncBulk1D) {
 // Hopper: 2.193 ms, 1468 GB/s, 44%, CpAsyncBulk
 // Hopper: 1.164 ms, 2224 GB/s, 66%, CpAsyncBulk + 2-1-pipelined(T)
 // B200
-// B200: vect = 4, tidx = 128, stage = 2, 0.464 ms, 6940 GB/s, 85% SOL
+// B200: pipelined
+// B200: vect = 4, tidx = 128, circular = 2-1-p(F), 0.464 ms, 6940 GB/s, 85% SOL
+// B200: vect = 4, tidx = 128, circular = 3-1-p(F), Illegal Mem. Access, not divisible by 3
+// B200: vect = 4, tidx = 128, circular = 4-1-p(F), 0.466 ms, 6910 GB/s, 84% SOL
+// B200: vect = 4, tidx = 128, circular = 2-1-p(T), 0.461 ms, 6985 GB/s, 85% SOL
+// B200: vect = 4, tidx = 256, circular = 2-1-p(T), 0.461 ms, 6985 GB/s, 85% SOL
+
+// B200: warp specialized
+// B200: vect = 4, tidx = 128, circular = 2-1-w(TIDx), Illegal Mem. Access
+// B200: vect = 4, tidx = 128, circular = 2-1-w(TIDy), Illegal Mem. Access
 TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr at::ScalarType dtype = at::ScalarType::Float;
@@ -3051,6 +3060,10 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   int64_t vect = 4;
   int64_t tma_len = tidx * vect;
   int64_t number_of_stages = 2;
+  int64_t prefetch_distance = 1;
+  // CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDx);
+  CircularBufferType circular_buffer_type = Pipelined(true);
+
   auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   auto tv1s = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0s->setMemoryType(MemoryType::Shared);
@@ -3088,10 +3101,8 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
 
-  // CIrcular buffer
-  int64_t prefetch_distance = 1;
+  // Circular buffer
   // default is Pipelined(false)
-  CircularBufferType circular_buffer_type = Pipelined(false);
   tv0s->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
