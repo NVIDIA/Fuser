@@ -3027,12 +3027,12 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
-// IO Bytes: 2 * 16384 * 16384 * 4 = 2.1475 GB
-// Hopper: 90% SOL --> time = 2.1475 / (3352*0.9) = 0.712 ms
-// Hopper: 2.193 ms, 979 GB/s, 29%, CpAsyncBulk
-// Hopper: 2.197 ms, 979 GB/s, 29%, CpAsyncBulkTensorTile
-// Hopper: 1.164 ms, 1843 GB/s, 55%, CpAsyncBulkTensorTile + circular buffer (2-1-pipelined(T))
-// Hopper: 1.157 ms, 1854 GB/s, 55%, CpAsyncBulk + circular buffer (2-1-pipelined(T))
+// IO Bytes: 3 * 16384 * 16384 * 4 = 3.22 GB
+// Hopper: 90% SOL --> time = 3.22 / (3352*0.9) = 1.07 ms
+// Hopper: 2.193 ms, 1468 GB/s, 44%, CpAsyncBulk
+// Hopper: 1.164 ms, 2224 GB/s, 66%, CpAsyncBulk + 2-1-pipelined(T)
+// B200
+// B200: vect = 4, tidx = 128, stage = 2, 0.464 ms, 6940 GB/s, 85% SOL
 TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr at::ScalarType dtype = at::ScalarType::Float;
@@ -3047,23 +3047,28 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   auto tv2 = add(tv0, tv1);
   fusion->addOutput(tv2);
 
-  // cp.async.bulk copies 1D data and allows more than 256 elements
-  // cp.async.bulk.tensor.nd copies n-d data and each dimension must <= 256
-  // using CpAsyncBulkTensorTile will trigger the following error:
-  // boxDim array, which specifies number of elements to be traversed along each
-  // of the tensorRank dimensions, must be non-zero and less than or equal to
-  // 256. box_dim_val = 512
-  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  auto tv2b = tv2->cacheBefore();
-  tv0a->setMemoryType(MemoryType::Shared);
-  tv1a->setMemoryType(MemoryType::Shared);
+  int64_t tidx = 128;
+  int64_t vect = 4;
+  int64_t tma_len = tidx * vect;
+  int64_t number_of_stages = 2;
+  auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv1s = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0s->setMemoryType(MemoryType::Shared);
+  tv1s->setMemoryType(MemoryType::Shared);
 
+  auto tv2r = tv2->cacheBefore();
   tv2->merge(0);
-  tv2->split(0, 256); // TMA
-  tv2->split(0, 2);   // circular buffer
+  tv2->split(0, tma_len); // TMA
+  tv2->split(0, number_of_stages); // circular buffer
   TransformPropagator propagator(tv2);
   MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  // [I0*I1/TMA/Stage, Stage, TMA]
+  for(auto tv : {tv2, tv2r}){
+    tv->split(-1, vect);
+  }
+  // [I0*I1/TMA/Stage, Stage,  TMA/Vect, Vect]
+  // [BIDx,            Serial, TIDx,     Vectorize]
 
   // Set inlineAt before applying circular buffer
   inlineAllAt(tv2, /*pos=*/2);
@@ -3071,21 +3076,26 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   scheduler_utils::parallelizeAllLike(tv2);
 
-  /// TIDx for computation, Bulk for load
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
-  tv2b->axis(-1)->parallelize(ParallelType::TIDx);
-  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
-  tv1a->axis(-1)->parallelize(ParallelType::Bulk);
+  // TMA load, [I0*I1/TMA/Stage, Stage, TMA]
+  tv0s->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1s->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // TIDx for computation, [I0*I1/TMA/Stage, Stage,  TMA/Vect, Vect]
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+  tv2r->axis(2)->parallelize(ParallelType::TIDx);
+
+  // Vectorize output
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
 
   // CIrcular buffer
-  int64_t number_of_stages = 2;
   int64_t prefetch_distance = 1;
+  // default is Pipelined(false)
   CircularBufferType circular_buffer_type = Pipelined(false);
-  tv0a->circularBuffer(
+  tv0s->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  tv1a->circularBuffer(
+  tv1s->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   constexpr int dim0 = 16384, dim1 = 16384;
