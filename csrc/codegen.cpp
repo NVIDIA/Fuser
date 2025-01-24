@@ -3178,7 +3178,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             indent() << buffer_dtype << " " << genVariableName(tv) << "["
                      << genInline(size) << "];\n";
           }
-        } break;
+          break;
+        }
+        case MemoryType::Tensor: {
+          std::cout << "Allocating TMEM" << std::endl;
+          break;
+        }
         default:
           NVF_THROW("Unexpected memory type");
       }
