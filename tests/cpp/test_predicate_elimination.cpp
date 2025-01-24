@@ -263,14 +263,14 @@ TEST_F(PredicateEliminationTest, 6) {
 
   // The expression for tv2 is a local-to-local expression. It
   // satisfies all the requirements of predicate elimination, except
-  // for the on on split root domains. As the second root axis of tv2
+  // for the on on split logical domains. As the second logical axis of tv2
   // is split, its index exceeds its extent (i.e., 3 in this case)
   // without its predicate.
   NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
 
-  // Unlike tv2, tv3 is computed at tv4, so the second root axis does
+  // Unlike tv2, tv3 is computed at tv4, so the second logical axis does
   // have a zero domain. Its index should look like "i * 5 + j", where
-  // i comes from the first root domain and j comes from the split
+  // i comes from the first logical domain and j comes from the split
   // inner domain.
   NVF_CHECK(!PredicatedChecker::isPredicated(tv3, gpulw));
 
