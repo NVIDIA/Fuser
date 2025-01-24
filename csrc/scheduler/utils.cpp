@@ -2810,8 +2810,8 @@ int64_t getRequiredBytesInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  float hardware_bandwidth = (float)(2 * (dev_prop->memoryBusWidth / 8)) *
-      (float)dev_prop->memoryClockRate * 1e3;
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)dev_prop->memoryClockRate * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 
@@ -2862,13 +2862,14 @@ bool isHighBandwidthFlopsRatio() {
   constexpr float reference_ratio = 0.07f;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // bandwidth
-  float hardware_bandwidth = (float)(2 * (dev_prop->memoryBusWidth / 8)) *
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
       (float)dev_prop->memoryClockRate * 1000.f;
   // fp32 cuda core flops
   const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
   const int flops_per_cycle = 2;
   float flops = (float)dev_prop->clockRate * 1000.f *
-      dev_prop->multiProcessorCount * cuda_core_per_sm * flops_per_cycle;
+      (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
+      (float)flops_per_cycle;
 
   float bandwidth_flops_ratio = hardware_bandwidth / flops;
   return bandwidth_flops_ratio > reference_ratio;
