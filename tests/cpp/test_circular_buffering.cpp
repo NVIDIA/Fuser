@@ -68,35 +68,38 @@ TEST_F(NVFuserTest, TMAPointwisePipeline) {
   TensorView* tv5 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv5->setMemoryType(MemoryType::Shared);
 
-  TensorView* tv6 = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
-  tv6->setMemoryType(MemoryType::Shared);
-
   // Constants
+  constexpr int64_t compute_warps = 2;
+  constexpr int64_t compute_threads = 128;
   constexpr int64_t bulk_inner_dim = 256;
-  constexpr int64_t number_of_stages = 2;
+  constexpr int64_t number_of_stages = 4;
   constexpr int64_t prefetch_distance = 1;
 
   // [M, N] -> [M, N/bulk, bulk]
   TensorView* reference = tv2;
   reference->split(-1, bulk_inner_dim);
+  reference->split(-2, compute_warps, false);
+  reference->split(-1, compute_threads);
 
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(1)->parallelize(ParallelType::TIDy);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(reference);
 
-  tv3->axis(-1)->parallelize(ParallelType::Bulk);
   tv4->axis(-1)->parallelize(ParallelType::Bulk);
+  tv4->axis(-2)->parallelize(ParallelType::Bulk);
   tv5->axis(-1)->parallelize(ParallelType::Bulk);
+  tv5->axis(-2)->parallelize(ParallelType::Bulk);
 
   // Set computeAt position
   inlineMost();
 
   // Circular Buffer with TMA loads
-  tv4->circularBuffer(number_of_stages, prefetch_distance);
-  tv5->circularBuffer(number_of_stages, prefetch_distance);
+  tv4->circularBuffer(number_of_stages, prefetch_distance, WarpSpecialized(ParallelType::TIDy));
+  tv5->circularBuffer(number_of_stages, prefetch_distance, WarpSpecialized(ParallelType::TIDy));
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
