@@ -17,7 +17,7 @@
 #include <scheduler/tools/domain_map.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
+#include <scheduler/tools/inlining.h>
 namespace nvfuser {
 
 using PointwiseTest = NVFuserTest;
@@ -1288,17 +1288,17 @@ TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
 // Hopper: 2.193 ms, 1468 GB/s, 44%, CpAsyncBulk
 // Hopper: 1.164 ms, 2224 GB/s, 66%, CpAsyncBulk + 2-1-pipelined(T)
 // B200
-// B200: pipelined
+// B200: circular = stages, prefetch, pipelined
 // B200: vect = 4, tidx = 128, circular = 2-1-p(F), 0.464 ms, 6940 GB/s, 85% SOL
 // B200: vect = 4, tidx = 128, circular = 3-1-p(F), Illegal Mem. Access, not divisible by 3
 // B200: vect = 4, tidx = 128, circular = 4-1-p(F), 0.466 ms, 6910 GB/s, 84% SOL
 // B200: vect = 4, tidx = 128, circular = 2-1-p(T), 0.461 ms, 6985 GB/s, 85% SOL
 // B200: vect = 4, tidx = 256, circular = 2-1-p(T), 0.461 ms, 6985 GB/s, 85% SOL
 
-// B200: warp specialized
+// B200: circular = stages, prefetch, warp specialized
 // B200: vect = 4, tidx = 128, circular = 2-1-w(TIDx), Illegal Mem. Access
 // B200: vect = 4, tidx = 128, circular = 2-1-w(TIDy), Illegal Mem. Access
-TEST_F(NVFuserTest, CpAsyncBulk1DCircularBuffer) {
+TEST_F(PointwiseTest, CpAsyncBulk1DCircularBuffer) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};

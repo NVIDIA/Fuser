@@ -11,12 +11,14 @@
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 namespace nvfuser {
 
 using PointwiseFusedReductionTest = NVFuserTest;
+using InnerReductionTest = NVFuserTest;
 
 // inner reduction + non-broadcast epilogue, can't be fused
 // outer reduction + non-broadcast epilogue, can be fused
@@ -127,7 +129,7 @@ TEST_F(PointwiseFusedReductionTest, OuterReductionBroadcast) {
   ReductionBroadcast(reduction_dim);
 }
 
-TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
+TEST_F(InnerReductionTest, InnerReductionUnrollVectorization) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -148,7 +150,7 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
       scheduler_instance->computeHeuristics(fusion.get(), runtime_info);
   auto rparams = heuristic_params->as<ReductionParams>();
   EXPECT_TRUE(rparams->vectorize_inner_reduction);
-  rparams->unroll_factor_top_of_vectorization = 2;
+  // rparams->unroll_factor_top_of_vectorization = 2;
 
   // Schedule, compile, run, validate
   auto fusion_copy = *fusion;
@@ -159,4 +161,234 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
   testValidate(&fusion_copy, cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer1) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  constexpr int dim0 = 16384, dim1 = 16384;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {-1});
+  fusion->addOutput(tv1);
+
+  int64_t tidx = 128;
+  int64_t vect = 4;
+  int64_t number_of_stages = 2;
+  int64_t prefetch_distance = 0;
+  // CircularBufferType circular_buffer_type =
+  // WarpSpecialized(ParallelType::TIDx);
+  CircularBufferType circular_buffer_type = Pipelined(true);
+
+  auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0s->setMemoryType(MemoryType::Shared);
+  auto tv1r = tv1->cacheBefore();
+  // tv0 --> tv0s --> tv1r ---> tv1
+  // Error during best effort replay, a transformation was called that conflicts
+  // with an root-to-logical call schedule tma tensors [I,R] --> [I,
+  // R/tma/stages, stages, tma] R/tma/stages = 1
+  int64_t tma_len = dim1 / number_of_stages;
+  tv0s->split(1, tma_len);
+  tv0s->split(1, number_of_stages);
+
+  // schedule reduction tensor
+  // [I, R] -> [I, R/V, V]
+  tv1r->split(1, vect);
+  // [I, R/V/TIDx, TIDx, V]
+  tv1r->split(1, tidx);
+  auto reduction_tv_ref = tv1r->rFactor({1, 3});
+  std::cout << "reduction_tv_ref " << reduction_tv_ref->toString() << std::endl;
+  std::cout << "dim0 " << dim0 << std::endl;
+  std::cout << "prefetch_distance " << prefetch_distance << std::endl;
+
+  // // Set inlineAt before applying circular buffer
+  // inlineAllAt(tv1, /*pos=*/2);
+
+  reduction_tv_ref->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(reduction_tv_ref);
+
+  // TMA load, [I0*I1/TMA/Stage, Stage, TMA]
+  tv0s->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // TIDx for computation, [I, R/V/TIDx, TIDx, V]
+  reduction_tv_ref->axis(2)->parallelize(ParallelType::TIDx);
+
+  // TIDx for computation, [I, TIDx]
+  tv1r->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion->print();
+
+  // // Vectorize output
+  // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Circular buffer
+  inlineAllAt(reduction_tv_ref, /*pos=*/2);
+  tv0s->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0.sum(-1);
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
+// 0.465 ms, prefetch_distance = 0
+TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer2) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  constexpr int dim0 = 16384, dim1 = 16384;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {-1});
+  fusion->addOutput(tv1);
+
+  int64_t tidx = 128;
+  int64_t vect = 2;
+  int64_t number_of_stages = 2;
+  int64_t prefetch_distance = 1;
+  // CircularBufferType circular_buffer_type =
+  // WarpSpecialized(ParallelType::TIDx);
+  CircularBufferType circular_buffer_type = Pipelined(true);
+
+  auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0s->setMemoryType(MemoryType::Shared);
+  auto tv1r = tv1->cacheBefore();
+  // tv0 --> tv0s --> tv1r ---> tv1
+
+  // scheduler tma tensor
+  // [I, R/tma/stages, stages, tma]
+  int64_t tma_len = tidx * vect;
+  tv0s->split(1, tma_len);
+  tv0s->split(1, number_of_stages);
+
+  // schedule reduction tensor
+  // [I, R/tma/stages, stages, tma/vect, vect]
+  tv1r->split(1, tma_len);
+  tv1r->split(1, number_of_stages);
+  tv1r->split(-1, vect);
+  auto reduction_tv_ref = tv1r->rFactor({1, 2, 4});
+  std::cout << "reduction_tv_ref " << reduction_tv_ref->toString() << std::endl;
+  std::cout << "dim0 " << dim0 << std::endl;
+  std::cout << "prefetch_distance " << prefetch_distance << std::endl;
+
+  // // Set inlineAt before applying circular buffer
+  // inlineAllAt(tv1, /*pos=*/2);
+
+  reduction_tv_ref->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(reduction_tv_ref);
+
+  // TMA load, [I0, I1/TMA/Stage, Stage, TMA]
+  tv0s->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // TIDx for computation, [I, R/tma/stages, stages, tma/vect, vect]
+  reduction_tv_ref->axis(-2)->parallelize(ParallelType::TIDx);
+
+  // TIDx for computation, [I, TIDx]
+  tv1r->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion->print();
+
+  // // Vectorize output
+  // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Circular buffer
+  inlineMost();
+  // inlineAllAt(reduction_tv_ref, /*pos=*/2);
+  tv0s->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0.sum(-1);
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
+//0.884 ms
+TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  constexpr int dim0 = 16384, dim1 = 16384;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {-1});
+  fusion->addOutput(tv1);
+
+  int64_t tidx = 128;
+  int64_t number_of_stages = 2;
+  int64_t prefetch_distance = 0;
+  CircularBufferType circular_buffer_type = Pipelined(true);
+
+  auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0s->setMemoryType(MemoryType::Shared);
+  auto tv1r = tv1->cacheBefore();
+  // tv0 --> tv0s --> tv1r ---> tv1
+
+  // scheduler tma tensor
+  // [I, R/tma/stages, stages, tma]
+  int64_t tma_len = tidx;
+  tv0s->split(1, tma_len);
+  tv0s->split(1, number_of_stages);
+
+  // schedule reduction tensor
+  // [I, R/tma/stages, stages, tma]
+  tv1r->split(1, tma_len);
+  tv1r->split(1, number_of_stages);
+  auto reduction_tv_ref = tv1r->rFactor({1, 2});
+
+  // // Set inlineAt before applying circular buffer
+  // inlineAllAt(tv1, /*pos=*/2);
+
+  reduction_tv_ref->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(reduction_tv_ref);
+
+  // TMA load, [I0, I1/TMA/Stage, Stage, TMA]
+  tv0s->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // TIDx for computation, [I, R/tma/stages, stages, tma]
+  reduction_tv_ref->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // TIDx for computation, [I, TIDx]
+  tv1r->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion->print();
+
+  // // Vectorize output
+  // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Circular buffer
+  inlineMost();
+  // inlineAllAt(reduction_tv_ref, /*pos=*/2);
+  tv0s->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0.sum(-1);
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
