@@ -141,6 +141,10 @@ class Communicator {
     return false;
   }
 
+  auto getTcpStore() {
+    return store_;
+  }
+
  private:
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
