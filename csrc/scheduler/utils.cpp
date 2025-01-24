@@ -2157,7 +2157,7 @@ std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
     return ret;
   }
   const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& logical_dom = tv->getLogicalDomain();
+  const auto& logical_dom = tv->getLoopDomain();
   if (alloc_dom == logical_dom) {
     return ret;
   }

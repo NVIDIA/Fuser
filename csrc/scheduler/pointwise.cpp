@@ -234,7 +234,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
       logical_reorder_map_entry.get();
 
-  auto ref_root = largest_out->getLogicalDomain();
+  auto ref_root = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
   if (!logical_reorder_map.empty()) {

@@ -562,6 +562,7 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
     tv->setDeviceMesh(mesh);
     tv->split(-1, d, /*inner_split=*/false);
     tv->axis(-2)->parallelize(ParallelType::DIDx);
+    tv->reorder({{-2, 0}});
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
