@@ -172,27 +172,26 @@ ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
   return input_groups;
 }
 
-ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
-    const ValGraph& iel_graph) {
-  // Similar to computeCoveredGroups, we first need to find which
-  // groups to use as starting groups of propagation. Unlike
-  // computeCoveredGroups, which uses the Exact graph, here, since the IEL
-  // graph is used, getInputGroupsOfExactGraph cannot be used as
-  // is.
-  //
-  // Instead, we first get the inputs of the Exact graph. For the
+ValGroups LoopPromotionMapBuilder::getInputGroupsOfIELGraph(
+    const ValGraph& iel_graph) const {
+  // We first get the inputs of the Exact graph. For the
   // IEL propagation, any IEL group that has an ID that is included
   // in any of the input groups of the exact graph is used as an input.
 
-  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
-
-  const auto exact_input_groups = getInputGroupsOfExactGraph(exact_graph);
+  const auto exact_input_groups =
+      getInputGroupsOfExactGraph(idGraph(IdMappingMode::EXACT));
 
   ValGroups iel_input_groups;
   for (const ValGroup& exact_input_group : exact_input_groups) {
     iel_input_groups.pushBack(iel_graph.toGroups(*exact_input_group));
   }
 
+  return iel_input_groups;
+}
+
+ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
+    const ValGraph& graph,
+    const ValGroups& input_groups) const {
   // From the input groups, find the propagation path. Note that not
   // all of the groups may be reachable from the inputs because this
   // is an IEL graph. For example, suppose there's a cyclic exact
@@ -220,9 +219,9 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
   // from these two groups, while {i2} is reachable, {i3} is not,
   // which should not matter for the IEL promotion propagation.
   auto expr_path = ValGraphBFS::getExprGroupsBetween(
-                       iel_graph,
-                       iel_input_groups,
-                       iel_graph.disjointValSets().disjointSets(),
+                       graph,
+                       input_groups,
+                       graph.disjointValSets().disjointSets(),
                        /*require_all_to_visited=*/false,
                        Direction::Forward)
                        .first;
@@ -236,26 +235,26 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
 
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     std::unordered_set<ValGroup> visited;
-    for (const ValGroup& input_group : iel_input_groups) {
+    for (const ValGroup& input_group : input_groups) {
       visited.emplace(input_group);
     }
 
     for (const ExprGroup& expr : ordered_exprs) {
-      for (const ValGroup& inp_group : iel_graph.inputGroups(expr)) {
+      for (const ValGroup& inp_group : graph.inputGroups(expr)) {
         NVF_ERROR(
             visited.count(inp_group),
             "Invalid traversal order at ",
             nvfuser::toString(expr));
       }
-      for (const ValGroup& out_group : iel_graph.outputGroups(expr)) {
+      for (const ValGroup& out_group : graph.outputGroups(expr)) {
         visited.emplace(out_group);
       }
     }
   }
 
   if (callback_) {
-    ordered_exprs = callback_->updateOrderedExprGroupsForPropagation(
-        ordered_exprs, iel_graph);
+    ordered_exprs =
+        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, graph);
   }
 
   return ordered_exprs;
@@ -721,7 +720,8 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
-  ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(iel_graph);
+  const ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(
+      iel_graph, getInputGroupsOfIELGraph(iel_graph));
 
   for (const ExprGroup& iel_expr : ordered_exprs) {
     NVF_ERROR(!iel_expr->empty());
@@ -853,22 +853,24 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
     }
   }
 
-  while (!groups_to_visit.empty()) {
-    auto group_to_visit = groups_to_visit.front();
-    groups_to_visit.pop_front();
+  const ExprGroups ordered_exprs =
+      getOrderedExprGroupsForPropagation(graph, input_groups);
 
-    for (const ExprGroup& use_group : graph.getUses(group_to_visit)) {
-      for (const ValGroup& output_group : graph.outputGroups(use_group)) {
-        bool initial_info = covered_ids.find(output_group) == covered_ids.end();
-        bool anything_added =
-            covered_ids[output_group].pushBack(covered_ids.at(group_to_visit));
-        // Note that we need to propagate even when anything_added is
-        // false when this is the initial setting of the coverage info
-        // of this group
-        if (initial_info || anything_added) {
-          groups_to_visit.push_back(output_group);
-        }
-      }
+  for (const ExprGroup& exact_expr : ordered_exprs) {
+    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
+
+    ValGroups covered;
+    for (const ValGroup& inp_group : input_groups) {
+      covered.pushBack(covered_ids.at(inp_group));
+    }
+
+    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+      // Note that pushBack must be used instead of just
+      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
+      // exact expr groups and may have different coverage groups depending on
+      // the expr groups. For example, this can happen with reshape or resize.
+      // See test LoopPromotionCoverage for a concrete example.
+      covered_ids[output_group].pushBack(covered);
     }
   }
 

@@ -105,7 +105,9 @@ class LoopPromotionMapBuilder {
   // informatiom of the IDs of the fusion inputs, i.e., i0, so the
   // propagation should start from i0, then i1, i2 and i3, ignoring
   // the back edge to i0.
-  ValGroups getInputGroupsOfExactGraph(const ValGraph& graph) const;
+  ValGroups getInputGroupsOfExactGraph(const ValGraph& exact_graph) const;
+
+  ValGroups getInputGroupsOfIELGraph(const ValGraph& iel_graph) const;
 
   // Returns an ordered list of all Expr groups of a given graph for
   // traversing from terminating inputs to consumer Val groups. If the
@@ -137,7 +139,9 @@ class LoopPromotionMapBuilder {
   // included, thus any additional info from i2 to i4 is not
   // propagated back to i1, which should be fine for this loop
   // promotion analysis.
-  ExprGroups getOrderedExprGroupsForPropagation(const ValGraph& iel_graph);
+  ExprGroups getOrderedExprGroupsForPropagation(
+      const ValGraph& graph,
+      const ValGroups& input_groups) const;
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
