@@ -13,7 +13,7 @@
 
 namespace nvfuser {
 
-TensorMemoryInfo collectTMemInfo(Fusion* fusion) {
+TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   TensorMemoryInfo result;
   for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Tensor) {
