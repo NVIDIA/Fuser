@@ -101,7 +101,8 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
   scheduler_utils::clearMemorySpace(fusion_);
 
   // Cache inputs
-  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
+  scheduler_utils::cacheInputs(
+      fusion_, /*unroll=*/true, /*propagate_allocation=*/true);
 
   // Cache and fork outputs
   scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
