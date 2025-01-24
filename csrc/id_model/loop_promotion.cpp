@@ -10,8 +10,11 @@
 #include <id_model/to_string.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <logical_domain_map.h>
 #include <options.h>
 #include <val_graph_visitor.h>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -142,13 +145,82 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
 
 } // namespace
 
+ValGroups LoopPromotionMapBuilder::getPropagationInputGroups(
+    const ValGraph& graph) const {
+  const std::unordered_set<TensorView*> included_tvs{
+      id_model_.tvs().begin(), id_model_.tvs().end()};
+
+  std::unordered_set<IterDomain*> non_input_ids;
+
+  for (auto tv_expr : id_model_.tvExprs()) {
+    for (const auto producer :
+         ir_utils::filterByType<TensorView>(tv_expr->inputs())) {
+      if (!included_tvs.count(producer)) {
+        continue;
+      }
+      for (const auto consumer :
+           ir_utils::filterByType<TensorView>(tv_expr->outputs())) {
+        if (!included_tvs.count(consumer)) {
+          continue;
+        }
+
+        auto p2c = PairwiseLogicalDomainMap(producer, consumer)
+                       .mapProducerToConsumer();
+        for (const auto& [p_id, c_id] : p2c) {
+          non_input_ids.insert(c_id);
+        }
+      }
+    }
+  }
+
+  ValGroups input_groups;
+  for (const auto tv : id_model_.tvs()) {
+    for (const auto maybe_root_id : tv->getMaybeRootDomain()) {
+      if (!non_input_ids.count(maybe_root_id)) {
+        input_groups.pushBack(graph.toGroup(maybe_root_id));
+      }
+    }
+  }
+
+  return input_groups;
+}
+
 ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
     const ValGraph& graph) {
+  std::cerr << "getOrderedExprGroupsForPropagation\n";
+
+  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+
+  // const auto input_groups = getPropagationInputGroups(graph);
+  const auto exact_input_groups = getPropagationInputGroups(exact_graph);
+
+  ValGroups input_groups;
+  for (const ValGroup& iel_val_group : graph.disjointValSets().disjointSets()) {
+    if (exact_input_groups.has(exact_graph.toGroup(iel_val_group->front()))) {
+      input_groups.pushBack(iel_val_group);
+    }
+  }
+
+  std::cerr << "Inputs: " << nvfuser::toString(input_groups) << "\n";
+
+  {
+    std::ofstream ofs("iel_graph.dot", std::ofstream::trunc);
+    auto dot_string = graph.toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+  {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string = exact_graph.toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+
   auto expr_path = ValGraphBFS::getExprGroupsBetween(
                        graph,
-                       graph.getTerminatingInputs(),
+                       input_groups,
                        graph.disjointValSets().disjointSets(),
-                       /*require_all_to_visited=*/true,
+                       /*require_all_to_visited=*/false,
                        Direction::Forward)
                        .first;
 
@@ -161,8 +233,8 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
 
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     std::unordered_set<ValGroup> visited;
-    for (const ValGroup& terminating_input : graph.getTerminatingInputs()) {
-      visited.emplace(terminating_input);
+    for (const ValGroup& input_group : input_groups) {
+      visited.emplace(input_group);
     }
 
     for (const ExprGroup& expr : ordered_exprs) {
@@ -194,13 +266,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
       isLoopGraphAlmostUniform(id_model_)) {
     return buildWithNoBroadcast();
   }
-
-  // Cyclic exact graph is not supported. Specifically,
-  // computeCoveredGroups would fail as it uses ValGraphStmtSort.
-  NVF_ERROR(
-      !isCyclic(idGraph(IdMappingMode::EXACT)),
-      "Cyclic exact graph is not supported: ",
-      idGraph(IdMappingMode::EXACT).toString());
 
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
@@ -756,23 +821,26 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {});
 }
 
-namespace {
-
 // Returns for each ValGroup in provided IdGraph what the input ValGroups are
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
 // at RFactor ValGroups.
-std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-    const ValGraph& graph) {
+std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
+    computeCoveredGroups(const ValGraph& graph, const IdModel& id_model) const {
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
 
   std::deque<ValGroup> groups_to_visit;
 
+  ValGroups input_groups = getPropagationInputGroups(graph);
+
+  std::cerr << "Inputs: " << nvfuser::toString(input_groups) << "\n";
+
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
-    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
-    if (id_group_defs.empty()) {
+    // const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
+    // if (id_group_defs.empty()) {
+    if (input_groups.has(id_group)) {
       covered_ids[id_group] = {id_group};
       groups_to_visit.push_back(id_group);
     }
@@ -806,10 +874,16 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     }
   }
 
+  {
+    std::cerr << "Covered IDs\n";
+    for (const auto& [g, gg] : covered_ids) {
+      std::cerr << nvfuser::toString(g) << " -> " << nvfuser::toString(gg)
+                << "\n";
+    }
+  }
+
   return covered_ids;
 }
-
-}; // namespace
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     projectIELPromotionToLoopGraph(
@@ -818,7 +892,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) const {
   const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
-      computeCoveredGroups(idGraph(IdMappingMode::EXACT));
+      computeCoveredGroups(idGraph(IdMappingMode::EXACT), id_model_);
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =

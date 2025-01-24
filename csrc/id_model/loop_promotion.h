@@ -73,6 +73,12 @@ class LoopPromotionMapBuilder {
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
 
+  std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
+      const ValGraph& graph,
+      const IdModel& id_model) const;
+
+  ValGroups getPropagationInputGroups(const ValGraph& graph) const;
+
   // Returns an ordered list of all Expr groups of a given graph for
   // traversing from terminating inputs to consumer Val groups. If the
   // graph is not cyclic, it is topologically orderred. When cyclic,

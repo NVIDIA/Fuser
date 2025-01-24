@@ -168,6 +168,10 @@ class IdModel : public PolymorphicBase {
     return tvs_;
   }
 
+  const std::vector<Expr*>& tvExprs() const {
+    return tv_exprs_;
+  }
+
   Fusion* fusion() const {
     return fusion_;
   }
