@@ -166,7 +166,7 @@ class RNGInserter : public kir::ExprMutator {
           rop->dtype(),
           rop->getRNGOpType(),
           std::vector<Val*>{rop->getParameters()[0], rop->getParameters()[1]});
-      kir::ExprMutator::registerInsertBefore(rop, new_rng_op);
+      kir::ExprMutator::registerReplace(rop, new_rng_op);
     } else if (rop->inputs().size() == 2) {
       auto new_rng_op = IrBuilder::create<kir::RNGOp>(
           rop->output(0),
@@ -174,7 +174,7 @@ class RNGInserter : public kir::ExprMutator {
           std::get<0>(rop_component_tuple),
           rop->dtype(),
           rop->getRNGOpType());
-      kir::ExprMutator::registerInsertBefore(rop, new_rng_op);
+      kir::ExprMutator::registerReplace(rop, new_rng_op);
     } else {
       NVF_THROW(
           "Unexpected number of inputs: ",
