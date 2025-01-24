@@ -52,9 +52,6 @@ class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
     EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
     NVFuserTest::SetUp();
   }
-
- private:
-  EnableOptionsGuard enable_options_guard_;
 };
 
 using MistralRopeTest = RopeTest;
