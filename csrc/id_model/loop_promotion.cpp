@@ -151,6 +151,7 @@ ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
         }
 
         auto p2c = PairwiseLogicalDomainMap(producer, consumer)
+                       .mapBroadcast(false)
                        .mapProducerToConsumer();
         for (const auto& [p_id, c_id] : p2c) {
           non_input_ids.insert(c_id);
