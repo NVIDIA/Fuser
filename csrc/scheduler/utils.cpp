@@ -2855,7 +2855,6 @@ int getCoresPerSM(int major, int minor) {
 // leads to better performance for softmax and dropout fused with layer norm
 // or rms norm, but caused minor regressions for layer norm or rms norm alone.
 bool isHighBandwidthFlopsRatio() {
-  // B200          , 8.192e12 B/s, 7.47e13 flops, ratio = 0.1096
   // A100-PCIe-80GB, 1.935e12 B/s, 1.95e13 flops, ratio = 0.0993
   // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
   // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
