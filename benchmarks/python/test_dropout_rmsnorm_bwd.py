@@ -10,6 +10,7 @@ from .core import (
     unary_bwd_torch,
     compute_total_iobytes,
     with_executor,
+    DEFAULT_EXECUTORS,
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -171,7 +172,7 @@ def test_dropout_rmsnorm_bwd_nvf_benchmark(
         )
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_rmsnorm_bwd_baseline_benchmark(
@@ -195,6 +196,6 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs, grads],
+        [outputs, grads, *fwd_inputs],
         iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype),
     )

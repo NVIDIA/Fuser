@@ -662,4 +662,72 @@ SdpfaBwdResult sdpfa_bwd(
   return {grad_query, grad_key, grad_value};
 }
 
+TensorView* embedding_fwd(
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse) {
+  auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
+  auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
+  NVF_CHECK(
+      !input_domain.empty(),
+      "Expected input to be atleast 1D, got: ",
+      input_domain.size());
+  NVF_CHECK(
+      weight_domain.size() == 2,
+      "Expected weight to be 2D, got: ",
+      weight_domain.size());
+
+  NVF_CHECK(
+      !padding_idx || padding_idx->isScalar(),
+      "Expected padding_idx to be a scalar int.");
+  NVF_CHECK(
+      !max_norm || max_norm->isScalar(),
+      "Expected max_norm to be a scalar double.");
+  NVF_CHECK(
+      !norm_type || norm_type->isScalar(),
+      "Expected scale to be a scalar double.");
+  NVF_CHECK(
+      !scale_grad_by_freq || scale_grad_by_freq->isScalar(),
+      "Expected scale to be a scalar bool.");
+  NVF_CHECK(
+      !sparse || sparse->isScalar(), "Expected scale to be a scalar bool.");
+
+  auto ndims_out = input_domain.size() + 1;
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] = ops::newOutputIterDomain({input_domain[idx]});
+  }
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.back()});
+  TensorDomain* out_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(out_td, weight->dtype());
+
+  if (norm_type == nullptr) {
+    norm_type = IrBuilder::create<Val>(2.0, DataType::Double);
+  }
+
+  if (scale_grad_by_freq == nullptr) {
+    scale_grad_by_freq = input->fusion()->falseVal();
+  }
+  if (sparse == nullptr) {
+    sparse = input->fusion()->falseVal();
+  }
+  IrBuilder::create<EmbeddingFwdOp>(
+      output,
+      input,
+      weight,
+      padding_idx,
+      max_norm,
+      norm_type,
+      scale_grad_by_freq,
+      sparse);
+
+  return output;
+}
+
 } // namespace nvfuser

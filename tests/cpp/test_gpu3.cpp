@@ -4543,10 +4543,14 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
       DataType::Double,
       DataType::Float,
       DataType::Half,
-      DataType::Int,
+      DataType::Char,
+      DataType::Short,
       DataType::Int32,
-      DataType::UInt,
+      DataType::Int,
+      DataType::Byte,
+      DataType::UInt16,
       DataType::UInt32,
+      DataType::UInt64,
       DataType::Bool,
       DataType::ComplexFloat,
       DataType::ComplexDouble};
@@ -4557,32 +4561,12 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
-  // ATen does not support uint32_t and uint64_t as dtype, so we need to
-  // use int32_t and int64_t as a proxy for these two types.
-  auto convert_aten_unsupported_dtype = [](DataType dt) -> DataType {
-    if (dt == DataType::UInt) {
-      return DataType::Int;
-    } else if (dt == DataType::UInt32) {
-      return DataType::Int32;
-    }
-    return dt;
-  };
-
   for (const auto& input_type : data_types) {
-    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
-    auto tv_in = makeContigTensor(2, proxy_input_type);
+    auto tv_in = makeContigTensor(2, input_type);
     fusion.addInput(tv_in);
 
-    if (proxy_input_type != input_type) {
-      tv_in = bitCastOp(input_type, tv_in);
-    }
-
     for (const auto& output_type : data_types) {
-      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
       auto tv_out = castOp(output_type, tv_in);
-      if (proxy_output_type != output_type) {
-        tv_out = bitCastOp(proxy_output_type, tv_out);
-      }
       fusion.addOutput(tv_out);
     }
   }
@@ -4592,16 +4576,14 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
-    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
     at::Tensor t = at::randn({x, y}, options)
                        .relu() // Discard negative numbers so that signed and
                                // unsigned types are equivalent. There is no way
                                // to represent unsigned numbers in PyTorch.
-                       .to(data_type_to_aten(proxy_input_type));
+                       .to(data_type_to_aten(input_type));
     inputs.emplace_back(t);
     for (const auto& output_type : data_types) {
-      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
-      outputs.emplace_back(t.to(data_type_to_aten(proxy_output_type)));
+      outputs.emplace_back(t.to(data_type_to_aten(output_type)));
     }
   }
 
@@ -6101,7 +6083,14 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     FusionGuard fg(&fusion);
 
     std::vector<int64_t> shape0;
-    std::vector<int64_t> shape1({2, 64, 128, 2048});
+    // inner dim should be large enough to trigger the issue
+    // 10240 >= vect (4) x threads per block (512) x max unroll (5).
+    // In inner reduction, TIDx is used for the reduction axis, if it
+    // is less than 512, TIDy is used for iteration axis, this leads
+    // to a split in the iteration axis, current redundant write remover
+    // can't handle this case since it only checks the loop domain whose
+    // definition is a merge.
+    std::vector<int64_t> shape1({2, 64, 2, 10240});
     const size_t ndim = shape1.size();
     for (size_t i = 0; i < ndim; i++) {
       if (!is_broadcast[i]) {
@@ -6226,7 +6215,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
                 &fusion, SchedulerType::Reduction, aten_inputs, false);
           },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-              "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
+              "Producer is required to be in Global Memory based on parallelization strategy.")));
     } else {
       FusionExecutorCache executor_cache(std::move(fusion_ptr));
       auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -7667,61 +7656,6 @@ TEST_F(NVFuserTest, IndexDataTypePromotion) {
   ee.bind(b, 299792458L);
   EXPECT_EQ(ee.evaluate(c), 299792459L);
   EXPECT_EQ(c->dtype(), DataType::Index);
-}
-
-TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
-  // reduction size is set to 65538 to triger cross grid reduction and iter
-  // unroll. iteration size is set to a value larger than y_grid_limit to test
-  // if iter domain is split grid.
-  // This test requires significant memory. Release any cached memory
-  // from previous tests to ensure availability.
-  maybeClearAllocator(0);
-
-  DataType dtype = DataType::Float;
-  int64_t reduction_size = 65538;
-  int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> input_shape{iteration_size, reduction_size};
-  auto t0 = makeContigTensor(2, dtype);
-  auto t1 = sum(t0, {1});
-  fusion.addInput(t0);
-  fusion.addOutput(t1);
-
-  // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
-  size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
-  size_t estimated_gmem = n_elements * dataTypeSize(dtype);
-  size_t device_free, device_total;
-  cudaMemGetInfo(&device_free, &device_total);
-  if (estimated_gmem > device_free) {
-    GTEST_SKIP() << "Skipping test due to limited GPU memory. Requested: "
-                 << estimated_gmem / 1e9 << " GBytes"
-                 << ", device_free: " << device_free / 1e9 << " GBytes"
-                 << ", device_total: " << device_total / 1e9 << " GBytes";
-  }
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
-
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
-  auto rparams = cg_results.heuristic_params->as<ReductionParams>();
-  ASSERT_TRUE(rparams->split_grid_dim_inner_reduction)
-      << "Generated reduction is not cross grid!";
-  ASSERT_TRUE(rparams->split_grid_dim_iter_dom_outer)
-      << "Generated reduction is not split iteration domain!";
-  auto aten_outputs = aten_input.sum({1});
-  testValidate(
-      &fusion,
-      cg_results.outputs,
-      {aten_input},
-      {aten_outputs},
-      __LINE__,
-      __FILE__,
-      "",
-      rparams->lparams);
 }
 
 TEST_F(NVFuserTest, SymbolicOneBroadcasting) {

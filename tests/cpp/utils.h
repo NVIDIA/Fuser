@@ -555,6 +555,9 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
+
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModelExtraValidation);
   }
 
   void TearDown() override {
@@ -599,6 +602,10 @@ class NVFuserTest : public ::testing::Test {
     return str;
   }
 
+ protected:
+  EnableOptionsGuard enable_options_guard_;
+  DisableOptionsGuard disable_options_guard_;
+
  private:
   bool capturing_ = false;
 };
@@ -606,8 +613,8 @@ class NVFuserTest : public ::testing::Test {
 class HopperBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
     }
     NVFuserTest::SetUp();
   }

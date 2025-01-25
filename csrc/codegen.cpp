@@ -207,10 +207,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
         // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
         return "LL";
-      case DataType::UInt:
-        return "ULL";
       case DataType::UInt32:
         return "U";
+      case DataType::UInt64:
+        return "ULL";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
@@ -265,7 +265,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else if (v->isA<TensorView>()) {
       tv = v->as<TensorView>();
     }
-    if (tv && aligned_array_of_regs_.count(tv)) {
+    if (tv &&
+        (aligned_array_of_regs_.count(tv) ||
+         tv->getMemoryType() == MemoryType::Local)) {
       return genVariableName(tv).append(".array");
     } else {
       return genVariableName(v);
@@ -358,7 +360,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& kernel_summary = kernel_->summary();
 
     if (kernel_summary.has_philox_op) {
-      indent() << "uint4 rng_result;\n";
+      indent() << "Array<uint32_t, 4> rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
     }
@@ -709,7 +711,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << genVariableName(tv);
   }
 
-  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+  void genCpAsyncBulkMaybeTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
 
@@ -720,8 +722,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     kir::TensorIndex* smem_ti = nullptr;
     std::string func_name;
 
+    bool is_tensor_tile =
+        ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+
     if (out->view()->getMemoryType() == MemoryType::Shared) {
-      func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      func_name = is_tensor_tile ? "Hopper::cpAsyncBulkTensorTileG2S"
+                                 : "Hopper::cpAsyncBulkG2S";
       NVF_ERROR(
           in_tv->getMemoryType() == MemoryType::Global,
           "Expected input in global for G2S operation");
@@ -734,7 +740,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           out_tv->getMemoryType() == MemoryType::Global,
           "Expected input in shared for S2G operation");
-      func_name = "Hopper::cpAsyncBulkTensorTileS2G";
+      func_name = is_tensor_tile ? "Hopper::cpAsyncBulkTensorTileS2G"
+                                 : "Hopper::cpAsyncBulkS2G";
       smem_ti = in;
       gmem_ti = out;
     }
@@ -1464,9 +1471,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             "Vectorized store/load requires input and output datatypes match.");
       }
 
-      // dispatch cp.async.bulk.tensor.tile
-      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
-        genCpAsyncBulkTensorTile(ldst);
+      // dispatch cp.async.bulk.{tensor}
+      if (optype == LoadStoreOpType::CpAsyncBulk ||
+          optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkMaybeTensorTile(ldst);
         return;
       }
 
@@ -3169,14 +3177,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
+          indent() << "Array<" << buffer_dtype << ", " << genInline(size)
+                   << ", " << (va.find(tv) != va.end() ? va.at(tv) : 1) << "> "
+                   << genVariableName(tv) << ";\n";
           if (va.find(tv) != va.end()) {
-            indent() << "Array<" << buffer_dtype << ", " << genInline(size)
-                     << ", " << va.at(tv) << "> " << genVariableName(tv)
-                     << ";\n";
             aligned_array_of_regs_.insert(tv);
-          } else {
-            indent() << buffer_dtype << " " << genVariableName(tv) << "["
-                     << genInline(size) << "];\n";
           }
         } break;
         default:
