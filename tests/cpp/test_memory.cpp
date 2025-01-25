@@ -2760,7 +2760,7 @@ TEST_F(TMADocTest, Figure15e) {
 // Tensor memory tests
 using TMemTest = NVFuserTest;
 
-TEST_F(TMemTest, GmemRegTmemRegGmemCopy) {
+TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

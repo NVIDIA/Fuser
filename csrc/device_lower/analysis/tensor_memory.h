@@ -105,17 +105,17 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 // The data structure that describes how we allocate tensor memory. It is
 // assumed that:
 // 1. TMem allocation are split into regions, with each region described by a
-//    TMemAllocationRegion. Each region spans a full 128 lanes and N columns of
-//    tensor memory. The number of columns must be a power of two and
-//    minimum 32. Each region is allocated by a single tcgen05.alloc and
-//    deallocated by a matching tcgen05.dealloc.
+//    Region. Each region spans a full 128 lanes and N columns of tensor memory.
+//    The number of columns must be a power of two and minimum 32. Each region
+//    is allocated by a single tcgen05.alloc and deallocated by a matching
+//    tcgen05.dealloc.
 // 2. Each kernel can have multiple regions.
 // 3. Each region can cover multiple TensorViews, but each TensorView can not
 //    span multiple regions.
 struct TMemAlllocationInfo {
   // Each entry describes a region of 128 rows x N columns of tensor memory
   // allocated by a single tcgen05.alloc.
-  struct TMemAllocationRegion {
+  struct Region {
     // tcgen05.alloc stores the allocated address in shared memory. So we use a
     // TensorView with MemoryType::Shared to store this address.
     TensorView* address;
@@ -131,7 +131,7 @@ struct TMemAlllocationInfo {
     };
     std::vector<TVInfo> covered_tensors;
   };
-  std::vector<TMemAllocationRegion> regions;
+  std::vector<Region> regions;
 };
 
 // The actual definition of TensorMemoryInfo.

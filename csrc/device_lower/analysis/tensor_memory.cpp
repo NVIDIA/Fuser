@@ -38,7 +38,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
     region.num_columns = IrBuilder::create<Val>(32, DataType::UInt32);
 
     region.covered_tensors.emplace_back();
-    auto& covered_tensor = region->covered_tensors.back();
+    auto& covered_tensor = region.covered_tensors.back();
     covered_tensor.tensor = tv;
     covered_tensor.lane_offset = tv->fusion()->zeroVal(DataType::UInt16);
     covered_tensor.column_offset = tv->fusion()->zeroVal(DataType::UInt16);
