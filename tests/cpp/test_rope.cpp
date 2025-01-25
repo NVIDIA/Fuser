@@ -947,9 +947,9 @@ TEST_F(RopeTest, EndingRepeat) {
       ref_tv->getLoopDomain().at(0)->extent()->evaluate().as<int64_t>(), 2L);
 
   IdModel id_model(scheduled_fusion, /*build_graphs=*/false);
-  const auto& exact_graph = id_model.buildExactGraph();
+  const auto& graph = id_model.buildBroadcastGraph();
 
-  const auto ref_loop = exact_graph.toGroups(ref_tv->getLoopDomain());
+  const auto ref_loop = graph.toGroups(ref_tv->getLoopDomain());
 
   // The other tensors, except for the pad output, should be fully inlined into
   // the reference tensor.
@@ -957,7 +957,7 @@ TEST_F(RopeTest, EndingRepeat) {
     if (tv->isFusionInput()) {
       continue;
     }
-    auto tv_loop = exact_graph.toGroups(tv->getLoopDomain());
+    auto tv_loop = graph.toGroups(tv->getLoopDomain());
     if (tv->definition() != nullptr && tv->definition()->isA<PadOp>()) {
       ValGroups ref_groups{ref_loop.begin() + 1, ref_loop.end()};
       // In the case of pad, the loop domain of the output tensor
@@ -965,8 +965,9 @@ TEST_F(RopeTest, EndingRepeat) {
       // without the outermost ID.
       EXPECT_EQ(tv_loop, ref_groups);
     } else {
-      EXPECT_EQ(tv_loop, ref_loop);
-      EXPECT_EQ(tv->getLoopDomain().size(), tv->getComputeAtPosition());
+      EXPECT_EQ(tv_loop, ref_loop) << tv->toString();
+      EXPECT_EQ(tv->getLoopDomain().size(), tv->getComputeAtPosition())
+          << tv->toString();
     }
   }
 }

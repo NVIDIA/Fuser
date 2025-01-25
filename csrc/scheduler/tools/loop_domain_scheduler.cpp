@@ -9,6 +9,7 @@
 #include <dispatch.h>
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
+#include <id_model/transform_replay.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
@@ -127,9 +128,16 @@ class LoopDomainScheduler {
   // the tensor by replaying exprs found in the ValGraph.
   void schedule(TensorView* tv) const;
 
+  void scheduleByUpdatingLoopDomainOnly(TensorView* tv) const;
+
  private:
   ValGraph& graph() const {
-    return id_model_->idGraph(IdMappingMode::EXACT);
+    if (update_loop_domain_only_) {
+      id_model_->maybeBuildGraph(IdMappingMode::BROADCAST);
+      return id_model_->idGraph(IdMappingMode::BROADCAST);
+    } else {
+      return id_model_->idGraph(IdMappingMode::EXACT);
+    }
   }
 
   ValGraphBFS::ExprPath getReplayPath(TensorView* tv) const;
@@ -177,7 +185,100 @@ class LoopDomainScheduler {
   ValGroups all_ancestors_of_ref_;
 };
 
+void LoopDomainScheduler::scheduleByUpdatingLoopDomainOnly(
+    TensorView* tv) const {
+  std::cerr << "scheduleByUpdatingLoopDomainOnly: " << tv->toString() << "\n";
+  // Quick shortcut
+  if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
+    // No need to change the current loop domain
+    return;
+  }
+
+  std::unordered_map<ValGroup, IterDomain*> group_to_id;
+  for (const auto loop_id : tv->getLoopDomain()) {
+    group_to_id.emplace(graph().toGroup(loop_id), loop_id);
+  }
+
+  const auto path_to_ref = reverse(ValGraphBFS::getExprGroupsBetween(
+                                       graph(),
+                                       ref_id_groups_,
+                                       graph().toGroups(tv->getLoopDomain()),
+                                       /*require_all_to_visited=*/false,
+                                       Direction::Backward)
+                                       .first);
+
+  // TODO: make sure missed IDs are just broadcast
+
+  for (const auto& [expr_g, dir] : path_to_ref) {
+    NVF_ERROR(
+        dir == Direction::Forward, "Only forward direction should be used");
+
+    const ValGroups input_groups = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph()), ValGraphOutputs(graph()));
+    const ValGroups output_groups = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph()), ValGraphOutputs(graph()));
+
+    std::vector<IterDomain*> input_ids;
+    input_ids.reserve(input_groups.size());
+    for (const auto& input_g : input_groups) {
+      if (auto id_map_it = group_to_id.find(input_g);
+          id_map_it != group_to_id.end()) {
+        input_ids.push_back(id_map_it->second);
+      } else {
+        // No ID found. Create a broadcast to fill the gap. The
+        // position doesn't matter as the loop domain will be
+        // reordered at the end anyway.
+        tv->broadcast(-1);
+        auto new_broadcast_id = tv->axis(-1);
+        group_to_id[input_g] = new_broadcast_id;
+        input_ids.push_back(new_broadcast_id);
+      }
+    }
+
+    std::vector<IterDomain*> output_ids;
+    output_ids.reserve(output_groups.size());
+
+    auto replayed_expr = ReplayTransform::replayAs(input_ids, expr_g->front());
+    std::cerr << "Replayed: " << replayed_expr->toString();
+    for (auto output : replayed_expr->outputs()) {
+      output_ids.push_back(output->as<IterDomain>());
+    }
+
+    NVF_ERROR(output_ids.size() == output_groups.size());
+    for (const auto i : c10::irange(output_groups.size())) {
+      group_to_id.emplace(output_groups.at(i), output_ids.at(i));
+    }
+  }
+
+  // Construct the new loop domain based on the reference ID
+  // groups. If there's no corresponding ID for a reference ID group,
+  // that means that group was not used in the path_to_ref
+  // traversal. Those groups are ignored here.
+  //
+  // Note that the behavior is different from the non-update mode,
+  // where those groups are automatically inserted to new
+  // loop domains as well. It's still unclear which would be a better
+  // API design, but the automatic behavior may not be preferable as
+  // it could result in unexpected loop domains, while it's certainly
+  // convenient in some cases.
+  std::vector<IterDomain*> new_loop_domain;
+  for (const auto& ref_id_group : ref_id_groups_) {
+    if (auto id_map_it = group_to_id.find(ref_id_group);
+        id_map_it != group_to_id.end()) {
+      new_loop_domain.push_back(id_map_it->second);
+    }
+  }
+
+  std::cerr << "New: " << toDelimitedString(new_loop_domain) << "\n";
+  tv->setLoopDomain(new_loop_domain);
+}
+
 void LoopDomainScheduler::schedule(TensorView* tv) const {
+  if (update_loop_domain_only_) {
+    scheduleByUpdatingLoopDomainOnly(tv);
+    return;
+  }
+
   // Quick shortcut
   if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
     // No need to change the current loop domain
@@ -466,21 +567,28 @@ void scheduleLoopDomainsBy(
     // Clone inputs or outputs
     auto& new_ids =
         replay_dir_tv == Direction::Forward ? output_ids : input_ids;
-    const auto& ref_of_ids_to_generate = replay_dir_tv == Direction::Forward
-        ? transform->outputs()
-        : transform->inputs();
-
-    for (const auto& ref_id : ref_of_ids_to_generate) {
-      auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
-      new_ids.push_back(clone);
-    }
 
     // In the case of replaying the transform expr backward,
     // the definition of the output IDs will be set to the newly
     // created expr. This is only allowed when the output IDs have no
     // definition yet.
-    LoopDomainSchedulerReplayTransform::replayAs(
-        input_ids, output_ids, transform);
+    if (replay_dir_tv == Direction::Forward) {
+      auto replayed_expr = ReplayTransform::replayAs(input_ids, transform);
+      for (auto output : replayed_expr->outputs()) {
+        new_ids.push_back(output->as<IterDomain>());
+      }
+    } else {
+      const auto& ref_of_ids_to_generate = replay_dir_tv == Direction::Forward
+          ? transform->outputs()
+          : transform->inputs();
+
+      for (const auto& ref_id : ref_of_ids_to_generate) {
+        auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
+        new_ids.push_back(clone);
+      }
+      LoopDomainSchedulerReplayTransform::replayAs(
+          input_ids, output_ids, transform);
+    }
 
     // Replace the inputs of the transform with the outputs
     auto new_loop_domain = tv->getLoopDomain();
@@ -503,6 +611,77 @@ void scheduleLoopDomainsBy(
   }
 
   return;
+}
+
+void scheduleLoopDomainsBy(
+    TensorView* tv,
+    const ValGraphBFS::ExprPath& path,
+    const ValGraph& graph) {
+  std::unordered_map<ValGroup, IterDomain*> group_to_id;
+  for (const auto loop_id : tv->getLoopDomain()) {
+    group_to_id.emplace(graph.toGroup(loop_id), loop_id);
+  }
+
+  auto new_loop_domain = tv->getLoopDomain();
+
+  for (const auto& [expr_g, dir] : path) {
+    NVF_ERROR(
+        dir == Direction::Forward,
+        "Only forward direction is supported for now");
+
+    const ValGroups input_groups = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+    const ValGroups output_groups = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+
+    std::vector<IterDomain*> input_ids;
+    input_ids.reserve(input_groups.size());
+    for (const auto& input_g : input_groups) {
+      if (auto id_map_it = group_to_id.find(input_g);
+          id_map_it != group_to_id.end()) {
+        input_ids.push_back(id_map_it->second);
+      } else {
+        NVF_THROW();
+      }
+    }
+
+    std::vector<IterDomain*> output_ids;
+    output_ids.reserve(output_groups.size());
+
+    if (dir == Direction::Forward) {
+      auto replayed_expr =
+          ReplayTransform::replayAs(input_ids, expr_g->front());
+      for (auto output : replayed_expr->outputs()) {
+        output_ids.push_back(output->as<IterDomain>());
+      }
+    } else {
+      NVF_THROW();
+    }
+
+    NVF_ERROR(output_ids.size() == output_groups.size());
+    for (const auto i : c10::irange(output_groups.size())) {
+      group_to_id.emplace(output_groups.at(i), output_ids.at(i));
+    }
+
+    // Replace the inputs of the transform with the outputs
+    auto outermost_pos = (int64_t)new_loop_domain.size();
+    for (const auto& input_id : input_ids) {
+      auto it =
+          std::find(new_loop_domain.begin(), new_loop_domain.end(), input_id);
+      NVF_ERROR(it != new_loop_domain.end());
+      auto pos = (int64_t)std::distance(new_loop_domain.begin(), it);
+      outermost_pos = std::min(outermost_pos, pos);
+      new_loop_domain.erase(it);
+    }
+
+    for (auto it = output_ids.rbegin(); it != output_ids.rend(); ++it) {
+      IterDomain* output_id = *it;
+      new_loop_domain.insert(
+          new_loop_domain.begin() + outermost_pos, output_id);
+    }
+  }
+
+  tv->setLoopDomain(new_loop_domain);
 }
 
 void cancelReshapeInLoopDomains(TensorView* from_tv) {

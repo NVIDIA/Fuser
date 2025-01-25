@@ -254,6 +254,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
+  std::cerr << "ResizeScheduler::schedule\n";
+
   FusionGuard fg(fusion);
   const auto resize_params = dynamic_cast<const ResizeParams*>(params);
   NVF_ERROR(resize_params != nullptr);
@@ -469,10 +471,35 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true);
   } else {
-    scheduler_tools::scheduleLoopDomainsLike(
-        fusion->allTvs(),
-        ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true);
+    if (getenv("NEW")) {
+      id_model = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
+      id_model->buildExactGraph();
+      id_model->buildBroadcastGraph();
+      const auto& graph = id_model->idGraph(IdMappingMode::BROADCAST);
+      for (auto tv : fusion->allTvs()) {
+        if (tv->isFusionInput() || tv == ref_tv) {
+          continue;
+        }
+
+        std::cerr << "Pre: " << tv->toString() << "\n";
+
+        const auto path = reverse(ValGraphBFS::getExprGroupsBetween(
+                                      graph,
+                                      graph.toGroups(ref_tv->getLoopDomain()),
+                                      graph.toGroups(tv->getLoopDomain()),
+                                      /*require_all_to_visited=*/true,
+                                      Direction::Backward)
+                                      .first);
+        scheduler_tools::scheduleLoopDomainsBy(tv, path, graph);
+
+        std::cerr << "Post: " << tv->toString() << "\n";
+      }
+    } else {
+      scheduler_tools::scheduleLoopDomainsLike(
+          fusion->allTvs(),
+          ref_tv->getLoopDomain(),
+          /*update_loop_domain_only=*/true);
+    }
   }
 
   if (vec_factor > 1) {

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <bfs.h>
+#include <val_graph_visitor.h>
 
 #include <vector>
 
@@ -68,6 +69,11 @@ void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
     Expr* transform,
     Direction replay_dir = Direction::Undefined);
+
+void scheduleLoopDomainsBy(
+    TensorView* tv,
+    const ValGraphBFS::ExprPath& path,
+    const ValGraph& graph);
 
 // For each of immediate and indirect consumer tensors of from_tv,
 // schedule its loop domain such that reshape transforms appearing
