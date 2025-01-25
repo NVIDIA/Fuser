@@ -17,10 +17,9 @@ bool ValGraphVisitor::traverse() {
   if (graph().disjointValSets().size() == 0) {
     return true;
   }
-  // const ValGroups terminating_inputs =
-  // graph().getTerminatingInputs();
-  ValGroups terminating_inputs = starting_groups_;
-  terminating_inputs.pushBack(graph().getTerminatingInputs());
+
+  ValGroups terminating_inputs = graph().getTerminatingInputs();
+  terminating_inputs.pushBack(starting_groups_);
 
   // If no terminating input is found, that should mean there's a
   // cycle.
