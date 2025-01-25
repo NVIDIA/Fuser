@@ -3182,7 +3182,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
         case MemoryType::Tensor: {
           // TODO: fill
-          indent() << genVariableName(tv) << " = ?;\n";
+          indent() << "TMemTensor " << genVariableName(tv) << "();\n";
           break;
         }
         default:
