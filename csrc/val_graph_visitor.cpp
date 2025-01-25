@@ -32,13 +32,6 @@ bool ValGraphVisitor::traverse() {
     return false;
   }
 
-  {
-    std::cerr << "Inputs:\n";
-    for (const auto& g : terminating_inputs) {
-      std::cerr << nvfuser::toString(g) << "\n";
-    }
-  }
-
   std::deque<ValGroup> to_visit_vals(
       terminating_inputs.begin(), terminating_inputs.end());
   ValGroups visited_vals;
@@ -196,7 +189,7 @@ bool ValGraphVisitor::traverse() {
     return false;
   }
 
-#if 0
+#if 1
   // If not all exprs are visited, that should mean there must be a
   // cyclic subgraph. The subgraph should have no terminating input,
   // so it should not be visited at all. Note that some Val groups may

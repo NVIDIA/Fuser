@@ -262,29 +262,11 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
                        graph)
                        .first;
 
-  std::cerr << "Input groups:\n";
-  for (const auto& input_g : input_groups) {
-    std::cerr << nvfuser::toString(input_g) << "\n";
-  }
-
-  std::cerr << "Path:\n";
-  for (const auto& [expr, dir] : expr_path) {
-    std::cerr << dir << ", " << expr->front()->toString();
-  }
-  std::cerr << "Path end:\n";
 
   ExprGroups ordered_exprs;
   for (const auto& [expr_g, _] : expr_path) {
     ordered_exprs.pushBack(expr_g);
   }
-
-  std::cerr << "Filtered Path:\n";
-  for (const auto& expr : ordered_exprs) {
-    std::cerr << expr->front()->toString();
-  }
-  std::cerr << "Path end:\n";
-
-  // NVF_ERROR(ordered_exprs.size() == (int64_t)expr_path.size());
 
   if (callback_) {
     ordered_exprs =
@@ -870,74 +852,6 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
 // at RFactor ValGroups.
 std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
     computeCoveredGroups(const ValGraph& graph) const {
-#if 0  
-  std::cerr << "computeCoveredGroups\n";
-  // Map from an exact iter domain group, to all the exact iter domain groups it
-  // covers
-  std::unordered_map<ValGroup, ValGroups> covered_ids;
-
-  std::deque<ValGroup> groups_to_visit;
-
-  ValGroups input_groups = getInputGroupsOfExactGraph(graph);
-
-  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
-    // Initialize inputs
-    if (input_groups.has(id_group)) {
-      covered_ids[id_group] = {id_group};
-      groups_to_visit.push_back(id_group);
-    }
-
-    // Initialize broadcast groups to empty since broadcast domains
-    // don't matter for indexing
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
-          return id->as<IterDomain>()->isBroadcast();
-        })) {
-      covered_ids[id_group] = {};
-      groups_to_visit.push_back(id_group);
-    }
-  }
-
-  const ExprGroups ordered_exprs =
-      getOrderedExprGroupsForPropagation(graph, input_groups);
-
-  std::cerr << "Input groups: " << nvfuser::toString(input_groups) << "\n";
-  for (const auto& g : ordered_exprs) {
-    std::cerr << nvfuser::toString(g) << "\n";
-    std::cerr << "From:\n";
-    for (const auto& g : graph.inputGroups(g)) {
-      std::cerr << nvfuser::toString(g) << "\n";
-    }
-    std::cerr << "To:\n";
-    for (const auto& g : graph.outputGroups(g)) {
-      std::cerr << nvfuser::toString(g) << "\n";
-    }
-  }
-
-  for (const ExprGroup& exact_expr : ordered_exprs) {
-    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
-
-    ValGroups covered;
-    for (const ValGroup& inp_group : input_groups) {
-      covered.pushBack(covered_ids.at(inp_group));
-    }
-
-    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
-      // Note that pushBack must be used instead of just
-      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
-      // exact expr groups and may have different coverage groups depending on
-      // the expr groups. For example, this can happen with reshape or resize.
-      // See test LoopPromotionCoverage for a concrete example.
-      covered_ids[output_group].pushBack(covered);
-    }
-  }
-
-  std::cerr << "computeCoveredGroups done\n";
-
-  graph.dumpGraphvizDotGraph("covered_exact_graph.dot");
-
-  return covered_ids;
-#else
-  std::cerr << "computeCoveredGroups\n";
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
@@ -989,12 +903,7 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
     }
   }
 
-  std::cerr << "computeCoveredGroups done\n";
-
-  graph.dumpGraphvizDotGraph("covered_exact_graph.dot");
-
   return covered_ids;
-#endif
 }
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
