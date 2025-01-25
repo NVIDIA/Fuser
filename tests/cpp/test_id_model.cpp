@@ -2373,11 +2373,16 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
   inlineMost();
 
+  fusion.print();
+
   IdModel id_model(&fusion);
 
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_promotion_map = id_model.loopPromotionMap();
+
+  exact_graph.dumpGraphvizDotGraph("exact_graph.dot");
+  exact_graph.dumpGraphvizDotGraph("loop_graph.dot");
 
   // Reference promotion domain
   auto reference_promotion = tv10->axis(0);
@@ -2399,7 +2404,8 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
     // Without the fix of PR #2322, this assertion would fail as the
     // loop group fails to find any promotion.
     ASSERT_NE(promotion_it, loop_promotion_map.end())
-        << "No promotion found for " << tv->axis(0)->toString();
+        << "No promotion found for " << tv->axis(0)->toString() << " of "
+        << tv->toString();
 
     auto promotion_id = promotion_it->second;
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(

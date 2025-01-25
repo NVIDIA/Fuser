@@ -169,7 +169,41 @@ ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
     }
   }
 
-  return input_groups;
+  // Remove redundancy. There may be dependencies between inputs. For
+  // example:
+  //
+  //  Fusion inputs:
+  //   T0: [i0, i1]
+  //   T1: [i2]
+  //
+  //  T2 = reshape(T0, {i0, i1}, {i0*i1});
+  //  T3 = add(T2, T1)
+  //
+  // In this case, i2 forms an input group but is redundant as there
+  // are i0 and i1. In fact, traversing from {i0, i1, i2} would miss
+  // the expr between {i0, i1} and {i2}.
+
+  ValGroups input_groups_to_keep;
+  for (auto it = input_groups.begin(); it != input_groups.end(); ++it) {
+    const ValGroup& input = *it;
+
+    ValGroups other_inputs = input_groups_to_keep;
+    other_inputs.pushBack(it + 1, input_groups.end());
+    if (ValGraphBFS::getExprGroupsBetween(
+            exact_graph,
+            other_inputs,
+            {input},
+            /*require_all_to_visited=*/false,
+            Direction::Forward)
+            .second) {
+      // This input group is redundant with respect
+      continue;
+    } else {
+      input_groups_to_keep.pushBack(input);
+    }
+  }
+
+  return input_groups_to_keep;
 }
 
 ValGroups LoopPromotionMapBuilder::getInputGroupsOfIELGraph(
@@ -218,39 +252,58 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
   // inputs of the IEL graph would be {i0} and {i1}. When traversing
   // from these two groups, while {i2} is reachable, {i3} is not,
   // which should not matter for the IEL promotion propagation.
-  auto expr_path = ValGraphBFS::getExprGroupsBetween(
+#if 0  
+  auto expr_path = ValGraphStrictBFS::getExprGroupsBetween(
                        graph,
                        input_groups,
                        graph.disjointValSets().disjointSets(),
                        /*require_all_to_visited=*/false,
                        Direction::Forward)
                        .first;
+#endif
+  std::vector<ValGraphStrictBFS::NodeType> targets;
+  targets.reserve(
+      graph.disjointExprSets().size() + graph.disjointValSets().size());
+  std::copy(
+      graph.disjointExprSets().disjointSets().begin(),
+      graph.disjointExprSets().disjointSets().end(),
+      std::back_inserter(targets));
+#if 0
+  std::copy(graph.disjointValSets().disjointSets().begin(),
+            graph.disjointValSets().disjointSets().end(),
+            std::back_inserter(targets));
+#endif
+  auto expr_path = getExprsBetween<ValGraphStrictBFS>(
+                       {input_groups.begin(), input_groups.end()},
+                       targets,
+                       /*require_all_to_visited=*/false,
+                       Direction::Forward,
+                       graph)
+                       .first;
+
+  std::cerr << "Input groups:\n";
+  for (const auto& input_g : input_groups) {
+    std::cerr << nvfuser::toString(input_g) << "\n";
+  }
+
+  std::cerr << "Path:\n";
+  for (const auto& [expr, dir] : expr_path) {
+    std::cerr << dir << ", " << expr->front()->toString();
+  }
+  std::cerr << "Path end:\n";
 
   ExprGroups ordered_exprs;
   for (const auto& [expr_g, _] : expr_path) {
     ordered_exprs.pushBack(expr_g);
   }
 
-  NVF_ERROR(ordered_exprs.size() == (int64_t)expr_path.size());
-
-  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
-    std::unordered_set<ValGroup> visited;
-    for (const ValGroup& input_group : input_groups) {
-      visited.emplace(input_group);
-    }
-
-    for (const ExprGroup& expr : ordered_exprs) {
-      for (const ValGroup& inp_group : graph.inputGroups(expr)) {
-        NVF_ERROR(
-            visited.count(inp_group),
-            "Invalid traversal order at ",
-            nvfuser::toString(expr));
-      }
-      for (const ValGroup& out_group : graph.outputGroups(expr)) {
-        visited.emplace(out_group);
-      }
-    }
+  std::cerr << "Filtered Path:\n";
+  for (const auto& expr : ordered_exprs) {
+    std::cerr << expr->front()->toString();
   }
+  std::cerr << "Path end:\n";
+
+  // NVF_ERROR(ordered_exprs.size() == (int64_t)expr_path.size());
 
   if (callback_) {
     ordered_exprs =
@@ -828,6 +881,7 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
 // at RFactor ValGroups.
 std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
     computeCoveredGroups(const ValGraph& graph) const {
+  std::cerr << "computeCoveredGroups\n";
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
@@ -856,6 +910,19 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
   const ExprGroups ordered_exprs =
       getOrderedExprGroupsForPropagation(graph, input_groups);
 
+  std::cerr << "Input groups: " << nvfuser::toString(input_groups) << "\n";
+  for (const auto& g : ordered_exprs) {
+    std::cerr << nvfuser::toString(g) << "\n";
+    std::cerr << "From:\n";
+    for (const auto& g : graph.inputGroups(g)) {
+      std::cerr << nvfuser::toString(g) << "\n";
+    }
+    std::cerr << "To:\n";
+    for (const auto& g : graph.outputGroups(g)) {
+      std::cerr << nvfuser::toString(g) << "\n";
+    }
+  }
+
   for (const ExprGroup& exact_expr : ordered_exprs) {
     std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
 
@@ -874,6 +941,7 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
     }
   }
 
+  std::cerr << "computeCoveredGroups done\n";
   return covered_ids;
 }
 

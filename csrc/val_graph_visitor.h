@@ -208,8 +208,8 @@ class ValGraphBFS : public BFS<
       bool require_all_to_visited = true,
       Direction allowed_direction = Direction::Undefined) {
     return getExprsBetween<ValGraphBFS>(
-        from.vector(),
-        to.vector(),
+        {from.begin(), from.end()},
+        {to.begin(), to.end()},
         require_all_to_visited,
         allowed_direction,
         graph);
@@ -248,8 +248,48 @@ class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
       bool require_all_to_visited = true,
       Direction allowed_direction = Direction::Undefined) {
     return getExprsBetween<ValGraphPermissiveBFS>(
-        from.vector(),
-        to.vector(),
+        {from.begin(), from.end()},
+        {to.begin(), to.end()},
+        require_all_to_visited,
+        allowed_direction,
+        graph);
+  }
+};
+
+class ValGraphStrictBFS : public BFSWithStrictDependence<
+                              ExprGroup,
+                              ValGroup,
+                              ValGraphDefinitions,
+                              ValGraphUses,
+                              ValGraphInputs,
+                              ValGraphOutputs> {
+ public:
+  ValGraphStrictBFS(
+      const ValGraph& graph,
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : BFSWithStrictDependence(
+            ValGraphDefinitions(graph),
+            ValGraphUses(graph),
+            ValGraphInputs(graph),
+            ValGraphOutputs(graph),
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited,
+            allowed_direction) {}
+
+  // Just a shortcut to the generic getExprsBetween
+  static std::pair<ValGraphStrictBFS::ExprPath, bool> getExprGroupsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
+    return getExprsBetween<ValGraphStrictBFS>(
+        {from.begin(), from.end()},
+        {to.begin(), to.end()},
         require_all_to_visited,
         allowed_direction,
         graph);
