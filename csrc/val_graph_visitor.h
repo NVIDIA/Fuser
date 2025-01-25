@@ -67,8 +67,8 @@ class ValGraphVisitor {
   virtual ~ValGraphVisitor() = default;
 
  protected:
-  ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
-      : val_graph_(val_graph), allow_cycle_(allow_cycle) {}
+  ValGraphVisitor(const ValGraph& val_graph, const ValGroups& starting_groups, bool allow_cycle = true)
+      : val_graph_(val_graph), starting_groups_(starting_groups), allow_cycle_(allow_cycle) {}
 
   ValGraphVisitor(const ValGraphVisitor& other) = default;
 
@@ -91,6 +91,7 @@ class ValGraphVisitor {
 
  private:
   const ValGraph& val_graph_;
+  const ValGroups starting_groups_;
   bool allow_cycle_ = true;
   std::string error_message_;
 };
@@ -99,7 +100,12 @@ class ValGraphVisitor {
 class ValGraphStmtSort : public ValGraphVisitor {
  public:
   ValGraphStmtSort(const ValGraph& val_graph, bool allow_cycle = true)
-      : ValGraphVisitor(val_graph, allow_cycle) {
+      : ValGraphVisitor(val_graph, val_graph.getTerminatingInputs(), allow_cycle) {
+    NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
+  }
+  
+  ValGraphStmtSort(const ValGraph& val_graph, const ValGroups& starting_groups, bool allow_cycle = true)
+      : ValGraphVisitor(val_graph, starting_groups, allow_cycle) {
     NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
 
@@ -129,8 +135,6 @@ class ValGraphStmtSort : public ValGraphVisitor {
   ExprGroups sorted_exprs_;
   ValGroups sorted_vals_;
 };
-
-bool isCyclic(const ValGraph& graph);
 
 class ValGraphDefinitions {
   const ValGraph& graph_;

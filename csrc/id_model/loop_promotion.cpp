@@ -252,30 +252,11 @@ ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
   // inputs of the IEL graph would be {i0} and {i1}. When traversing
   // from these two groups, while {i2} is reachable, {i3} is not,
   // which should not matter for the IEL promotion propagation.
-#if 0  
-  auto expr_path = ValGraphStrictBFS::getExprGroupsBetween(
-                       graph,
-                       input_groups,
-                       graph.disjointValSets().disjointSets(),
-                       /*require_all_to_visited=*/false,
-                       Direction::Forward)
-                       .first;
-#endif
-  std::vector<ValGraphStrictBFS::NodeType> targets;
-  targets.reserve(
-      graph.disjointExprSets().size() + graph.disjointValSets().size());
-  std::copy(
-      graph.disjointExprSets().disjointSets().begin(),
-      graph.disjointExprSets().disjointSets().end(),
-      std::back_inserter(targets));
-#if 0
-  std::copy(graph.disjointValSets().disjointSets().begin(),
-            graph.disjointValSets().disjointSets().end(),
-            std::back_inserter(targets));
-#endif
+
   auto expr_path = getExprsBetween<ValGraphStrictBFS>(
                        {input_groups.begin(), input_groups.end()},
-                       targets,
+                       {graph.disjointValSets().disjointSets().begin(),
+                        graph.disjointValSets().disjointSets().end()},
                        /*require_all_to_visited=*/false,
                        Direction::Forward,
                        graph)
@@ -773,8 +754,16 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
-  const ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(
-      iel_graph, getInputGroupsOfIELGraph(iel_graph));
+  ValGraphStmtSort iel_stmt_sort(iel_graph, getInputGroupsOfIELGraph(iel_graph));
+  ExprGroups ordered_exprs = iel_stmt_sort.exprs();
+  
+  if (callback_) {
+    ordered_exprs =
+        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, iel_graph);
+  }
+  
+  //const ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(
+  //iel_graph, getInputGroupsOfIELGraph(iel_graph));
 
   for (const ExprGroup& iel_expr : ordered_exprs) {
     NVF_ERROR(!iel_expr->empty());
@@ -881,6 +870,7 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
 // at RFactor ValGroups.
 std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
     computeCoveredGroups(const ValGraph& graph) const {
+#if 0  
   std::cerr << "computeCoveredGroups\n";
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
@@ -942,7 +932,69 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
   }
 
   std::cerr << "computeCoveredGroups done\n";
+
+  graph.dumpGraphvizDotGraph("covered_exact_graph.dot");
+
   return covered_ids;
+#else
+  std::cerr << "computeCoveredGroups\n";
+  // Map from an exact iter domain group, to all the exact iter domain groups it
+  // covers
+  std::unordered_map<ValGroup, ValGroups> covered_ids;
+
+  std::deque<ValGroup> groups_to_visit;
+
+  ValGroups input_groups = getInputGroupsOfExactGraph(graph);
+
+  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
+    // Initialize inputs
+    if (input_groups.has(id_group)) {
+      covered_ids[id_group] = {id_group};
+      groups_to_visit.push_back(id_group);
+    }
+
+    // Initialize broadcast groups to empty since broadcast domains
+    // don't matter for indexing
+    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+          return id->as<IterDomain>()->isBroadcast();
+        })) {
+      covered_ids[id_group] = {};
+      groups_to_visit.push_back(id_group);
+    }
+  }
+
+  ValGraphStmtSort stmt_sort(graph, input_groups);
+  ExprGroups ordered_exprs = stmt_sort.exprs();
+
+  if (callback_) {
+    ordered_exprs =
+        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, graph);
+  }
+
+  for (const ExprGroup& exact_expr : ordered_exprs) {
+    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
+
+    ValGroups covered;
+    for (const ValGroup& inp_group : input_groups) {
+      covered.pushBack(covered_ids.at(inp_group));
+    }
+
+    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+      // Note that pushBack must be used instead of just
+      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
+      // exact expr groups and may have different coverage groups depending on
+      // the expr groups. For example, this can happen with reshape or resize.
+      // See test LoopPromotionCoverage for a concrete example.
+      covered_ids[output_group].pushBack(covered);
+    }
+  }
+
+  std::cerr << "computeCoveredGroups done\n";
+
+  graph.dumpGraphvizDotGraph("covered_exact_graph.dot");
+
+  return covered_ids;
+#endif
 }
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::

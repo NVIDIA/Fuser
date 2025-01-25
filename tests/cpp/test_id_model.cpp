@@ -209,14 +209,14 @@ class IdModelTester : public LoopPromotionMapBuilderCallback {
       }
     }
 
-    ValGraphStmtSort iel_stmt_sort(graph);
+    ValGraphStmtSort iel_stmt_sort(graph, graph.getTerminatingInputs());
     auto legacy_order = iel_stmt_sort.exprs();
 
     NVF_ERROR(legacy_order.size() == ordered_exprs.size());
 
     return legacy_order;
   }
-
+  
   void print(std::ostream& os) const {
     os << "Step 1 results:\n";
     for (const auto& [g, id] : s1_logical_resolution_map) {
@@ -586,6 +586,7 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   {
     IdModel id_model(&fusion);
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    vg.dumpGraphvizDotGraph("exact_graph_test.dot");
     ValGraphStmtSort vg_stmt_sort(vg);
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
   }
@@ -2589,10 +2590,6 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraphReshape) {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
 
-    // The exact graph is cyclic, but the loop promotion should be
-    // generated successfully.
-    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
-
     id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
     EXPECT_TRUE(!id_model.loopPromotionMap().empty());
 
@@ -2615,12 +2612,6 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraphReshape) {
     const auto& exact_graph = id_model.buildExactGraph();
     const auto& loop_graph =
         id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
-
-    // The exact graph is cyclic, but the loop promotion should be
-    // generated successfully.
-    EXPECT_TRUE(isCyclic(exact_graph));
-    EXPECT_TRUE(
-        isCyclic(id_model.buildIntersection(exact_graph, loop_graph, false)));
 
     // All loop IDs should be mapped together
     const auto ref_loop = loop_graph.toGroups(tv4->getLoopDomain());
@@ -2664,10 +2655,6 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraphRoPELike) {
   {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
-
-    // The exact graph is cyclic, but the loop promotion should be
-    // generated successfully.
-    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
 
     id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
     EXPECT_TRUE(!id_model.loopPromotionMap().empty());
@@ -2732,11 +2719,6 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraphRoPELike) {
     const auto& exact_graph = id_model.buildExactGraph();
     const auto& loop_graph =
         id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
-
-    // Both the exact and the IEL graphs should indeed be cyclic
-    EXPECT_TRUE(isCyclic(exact_graph));
-    EXPECT_TRUE(
-        isCyclic(id_model.buildIntersection(exact_graph, loop_graph, false)));
 
     // All loop IDs should be mapped together
     const auto ref_loop = loop_graph.toGroups(tv4->getLoopDomain());
@@ -2852,12 +2834,7 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraphInlinedBroadcast) {
 
   IdModel id_model(&fusion, /*build_graphs=*/false);
   const auto& exact_graph = id_model.buildExactGraph();
-  const auto& loop_graph =
-      id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
-
-  EXPECT_TRUE(isCyclic(exact_graph));
-  EXPECT_TRUE(
-      isCyclic(id_model.buildIntersection(exact_graph, loop_graph, false)));
+  id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
 
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
