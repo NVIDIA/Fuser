@@ -474,6 +474,9 @@ ValGraph& IdModel::buildAlmostExactGraph() {
         for (auto id : mapped_id_group) {
           // almost_exact_graph.mapVals(mapped_id_group.front(), id);
           ids_to_map.emplace_back(mapped_id_group.front(), id);
+          std::cerr << "Registering mapping: "
+                    << mapped_id_group.front()->toString() << " and "
+                    << id->toString() << " for " << expr->toString();
         }
       }
     }

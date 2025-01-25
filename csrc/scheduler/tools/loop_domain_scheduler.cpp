@@ -411,12 +411,26 @@ void scheduleLoopDomainsLike(
   LoopDomainScheduler scheduler(
       ref_loop_dom, update_loop_domain_only, id_mapping_mode);
 
+  bool debug = tvs.at(0)->fusion()->inputs().at(0)->name() == 0;
   for (auto tv : tvs) {
     // Loop domain of fusion inputs should have no meaning
     if (tv->isFusionInput()) {
       continue;
     }
+    if (debug) {
+      std::cerr << "Pre: " << tv->toString() << "\n";
+    }
     scheduler.schedule(tv);
+    if (debug) {
+      std::cerr << "Post: " << tv->toString() << "\n";
+
+      if (tv->name() == 66) {
+        std::cerr << "Post scheduling: " << tv->toString() << "\n";
+        for (auto expr : tv->domain()->allExprs()) {
+          std::cerr << expr->toString();
+        }
+      }
+    }
   }
 }
 

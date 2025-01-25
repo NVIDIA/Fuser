@@ -258,6 +258,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   const auto resize_params = dynamic_cast<const ResizeParams*>(params);
   NVF_ERROR(resize_params != nullptr);
 
+  if (fusion->inputs().at(0)->name() != 0) {
+    NVF_THROW();
+  }
+
   scheduler_utils::clearMemorySpace(fusion);
 
   auto ref_tv = getReferenceTensor(fusion);
@@ -469,11 +473,26 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true);
   } else {
+    IdMappingMode mode = IdMappingMode::BROADCAST;
+    if (getenv("EXACT")) {
+      mode = IdMappingMode::EXACT;
+    }
+    std::cerr << "Reference: " << ref_tv->toString() << "\n";
     scheduler_tools::scheduleLoopDomainsLike(
         fusion->allTvs(),
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true,
-        IdMappingMode::BROADCAST);
+        mode);
+
+    {
+      IdModel id_modelx(fusion, /*build_graphs=*/false);
+      id_modelx.buildExactGraph();
+      std::cerr << "Exact graph: "
+                << id_modelx.idGraph(IdMappingMode::EXACT).toString();
+      id_modelx.buildAlmostExactGraph();
+      std::cerr << "Almost exact graph: "
+                << id_modelx.idGraph(IdMappingMode::ALMOSTEXACT).toString();
+    }
   }
 
   if (vec_factor > 1) {

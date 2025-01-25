@@ -1153,6 +1153,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           getCoveredPredicatedDomains(contig_domain_group);
     }
 
+    if (tv->name() == 66) {
+      std::cerr << "Actual predicate group: "
+                << nvfuser::toString(actual_predicate_domain_group) << "\n";
+    }
     auto idx_it = index_map.find(actual_predicate_domain_group);
     NVF_ERROR(
         idx_it != index_map.end(),
