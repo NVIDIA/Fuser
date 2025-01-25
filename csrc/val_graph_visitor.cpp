@@ -17,9 +17,10 @@ bool ValGraphVisitor::traverse() {
   if (graph().disjointValSets().size() == 0) {
     return true;
   }
-  //const ValGroups terminating_inputs =
-  //graph().getTerminatingInputs();
-  const ValGroups terminating_inputs = starting_groups_;
+  // const ValGroups terminating_inputs =
+  // graph().getTerminatingInputs();
+  ValGroups terminating_inputs = starting_groups_;
+  terminating_inputs.pushBack(graph().getTerminatingInputs());
 
   // If no terminating input is found, that should mean there's a
   // cycle.
@@ -33,11 +34,10 @@ bool ValGraphVisitor::traverse() {
 
   {
     std::cerr << "Inputs:\n";
-    for (const auto& g: terminating_inputs) {
+    for (const auto& g : terminating_inputs) {
       std::cerr << nvfuser::toString(g) << "\n";
     }
   }
-
 
   std::deque<ValGroup> to_visit_vals(
       terminating_inputs.begin(), terminating_inputs.end());
@@ -89,17 +89,15 @@ bool ValGraphVisitor::traverse() {
           }
 
           auto reachable_nodes = getReachableNodesFrom<ValGraphPermissiveBFS>(
-              {expr_group}, {val_group}, Direction::Backward,
-              graph());
+              {expr_group}, {val_group}, Direction::Backward, graph());
           if (!reachable_nodes.empty()) {
             // cycle. ignore
             std::cerr << "Cycle detected. Should be safe to ignore. "
-                      << nvfuser::toString(val_group)
-                      << ", " << nvfuser::toString(expr_group)
-                      << "\n";
+                      << nvfuser::toString(val_group) << ", "
+                      << nvfuser::toString(expr_group) << "\n";
             return true;
           }
-          
+
           return false;
         });
   };
@@ -168,7 +166,17 @@ bool ValGraphVisitor::traverse() {
     for (const ValGroup& vg : to_visit_vals) {
       ss << " " << nvfuser::toString(vg);
     }
+    ss << ". Already visited vals: ";
+    for (const auto& eg : visited_vals) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    ss << ". Already visited exprs: ";
+    for (const ExprGroup& eg : visited_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+
     error_message_ = ss.str();
+    graph().dumpGraphvizDotGraph("val_graph_stmt_sort.dot");
     return false;
   }
 
@@ -178,7 +186,13 @@ bool ValGraphVisitor::traverse() {
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
+    ss << ". Already visited exprs: ";
+    for (const ExprGroup& eg : visited_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
     error_message_ = ss.str();
+
+    graph().dumpGraphvizDotGraph("val_graph_stmt_sort.dot");
     return false;
   }
 
