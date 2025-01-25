@@ -453,7 +453,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (compiled_kernel_->hasCompiledKernel()) {
+  if (compiled_kernel_->isCompiled()) {
     validateDynamicSmemSize(dynamic_smem_size);
   }
 
@@ -853,7 +853,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
   // If specified, check that dynamic smem size matches what the scheduler
   // expects
   int64_t expected_dynamic_smem_size =
-      compiled_kernel_->fusion()->expectedDynamicSmemBytes();
+      compiled_kernel_->kernel()->expectedDynamicSmemBytes();
   if (expected_dynamic_smem_size >= 0) {
     NVF_ERROR(
         dynamic_smem_size == expected_dynamic_smem_size,
@@ -879,7 +879,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t KernelExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      compiled_kernel_->hasCompiledKernel(),
+      compiled_kernel_->isCompiled(),
       "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
@@ -920,7 +920,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   NVF_ERROR(isCompiled());
   NVF_ERROR(
       outputs.empty() ||
-          (outputs.size() == compiledKernel()->fusion()->outputs().size()),
+          (outputs.size() == compiledKernel()->kernel()->outputs().size()),
       __func__,
       " provided number of outputs does not match fusion output");
 
@@ -981,7 +981,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        compiled_kernel_->fusion(),
+        compiled_kernel_->kernel()->as<Fusion>(),
         executor_entry->outputs,
         compiled_kernel_->device(),
         expr_eval);
@@ -1186,7 +1186,7 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
 
   // When compilation is skipped, avoid serializing cubin because it doesn't
   // exist. The remaining fields are also not necessary in this case.
-  if (!compiledKernel()->hasCompiledKernel()) {
+  if (!compiledKernel()->isCompiled()) {
     return serde::CreateKernelExecutorDirect(builder);
   }
 

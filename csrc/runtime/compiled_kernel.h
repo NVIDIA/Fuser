@@ -94,18 +94,18 @@ class CompiledKernel : public NonCopyable {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compile(int64_t block_size);
 
-  // Function to query whether compilation was attempted for a `CompiledKernel`
-  bool isCompiled() const {
-    return lowered_ != nullptr;
-  };
-
-  // function to query whether a `CompiledKernel` has a compiled kernel to
+  // Function to query whether a `CompiledKernel` has a compiled kernel to
   // execute
-  bool hasCompiledKernel() const {
-    if (compiled_kernel_ != nullptr) {
-      NVF_ERROR(compiled_kernel_->function != nullptr);
+  bool isCompiled() const {
+    if (lowered_ == nullptr) {
+      return false;
     }
-    return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
+    if (compiled_kernel_ == nullptr) {
+      return false;
+    }
+    NVF_ERROR(compiled_kernel_->function != nullptr);
+    NVF_ERROR(validKernelId(), "Problem detected with compiled kernel ID.");
+    return true;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -114,11 +114,6 @@ class CompiledKernel : public NonCopyable {
   kir::Kernel* kernel() const {
     NVF_ERROR(lowered_);
     return lowered_->kernel();
-  }
-
-  Fusion* fusion() const {
-    NVF_ERROR(lowered_ != nullptr);
-    return lowered_->kernel()->as<Fusion>();
   }
 
   //! Returns the string of the compiled kernel
@@ -197,10 +192,6 @@ class CompiledKernel : public NonCopyable {
   }
   std::unique_ptr<GpuLower>& lowered() {
     return lowered_;
-  }
-  Fusion* fusion() {
-    NVF_ERROR(lowered_ != nullptr);
-    return lowered_->kernel()->as<Fusion>();
   }
 
   const std::unique_ptr<GpuLower>& lowered() const {

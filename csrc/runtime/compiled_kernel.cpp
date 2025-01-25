@@ -1044,9 +1044,9 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
   return buffer.str();
 }
 
-bool requiresDisabledParamCache(const Fusion* fusion) {
+bool requiresDisabledParamCache(const kir::Kernel* kernel) {
   std::vector<Val*> output_extents;
-  for (auto out : fusion->outputs()) {
+  for (auto out : kernel->outputs()) {
     const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
     // walking through outputs to see if output shapes are dependent on
     // non-tensor inputs. For which case, we should have disabled output
@@ -1193,26 +1193,26 @@ void CompiledKernel::compile(int64_t block_size) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
   NVF_ERROR(
-      !fusion()->outputs().empty(),
+      !kernel()->outputs().empty(),
       "No output found for this kernel, aborting.");
 
   // Parameter cache doesn't cache on input scalars, so if one is used as a
   // dynamic input size of a tensor the cache doesn't work correctly. This
   // should be enabled in the cache, but since it's not, for now we will disable
   // it under these circumstances.
-  disable_parameter_cache_ = requiresDisabledParamCache(fusion());
+  disable_parameter_cache_ = requiresDisabledParamCache(kernel());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion()->print();
+    kernel()->print();
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion()->printMath();
+    kernel()->printMath();
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
     std::stringstream file_name;
     file_name << "__tmp_fusion_ir_graph_" << kernel_id_ << ".dot";
     IrGraphGenerator::print(
-        fusion(),
+        kernel()->as<Fusion>(),
         file_name.str().c_str(),
         IrGraphGenerator::DetailLevel::ComputeOnly);
   }
@@ -1481,7 +1481,7 @@ void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
 }
 
 void CompiledKernel::setUsedTVs() {
-  auto used_vals = fusion()->usedMathVals();
+  auto used_vals = kernel()->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());

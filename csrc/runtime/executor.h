@@ -142,7 +142,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Returns whether this `KernelExecutor` has a compiled kernel to execute.
   bool isCompiled() const override {
-    if (compiledKernel()) {
+    if (compiledKernel() && compiledKernel()->isCompiled()) {
       return true;
     }
     return false;
