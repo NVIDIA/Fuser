@@ -3181,7 +3181,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         }
         case MemoryType::Tensor: {
-          std::cout << "Allocating TMEM" << std::endl;
+          // TODO: fill
+          indent() << genVariableName(tv) << " = ?;\n";
           break;
         }
         default:
