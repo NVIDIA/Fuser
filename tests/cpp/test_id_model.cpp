@@ -547,7 +547,6 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   {
     IdModel id_model(&fusion);
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
-    vg.dumpGraphvizDotGraph("exact_graph_test.dot");
     ValGraphStmtSort vg_stmt_sort(vg);
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
   }
@@ -2335,16 +2334,11 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
   inlineMost();
 
-  fusion.print();
-
   IdModel id_model(&fusion);
 
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_promotion_map = id_model.loopPromotionMap();
-
-  exact_graph.dumpGraphvizDotGraph("exact_graph.dot");
-  exact_graph.dumpGraphvizDotGraph("loop_graph.dot");
 
   // Reference promotion domain
   auto reference_promotion = tv10->axis(0);

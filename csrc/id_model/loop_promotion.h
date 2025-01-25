@@ -41,14 +41,6 @@ class LoopPromotionMapBuilderCallback {
   // Called after Step 3 with the final loop promotion map
   virtual void postStep5(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
-
-  // Allow to modify the ordering of Expr groups to traverse for the
-  // IEL propagation
-  virtual ExprGroups updateOrderedExprGroupsForPropagation(
-      const ExprGroups& ordered_exprs,
-      const ValGraph& graph) {
-    return ordered_exprs;
-  }
 };
 
 class LoopPromotionMapBuilder {
@@ -139,9 +131,11 @@ class LoopPromotionMapBuilder {
   // included, thus any additional info from i2 to i4 is not
   // propagated back to i1, which should be fine for this loop
   // promotion analysis.
+#if 0
   ExprGroups getOrderedExprGroupsForPropagation(
       const ValGraph& graph,
       const ValGroups& input_groups) const;
+#endif
 
   std::unordered_map<ValGroup, IterDomain*> build();
 

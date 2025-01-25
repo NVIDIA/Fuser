@@ -188,7 +188,6 @@ bool ValGraphVisitor::traverse() {
     return false;
   }
 
-#if 1
   // If not all exprs are visited, that should mean there must be a
   // cyclic subgraph. The subgraph should have no terminating input,
   // so it should not be visited at all. Note that some Val groups may
@@ -205,9 +204,28 @@ bool ValGraphVisitor::traverse() {
     graph().dumpGraphvizDotGraph("stmt_sort_cycle.dot");
     return false;
   }
-#endif
 
   return true;
+}
+
+namespace {
+
+class ValGraphCycleDetector : public ValGraphVisitor {
+ public:
+  ValGraphCycleDetector(const ValGraph& graph)
+      : ValGraphVisitor(graph, /*allow_cycle=*/false),
+        cycle_detected_(!traverse()) {}
+
+  void handle(const ValGroup& val_group) override {}
+  void handle(const ExprGroup& expr_group) override {}
+
+  bool cycle_detected_ = false;
+};
+
+} // namespace
+
+bool isCyclic(const ValGraph& graph) {
+  return ValGraphCycleDetector(graph).cycle_detected_;
 }
 
 } // namespace nvfuser

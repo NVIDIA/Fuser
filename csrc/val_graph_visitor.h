@@ -67,12 +67,15 @@ class ValGraphVisitor {
   virtual ~ValGraphVisitor() = default;
 
  protected:
-  ValGraphVisitor(const ValGraph& val_graph, const ValGroups& starting_groups, bool allow_cycle = true)
-      : val_graph_(val_graph), starting_groups_(starting_groups), allow_cycle_(allow_cycle) {}
-
-  ValGraphVisitor(const ValGraphVisitor& other) = default;
-
-  ValGraphVisitor(ValGraphVisitor&& other) = default;
+  ValGraphVisitor(
+      const ValGraph& val_graph,
+      const ValGroups& starting_groups,
+      bool allow_cycle = true)
+      : val_graph_(val_graph),
+        starting_groups_(starting_groups),
+        allow_cycle_(allow_cycle) {}
+  ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
+      : val_graph_(val_graph), allow_cycle_(allow_cycle) {}
 
   virtual void handle(const ValGroup& val_group) = 0;
   virtual void handle(const ExprGroup& expr_group) = 0;
@@ -100,11 +103,17 @@ class ValGraphVisitor {
 class ValGraphStmtSort : public ValGraphVisitor {
  public:
   ValGraphStmtSort(const ValGraph& val_graph, bool allow_cycle = true)
-      : ValGraphVisitor(val_graph, val_graph.getTerminatingInputs(), allow_cycle) {
+      : ValGraphVisitor(
+            val_graph,
+            val_graph.getTerminatingInputs(),
+            allow_cycle) {
     NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
-  
-  ValGraphStmtSort(const ValGraph& val_graph, const ValGroups& starting_groups, bool allow_cycle = true)
+
+  ValGraphStmtSort(
+      const ValGraph& val_graph,
+      const ValGroups& starting_groups,
+      bool allow_cycle = true)
       : ValGraphVisitor(val_graph, starting_groups, allow_cycle) {
     NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
@@ -135,6 +144,8 @@ class ValGraphStmtSort : public ValGraphVisitor {
   ExprGroups sorted_exprs_;
   ValGroups sorted_vals_;
 };
+
+bool isCyclic(const ValGraph& graph);
 
 class ValGraphDefinitions {
   const ValGraph& graph_;
@@ -212,8 +223,8 @@ class ValGraphBFS : public BFS<
       bool require_all_to_visited = true,
       Direction allowed_direction = Direction::Undefined) {
     return getExprsBetween<ValGraphBFS>(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
+        from.vector(),
+        to.vector(),
         require_all_to_visited,
         allowed_direction,
         graph);
@@ -252,48 +263,8 @@ class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
       bool require_all_to_visited = true,
       Direction allowed_direction = Direction::Undefined) {
     return getExprsBetween<ValGraphPermissiveBFS>(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
-        require_all_to_visited,
-        allowed_direction,
-        graph);
-  }
-};
-
-class ValGraphStrictBFS : public BFSWithStrictDependence<
-                              ExprGroup,
-                              ValGroup,
-                              ValGraphDefinitions,
-                              ValGraphUses,
-                              ValGraphInputs,
-                              ValGraphOutputs> {
- public:
-  ValGraphStrictBFS(
-      const ValGraph& graph,
-      std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined)
-      : BFSWithStrictDependence(
-            ValGraphDefinitions(graph),
-            ValGraphUses(graph),
-            ValGraphInputs(graph),
-            ValGraphOutputs(graph),
-            std::move(from_groups),
-            std::move(to_groups),
-            require_all_to_visited,
-            allowed_direction) {}
-
-  // Just a shortcut to the generic getExprsBetween
-  static std::pair<ValGraphStrictBFS::ExprPath, bool> getExprGroupsBetween(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined) {
-    return getExprsBetween<ValGraphStrictBFS>(
-        {from.begin(), from.end()},
-        {to.begin(), to.end()},
+        from.vector(),
+        to.vector(),
         require_all_to_visited,
         allowed_direction,
         graph);

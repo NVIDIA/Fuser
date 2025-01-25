@@ -684,8 +684,8 @@ class BFSWithStrictDependence
 // require_all_to_visited is false.
 template <typename BFSType, typename... AdditionalArgs>
 static std::pair<typename BFSType::ExprPath, bool> getExprsBetween(
-    const std::vector<typename BFSType::NodeType>& from,
-    const std::vector<typename BFSType::NodeType>& to,
+    const std::vector<typename BFSType::ValType>& from,
+    const std::vector<typename BFSType::ValType>& to,
     bool require_all_to_visited = true,
     Direction allowed_direction = Direction::Undefined,
     const AdditionalArgs&... additional_args) {
@@ -805,8 +805,8 @@ std::vector<typename BFSType::ValType> getValsBetween(
     const AdditionalArgs&... additional_args) {
   using ValType = typename BFSType::ValType;
   auto path = getExprsBetween<BFSType>(
-                  {from.begin(), from.end()},
-                  {to.begin(), to.end()},
+                  from,
+                  to,
                   /*require_all_to_visited=*/false,
                   /*allowed_direction=*/Direction::Undefined,
                   additional_args...)
@@ -847,8 +847,8 @@ std::vector<typename BFSType::ValType> getDependenciesTo(
     const std::vector<typename BFSType::ValType>& to) {
   using ValType = typename BFSType::ValType;
   auto path = getExprsBetween<BFSType>(
-                  {vals.begin(), vals.end()},
-                  {to.begin(), to.end()},
+                  vals,
+                  to,
                   /*require_all_to_visited=*/true,
                   /*allowed_direction=*/Direction::Undefined)
                   .first;
@@ -882,7 +882,7 @@ std::unordered_set<typename BFSType::ValType> projectTo(
   std::unordered_set<ValType> projection{from};
   // Reverse order
   auto exprs = getExprsBetween<BFSType>(
-                   {to.begin(), to.end()},
+                   {to},
                    {from},
                    /*require_all_to_visited=*/false,
                    allowed_direction,

@@ -223,59 +223,6 @@ ValGroups LoopPromotionMapBuilder::getInputGroupsOfIELGraph(
   return iel_input_groups;
 }
 
-ExprGroups LoopPromotionMapBuilder::getOrderedExprGroupsForPropagation(
-    const ValGraph& graph,
-    const ValGroups& input_groups) const {
-  // From the input groups, find the propagation path. Note that not
-  // all of the groups may be reachable from the inputs because this
-  // is an IEL graph. For example, suppose there's a cyclic exact
-  // graph:
-  //
-  //  {i0, i1} <-> {i2, i3}
-  //
-  // where each of i0, i1, i2 and i3 corresponds to an ID. Suppose
-  // these IDs are used by resize as:
-  //
-  // Resize: i0 -> i2
-  // Resize: i3 -> i1
-  //
-  // Since i0 and i1 are mapped, and i2 and i3 are mapped, the graph
-  // ends up having a cycle as indicated above.
-  //
-  // In the IEL graph, if i0 and i1 are not inlined together, and also
-  // i2 and i3 are not, then:
-  //
-  // {i0} -> {i2}
-  // {i3} -> {i1}
-  //
-  // Suppose `{i0, i1}` is the input group of the exact graph. The
-  // inputs of the IEL graph would be {i0} and {i1}. When traversing
-  // from these two groups, while {i2} is reachable, {i3} is not,
-  // which should not matter for the IEL promotion propagation.
-
-  auto expr_path = getExprsBetween<ValGraphStrictBFS>(
-                       {input_groups.begin(), input_groups.end()},
-                       {graph.disjointValSets().disjointSets().begin(),
-                        graph.disjointValSets().disjointSets().end()},
-                       /*require_all_to_visited=*/false,
-                       Direction::Forward,
-                       graph)
-                       .first;
-
-
-  ExprGroups ordered_exprs;
-  for (const auto& [expr_g, _] : expr_path) {
-    ordered_exprs.pushBack(expr_g);
-  }
-
-  if (callback_) {
-    ordered_exprs =
-        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, graph);
-  }
-
-  return ordered_exprs;
-}
-
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
   // analysis. These are not comprehensive. Should add more conditions
@@ -736,16 +683,9 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
-  ValGraphStmtSort iel_stmt_sort(iel_graph, getInputGroupsOfIELGraph(iel_graph));
+  ValGraphStmtSort iel_stmt_sort(
+      iel_graph, getInputGroupsOfIELGraph(iel_graph));
   ExprGroups ordered_exprs = iel_stmt_sort.exprs();
-  
-  if (callback_) {
-    ordered_exprs =
-        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, iel_graph);
-  }
-  
-  //const ExprGroups ordered_exprs = getOrderedExprGroupsForPropagation(
-  //iel_graph, getInputGroupsOfIELGraph(iel_graph));
 
   for (const ExprGroup& iel_expr : ordered_exprs) {
     NVF_ERROR(!iel_expr->empty());
@@ -879,11 +819,6 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
 
   ValGraphStmtSort stmt_sort(graph, input_groups);
   ExprGroups ordered_exprs = stmt_sort.exprs();
-
-  if (callback_) {
-    ordered_exprs =
-        callback_->updateOrderedExprGroupsForPropagation(ordered_exprs, graph);
-  }
 
   for (const ExprGroup& exact_expr : ordered_exprs) {
     std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
