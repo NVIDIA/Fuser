@@ -460,7 +460,7 @@ bool hasAnyReductionOps(Fusion* fusion) {
 
 namespace {
 
-class ValReplacementMutator : private OptOutMutator {
+class ValReplacementMutator : public OptOutMutator {
  public:
   ValReplacementMutator(
       Fusion* fusion,
@@ -565,11 +565,12 @@ class ValReplacementMutator : private OptOutMutator {
 
 } // namespace
 
-void replaceValue(
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map) {
   // NOLINTNEXTLINE(bugprone-unused-raii)
-  ValReplacementMutator(fusion, replacement_map);
+  ValReplacementMutator mutator(fusion, replacement_map);
+  return mutator.mutations_;
 }
 
 Val* getReductionInitValOf(TensorView* tv) {
