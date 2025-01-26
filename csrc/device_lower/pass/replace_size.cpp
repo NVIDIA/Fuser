@@ -36,11 +36,9 @@ namespace {
 // There's some duplicate logic here that's in computeAt map, but it's not so
 // concice there to pull out. May want to consider making this mapping its own
 // class especially as it may be useful during scheduling.
-std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
-  IdModel id_model(fusion, /*build_graphs=*/false);
-  id_model.buildExactGraph();
-  ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-
+std::unordered_map<Val*, Val*> getSimplificationMap(
+    Fusion* fusion,
+    const ValGraph& graph) {
   std::unordered_set<IterDomain*> fusion_input_ids;
   for (Val* v : fusion->inputs()) {
     if (auto* tv = dynamic_cast<TensorView*>(v)) {
@@ -203,8 +201,11 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
   // Simplify extents for each exact ValGroup in the fusion
-  auto extent_simplification_map = getSimplificationMap(fusion);
+  auto extent_simplification_map = getSimplificationMap(fusion, exact_graph);
 
   // We now need to map replacement scalars to their targets in tensor_dim_map
   // if they exist. To do this we compose extent_simplification_map with
@@ -263,6 +264,49 @@ void replaceSymbolicSizes(Fusion* fusion) {
   for (auto [tensor_dim, meta_expr] : tensor_dim_map) {
     if (extent_simplification_map.count(tensor_dim) == 0) {
       extent_simplification_map[tensor_dim] = meta_expr;
+    }
+  }
+
+  // Iter domains in the fusion-managed exact mappings may be going to
+  // be replaced by another exact-mapped ID. To make sure the mappings
+  // remain valid, expand the mappings with all the exact-mapped
+  // IDs.
+
+  const auto registered_exact_mappings = fusion->registeredExactMappings();
+  for (const auto& exact_id_group : registered_exact_mappings.disjointSets()) {
+    NVF_ERROR(!exact_id_group->empty());
+    for (IterDomain* registered_id : *exact_id_group) {
+      auto extent_simplification_map_it =
+          extent_simplification_map.find(registered_id->extent());
+      if (extent_simplification_map_it == extent_simplification_map.end()) {
+        continue;
+      }
+
+      // This registered ID will be replaced. Need to make sure to
+      // register the replacing ID too.
+
+      // Find an exact-mapped ID that uses the replacing extent. This
+      // must exist.
+      Val* replacing_extent = extent_simplification_map_it->second;
+      const auto& exact_group = exact_graph.toGroup(registered_id);
+
+      auto exact_group_it = std::find_if(
+          exact_group->begin(), exact_group->end(), [&](Val* exact_mapped_val) {
+            return exact_mapped_val->as<IterDomain>()->extent() ==
+                replacing_extent;
+          });
+      NVF_ERROR(exact_group_it != exact_group->end());
+
+      IterDomain* replacing_id = (*exact_group_it)->as<IterDomain>();
+
+      // Register the replacing ID
+      fusion->registerExactMapping(registered_id, replacing_id);
+
+      // There may be other IDs in this exact_id_group that are also
+      // going to be replaced. However, since all of them should use
+      // the same replacing ID, which is already registerd, no more
+      // action is necessary for this group.
+      break;
     }
   }
 
