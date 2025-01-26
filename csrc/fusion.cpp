@@ -873,4 +873,10 @@ DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
   return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
 }
 
+void Fusion::resetExactMappings() {
+  if (hasRegisteredExactMappings()) {
+    stopManaging(exact_mappings_key);
+  }
+}
+
 } // namespace nvfuser

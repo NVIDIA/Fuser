@@ -54,6 +54,8 @@ KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {
   return kernel_executors_.at(index).get();
 }
 
+HostIrContainer::~HostIrContainer() {}
+
 } // namespace hir
 
 } // namespace nvfuser

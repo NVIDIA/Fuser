@@ -268,33 +268,26 @@ void replaceSymbolicSizes(Fusion* fusion) {
   }
 
   // Iter domains in the fusion-managed exact mappings may be going to
-  // be replaced by another exact-mapped ID. To make sure the mappings
-  // remain valid, expand the mappings with all the exact-mapped
-  // IDs.
+  // be replaced by another exact-mapped ID, so it'll be reset and
+  // recreated. Save a copy here before replacement to fix them up later.
+  const auto registered_exact_mappings = fusion->registeredExactMappings();
 
   auto mutation_map = ir_utils::replaceValue(fusion, extent_simplification_map);
 
-  const auto registered_exact_mappings = fusion->registeredExactMappings();
+  fusion->resetExactMappings();
+
+  auto get_maybe_mutated = [&mutation_map](IterDomain* id) -> IterDomain* {
+    if (auto mutation_map_it = mutation_map.find(id);
+        mutation_map_it != mutation_map.end()) {
+      id = mutation_map_it->second->as<IterDomain>();
+    }
+    return id;
+  };
 
   for (const auto& exact_id_group : registered_exact_mappings.disjointSets()) {
-    // Find a remaining ID for this group
-    const auto& exact_group = exact_graph.toGroup(exact_id_group->front());
-    auto remaining_id_it =
-        std::find_if(exact_group->begin(), exact_group->end(), [&](Val* val) {
-          return mutation_map.find(val) == mutation_map.end();
-        });
-    NVF_ERROR(remaining_id_it != exact_group->end());
-    IterDomain* remaining_id = (*remaining_id_it)->as<IterDomain>();
-
-    // Find if there's any replaced ID. If found, register its new ID
+    auto first_id = get_maybe_mutated(exact_id_group->front());
     for (IterDomain* id : *exact_id_group) {
-      auto mutation_map_it = mutation_map.find(id);
-      if (mutation_map_it == mutation_map.end()) {
-        continue;
-      }
-
-      IterDomain* new_id = mutation_map_it->second->as<IterDomain>();
-      fusion->registerExactMapping(new_id, remaining_id);
+      fusion->registerExactMapping(first_id, get_maybe_mutated(id));
     }
   }
 }
