@@ -131,7 +131,7 @@ TEST_F(MBarrierTest, Simple) {
       &typeid(kir::MBarrierArrive),
       &typeid(kir::MBarrierWait),
       &typeid(kir::MBarrierInvalidate)};
-  for (auto expr : ke.kernel()->topLevelExprs()) {
+  for (auto expr : ke.compiledKernel()->kernel()->topLevelExprs()) {
     remaining_mbarrier_exprs.erase(&typeid(*expr));
   }
   EXPECT_TRUE(remaining_mbarrier_exprs.empty());

@@ -105,7 +105,7 @@ sass::Container getSASSFor(
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
-  return sass::parse(ke.disassembledKernelSASS());
+  return sass::parse(ke.compiledKernel()->disassembledKernelSASS());
 }
 
 // A fusion with epilogue made of binary op (scalar multiplication)
@@ -174,7 +174,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
 
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
-  return sass::parse(ke.disassembledKernelSASS());
+  return sass::parse(ke.compiledKernel()->disassembledKernelSASS());
 }
 
 } // namespace
