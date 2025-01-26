@@ -920,8 +920,11 @@ TEST_F(RopeTest, EndingRepeat) {
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
-  Fusion* scheduled_fusion =
-      runtime->executors().at(0)->as<KernelExecutor>()->kernel();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
 
   // Check the loop domain of the reference. It should look like:
   //

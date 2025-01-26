@@ -9,9 +9,10 @@
 
 #include <fusion.h>
 #include <host_ir/host_ir.h>
-#include <runtime/executor.h>
 
 namespace nvfuser {
+
+class KernelExecutor;
 
 namespace hir {
 
@@ -33,22 +34,13 @@ class HostIrContainer final : public Fusion {
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
-  const auto& topLevelExprs() const {
-    return top_level_exprs_;
-  }
+  const std::vector<Expr*>& topLevelExprs() const;
 
-  void pushBackTopLevelExprs(Expr* expr) {
-    assertInContainer(expr, "Cannot add expr, ");
-    return top_level_exprs_.push_back(expr);
-  }
+  void pushBackTopLevelExprs(Expr* expr);
 
-  void pushBackKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
-    return kernel_executors_.push_back(std::move(ke));
-  }
+  void pushBackKernelExecutor(std::unique_ptr<KernelExecutor> ke);
 
-  KernelExecutor* getKernelExecutor(int64_t index) const {
-    return kernel_executors_.at(index).get();
-  }
+  KernelExecutor* getKernelExecutor(int64_t index) const;
 
   Stream* getDefaultStream();
 
