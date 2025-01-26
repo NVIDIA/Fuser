@@ -31,6 +31,11 @@ class HostIrContainer final : public Fusion {
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
+  // Do not have a definition here as it requires the definition of
+  // KernelExecutor due to kernel_executors_.
+  // NOLINTNEXTLINE (modernize-use-equals-default)
+  ~HostIrContainer() override;
+
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
