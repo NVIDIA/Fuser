@@ -36,9 +36,11 @@ namespace {
 // There's some duplicate logic here that's in computeAt map, but it's not so
 // concice there to pull out. May want to consider making this mapping its own
 // class especially as it may be useful during scheduling.
-std::unordered_map<Val*, Val*> getSimplificationMap(
-    Fusion* fusion,
-    const ValGraph& graph) {
+std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
   std::unordered_set<IterDomain*> fusion_input_ids;
   for (Val* v : fusion->inputs()) {
     if (auto* tv = dynamic_cast<TensorView*>(v)) {
@@ -201,11 +203,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  IdModel id_model(fusion, /*build_graphs=*/false);
-  const auto& exact_graph = id_model.buildExactGraph();
-
   // Simplify extents for each exact ValGroup in the fusion
-  auto extent_simplification_map = getSimplificationMap(fusion, exact_graph);
+  auto extent_simplification_map = getSimplificationMap(fusion);
 
   // We now need to map replacement scalars to their targets in tensor_dim_map
   // if they exist. To do this we compose extent_simplification_map with
