@@ -272,45 +272,31 @@ void replaceSymbolicSizes(Fusion* fusion) {
   // remain valid, expand the mappings with all the exact-mapped
   // IDs.
 
+  auto mutation_map = ir_utils::replaceValue(fusion, extent_simplification_map);
+
   const auto registered_exact_mappings = fusion->registeredExactMappings();
+
   for (const auto& exact_id_group : registered_exact_mappings.disjointSets()) {
-    NVF_ERROR(!exact_id_group->empty());
-    for (IterDomain* registered_id : *exact_id_group) {
-      auto extent_simplification_map_it =
-          extent_simplification_map.find(registered_id->extent());
-      if (extent_simplification_map_it == extent_simplification_map.end()) {
+    // Find a remaining ID for this group
+    const auto& exact_group = exact_graph.toGroup(exact_id_group->front());
+    auto remaining_id_it =
+        std::find_if(exact_group->begin(), exact_group->end(), [&](Val* val) {
+          return mutation_map.find(val) == mutation_map.end();
+        });
+    NVF_ERROR(remaining_id_it != exact_group->end());
+    IterDomain* remaining_id = (*remaining_id_it)->as<IterDomain>();
+
+    // Find if there's any replaced ID. If found, register its new ID
+    for (IterDomain* id : *exact_id_group) {
+      auto mutation_map_it = mutation_map.find(id);
+      if (mutation_map_it == mutation_map.end()) {
         continue;
       }
 
-      // This registered ID will be replaced. Need to make sure to
-      // register the replacing ID too.
-
-      // Find an exact-mapped ID that uses the replacing extent. This
-      // must exist.
-      Val* replacing_extent = extent_simplification_map_it->second;
-      const auto& exact_group = exact_graph.toGroup(registered_id);
-
-      auto exact_group_it = std::find_if(
-          exact_group->begin(), exact_group->end(), [&](Val* exact_mapped_val) {
-            return exact_mapped_val->as<IterDomain>()->extent() ==
-                replacing_extent;
-          });
-      NVF_ERROR(exact_group_it != exact_group->end());
-
-      IterDomain* replacing_id = (*exact_group_it)->as<IterDomain>();
-
-      // Register the replacing ID
-      fusion->registerExactMapping(registered_id, replacing_id);
-
-      // There may be other IDs in this exact_id_group that are also
-      // going to be replaced. However, since all of them should use
-      // the same replacing ID, which is already registerd, no more
-      // action is necessary for this group.
-      break;
+      IterDomain* new_id = mutation_map_it->second->as<IterDomain>();
+      fusion->registerExactMapping(new_id, remaining_id);
     }
   }
-
-  ir_utils::replaceValue(fusion, extent_simplification_map);
 }
 
 } // namespace nvfuser
