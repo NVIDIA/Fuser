@@ -947,7 +947,7 @@ TEST_F(RopeTest, EndingRepeat) {
       ref_tv->getLoopDomain().at(0)->extent()->evaluate().as<int64_t>(), 2L);
 
   IdModel id_model(scheduled_fusion, /*build_graphs=*/false);
-  const auto& graph = id_model.buildBroadcastGraph();
+  const auto& graph = id_model.buildExactGraph();
 
   const auto ref_loop = graph.toGroups(ref_tv->getLoopDomain());
 

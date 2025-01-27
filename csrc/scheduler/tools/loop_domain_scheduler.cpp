@@ -225,13 +225,9 @@ void LoopDomainScheduler::scheduleByUpdatingLoopDomainOnly(
           id_map_it != group_to_id.end()) {
         input_ids.push_back(id_map_it->second);
       } else {
-        // No ID found. Create a broadcast to fill the gap. The
-        // position doesn't matter as the loop domain will be
-        // reordered at the end anyway.
-        tv->broadcast(-1);
-        auto new_broadcast_id = tv->axis(-1);
-        group_to_id[input_g] = new_broadcast_id;
-        input_ids.push_back(new_broadcast_id);
+        auto clone = representativeId(input_g)->cloneWithoutRFactor(true);
+        group_to_id[input_g] = clone;
+        input_ids.push_back(clone);
       }
     }
 
