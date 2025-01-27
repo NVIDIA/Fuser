@@ -620,6 +620,17 @@ class HopperBase : public NVFuserTest {
   }
 };
 
+// TMA is supported on Hopper and newer GPUs
+class TmaBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
 // Fixture with param class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 template <typename tParam>

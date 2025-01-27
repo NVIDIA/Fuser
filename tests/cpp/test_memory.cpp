@@ -178,7 +178,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 
 // Begin TMA tests
 
-using TMATest = HopperBase;
+using TMATest = TmaBase;
 
 // Check that there is an xor "^" somewhere in the kernel
 class XorFinder : private kir::IrVisitor {
