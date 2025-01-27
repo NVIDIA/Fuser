@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <ops/composite.h>
 #include <ops/utils.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
@@ -1557,6 +1558,363 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   ke.compile(&fusion, {t}, {}, index32bit);
   std::vector<at::Tensor> outputs = ke.run({t});
   ASSERT_TRUE(at::equal(t.t(), outputs[0]));
+}
+
+TEST_F(Tutorial, HF_LLAMA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto t0 = TensorViewBuilder().shape({1, 32, 1}).build();
+  auto t1 =
+      TensorViewBuilder().shape({1, 6, 2048}).dtype(DataType::BFloat16).build();
+  std::vector<int64_t> in = {2048};
+  auto t2 = TensorViewBuilder().shape(in).dtype(DataType::BFloat16).build();
+  auto t3 = makeSymbolicTensor({-1, -1}, DataType::BFloat16);
+  auto t4 = makeSymbolicTensor({-1, -1}, DataType::BFloat16);
+  auto t5 =
+      TensorViewBuilder().shape({-1, 2048}).dtype(DataType::BFloat16).build();
+  fusion->addInput(t0);
+  fusion->addInput(t1);
+  fusion->addInput(t2);
+  fusion->addInput(t3);
+  fusion->addInput(t4);
+  fusion->addInput(t5);
+
+  auto t11 = broadcast(t2, {true, true, false});
+  auto t12 = expand(
+      t11,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(2048)});
+
+  auto t13 = castOp(DataType::Float, t12);
+  auto t14 = castOp(DataType::Float, t12);
+
+  auto t15 = mul(t13, t14);
+
+  auto t16 = castOp(DataType::BFloat16, t15);
+  auto t17 = linear(t16, t5);
+
+  // Not sure about this.
+  auto t44 = reshape(
+      t17,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(8),
+       IrBuilder::create<Val>(64)});
+
+  auto t19 = permute(t44, {0, 2, 1, 3});
+  auto t26 = castOp(DataType::Float, t19);
+
+  auto t6 = permute(t0, {0, 2, 1});
+  auto t46 = broadcast(t6, {false, false, true, false});
+
+  auto t47 = expand(
+      t46,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(32)});
+
+  auto t48 = reshape(
+      t47,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(64)});
+
+  auto t20 = broadcast(t48, {false, true, false, false});
+
+  auto t21 = expand(
+      t20,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t24 = set(t21);
+
+  auto t25 = expand(
+      t24,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(8),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t27 = mul(t26, t25);
+
+  auto t29 = slice(t19, {0, 0, 0, 32}, {1, 8, 6, 64}, {1, 1, 1, 1});
+
+  auto t28 = slice(t19, {0, 0, 0, 0}, {1, 8, 6, 32});
+
+  auto t32 = cat({t29, t28}, 3);
+
+  auto t33 = castOp(DataType::Float, t32);
+
+  auto t10 = castOp(DataType::Float, t48);
+  auto t22 = broadcast(t10, {false, true, false, false});
+  auto t23 = expand(
+      t22,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+  auto t34 = castOp(DataType::Float, t23);
+
+  auto t35 = mul(t33, t34);
+  auto t36 = add(t27, t35);
+
+  auto t37 = castOp(DataType::BFloat16, t36);
+  auto t38 = broadcast(t37, {false, false, true, false, false});
+  auto t41 = expand(
+      t38,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(8),
+       IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t45 = reshape(
+      t41,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(32),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t43 = set(t45);
+
+  fusion->addOutput(t43);
+
+  // fusion->print();
+
+  auto options1 = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options2 = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto i0 = at::randn({1, 32, 6}, options1);
+  auto i1 = at::randn({1, 6, 2048}, options2);
+  auto i2 = at::randn({2048}, options2);
+  auto i3 = at::randn({2048, 2048}, options2);
+  auto i4 = at::randn({2, 2048}, options2);
+  auto i5 = at::randn({512, 2048}, options2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({i0, i1, i2, i3, i4, i5});
+
+  ASSERT_TRUE(1 == 1);
+}
+
+TEST_F(Tutorial, BugButWorks) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto t0 = TensorViewBuilder().shape({1, 32, 1}).build();
+  auto t1 =
+      TensorViewBuilder().shape({1, 6, 2048}).dtype(DataType::BFloat16).build();
+  std::vector<int64_t> in = {-1, 2048};
+  auto t2 = TensorViewBuilder().shape(in).dtype(DataType::BFloat16).build();
+  auto t3 = makeSymbolicTensor({-1, -1}, DataType::BFloat16);
+  auto t4 = makeSymbolicTensor({-1, -1}, DataType::BFloat16);
+  auto t5 =
+      TensorViewBuilder().shape({-1, 2048}).dtype(DataType::BFloat16).build();
+  fusion->addInput(t0);
+  fusion->addInput(t1);
+  fusion->addInput(t2);
+  fusion->addInput(t3);
+  fusion->addInput(t4);
+  fusion->addInput(t5);
+
+  // auto t11 = broadcast(t2, {true, true, false});
+  auto t11 = broadcast(t2, {true, false, false});
+  auto t12 = expand(
+      t11,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(2048)});
+
+  auto t13 = castOp(DataType::Float, t12);
+  auto t14 = castOp(DataType::Float, t12);
+
+  auto t15 = mul(t13, t14);
+
+  auto t16 = castOp(DataType::BFloat16, t15);
+  auto t17 = linear(t16, t5);
+
+  // Not sure about this.
+  auto t44 = reshape(
+      t17,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(8),
+       IrBuilder::create<Val>(64)});
+
+  auto t19 = permute(t44, {0, 2, 1, 3});
+  auto t26 = castOp(DataType::Float, t19);
+
+  auto t6 = permute(t0, {0, 2, 1});
+  auto t46 = broadcast(t6, {false, false, true, false});
+
+  auto t47 = expand(
+      t46,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(32)});
+
+  auto t48 = reshape(
+      t47,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(64)});
+
+  auto t20 = broadcast(t48, {false, true, false, false});
+
+  auto t21 = expand(
+      t20,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t24 = set(t21);
+
+  auto t25 = expand(
+      t24,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(8),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t27 = mul(t26, t25);
+
+  auto t29 = slice(t19, {0, 0, 0, 32}, {1, 8, 6, 64});
+
+  auto t28 = slice(t19, {0, 0, 0, 0}, {1, 8, 6, 32});
+
+  auto t32 = cat({t28, t29}, 3);
+
+  auto t33 = castOp(DataType::Float, t32);
+
+  auto t10 = castOp(DataType::Float, t48);
+  auto t22 = broadcast(t10, {false, true, false, false});
+  auto t23 = expand(
+      t22,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+  auto t34 = castOp(DataType::Float, t23);
+
+  auto t35 = mul(t33, t34);
+  auto t36 = add(t27, t35);
+
+  auto t37 = castOp(DataType::BFloat16, t36);
+  auto t38 = broadcast(t37, {false, false, true, false, false});
+  auto t41 = expand(
+      t38,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(8),
+       IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t45 = reshape(
+      t41,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(32),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(64)});
+
+  auto t43 = set(t45);
+
+  fusion->addOutput(t43);
+
+  auto options1 = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options2 = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto i0 = at::randn({1, 32, 6}, options1);
+  auto i1 = at::randn({1, 6, 2048}, options2);
+  auto i2 = at::randn({6, 2048}, options2);
+  auto i3 = at::randn({2048, 2048}, options2);
+  auto i4 = at::randn({2, 2048}, options2);
+  auto i5 = at::randn({512, 2048}, options2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({i0, i1, i2, i3, i4, i5});
+
+  ASSERT_TRUE(1 == 1);
+}
+
+TEST_F(Tutorial, Bug2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> in = {2048};
+  auto t2 = TensorViewBuilder().shape(in).dtype(DataType::BFloat16).build();
+  auto t5 =
+      TensorViewBuilder().shape({-1, 2048}).dtype(DataType::BFloat16).build();
+  fusion->addInput(t2);
+  fusion->addInput(t5);
+
+  auto t11 = broadcast(t2, {true, true, false});
+  auto t12 = expand(
+      t11,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(6),
+       IrBuilder::create<Val>(2048)});
+
+  auto t13 = castOp(DataType::Float, t12);
+  auto t14 = castOp(DataType::Float, t12);
+
+  auto t15 = mul(t13, t14);
+
+  auto t16 = castOp(DataType::BFloat16, t15);
+  auto t17 = linear(t16, t5);
+
+  fusion->addOutput(t17);
+
+  auto options2 = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto i2 = at::randn({2048}, options2);
+  auto i5 = at::randn({512, 2048}, options2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({i2, i5});
+
+  ASSERT_TRUE(1 == 1);
+}
+
+TEST_F(Tutorial, Bug2ButWorks) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> in = {-1, 2048};
+  auto t2 = TensorViewBuilder().shape(in).dtype(DataType::BFloat16).build();
+  auto t5 =
+      TensorViewBuilder().shape({-1, 2048}).dtype(DataType::BFloat16).build();
+  fusion->addInput(t2);
+  fusion->addInput(t5);
+
+  auto t11 = broadcast(t2, {true, false, false});
+  auto t12 = expand(
+      t11,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(32),
+       IrBuilder::create<Val>(2048)});
+
+  auto t13 = castOp(DataType::Float, t12);
+  auto t14 = castOp(DataType::Float, t12);
+
+  auto t15 = mul(t13, t14);
+
+  auto t16 = castOp(DataType::BFloat16, t15);
+  auto t17 = linear(t16, t5);
+
+  fusion->addOutput(t17);
+
+  auto options2 = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto i2 = at::randn({32, 2048}, options2);
+  auto i5 = at::randn({512, 2048}, options2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({i2, i5});
+
+  ASSERT_TRUE(1 == 1);
 }
 
 } // namespace nvfuser

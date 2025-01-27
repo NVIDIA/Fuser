@@ -1,0 +1,417 @@
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS6{i11}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS12{i17}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 6, 2048]
+tv is T16_g___bfloat[bS45{1}, bS46{1 ex 6}, iS47{2048}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 6, 2048]
+tv is T16_g___bfloat[bS45{1}, bS46{1 ex 6}, iS47{2048}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 512]
+tv is T17_g___bfloat[bS267{1}, bS268{1 ex 6}, iS269{i16}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 512]
+tv is T17_g___bfloat[bS267{1}, bS268{1 ex 6}, iS269{i16}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T19_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{64}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T19_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{64}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T19_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{64}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T19_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{64}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T28_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{32}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T29_g___bfloat[bS268{1}, iS269{8}, bS270{1 ex 6}, iS271{32}]
+Shape of the tensor: [1, 1, 6, 64]
+tv is T34_g_float[bS123{1}, bS124{1}, bS125{1 ex 6}, iS126{64}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T27_g_float[bS193{1}, iS194{8}, bS195{1 ex 6}, iS94{64}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T28_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{32}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T29_g___bfloat[bS268{1}, iS269{8}, bS270{1 ex 6}, iS271{32}]
+Shape of the tensor: [1, 1, 6, 64]
+tv is T34_g_float[bS123{1}, bS124{1}, bS125{1 ex 6}, iS126{64}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T27_g_float[bS193{1}, iS194{8}, bS195{1 ex 6}, iS94{64}]
+Shape of the tensor: [1, 32, 6, 64]
+tv is T49_g___bfloat[bS257{1}, iS258{32}, bS259{1 ex 6}, iS260{64}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 2048]
+tv is T1_g___bfloat[bS3{1}, iS4{6}, iS5{2048}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [2048, 2048]
+tv is T3_g___bfloat[iS7{i12}, iS8{i13}]
+Shape of the tensor: [2, 2048]
+tv is T4_g___bfloat[iS9{i14}, iS10{i15}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 32, 6, 64]
+tv is T49_g___bfloat[bS257{1}, iS258{32}, bS259{1 ex 6}, iS260{64}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS261{2048}]
+Shape of the tensor: [512, 2048]
+tv is T5_g___bfloat[iS11{i16}, iS263{2048}]
+Shape of the tensor: [1, 6, 2048]
+tv is T16_g___bfloat[bS45{1}, bS46{1 ex 6}, iS47{2048}]
+Shape of the tensor: [1, 32, 6]
+tv is T0_g_float[bS0{1}, iS1{32}, bS2{1}]
+Shape of the tensor: [1, 6, 512]
+tv is T17_g___bfloat[bS267{1}, bS268{1 ex 6}, iS269{i16}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T19_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{64}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T19_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{64}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T28_g___bfloat[bS264{1}, iS265{8}, bS266{1 ex 6}, iS267{32}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T29_g___bfloat[bS268{1}, iS269{8}, bS270{1 ex 6}, iS271{32}]
+Shape of the tensor: [1, 1, 6, 64]
+tv is T34_g_float[bS123{1}, bS124{1}, bS125{1 ex 6}, iS126{64}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T27_g_float[bS193{1}, iS194{8}, bS195{1 ex 6}, iS94{64}]
+Shape of the tensor: [1, 32, 6, 64]
+tv is T49_g___bfloat[bS257{1}, iS258{32}, bS259{1 ex 6}, iS260{64}]
+Shape of the tensor: [2048]
+tv is T2_g___bfloat[iS317{16}, iS318{1}, iS316{128}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T28_g___bfloat[iS390{2 ex ( ceilDiv(( 8 * ( 6 * 32 ) ), 128) )}, iS391{1}, iS389{128}]
+Shape of the tensor: [1, 8, 6, 32]
+tv is T29_g___bfloat[iS404{2 ex ( ceilDiv(( 8 * ( 6 * 32 ) ), 128) )}, iS405{1}, iS403{128}]
+Shape of the tensor: [1, 1, 6, 64]
+tv is T34_g_float[iS362{1 ex ( ceilDiv(( 6 * 64 ), 128) )}, iS363{1}, iS361{128}]
+Shape of the tensor: [1, 8, 6, 64]
+tv is T27_g_float[iS418{4 ex ( ceilDiv(( 8 * ( 6 * 64 ) ), 128) )}, iS419{1}, iS417{128}]
+An error occurred while executing nvFuser FusionDefinition 0.
+If you believe this is a bug or need assistance, please file an issue at https://github.com/NVIDIA/Fuser/issues/new
+Here's a script to reproduce the error:
+```python
+# CUDA devices:
+#  0: NVIDIA H100 PCIe
+# torch version: 2.7.0a0+ecf3bae40a.nvInternal
+# cuda version: 12.8
+# nvfuser version: 0.2.25+gitfd4a7f1
+import torch
+from nvfuser import FusionDefinition, DataType
+
+def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 32, 1], contiguity=[None, False, None], dtype=DataType.Float, is_cpu=False)
+    T1 = fd.define_tensor(shape=[1, 6, 2048], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T3 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+    T4 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+    T5 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+    T6 = fd.ops.permute(T0, dims=[0, 2, 1])
+    T7 = fd.ops.cat([T6, T6], dim=-1, manual_padding=0)
+    T8 = fd.ops.cast(T7, dtype=DataType.BFloat16)
+    T13 = fd.ops.broadcast_in_dim(T2, shape=[1, 6, 2048], broadcast_dims=[2])
+    T14 = fd.ops.mul(T13, T13)
+    T15 = fd.ops.cast(T14, dtype=DataType.BFloat16)
+    T16 = fd.ops.linear(T15, T5)
+    T22 = fd.ops.reshape(T16, new_shape=[1, 6, 8, 64])
+    T23 = fd.ops.permute(T22, dims=[0, 2, 1, 3])
+    T29 = fd.ops.broadcast_in_dim(T7, shape=[1, 1, 6, 64], broadcast_dims=[0, 2, 3])
+    T35 = fd.ops.broadcast_in_dim(T8, shape=[1, 1, 6, 64], broadcast_dims=[0, 2, 3])
+    T41 = fd.ops.broadcast_in_dim(T29, shape=[1, 8, 6, 64], broadcast_dims=[0, 1, 2, 3])
+    T42 = fd.ops.mul(T23, T41)
+    T58 = fd.ops.slice(T23, start_indices=[0, 0, 0, 0], end_indices=[1, 8, 6, 32], strides=[1, 1, 1, 1], manual_normalization=0)
+    T74 = fd.ops.slice(T23, start_indices=[0, 0, 0, 32], end_indices=[1, 8, 6, 64], strides=[1, 1, 1, 1], manual_normalization=0)
+    T75 = fd.ops.cat([T74, T58], dim=-1, manual_padding=0)
+    T76 = fd.ops.mul(T75, T35)
+    T77 = fd.ops.add(T42, T76)
+    T78 = fd.ops.cast(T77, dtype=DataType.BFloat16)
+    T85 = fd.ops.broadcast_in_dim(T78, shape=[1, 8, 1, 6, 64], broadcast_dims=[0, 1, 3, 4])
+    T92 = fd.ops.broadcast_in_dim(T85, shape=[1, 8, 4, 6, 64], broadcast_dims=[0, 1, 2, 3, 4])
+    T98 = fd.ops.reshape(T92, new_shape=[1, 32, 6, 64])
+    T99 = fd.ops.stride_order(T98, stride_order=[3, 2, 1, 0])
+    fd.add_output(T99)
+
+with FusionDefinition() as fd:
+    nvfuser_fusion_id0(fd)
+
+inputs = [
+    torch.testing.make_tensor((1, 32, 6), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((1, 6, 2048), dtype=torch.bfloat16, device='cuda:0'),
+    torch.testing.make_tensor((2048,), dtype=torch.bfloat16, device='cuda:0'),
+    torch.testing.make_tensor((2048, 2048), dtype=torch.bfloat16, device='cuda:0'),
+    torch.testing.make_tensor((2, 2048), dtype=torch.bfloat16, device='cuda:0'),
+    torch.testing.make_tensor((512, 2048), dtype=torch.bfloat16, device='cuda:0'),
+]
+fd.execute(inputs)
+```
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/__init__.py", line 317, in execute
+    out_tensors: list[DistributedTensor] = self._execute(
+                                           ^^^^^^^^^^^^^^
+RuntimeError:  INTERNAL ASSERT FAILED at "/opt/pytorch/nvfuser/csrc/runtime/fusion_kernel_runtime.cpp":407, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Detected exception while compiling fusion segments in parallel. Error messages from all threads are printed below.
+
+Error from segmentation group 6:  INTERNAL ASSERT FAILED at "/opt/pytorch/nvfuser/csrc/bfs.h":241, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. BFS traversal could not visit some nodes:  idg{456 463 470} (from:  idg{358 360 365 367 372 374 379 381 392 394 410 412 416 418 422 424 428 430 434 436 477 479 481 483} idg{361 368 375 382 395 413 419 425 431 437 482} idg{359 366 373 380 393 411 417 423 429 435 478 480 484}), visited: ( idg{399 405 441 447 453} idg{398 400 404 406 440 442 446 448 452 454} idg{358 360 365 367 372 374 379 381 392 394 410 412 416 418 422 424 428 430 434 436 477 479 481 483} idg{361 368 375 382 395 413 419 425 431 437 482} idg{401 407 443 449 455} idg{359 366 373 380 393 411 417 423 429 435 478 480 484} idg{29 66 70 74 78 82 86 94 126 188 192 256 280 284 288 292 299 306 313 341 348 355 356 357 362 363 364 369 370 371 376 377 378 383 390 391 408 409 414 415 420 421 426 427 432 433 457 458 464 465 471 472} idg{1 14 247 251 255 272 293 294 396 397 402 403 438 439 444 445 450 451} idg{0 2 13 15 27 28 63 64 65 67 68 69 71 73 75 77 79 80 81 83 84 85 123 125 171 172 185 186 189 191 193 195 244 245 246 248 249 250 252 253 267 268 271 273 274 275 277 279 281 283 285 287 289 291} idg{254})
+Exception raised from traverse at /opt/pytorch/nvfuser/csrc/bfs.h:241 (most recent call first):
+frame #0: nvfuser::nvfCheckFail(char const*, char const*, unsigned int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x91 (0x7f7ebaf1fe56 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #1: nvfuser::nvfErrorFail(char const*, char const*, unsigned int, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x71 (0x7f7ebaf20120 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #2: <unknown function> + 0x63e25e (0x7f7ebabd725e in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #3: <unknown function> + 0xb32433 (0x7f7ebb0cb433 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #4: <unknown function> + 0xb1e928 (0x7f7ebb0b7928 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #5: <unknown function> + 0xb1c7c9 (0x7f7ebb0b57c9 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #6: <unknown function> + 0xb1f086 (0x7f7ebb0b8086 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #7: <unknown function> + 0xb1c36b (0x7f7ebb0b536b in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #8: <unknown function> + 0xb732a3 (0x7f7ebb10c2a3 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #9: <unknown function> + 0x771bfd (0x7f7ebad0abfd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #10: <unknown function> + 0x77ef63 (0x7f7ebad17f63 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #11: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0x648 (0x7f7ebae1d4b4 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #12: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #13: <unknown function> + 0x7721d8 (0x7f7ebad0b1d8 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #14: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0x11df (0x7f7ebae1e04b in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #15: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #16: <unknown function> + 0x7723dd (0x7f7ebad0b3dd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #17: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0xc36 (0x7f7ebae1daa2 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #18: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #19: <unknown function> + 0x7723dd (0x7f7ebad0b3dd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #20: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0xc36 (0x7f7ebae1daa2 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #21: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #22: <unknown function> + 0x7721d8 (0x7f7ebad0b1d8 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #23: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0x11df (0x7f7ebae1e04b in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #24: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #25: <unknown function> + 0x7723dd (0x7f7ebad0b3dd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #26: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0xc36 (0x7f7ebae1daa2 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #27: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #28: <unknown function> + 0x7821fb (0x7f7ebad1b1fb in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #29: <unknown function> + 0x7719e9 (0x7f7ebad0a9e9 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #30: <unknown function> + 0x6f71ed (0x7f7ebac901ed in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #31: <unknown function> + 0x6f4e17 (0x7f7ebac8de17 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #32: <unknown function> + 0x6f27e1 (0x7f7ebac8b7e1 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #33: <unknown function> + 0x6f1104 (0x7f7ebac8a104 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #34: nvfuser::GpuLower::run() + 0x1d3 (0x7f7ebac80a95 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #35: nvfuser::CompiledKernel::CompiledKernel(nvfuser::Fusion*, nvfuser::CompileParams, c10::Device, nvfuser::SchedulerType, long, long, long, long, std::vector<std::function<void (nvfuser::GpuLower*)>, std::allocator<std::function<void (nvfuser::GpuLower*)> > > const&, std::vector<std::function<void (nvfuser::kir::Kernel*)>, std::allocator<std::function<void (nvfuser::kir::Kernel*)> > > const&) + 0x205 (0x7f7ebb4b38f1 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #36: <unknown function> + 0xf4c98d (0x7f7ebb4e598d in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #37: nvfuser::KernelExecutor::compile(nvfuser::Fusion*, nvfuser::KernelArgumentHolder const&, nvfuser::LaunchParams const&, nvfuser::CompileParams, nvfuser::SchedulerType) + 0x64a (0x7f7ebb4d74f0 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #38: <unknown function> + 0xf59a1e (0x7f7ebb4f2a1e in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #39: <unknown function> + 0xfbde81 (0x7f7ebb556e81 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #40: <unknown function> + 0xfbb343 (0x7f7ebb554343 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #41: <unknown function> + 0xfbf496 (0x7f7ebb558496 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #42: <unknown function> + 0xfbf0af (0x7f7ebb5580af in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #43: <unknown function> + 0xfbedbb (0x7f7ebb557dbb in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #44: c10::ThreadPool::main_loop(unsigned long) + 0x29d (0x7f803971ce6d in /usr/local/lib/python3.12/dist-packages/torch/lib/libc10.so)
+frame #45: <unknown function> + 0xecdb4 (0x7f801226edb4 in /usr/lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #46: <unknown function> + 0x9ca94 (0x7f80a1e8ba94 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #47: <unknown function> + 0x129c3c (0x7f80a1f18c3c in /usr/lib/x86_64-linux-gnu/libc.so.6)
+
+
+Use NVFUSER_DISABLE=parallel_compile to simplify error message.
+Exception raised from compileFusionParallel at /opt/pytorch/nvfuser/csrc/runtime/fusion_kernel_runtime.cpp:407 (most recent call first):
+frame #0: nvfuser::nvfCheckFail(char const*, char const*, unsigned int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x91 (0x7f7ebaf1fe56 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #1: nvfuser::nvfErrorFail(char const*, char const*, unsigned int, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x71 (0x7f7ebaf20120 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #2: nvfuser::FusionKernelRuntime::compileFusionParallel(nvfuser::KernelArgumentHolder) + 0x880 (0x7f7ebb554e4c in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #3: nvfuser::FusionExecutorCache::runFusionWithInputs(c10::ArrayRef<c10::IValue> const&, std::optional<nvfuser::PrimDataType>, std::optional<signed char>) + 0x12c (0x7f7ebb53c3f0 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #4: nvfuser::python_frontend::FusionDefinition::execute(c10::ArrayRef<c10::IValue> const&, std::optional<signed char>, bool, bool, bool, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >) const + 0x5bd (0x7f7ebb874b11 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #5: <unknown function> + 0x266bff (0x7f7eba7ffbff in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #6: <unknown function> + 0x398899 (0x7f7eba931899 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #7: <unknown function> + 0x389175 (0x7f7eba922175 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #8: <unknown function> + 0x330c71 (0x7f7eba8c9c71 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #9: <unknown function> + 0x330d60 (0x7f7eba8c9d60 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #10: <unknown function> + 0x224a46 (0x7f7eba7bda46 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #11: python() [0x58238f]
+<omitting python frames>
+frame #15: python() [0x608fd2]
+frame #16: python() [0x6b55e3]
+frame #21: <unknown function> + 0x2a1ca (0x7f80a1e191ca in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #22: __libc_start_main + 0x8b (0x7f80a1e1928b in /usr/lib/x86_64-linux-gnu/libc.so.6)
+
+Traceback (most recent call last):
+  File "/opt/pytorch/nvfuser/tests/python/test_hf_llama.py", line 53, in <module>
+    fd.execute(inputs)
+  File "/usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/__init__.py", line 317, in execute
+    out_tensors: list[DistributedTensor] = self._execute(
+                                           ^^^^^^^^^^^^^^
+RuntimeError:  INTERNAL ASSERT FAILED at "/opt/pytorch/nvfuser/csrc/runtime/fusion_kernel_runtime.cpp":407, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Detected exception while compiling fusion segments in parallel. Error messages from all threads are printed below.
+
+Error from segmentation group 6:  INTERNAL ASSERT FAILED at "/opt/pytorch/nvfuser/csrc/bfs.h":241, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. BFS traversal could not visit some nodes:  idg{456 463 470} (from:  idg{358 360 365 367 372 374 379 381 392 394 410 412 416 418 422 424 428 430 434 436 477 479 481 483} idg{361 368 375 382 395 413 419 425 431 437 482} idg{359 366 373 380 393 411 417 423 429 435 478 480 484}), visited: ( idg{399 405 441 447 453} idg{398 400 404 406 440 442 446 448 452 454} idg{358 360 365 367 372 374 379 381 392 394 410 412 416 418 422 424 428 430 434 436 477 479 481 483} idg{361 368 375 382 395 413 419 425 431 437 482} idg{401 407 443 449 455} idg{359 366 373 380 393 411 417 423 429 435 478 480 484} idg{29 66 70 74 78 82 86 94 126 188 192 256 280 284 288 292 299 306 313 341 348 355 356 357 362 363 364 369 370 371 376 377 378 383 390 391 408 409 414 415 420 421 426 427 432 433 457 458 464 465 471 472} idg{1 14 247 251 255 272 293 294 396 397 402 403 438 439 444 445 450 451} idg{0 2 13 15 27 28 63 64 65 67 68 69 71 73 75 77 79 80 81 83 84 85 123 125 171 172 185 186 189 191 193 195 244 245 246 248 249 250 252 253 267 268 271 273 274 275 277 279 281 283 285 287 289 291} idg{254})
+Exception raised from traverse at /opt/pytorch/nvfuser/csrc/bfs.h:241 (most recent call first):
+frame #0: nvfuser::nvfCheckFail(char const*, char const*, unsigned int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x91 (0x7f7ebaf1fe56 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #1: nvfuser::nvfErrorFail(char const*, char const*, unsigned int, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x71 (0x7f7ebaf20120 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #2: <unknown function> + 0x63e25e (0x7f7ebabd725e in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #3: <unknown function> + 0xb32433 (0x7f7ebb0cb433 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #4: <unknown function> + 0xb1e928 (0x7f7ebb0b7928 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #5: <unknown function> + 0xb1c7c9 (0x7f7ebb0b57c9 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #6: <unknown function> + 0xb1f086 (0x7f7ebb0b8086 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #7: <unknown function> + 0xb1c36b (0x7f7ebb0b536b in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #8: <unknown function> + 0xb732a3 (0x7f7ebb10c2a3 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #9: <unknown function> + 0x771bfd (0x7f7ebad0abfd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #10: <unknown function> + 0x77ef63 (0x7f7ebad17f63 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #11: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0x648 (0x7f7ebae1d4b4 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #12: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #13: <unknown function> + 0x7721d8 (0x7f7ebad0b1d8 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #14: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0x11df (0x7f7ebae1e04b in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #15: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #16: <unknown function> + 0x7723dd (0x7f7ebad0b3dd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #17: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0xc36 (0x7f7ebae1daa2 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #18: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #19: <unknown function> + 0x7723dd (0x7f7ebad0b3dd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #20: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0xc36 (0x7f7ebae1daa2 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #21: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #22: <unknown function> + 0x7721d8 (0x7f7ebad0b1d8 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #23: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0x11df (0x7f7ebae1e04b in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #24: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #25: <unknown function> + 0x7723dd (0x7f7ebad0b3dd in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #26: void nvfuser::Expr::constDispatch<nvfuser::OptOutConstDispatch*>(nvfuser::OptOutConstDispatch*, nvfuser::Expr const*) + 0xc36 (0x7f7ebae1daa2 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #27: <unknown function> + 0x877a31 (0x7f7ebae10a31 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #28: <unknown function> + 0x7821fb (0x7f7ebad1b1fb in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #29: <unknown function> + 0x7719e9 (0x7f7ebad0a9e9 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #30: <unknown function> + 0x6f71ed (0x7f7ebac901ed in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #31: <unknown function> + 0x6f4e17 (0x7f7ebac8de17 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #32: <unknown function> + 0x6f27e1 (0x7f7ebac8b7e1 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #33: <unknown function> + 0x6f1104 (0x7f7ebac8a104 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #34: nvfuser::GpuLower::run() + 0x1d3 (0x7f7ebac80a95 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #35: nvfuser::CompiledKernel::CompiledKernel(nvfuser::Fusion*, nvfuser::CompileParams, c10::Device, nvfuser::SchedulerType, long, long, long, long, std::vector<std::function<void (nvfuser::GpuLower*)>, std::allocator<std::function<void (nvfuser::GpuLower*)> > > const&, std::vector<std::function<void (nvfuser::kir::Kernel*)>, std::allocator<std::function<void (nvfuser::kir::Kernel*)> > > const&) + 0x205 (0x7f7ebb4b38f1 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #36: <unknown function> + 0xf4c98d (0x7f7ebb4e598d in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #37: nvfuser::KernelExecutor::compile(nvfuser::Fusion*, nvfuser::KernelArgumentHolder const&, nvfuser::LaunchParams const&, nvfuser::CompileParams, nvfuser::SchedulerType) + 0x64a (0x7f7ebb4d74f0 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #38: <unknown function> + 0xf59a1e (0x7f7ebb4f2a1e in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #39: <unknown function> + 0xfbde81 (0x7f7ebb556e81 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #40: <unknown function> + 0xfbb343 (0x7f7ebb554343 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #41: <unknown function> + 0xfbf496 (0x7f7ebb558496 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #42: <unknown function> + 0xfbf0af (0x7f7ebb5580af in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #43: <unknown function> + 0xfbedbb (0x7f7ebb557dbb in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #44: c10::ThreadPool::main_loop(unsigned long) + 0x29d (0x7f803971ce6d in /usr/local/lib/python3.12/dist-packages/torch/lib/libc10.so)
+frame #45: <unknown function> + 0xecdb4 (0x7f801226edb4 in /usr/lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #46: <unknown function> + 0x9ca94 (0x7f80a1e8ba94 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #47: <unknown function> + 0x129c3c (0x7f80a1f18c3c in /usr/lib/x86_64-linux-gnu/libc.so.6)
+
+
+Use NVFUSER_DISABLE=parallel_compile to simplify error message.
+Exception raised from compileFusionParallel at /opt/pytorch/nvfuser/csrc/runtime/fusion_kernel_runtime.cpp:407 (most recent call first):
+frame #0: nvfuser::nvfCheckFail(char const*, char const*, unsigned int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x91 (0x7f7ebaf1fe56 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #1: nvfuser::nvfErrorFail(char const*, char const*, unsigned int, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x71 (0x7f7ebaf20120 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #2: nvfuser::FusionKernelRuntime::compileFusionParallel(nvfuser::KernelArgumentHolder) + 0x880 (0x7f7ebb554e4c in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #3: nvfuser::FusionExecutorCache::runFusionWithInputs(c10::ArrayRef<c10::IValue> const&, std::optional<nvfuser::PrimDataType>, std::optional<signed char>) + 0x12c (0x7f7ebb53c3f0 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #4: nvfuser::python_frontend::FusionDefinition::execute(c10::ArrayRef<c10::IValue> const&, std::optional<signed char>, bool, bool, bool, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >) const + 0x5bd (0x7f7ebb874b11 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #5: <unknown function> + 0x266bff (0x7f7eba7ffbff in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #6: <unknown function> + 0x398899 (0x7f7eba931899 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #7: <unknown function> + 0x389175 (0x7f7eba922175 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #8: <unknown function> + 0x330c71 (0x7f7eba8c9c71 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #9: <unknown function> + 0x330d60 (0x7f7eba8c9d60 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #10: <unknown function> + 0x224a46 (0x7f7eba7bda46 in /usr/local/lib/python3.12/dist-packages/nvfuser-0.2.25+git9f04623-py3.12-linux-x86_64.egg/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+frame #11: python() [0x58238f]
+<omitting python frames>
+frame #15: python() [0x608fd2]
+frame #16: python() [0x6b55e3]
+frame #21: <unknown function> + 0x2a1ca (0x7f80a1e191ca in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #22: __libc_start_main + 0x8b (0x7f80a1e1928b in /usr/lib/x86_64-linux-gnu/libc.so.6)
+

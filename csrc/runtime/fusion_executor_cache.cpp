@@ -61,13 +61,21 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
 
+  auto fusion = kernel_runtime->fusionSegments()->completeFusion();
+  std::cout << "printing out fusion ir 1" << std::endl;
+  fusion->printMath();
+
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
   }
 
+  std::cout << "gets past compilation " << std::endl;
+
   most_recent_runtime_ = kernel_runtime;
 
-  auto fusion = kernel_runtime->fusionSegments()->completeFusion();
+  fusion = kernel_runtime->fusionSegments()->completeFusion();
+  std::cout << "printing out fusion ir 2" << std::endl;
+  fusion->printMath();
 
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
