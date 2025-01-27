@@ -74,8 +74,13 @@ class ValGraphVisitor {
       : val_graph_(val_graph),
         starting_groups_(starting_groups),
         allow_cycle_(allow_cycle) {}
+
   ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
       : val_graph_(val_graph), allow_cycle_(allow_cycle) {}
+
+  ValGraphVisitor(const ValGraphVisitor& other) = default;
+
+  ValGraphVisitor(ValGraphVisitor&& other) = default;
 
   virtual void handle(const ValGroup& val_group) = 0;
   virtual void handle(const ExprGroup& expr_group) = 0;
@@ -94,6 +99,7 @@ class ValGraphVisitor {
 
  private:
   const ValGraph& val_graph_;
+  // Traversal starting groups used in addition to terminating inputs
   const ValGroups starting_groups_;
   bool allow_cycle_ = true;
   std::string error_message_;
@@ -103,10 +109,7 @@ class ValGraphVisitor {
 class ValGraphStmtSort : public ValGraphVisitor {
  public:
   ValGraphStmtSort(const ValGraph& val_graph, bool allow_cycle = true)
-      : ValGraphVisitor(
-            val_graph,
-            val_graph.getTerminatingInputs(),
-            allow_cycle) {
+      : ValGraphVisitor(val_graph, allow_cycle) {
     NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
 

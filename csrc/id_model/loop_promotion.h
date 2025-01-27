@@ -131,11 +131,6 @@ class LoopPromotionMapBuilder {
   // included, thus any additional info from i2 to i4 is not
   // propagated back to i1, which should be fine for this loop
   // promotion analysis.
-#if 0
-  ExprGroups getOrderedExprGroupsForPropagation(
-      const ValGraph& graph,
-      const ValGroups& input_groups) const;
-#endif
 
   std::unordered_map<ValGroup, IterDomain*> build();
 

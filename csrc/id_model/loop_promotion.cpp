@@ -14,8 +14,6 @@
 #include <options.h>
 #include <val_graph_visitor.h>
 
-#include <fstream>
-
 namespace nvfuser {
 
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
@@ -683,11 +681,12 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
+  // In order to make this traversal work, the traversal order must be
+  // topologically sorted.
   ValGraphStmtSort iel_stmt_sort(
       iel_graph, getInputGroupsOfIELGraph(iel_graph));
-  ExprGroups ordered_exprs = iel_stmt_sort.exprs();
 
-  for (const ExprGroup& iel_expr : ordered_exprs) {
+  for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
     NVF_ERROR(!iel_expr->empty());
     const std::vector<ValGroup> iel_inp_groups =
         iel_graph.inputGroups(iel_expr);
@@ -818,9 +817,8 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
   }
 
   ValGraphStmtSort stmt_sort(graph, input_groups);
-  ExprGroups ordered_exprs = stmt_sort.exprs();
 
-  for (const ExprGroup& exact_expr : ordered_exprs) {
+  for (const ExprGroup& exact_expr : stmt_sort.exprs()) {
     std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
 
     ValGroups covered;
