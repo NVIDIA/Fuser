@@ -30,6 +30,7 @@ std::vector<Expr*> IndexLowering::getIndexedExprs(
   // Traverse the exprs and setup allocation domains before
   // generating indices.
   if (GpuLower::current()->isTensorIndexerEnabled()) {
+    incoming_exprs[0]->fusion()->printMath();
     GpuLower::current()->tensorIndexer().setupAllocationDomains(incoming_exprs);
   }
   IndexLowering il;

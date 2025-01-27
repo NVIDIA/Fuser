@@ -145,10 +145,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
   // analysis. These are not comprehensive. Should add more conditions
   // if necessary.
-  if (!force_full_loop_promotion_analysis_ &&
-      isLoopGraphAlmostUniform(id_model_)) {
-    return buildWithNoBroadcast();
-  }
+  // if (!force_full_loop_promotion_analysis_ &&
+  //     isLoopGraphAlmostUniform(id_model_)) {
+  //   return buildWithNoBroadcast();
+  // }
 
   // Cyclic exact graph is not supported. Specifically,
   // computeCoveredGroups would fail as it uses ValGraphStmtSort.

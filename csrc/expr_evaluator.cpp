@@ -207,6 +207,8 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
+    // std::cout << "Shape of the tensor: " << t.sizes() << std::endl;
+    // std::cout << "tv is " << tv->toString() << std::endl;
     bindTensorDomain(tv, t, evaluate_validate);
   }
   if (value->isA<NamedScalar>()) {
