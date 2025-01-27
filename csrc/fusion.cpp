@@ -857,7 +857,7 @@ std::vector<TensorView*> Fusion::allTvs() {
 
 void Fusion::registerExactMapping(IterDomain* id0, IterDomain* id1) {
   NVF_ERROR(
-      id0->sameAs(id1),
+      id0->extent()->sameAs(id1->extent()),
       "Invalid domains to map: ",
       id0->toString(),
       ", ",
