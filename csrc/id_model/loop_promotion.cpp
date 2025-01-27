@@ -206,10 +206,6 @@ ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
 
 ValGroups LoopPromotionMapBuilder::getInputGroupsOfIELGraph(
     const ValGraph& iel_graph) const {
-  // We first get the inputs of the Exact graph. For the
-  // IEL propagation, any IEL group that has an ID that is included
-  // in any of the input groups of the exact graph is used as an input.
-
   const auto exact_input_groups =
       getInputGroupsOfExactGraph(idGraph(IdMappingMode::EXACT));
 

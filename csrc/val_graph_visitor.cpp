@@ -18,12 +18,15 @@ bool ValGraphVisitor::traverse() {
     return true;
   }
 
-  ValGroups terminating_inputs = graph().getTerminatingInputs();
-  terminating_inputs.pushBack(starting_groups_);
+  // Traverse from terminating inputs. When a graph is cyclic, there
+  // may be no terminating inputs. Additional starting groups can be
+  // specified as an option.
+  ValGroups starting_groups = graph().getTerminatingInputs();
+  starting_groups.pushBack(additional_starting_groups_);
 
   // If no terminating input is found, that should mean there's a
   // cycle.
-  if (terminating_inputs.empty()) {
+  if (starting_groups.empty()) {
     std::stringstream ss;
     ss << "Unsupported graph: No terminating input found, likely a cyclic graph: ";
     ss << graph().toString();
@@ -32,7 +35,7 @@ bool ValGraphVisitor::traverse() {
   }
 
   std::deque<ValGroup> to_visit_vals(
-      terminating_inputs.begin(), terminating_inputs.end());
+      starting_groups.begin(), starting_groups.end());
   ValGroups visited_vals;
 
   std::deque<ExprGroup> to_visit_exprs;
@@ -46,7 +49,8 @@ bool ValGraphVisitor::traverse() {
         });
   };
 
-  // If any input of the def expr is mapped with the val
+  // When allow_cycle_ is true, cyclic dependency is ignored. For
+  // example, if any input of the def expr is mapped with the val
   // group itself, i.e., a trivial expr, allow visiting the
   // val group first. The trivial expr group will be visited
   // after the val group.
@@ -64,9 +68,25 @@ bool ValGraphVisitor::traverse() {
   // of the merge but since it's already in the visited set, it would
   // not be visited again.
   //
-  // See also IdModelTest.ValGraphStmtSort3 for a concrete example.
+  // Similarly, when there are five groups as shown belwo:
+  //
+  //   i0 -> i1  ->  i2 -> i3
+  //          ^       |
+  //          |- i4 <-+
+  //
+  //  (Edges: i0->i1, i1->i2, i2->i3, i2->i4, i4->i1)
+  //
+  // is_val_ready for i1 would ignore the incoming edge from i4. The
+  // traversal order would look like:
+  //
+  // i0->i1, i1->i2, i2->i3, i2->i4
+  //
+  // See also IdModelTest.ValGraphStmtSort3 for a concrete
+  // example. See IdModelTest.LoopPromotionWithCyclicGraph for some
+  // use cases of this traversal for the loop promotion analysis with
+  // cyclic graphs.
   auto is_val_ready = [&](const ValGroup& val_group) -> bool {
-    if (terminating_inputs.has(val_group)) {
+    if (starting_groups.has(val_group)) {
       return true;
     }
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
@@ -83,10 +103,7 @@ bool ValGraphVisitor::traverse() {
           auto reachable_nodes = getReachableNodesFrom<ValGraphPermissiveBFS>(
               {expr_group}, {val_group}, Direction::Backward, graph());
           if (!reachable_nodes.empty()) {
-            // cycle. ignore
-            std::cerr << "Cycle detected. Should be safe to ignore. "
-                      << nvfuser::toString(val_group) << ", "
-                      << nvfuser::toString(expr_group) << "\n";
+            // Cycle detected.
             return true;
           }
 

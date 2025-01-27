@@ -69,10 +69,10 @@ class ValGraphVisitor {
  protected:
   ValGraphVisitor(
       const ValGraph& val_graph,
-      const ValGroups& starting_groups,
+      const ValGroups& additional_starting_groups,
       bool allow_cycle = true)
       : val_graph_(val_graph),
-        starting_groups_(starting_groups),
+        additional_starting_groups_(additional_starting_groups),
         allow_cycle_(allow_cycle) {}
 
   ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
@@ -99,8 +99,10 @@ class ValGraphVisitor {
 
  private:
   const ValGraph& val_graph_;
-  // Traversal starting groups used in addition to terminating inputs
-  const ValGroups starting_groups_;
+  // Traversal starting groups used in addition to terminating
+  // inputs. Cyclic graphs may need this as there may be no
+  // terminating inputs.
+  const ValGroups additional_starting_groups_;
   bool allow_cycle_ = true;
   std::string error_message_;
 };
