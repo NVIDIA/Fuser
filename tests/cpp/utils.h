@@ -613,6 +613,17 @@ class NVFuserTest : public ::testing::Test {
 class HopperBase : public NVFuserTest {
  protected:
   void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// TMA is supported on Hopper and newer GPUs
+class TmaBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
@@ -833,7 +844,7 @@ bool isSchedulerInUse(
     const SchedulerType& scheduler_type);
 
 // Disable magic zero
-constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+const CompileParams matmul_cparams{DataType::Int32, 255, false};
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);

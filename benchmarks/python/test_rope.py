@@ -31,14 +31,15 @@ def test_rope_fwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, inputs, _, _ = rope_setup[variation]()
+    model, gen_inputs, _, _ = rope_setup[variation]()
+    inputs = gen_inputs()
 
     def fwd_call(inp):
         return model(*inp)
 
     # Compile the fwd fn for torchcompile
     benchmark_fn = with_executor(executor, fwd_call, **kwargs)
-    run_benchmark(benchmark, benchmark_fn, inputs())
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 @pytest.mark.parametrize(
@@ -65,14 +66,15 @@ def test_rope_bwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, fwd_inputs, grad, iobytes = rope_setup[variation]()
+    model, gen_inputs, grad, iobytes = rope_setup[variation]()
+    fwd_inputs = gen_inputs()
 
     def fwd_call(inp):
         return model(*inp)
 
     # execute the compiled fwd fn
     fwd_fn = with_executor(executor, fwd_call, **kwargs)
-    outputs = fwd_fn(fwd_inputs())
+    outputs = fwd_fn(fwd_inputs)
 
     # accumulate all output, so we can feed a single grad and use the unary bwd function
     output = outputs[0]
@@ -82,5 +84,5 @@ def test_rope_bwd_benchmark(
     # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
     # a reference point for torchcompile and eager executor for comparison.
     run_benchmark(
-        benchmark, unary_bwd_torch, [output, grad(), fwd_inputs()], iobytes=iobytes()
+        benchmark, unary_bwd_torch, [output, grad(), *fwd_inputs], iobytes=iobytes()
     )

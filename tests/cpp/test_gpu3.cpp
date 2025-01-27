@@ -1467,8 +1467,10 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
   // vectorization can be done against 2*14=28 rather than 14, so
   // vector word size should be 4. Broadcasting of tv1 should not
   // matter.
-  for (const auto& vec_info :
-       cg_results.kernel_executor->kernel()->summary().vectorized_set_info) {
+  for (const auto& vec_info : cg_results.kernel_executor->compiledKernel()
+                                  ->kernel()
+                                  ->summary()
+                                  .vectorized_set_info) {
     NVF_CHECK(
         vec_info.word_size == 4,
         "Invalid vector word size: ",
@@ -2011,7 +2013,13 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
   ke.compile(&fusion, {t0});
   auto outputs = ke.run({t0});
 
-  testValidate(ke.kernel(), outputs, {t0}, {t0.mean({0})}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(),
+      outputs,
+      {t0},
+      {t0.mean({0})},
+      __LINE__,
+      __FILE__);
 }
 
 // Test ExactLogicalDomainMap
@@ -2601,7 +2609,8 @@ TEST_F(NVFuserTest, FusionContigPredicate_CUDA) {
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
 
-  testValidate(ke.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Repro of https://github.com/csarofeen/pytorch/issues/1777
@@ -4984,7 +4993,13 @@ TEST_F(NVFuserTest, FusionIssue2163ReproInvalidAlias_CUDA) {
   auto ref_y = ref_x_sub_mean * at_weight.unsqueeze(0);
 
   testValidate(
-      ke.kernel(), {cg_output}, aten_inputs, {ref_y}, __LINE__, __FILE__, "");
+      ke.compiledKernel()->kernel(),
+      {cg_output},
+      aten_inputs,
+      {ref_y},
+      __LINE__,
+      __FILE__,
+      "");
 }
 
 // Testing scalar FP types
@@ -5201,7 +5216,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
   auto ref_N = at::ones({shape[1]}, options_int) * shape[0];
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       cg_outputs,
       {t0},
       {ref_avg, ref_var, ref_N},
@@ -5274,7 +5289,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
   auto ref_N = at::ones({shape[1]}, options_int) * shape[0];
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       cg_outputs,
       {t0},
       {ref_avg, ref_var, ref_N},
@@ -5371,7 +5386,8 @@ TEST_F(NVFuserTest, FusionExprSortMatmulLikeSchedule_CUDA) {
   ke.compile(&fusion, {t0, t1});
   auto cg_outputs = ke.run({t0, t1});
 
-  testValidate(ke.kernel(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
@@ -5439,7 +5455,8 @@ TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   }
 
   auto cg_outputs = ke.run({t0});
-  testValidate(ke.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Repro of issue #2459
@@ -5509,7 +5526,13 @@ TEST_F(NVFuserTest, FusionClearThreadPredicateByRAWSync_CUDA) {
   auto t3 = t0.sum({1}).sum({0});
   auto t6 = t0.sum({1});
 
-  testValidate(ke.kernel(), cg_outputs, inputs, {t3, t6}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(),
+      cg_outputs,
+      inputs,
+      {t3, t6},
+      __LINE__,
+      __FILE__);
 }
 
 namespace {
@@ -5632,7 +5655,12 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitShared_CUDA) {
   auto ref_t4 = t1.exp();
 
   testValidate(
-      ke.kernel(), cg_outputs, inputs, {ref_t1, ref_t4}, __LINE__, __FILE__);
+      ke.compiledKernel()->kernel(),
+      cg_outputs,
+      inputs,
+      {ref_t1, ref_t4},
+      __LINE__,
+      __FILE__);
 }
 
 // Repro of issue #2487
@@ -5686,7 +5714,12 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitGlobal_CUDA) {
   auto ref_t3 = t1.exp();
 
   testValidate(
-      ke.kernel(), cg_outputs, inputs, {ref_t1, ref_t3}, __LINE__, __FILE__);
+      ke.compiledKernel()->kernel(),
+      cg_outputs,
+      inputs,
+      {ref_t1, ref_t3},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTypePromotionATenConsistency_CUDA) {
@@ -5757,9 +5790,9 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       ke.compile(&fusion, large_inputs, LaunchParams(), compile_opts);
 
       NVF_CHECK(
-          ke.kernel()->indexType() == PrimDataType::Int,
+          ke.compiledKernel()->kernel()->indexType() == PrimDataType::Int,
           "Unexpected kernel index type: ",
-          ke.kernel()->indexType());
+          ke.compiledKernel()->kernel()->indexType());
 
       // Since the index type is int64, both small and large inputs
       // should work fine
@@ -5774,9 +5807,9 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       ke.compile(&fusion, small_inputs, LaunchParams(), compile_opts);
 
       NVF_CHECK(
-          ke.kernel()->indexType() == PrimDataType::Int,
+          ke.compiledKernel()->kernel()->indexType() == PrimDataType::Int,
           "Unexpected kernel index type: ",
-          ke.kernel()->indexType());
+          ke.compiledKernel()->kernel()->indexType());
 
       // Since the index type is int64, both small and large inputs
       // should work fine
@@ -5791,9 +5824,9 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       ke.compile(&fusion, small_inputs, launch_params, compile_opts);
 
       NVF_CHECK(
-          ke.kernel()->indexType() == PrimDataType::Int32,
+          ke.compiledKernel()->kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",
-          ke.kernel()->indexType());
+          ke.compiledKernel()->kernel()->indexType());
 
       // This should complete successfully as the arguments are small
       // enough to use the int32 index type
@@ -6024,8 +6057,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
 
   // check thread_pred and write_stride
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-  auto kernel = ke->kernel();
-  const auto& thread_pred_map = ke->threadPredMap();
+  auto kernel = ke->compiledKernel()->kernel();
+  const auto& thread_pred_map =
+      ke->compiledKernel()->lowered()->threadPredMap();
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
@@ -6049,7 +6083,14 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     FusionGuard fg(&fusion);
 
     std::vector<int64_t> shape0;
-    std::vector<int64_t> shape1({2, 64, 128, 2048});
+    // inner dim should be large enough to trigger the issue
+    // 10240 >= vect (4) x threads per block (512) x max unroll (5).
+    // In inner reduction, TIDx is used for the reduction axis, if it
+    // is less than 512, TIDy is used for iteration axis, this leads
+    // to a split in the iteration axis, current redundant write remover
+    // can't handle this case since it only checks the loop domain whose
+    // definition is a merge.
+    std::vector<int64_t> shape1({2, 64, 2, 10240});
     const size_t ndim = shape1.size();
     for (size_t i = 0; i < ndim; i++) {
       if (!is_broadcast[i]) {
@@ -6079,8 +6120,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
 
     // check thread_pred and write_stride
     const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-    auto kernel = ke->kernel();
-    const auto& thread_pred_map = ke->threadPredMap();
+    auto kernel = ke->compiledKernel()->kernel();
+    const auto& thread_pred_map =
+        ke->compiledKernel()->lowered()->threadPredMap();
 
     for (const auto expr : kernel->exprs()) {
       auto tv = ir_utils::getTvOutput(expr);
@@ -6173,7 +6215,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
                 &fusion, SchedulerType::Reduction, aten_inputs, false);
           },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-              "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
+              "Producer is required to be in Global Memory based on parallelization strategy.")));
     } else {
       FusionExecutorCache executor_cache(std::move(fusion_ptr));
       auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -6231,8 +6273,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   auto cg_outputs = ke.run(inputs);
 
   // check thread_pred
-  auto kernel = ke.kernel();
-  const auto& thread_pred_map = ke.threadPredMap();
+  auto kernel = ke.compiledKernel()->kernel();
+  const auto& thread_pred_map = ke.compiledKernel()->lowered()->threadPredMap();
 
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
@@ -6295,8 +6337,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
   auto cg_outputs = ke.run(inputs);
 
   // check thread_pred
-  auto kernel = ke.kernel();
-  const auto& thread_pred_map = ke.threadPredMap();
+  auto kernel = ke.compiledKernel()->kernel();
+  const auto& thread_pred_map = ke.compiledKernel()->lowered()->threadPredMap();
 
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
@@ -7616,61 +7658,6 @@ TEST_F(NVFuserTest, IndexDataTypePromotion) {
   EXPECT_EQ(c->dtype(), DataType::Index);
 }
 
-TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
-  // reduction size is set to 65538 to triger cross grid reduction and iter
-  // unroll. iteration size is set to a value larger than y_grid_limit to test
-  // if iter domain is split grid.
-  // This test requires significant memory. Release any cached memory
-  // from previous tests to ensure availability.
-  maybeClearAllocator(0);
-
-  DataType dtype = DataType::Float;
-  int64_t reduction_size = 65538;
-  int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> input_shape{iteration_size, reduction_size};
-  auto t0 = makeContigTensor(2, dtype);
-  auto t1 = sum(t0, {1});
-  fusion.addInput(t0);
-  fusion.addOutput(t1);
-
-  // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
-  size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
-  size_t estimated_gmem = n_elements * dataTypeSize(dtype);
-  size_t device_free, device_total;
-  cudaMemGetInfo(&device_free, &device_total);
-  if (estimated_gmem > device_free) {
-    GTEST_SKIP() << "Skipping test due to limited GPU memory. Requested: "
-                 << estimated_gmem / 1e9 << " GBytes"
-                 << ", device_free: " << device_free / 1e9 << " GBytes"
-                 << ", device_total: " << device_total / 1e9 << " GBytes";
-  }
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
-
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
-  auto rparams = cg_results.heuristic_params->as<ReductionParams>();
-  ASSERT_TRUE(rparams->split_grid_dim_inner_reduction)
-      << "Generated reduction is not cross grid!";
-  ASSERT_TRUE(rparams->split_grid_dim_iter_dom_outer)
-      << "Generated reduction is not split iteration domain!";
-  auto aten_outputs = aten_input.sum({1});
-  testValidate(
-      &fusion,
-      cg_results.outputs,
-      {aten_input},
-      {aten_outputs},
-      __LINE__,
-      __FILE__,
-      "",
-      rparams->lparams);
-}
-
 TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
   // Test that if a tensor dimension's extent is one, no matter whether this
   // extent is constant 1 or symbolic 1, we always mark this ID as broadcasting.
@@ -8050,7 +8037,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
       continue;
     }
     const auto* ke = exec->as<KernelExecutor>();
-    for (auto expr : ke->kernel()->exprs()) {
+    for (auto expr : ke->compiledKernel()->kernel()->exprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global);

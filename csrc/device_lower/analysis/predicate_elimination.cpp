@@ -445,7 +445,7 @@ class PredicateChcker : public IterVisitor {
     needs_predicate_ = predicateIntDiv(expr) ||
         predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
-        predicateNonDivisibleRootDomains(expr) ||
+        predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
 
@@ -570,17 +570,12 @@ class PredicateChcker : public IterVisitor {
   //   in the indexing pass.
   // For details on zero loops, see indexMapFromTV in
   //  lower index pass.
-  std::vector<Val*> getZeroLeafIds(const TensorView* tv) const {
-    NVF_ERROR(
-        tv->getMemoryType() == MemoryType::Local ||
-            tv->getMemoryType() == MemoryType::Shared,
-        "Local or shared memory tensor is assumed: ",
-        tv->toString());
-    bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
+  std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
     std::vector<Val*> zero_loop_ids;
     for (const auto i : c10::irange(tv->nDims())) {
       auto loop_id = tv->axis(i);
-      if (is_shared_mem && loop_id->isThreadDim()) {
+      if (ir_utils::isMemorySharedAcross(
+              tv->getMemoryType(), loop_id->getParallelType())) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share
         //  of the shared mem space.
@@ -592,7 +587,8 @@ class PredicateChcker : public IterVisitor {
           i < tv->getComputeAtPosition() ||
           // Parallel axes on local mem is zero loop.
           // Grid axes on shared mem is zero loop.
-          loop_id->isThread() ||
+          ir_utils::isMemoryPartitionedAcross(
+              tv->getMemoryType(), loop_id->getParallelType()) ||
           // Mma axes, similar to vectorization, are
           //  implicit in hardware intrinsics, and thus
           //  will be treated as a zero loop.
@@ -613,7 +609,7 @@ class PredicateChcker : public IterVisitor {
   // This is not an issue if the index includes a zero domain (as defined in
   // index_compute.cpp), the extent is calculated by multiplying the
   // split output domains, so it never cross the domain boundary.
-  // So, if a root domain is split and none of its descendants is a
+  // So, if a logical domain is split and none of its descendants is a
   // zero domain, the expr needs to be predicated. See
   // FusionPredicateElimination6 for a concrete example.
   //
@@ -621,7 +617,7 @@ class PredicateChcker : public IterVisitor {
   // giving up predicate elimination. Since this condition should be
   // rather uncommon, either would be fine as long as correctness is
   // provided.
-  bool predicateNonDivisibleRootDomains(Expr* expr) const {
+  bool predicateNonDivisibleLogicalDomains(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
@@ -633,16 +629,16 @@ class PredicateChcker : public IterVisitor {
           {output->getLogicalDomain().begin(),
            output->getLogicalDomain().end()},
           {output->getLoopDomain().begin(), output->getLoopDomain().end()});
-      std::unordered_set<Val*> split_root;
+      std::unordered_set<Val*> split_logical;
       std::copy_if(
           output->getLogicalDomain().begin(),
           output->getLogicalDomain().end(),
-          std::inserter(split_root, split_root.end()),
-          [&](auto rf_root) {
-            if (rf_root->isBroadcast()) {
+          std::inserter(split_logical, split_logical.end()),
+          [&](auto rf_logical) {
+            if (rf_logical->isBroadcast()) {
               return false;
             }
-            for (Expr* use : rf_root->uses()) {
+            for (Expr* use : rf_logical->uses()) {
               if (std::find(all_exprs.begin(), all_exprs.end(), use) ==
                   all_exprs.end()) {
                 continue;
@@ -651,21 +647,21 @@ class PredicateChcker : public IterVisitor {
             }
             return false;
           });
-      // If no root domain is split, no need to predicate
-      if (split_root.empty()) {
+      // If no logical domain is split, no need to predicate
+      if (split_logical.empty()) {
         continue;
       }
-      const auto zero_loop_ids = getZeroLeafIds(output);
+      const auto zero_loop_ids = getZeroLoopIds(output);
       if (zero_loop_ids.empty()) {
         RECORD_AND_RETURN(true);
       }
       const auto vals =
-          DependencyCheck::getAllValsBetween(split_root, zero_loop_ids);
+          DependencyCheck::getAllValsBetween(split_logical, zero_loop_ids);
       if (std::any_of(
-              split_root.begin(),
-              split_root.end(),
-              [&vals](auto split_root_id) {
-                return std::find(vals.begin(), vals.end(), split_root_id) ==
+              split_logical.begin(),
+              split_logical.end(),
+              [&vals](auto split_logical_id) {
+                return std::find(vals.begin(), vals.end(), split_logical_id) ==
                     vals.end();
               })) {
         RECORD_AND_RETURN(true);

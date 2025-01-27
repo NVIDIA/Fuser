@@ -1964,7 +1964,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionSimpleCompileRtc_CUDA) {
-  KernelExecutor ke;
+  RtcKernel rk;
   std::string kernel = R"(
 __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   if(threadIdx.x==0){
@@ -1974,7 +1974,7 @@ __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   }
 }
     )";
-  ke.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       256, // gdimx
       1, // gdimy
@@ -1989,14 +1989,13 @@ __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   const std::vector<int64_t> tensor_dims = {8};
   auto in0 = at::randn(tensor_dims, options);
   auto out0 = at::empty_like(in0);
-  ke.runRtc(lp, {in0, out0}, PrimDataType::Int);
+  rk.run(lp, {in0, out0}, PrimDataType::Int);
 
   auto out_ref = in0 * 2;
   NVF_CHECK(out_ref.allclose(out0));
 }
 
 TEST_F(NVFuserTest, FusionSerialWelford_CUDA) {
-  KernelExecutor ke;
   int x = 128, y = 64, z = 64;
 
   std::string kernel = R"(
@@ -2030,7 +2029,8 @@ __global__ void kernel1(
     }
 }
     )";
-  ke.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2046,14 +2046,13 @@ __global__ void kernel1(
   auto in0 = at::randn(tensor_dims, options);
   auto out_var = at::empty({x}, options);
   auto out_avg = at::empty({x}, options);
-  ke.runRtc(lp, {in0, out_var, out_avg}, PrimDataType::Int);
+  rk.run(lp, {in0, out_var, out_avg}, PrimDataType::Int);
 
   NVF_CHECK(in0.var({1, 2}, false).allclose(out_var));
   NVF_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
 }
 
 TEST_F(NVFuserTest, FusionBlockWelford_CUDA) {
-  KernelExecutor ke;
   int x = 7, y = 8, z = 9;
 
   std::string kernel = R"(
@@ -2103,7 +2102,8 @@ __global__ void kernel1(
     }
 }
     )";
-  ke.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2130,7 +2130,7 @@ __global__ void kernel1(
   // run kernel
   auto out_var = at::zeros({x}, options);
   auto out_avg = at::zeros({x}, options);
-  ke.runRtc(
+  rk.run(
       lp,
       {in0, out_avg, out_var, init_avg, init_var, init_N},
       PrimDataType::Int);
@@ -2143,7 +2143,6 @@ __global__ void kernel1(
 }
 
 TEST_F(NVFuserTest, FusionBlockWelfordNoInit_CUDA) {
-  KernelExecutor ke;
   int x = 7, y = 8, z = 9;
 
   // need support IValue for integer input as initial count
@@ -2185,7 +2184,8 @@ __global__ void kernel1(
     }
 }
     )";
-  ke.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2201,7 +2201,7 @@ __global__ void kernel1(
   auto in0 = at::randn(tensor_dims, options);
   auto out_var = at::empty({x}, options);
   auto out_avg = at::empty({x}, options);
-  ke.runRtc(lp, {in0, out_avg, out_var}, PrimDataType::Int);
+  rk.run(lp, {in0, out_avg, out_var}, PrimDataType::Int);
 
   NVF_CHECK(in0.var({1, 2}, false).allclose(out_var));
   NVF_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
@@ -2261,7 +2261,8 @@ __global__ void kernel1(
     }
 }
     )";
-  ke.compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  RtcKernel rk;
+  rk.compile(kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       x, // gdimx
       y, // gdimy
@@ -2285,7 +2286,7 @@ __global__ void kernel1(
   auto work_buf_var = at::empty({x * y * z}, options);
   auto work_buf_N = at::empty({x * y * z}, options_int);
   auto sync_flag = at::zeros({1}, options_int);
-  ke.runRtc(
+  rk.run(
       lp,
       {in0,
        out_avg,
@@ -2336,7 +2337,7 @@ TEST_F(NVFuserTest, FusionWelfordOp_CUDA) {
   outputs[1] /= N;
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       outputs,
       {t0},
       {t0.mean({1}), t0.var({1}, false), at::ones({M}, options_int) * N},
@@ -2381,7 +2382,7 @@ TEST_F(NVFuserTest, FusionBlockWelfordOp_CUDA) {
   outputs[1] /= N;
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       outputs,
       {t0},
       {t0.mean({1}), t0.var({1}, false), at::ones({M}, options_int) * N},
@@ -2426,7 +2427,7 @@ TEST_F(NVFuserTest, FusionGridWelfordOp_CUDA) {
   outputs[1] /= N;
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       outputs,
       {t0},
       {t0.mean({1}), t0.var({1}, false), at::ones({M}, options_int) * N},
@@ -2470,7 +2471,7 @@ TEST_F(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   outputs[1] /= N;
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       outputs,
       {t0},
       {t0.mean({1}), t0.var({1}, false), at::ones({M}, options_int) * N},
@@ -2596,7 +2597,7 @@ TEST_P(WelfordReduction, Test) {
   // lowering pass will use int64 as the index tpye, since this test saves
   // `tv_N` as index type, it may cause vectorization size validation error. For
   // example, the heuristics set index type to int32 and the max vectorization
-  // factor is 4, if compile para is not passed to compileFusion, the lowering
+  // factor is 4, if compile para is not passed to compile, the lowering
   // pass uses int64 as index type, so the max vectorization factor is 16 bytes
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.
@@ -2616,7 +2617,7 @@ TEST_P(WelfordReduction, Test) {
   at_n = at_n.sum({axis});
 
   testValidate(
-      ke.kernel(),
+      ke.compiledKernel()->kernel(),
       outputs,
       {aten_input},
       {at_avg, at_var, at_n},

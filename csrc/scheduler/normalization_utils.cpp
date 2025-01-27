@@ -752,9 +752,12 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   return available_persistent_buffer_size;
 }
 
-// Returns true if persistent buffers are projected to inputs, meaning the
-// inputs are cached instead of the persistent buffers.
-bool isProjectBufferToInputs(
+// Returns BufferProjectionStrategy based on buffer size, hardware, and fusion
+// ops. ProjectToInputs: recompute buffer from cached inputs to save
+// register/shared memory usage. NoProjectToAvoidRecompute: don't recompute to
+// reduce computation cost. NoProjectOtherReasons: don't recompute due to other
+// reasons.
+BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
@@ -767,7 +770,7 @@ bool isProjectBufferToInputs(
   bool can_project = !persistent_buffer_info.has_view_ops &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
   if (!can_project) {
-    return false;
+    return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
   // Enusre project to inputs can save persistent buffer size,
@@ -776,7 +779,7 @@ bool isProjectBufferToInputs(
   if (check_projected_buffer_size &&
       persistent_buffer_size_info.projected_persistent_buffer_size >=
           persistent_buffer_size_info.persistent_buffer_size) {
-    return false;
+    return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
   // must project to inputs otherwise don't have enough register or shared
@@ -792,52 +795,39 @@ bool isProjectBufferToInputs(
             can_use_smem_persistent);
     if (max_available_buffer <
         persistent_buffer_size_info.persistent_buffer_size) {
-      return true;
+      return BufferProjectionStrategy::ProjectToInputs;
     }
   }
 
   // don't project if recompute requires rng op
   if (persistent_buffer_info.projection_with_rng_op) {
-    return false;
+    return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
   // free to project if no exp op
   if (!persistent_buffer_info.projection_with_exp_op) {
-    return true;
+    return BufferProjectionStrategy::ProjectToInputs;
   }
 
-  // consider buffer size when exp op exists
+  // Recompute from inputs reduces regisger usage which may lead to higher
+  // occupancy and better performance. However, it also increases computation
+  // cost which may lead to lower performance, especially when the device has a
+  // high bandwidth to flops ratio where the kernel may change from memory bound
+  // to compute bound. Here, we use two empirical values derived from tests of
+  // softmax on H100 and B100/200. B100/200 are considered as devices with high
+  // bandwidth to flops ratio.
   if (scheduler_type == SchedulerType::InnerPersistent) {
-    // check if the non-projected persistent buffer is small enough,
-    // i.e., not affecting the occupancy, projecting back to the inputs
-    // isn't buying us anything.
-    // This check only works for inner persistent as outer persistent and
-    // inner outer persistent usually have large register pressure and always
-    // want to project back to the inputs.
-    // Assumptions:
-    // (1) 50% occupancy, which is 1024 active threads per SM.
-    // (2) 128 threads per block.
-    // (3) 24 registers per thread for overhead.
-    // (4) 8 extra register per thread allowing register spills.
-    // The derived [buffer_per_block] is 48*128*4 = 24KB.
-    constexpr int64_t active_threads_per_sm = 1024l;
-    constexpr int64_t threads_per_block = 128l;
-    constexpr int64_t overhead_register_per_thread = 24l;
-    constexpr int64_t extra_register_allowing_spills = 8l;
-    constexpr int64_t total_register_per_thread =
-        scheduler_utils::register_file_size_full /
-        scheduler_utils::bytes_per_register / active_threads_per_sm;
-    constexpr int64_t buffer_register_per_thread = total_register_per_thread -
-        overhead_register_per_thread + extra_register_allowing_spills;
-    constexpr int64_t buffer_per_block = threads_per_block *
-        buffer_register_per_thread * scheduler_utils::bytes_per_register;
+    bool is_high_bandwidth_flops_ratio =
+        scheduler_utils::isHighBandwidthFlopsRatio();
+    int64_t buffer_per_block =
+        is_high_bandwidth_flops_ratio ? 24 * 4 * 1024 : 6 * 4 * 1024;
     if (persistent_buffer_size_info.persistent_buffer_size <=
         buffer_per_block) {
-      return false;
+      return BufferProjectionStrategy::NoProjectToAvoidRecompute;
     }
   }
 
-  return true;
+  return BufferProjectionStrategy::ProjectToInputs;
 }
 
 PersistentKernelProperties getPersistentKernelProperties(
@@ -918,13 +908,17 @@ PersistentKernelProperties getPersistentKernelProperties(
   // reducing buffer size is larger than the pains of recalculations.
   bool can_use_smem_persistent =
       properties.inner_most_dimension_numel == properties.total_reduction_numel;
-  bool project_persistent_buffers = isProjectBufferToInputs(
+  auto project_strategy = isProjectBufferToInputs(
       fusion,
       runtime_info,
       persistent_buffer_info,
       persistent_buffer_size_info,
       scheduler_type,
       can_use_smem_persistent);
+  bool project_persistent_buffers =
+      (project_strategy == BufferProjectionStrategy::ProjectToInputs);
+  bool disable_project_to_avoid_recompute =
+      (project_strategy == BufferProjectionStrategy::NoProjectToAvoidRecompute);
   int64_t max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
@@ -963,6 +957,7 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // Exp op typically used in softmax is expensive and needs more registers.
   bool has_exp_op = false;
+  bool has_rng_op = false;
 
   // Could save fusion->exprs() instead of doing this, but allTvs is already
   // cached in fusion so using that for now.
@@ -973,7 +968,9 @@ PersistentKernelProperties getPersistentKernelProperties(
     if (tv->definition()->isA<UnaryOp>() &&
         tv->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
-      break;
+    }
+    if (tv->definition()->isA<RNGOp>()) {
+      has_rng_op = true;
     }
   }
 
@@ -989,6 +986,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
       .has_exp_op = has_exp_op,
+      .has_rng_op = has_rng_op,
+      .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
       .persistent_buffers = persistent_buffer_info.persistent_buffers};
 }
 

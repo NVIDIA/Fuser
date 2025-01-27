@@ -741,6 +741,128 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+namespace {
+int64_t getUnrollFactor(int64_t n_inputs_factor, int64_t computation_factor) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t required_bytes_per_thread =
+      scheduler_utils::getRequiredBytesInFlight() /
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor;
+  constexpr int64_t vect_bytes = 16L;
+  int64_t unroll_factor = std::max(1L, required_bytes_per_thread / vect_bytes);
+  if (unroll_factor > 1) {
+    unroll_factor *= computation_factor;
+    unroll_factor /= n_inputs_factor;
+  }
+  return unroll_factor;
+}
+
+} // namespace
+
+// Test pointwise heuristics.
+// current heuristics does fully unroll when have more than 8 waves
+// of blocks. For device with high bandwidh, unroll factor is 2 when
+// there is only one input tensor, scaled up by computation factor and
+// scaled down by number of input tensors.
+TEST_F(PointwiseTest, HeuristicsInput1Compute1Unroll2) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t vect = 4;
+  int64_t threads = 128;
+  int64_t unroll = getUnrollFactor(1, 1);
+  int64_t dim0 = dev_prop->multiProcessorCount * 8 *
+      dev_prop->maxThreadsPerMultiProcessor / threads;
+  int64_t dim1 = vect * threads * unroll;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0};
+
+  auto cg_results =
+      scheduleAndRun(fusion.get(), SchedulerType::PointWise, runtime_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  ASSERT_EQ(pparams->vectorization_factor, vect);
+  ASSERT_EQ(pparams->unroll_factor_inner, unroll);
+  testValidate(
+      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, HeuristicsInput1Compute2Unroll4) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t vect = 4;
+  int64_t threads = 128;
+  int64_t unroll = getUnrollFactor(1, 2);
+  int64_t dim0 = dev_prop->multiProcessorCount * 8 *
+      dev_prop->maxThreadsPerMultiProcessor / threads;
+  int64_t dim1 = vect * threads * unroll;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // outer bcast tv is not counted
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = add(tv0, tv2);
+  auto tv4 = exp(tv3);
+  auto tv5 = reciprocal(tv4);
+  fusion->addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0, t1};
+
+  auto cg_results =
+      scheduleAndRun(fusion.get(), SchedulerType::PointWise, runtime_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  ASSERT_EQ(pparams->vectorization_factor, vect);
+  ASSERT_EQ(pparams->unroll_factor_outer, unroll);
+  testValidate(
+      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, HeuristicsInput2Compute4Unroll4) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t vect = 4;
+  int64_t threads = 128;
+  int64_t unroll = getUnrollFactor(2, 4);
+  int64_t dim0 = dev_prop->multiProcessorCount * 8 *
+      dev_prop->maxThreadsPerMultiProcessor / threads;
+  int64_t dim1 = vect * threads * unroll;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = tanh(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0, t1};
+  auto cg_results =
+      scheduleAndRun(fusion.get(), SchedulerType::PointWise, runtime_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  ASSERT_EQ(pparams->vectorization_factor, vect);
+  ASSERT_EQ(pparams->unroll_factor_inner, unroll);
+  testValidate(
+      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
+}
+
 TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
   // Pointwise scheduler applies permutation to restore contiguous memory access
   // on reference TV. Vectorization validation requires vectorized operations to

@@ -537,4 +537,45 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal) {
   }
 }
 
+TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->split(0, 4);
+
+  // T1_g_float[iS5{( ceilDiv(( i0 * i2 ), 4) )}, iS6{4}]
+  //  logical domain : (iS2{i0}, iS3{i2})
+  //  contiguity: t t
+  //   Merge: iS2{i0} and iS3{i2} -> iS4{( i0 * i2 )}
+  //   Split: iS4{( i0 * i2 )} by factor 4 -> iS5{( ceilDiv(( i0 * i2 ), 4) )},
+  //   iS6{4}
+  //  loop domain : (iS5{( ceilDiv(( i0 * i2 ), 4) )}, iS6{4})
+  fusion.print();
+
+  auto iS5 = tv1->axis(0);
+  auto iS6 = tv1->axis(1);
+
+  // When starting with just iS5 witout iS6, the permissive traversal
+  // allows to visit the split expr node, even though iS6 is
+  // missing. The next set of nodes to visit after the split are its
+  // neighbors, which includes iS6. However, it does not seem to make
+  // any intuitive sense to allow this visit. The split expr is visited
+  // because one of its outputs, iS5, is visited. That in turn allowing to
+  // visit the missing split output, iS6, does not seem to make sense.
+
+  // Make sure iS6 is not reachable from iS5
+  EXPECT_FALSE(getExprsBetween<IRPermissiveBFS>(
+                   {iS5},
+                   {iS6},
+                   /*require_all_to_visited=*/false)
+                   .second);
+}
+
 } // namespace nvfuser

@@ -11,6 +11,7 @@
 #include <type.h>
 #include <visibility.h>
 
+#include <c10/core/DeviceType.h>
 #include <optional>
 
 namespace nvfuser {
@@ -21,6 +22,10 @@ struct CompileParams {
   bool enable_magic_zero = true;
   // if true, save ptxas info to compile log and check for register spilling
   bool enable_ptxas_verbose = false;
+  // Wrapping device in an optional allows us to initialize a value for the
+  // struct without having to select a specific device. Otherwise the default
+  // constructor will be deleted for the struct.
+  std::optional<c10::Device> device = std::nullopt;
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
@@ -32,7 +37,7 @@ struct CompileParams {
         "cannot compare as the other index type is not defined");
     return index_type == other.index_type &&
         maxrregcount == other.maxrregcount &&
-        enable_magic_zero == other.enable_magic_zero;
+        enable_magic_zero == other.enable_magic_zero && device == other.device;
   }
 
   bool operator!=(const CompileParams& other) const {
