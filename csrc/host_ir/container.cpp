@@ -20,8 +20,7 @@ namespace nvfuser {
 
 namespace hir {
 
-// NOLINTNEXTLINE (modernize-use-equals-default)
-HostIrContainer::~HostIrContainer() {}
+HostIrContainer::~HostIrContainer() = default;
 
 Stream* HostIrContainer::getDefaultStream() {
   if (!default_stream_) {
