@@ -77,7 +77,8 @@ namespace nvfuser::preseg_passes {
   // open an issue for this and see if we want to have a more aggressive
   // approach inside MovePadPass instead. removes extra cast added from pushing
   // pad out OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
+  // protonu.
+  // OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);

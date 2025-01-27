@@ -362,6 +362,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+      std::cout << "printing out segment " << std::endl;
+      group_to_run->getFusion()->printMath();
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here

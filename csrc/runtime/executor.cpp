@@ -103,7 +103,10 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         outputs.empty(),
         "Fusion executor is using expression evaluator,",
         " and expects that the outputs are not populated, which they were.");
+    std::cout << "this code path is taken" << std::endl;
+    std::cout << "outputs size: " << outputs.size() << std::endl;
     if (outputs.empty()) {
+      std::cout << "outputs is empty" << std::endl;
       for (const auto& out_val : fusion_->outputs()) {
         auto out_tensor =
             expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
