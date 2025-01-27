@@ -183,7 +183,9 @@ Allocate::Allocate(
   addDataAttribute(zero_init);
   addDataAttribute(resets_to_zero);
   addAttribute(alias);
-  // Always initialize shared memory address to nullptr
+  // Always initialize smem/tmem addresses to nullptr
+  addAttribute(nullptr);
+  addAttribute(nullptr);
   addAttribute(nullptr);
 
   for (auto s : shape) {

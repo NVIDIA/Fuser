@@ -3181,8 +3181,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         }
         case MemoryType::Tensor: {
-          // TODO: fill
-          indent() << "TMemTensor " << genVariableName(tv) << "();\n";
+          indent() << "TMemTensor " << genVariableName(tv) << "("
+                   << genInline(alloc->baseAddress()) << ", "
+                   << genInline(alloc->laneOffset()) << ", "
+                   << genInline(alloc->colOffset()) << ");\n";
           break;
         }
         default:

@@ -473,8 +473,28 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     // Create the allocation node
-    return IrBuilder::create<kir::Allocate>(
+    auto alloc_expr = IrBuilder::create<kir::Allocate>(
         info.buffer, info.buffer->getMemoryType(), alloc_dims);
+
+    // Fill in the base address, lane offset, and column offset for tensor
+    // memory allocations
+    if (memory_type == MemoryType::Tensor) {
+      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+      for (const auto& region : regions) {
+        auto tv_info_it = std::find_if(
+            region.covered_tensors.begin(),
+            region.covered_tensors.end(),
+            [&](const auto& tv_info) { return tv_info.tensor == info.buffer; });
+        if (tv_info_it != region.covered_tensors.end()) {
+          alloc_expr->setBaseAddress(region.address);
+          alloc_expr->setLaneOffset(tv_info_it->lane_offset);
+          alloc_expr->setColOffset(tv_info_it->column_offset);
+          break;
+        }
+      }
+    }
+
+    return alloc_expr;
   }
 
   void dispatch(Expr* expr) override {
