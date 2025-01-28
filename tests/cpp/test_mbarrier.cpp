@@ -62,7 +62,7 @@ TEST_F(MBarrierTest, Simple) {
         summary.dynamic_smem_allocations;
     ASSERT_EQ(dynamic_smem_allocations.size(), 1);
 
-    TensorView* mbarrier = makeContigConcreteTensor({}, DataType::UInt);
+    TensorView* mbarrier = makeContigConcreteTensor({}, DataType::UInt64);
     mbarrier->setMemoryType(MemoryType::Shared);
     kir::Allocate* mbarrier_alloc =
         IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
@@ -107,7 +107,7 @@ TEST_F(MBarrierTest, Simple) {
           return expr->isA<kir::BlockSync>();
         });
     ASSERT_NE(sync_it, top_level_exprs.end());
-    auto state = IrBuilder::create<Val>(DataType::UInt);
+    auto state = IrBuilder::create<Val>(DataType::UInt64);
     auto alloc_state = IrBuilder::create<kir::Allocate>(
         state, MemoryType::Local, kernel->oneVal());
     auto arrive = IrBuilder::create<kir::MBarrierArrive>(state, mbarrier_index);
@@ -131,7 +131,7 @@ TEST_F(MBarrierTest, Simple) {
       &typeid(kir::MBarrierArrive),
       &typeid(kir::MBarrierWait),
       &typeid(kir::MBarrierInvalidate)};
-  for (auto expr : ke.kernel()->topLevelExprs()) {
+  for (auto expr : ke.compiledKernel()->kernel()->topLevelExprs()) {
     remaining_mbarrier_exprs.erase(&typeid(*expr));
   }
   EXPECT_TRUE(remaining_mbarrier_exprs.empty());

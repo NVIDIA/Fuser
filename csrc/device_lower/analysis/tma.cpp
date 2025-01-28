@@ -1188,11 +1188,14 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     Fusion* fusion) {
   std::unordered_map<TensorView*, const TMAInfo> result;
   for (Expr* expr : fusion->exprs()) {
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr);
-        ldst && ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      NVF_ERROR(
-          result.emplace(ir_utils::getTvOutput(ldst), getTMAInfo(ldst)).second,
-          "Ambiguous TMA information, likely something is wrong in the Fusion IR");
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
+          ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+        NVF_ERROR(
+            result.emplace(ir_utils::getTvOutput(ldst), getTMAInfo(ldst))
+                .second,
+            "Ambiguous TMA information, likely something is wrong in the Fusion IR");
+      }
     }
   }
   return result;

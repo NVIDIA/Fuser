@@ -146,8 +146,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // analysis. These are not comprehensive. Should add more conditions
   // if necessary.
   if (!force_full_loop_promotion_analysis_ &&
-      (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
-       isLoopGraphAlmostUniform(id_model_))) {
+      isLoopGraphAlmostUniform(id_model_)) {
     return buildWithNoBroadcast();
   }
 

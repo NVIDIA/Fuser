@@ -17,7 +17,8 @@ namespace nvfuser::python_frontend {
 
 NVF_API void initNvFuserPythonBindings(PyObject* module);
 
-void bindCommunicator(py::module& nvfuser);
+// Add bindings for multi-GPU capabilities, e.g., DeviceMesh and Communicator.
+void bindMultidevice(py::module& nvfuser);
 
 void bindSchedule(py::class_<FusionDefinition>& fusion_def);
 
