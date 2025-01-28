@@ -4516,9 +4516,10 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  EXPECT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  EXPECT_TRUE(getBankConflictInfo(kernel).empty());
+  EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
 
   auto cg_outputs = ke.run(inputs);
 
@@ -4582,9 +4583,10 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  EXPECT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(ke.kernel()));
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  EXPECT_TRUE(getBankConflictInfo(kernel).empty());
+  EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
 
   auto cg_outputs = ke.run(inputs);
 
