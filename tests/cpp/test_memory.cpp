@@ -1307,12 +1307,11 @@ TEST_F(TMAMiscTest, AdvancedThreadParallelizationStore) {
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  // Use 4 threads to issue TMA store simultaneously
+  // Use elect_sync to issue TMA store simultaneously
   tv2->split(0, 128);
   tv2->axis(1)->parallelize(ParallelType::Bulk);
   tv2->split(0, 4);
   tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -1321,7 +1320,6 @@ TEST_F(TMAMiscTest, AdvancedThreadParallelizationStore) {
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 4);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
