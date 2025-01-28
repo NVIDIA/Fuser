@@ -122,7 +122,7 @@ def pytest_collection_modifyitems(session, config, items):
 
     executors_to_skip = []
 
-    for executor in executors:
+    for executor in ["eager", "torchcompile", "thunder-torchcompile"]:
         if not config.getoption(f"--benchmark-{executor}"):
             executors_to_skip.append(executor)
 
