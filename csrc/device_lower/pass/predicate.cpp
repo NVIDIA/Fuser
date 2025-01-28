@@ -49,8 +49,27 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
     NVF_ERROR(expr->isA<kir::IfThenElse>());
 
+    auto warp_specialized_loop_it =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+          return fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::LoadWarp ||
+              fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::ComputeWarp;
+        });
+    ParallelType warp_specialized_on = ParallelType::Serial;
+    if (warp_specialized_loop_it != for_loops_.end()) {
+      warp_specialized_on =
+          std::get<WarpSpecialized>(
+              GpuLower::current()
+                  ->circularBufferInfo()
+                  .getCircularBufferOptionsFor(
+                      (*warp_specialized_loop_it)->iter_domain())
+                  .type)
+              .on;
+    }
+
     // Check all the expressions in the scope
-    auto check_scope_compatibility = [](Scope& scope) {
+    auto check_scope_compatibility = [&](Scope& scope) {
       for (Expr* expr : scope.exprs()) {
         // Thread predicates are generated based on the expression's outputs
         for (Val* val : expr->outputs()) {
@@ -58,15 +77,20 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           if (!val->isA<kir::TensorIndex>()) {
             continue;
           }
+
           // Check that none of the IterDomains in TensorView are parallelized
-          // with a thread dimension like TIDx, TIDy, or TIDz.
+          // with a thread dimension like TIDx, TIDy, or TIDz except for the
+          // warp specialized ParallelType.
           TensorView* tv = val->as<kir::TensorIndex>()->view();
-          bool is_thread_parallelized = std::any_of(
+          bool is_valid_parallelization = std::any_of(
               tv->domain()->loop().begin(),
               tv->domain()->loop().end(),
-              [](IterDomain* id) { return id->isThreadDim(); });
+              [&](IterDomain* id) {
+                return !id->isThreadDim() ||
+                    id->getParallelType() == warp_specialized_on;
+              });
           NVF_ERROR(
-              !is_thread_parallelized,
+              is_valid_parallelization,
               "This thread-parallelized TensorView ",
               tv->toString(),
               " is incorrectly contained within a If-Then-Else with the ",
