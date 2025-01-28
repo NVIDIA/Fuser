@@ -69,6 +69,18 @@ void MinimumDeviceVersion::handle(LoadStoreOp* ls_op) {
   }
 }
 
+void MinimumDeviceVersion::handle(TensorView* tv) {
+  bool enable_register_sharing = std::holds_alternative<WarpSpecialized>(
+                                     tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+          .num_registers.has_value();
+  if (enable_register_sharing) {
+    ensureVersion(
+        {9, 0},
+        "Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0)");
+  }
+}
+
 void MinimumDeviceVersion::ensureVersion(
     std::pair<int, int> version,
     std::string reason) {

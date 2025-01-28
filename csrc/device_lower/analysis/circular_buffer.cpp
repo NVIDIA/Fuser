@@ -143,6 +143,29 @@ void validateCircularBufferedTensor(const TensorView* tv) {
       ". Consumer memory type: ",
       c_mem_type);
 
+  // Ensure that the warp-specialized circular buffer loop is the outer-most
+  // for-loop if register sharing is enabled.
+  if (std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+          .num_registers.has_value()) {
+    for (int64_t axis : c10::irange((int64_t)tv->getLoopDomain().size())) {
+      // short-circuit: only check IterDomains to the left of the circular
+      // buffer position
+      if (axis >= circular_buffer_pos) {
+        break;
+      }
+      NVF_ERROR(
+          tv->getLoopDomain().at(axis)->isThread() ||
+              tv->getLoopDomain().at(axis)->isDeviceDim() ||
+              tv->getLoopDomain().at(axis)->isBroadcast() ||
+              tv->getLoopDomain().at(axis)->isOneInt(),
+          "When using register sharing with warp-specialized circular "
+          "buffering, the circular buffer loop must be the outer-most "
+          "for-loop.");
+    }
+  }
+
   return;
 }
 

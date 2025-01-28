@@ -28,9 +28,6 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
       EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
     }
   }
-
- private:
-  EnableOptionsGuard enable_options_guard_;
 };
 
 class AdvancedIndexingIdModelTest : public NVFuserTest {
@@ -38,9 +35,6 @@ class AdvancedIndexingIdModelTest : public NVFuserTest {
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
-
- private:
-  EnableOptionsGuard enable_options_guard_;
 };
 
 // Repro for issue #1873
@@ -810,7 +804,13 @@ TEST_P(AdvancedIndexingTest, 18) {
 
   auto ref = (t0.unsqueeze(-1) + t1).sum();
 
-  testValidate(ke.kernel(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(),
+      cg_outputs,
+      inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_P(AdvancedIndexingTest, 19) {

@@ -48,16 +48,22 @@ class LoopPromotionMapBuilder {
   // Build a map of loop groups to IterDomains that represent actual
   // loops. The map is built based on the broadcast resolution with
   // root domains between inlined producer and consumer tensors.
+  //
+  // (For debugging only) When force_full_loop_promotion_analysis is
+  // true, it always performs the full loop promotion analysis even
+  // when it's possible to take a quicker shortcut.
   static std::unordered_map<ValGroup, IterDomain*> get(
       IdModel& id_model,
       const StatefulInliningInfo& inlining_info,
-      LoopPromotionMapBuilderCallback* callback = nullptr);
+      LoopPromotionMapBuilderCallback* callback = nullptr,
+      bool force_full_loop_promotion_analysis = false);
 
  private:
   LoopPromotionMapBuilder(
       IdModel& id_model,
       const StatefulInliningInfo& inlining_info,
-      LoopPromotionMapBuilderCallback* callback = nullptr);
+      LoopPromotionMapBuilderCallback* callback = nullptr,
+      bool force_full_loop_promotion_analysis = false);
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
@@ -164,6 +170,11 @@ class LoopPromotionMapBuilder {
   IdModel& id_model_;
   const StatefulInliningInfo& inlining_info_;
   LoopPromotionMapBuilderCallback* callback_ = nullptr;
+
+  // (For debugging only) When force_full_loop_promotion_analysis_ is
+  // true, it always performs the full loop promotion analysis even
+  // when it's possible to take a quicker shortcut.
+  bool force_full_loop_promotion_analysis_ = false;
 };
 
 } // namespace nvfuser

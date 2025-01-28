@@ -124,13 +124,11 @@ class RepeatToExpandTranslator {
     }
   }
 
-  // For each detected repetition:
-  //
-  // Step 1. Insert a broadcast ID immediately outside of the
-  // repeated ID
-  // Step 2. Expand the broadcast ID by the repetition factor
-  // Step 3. Flatten the expanded ID and the repeated ID
+  // For each detected repetition, replace the output with a repeat
+  // output.
   void translate() {
+    FusionGuard fg(fusion_);
+
     const auto exprs = fusion_->exprs();
     // Apply the translation in a reverse topological order. Since the
     // output of the repetition is replaced, the use exprs of the
@@ -145,36 +143,22 @@ class RepeatToExpandTranslator {
 
       const auto& info = repeat_info_map_it->second;
 
-      if (info.cat_inp_tvs.size() < 2) {
-        continue;
-      }
+      const auto num_repetitions = (int64_t)info.cat_inp_tvs.size();
 
-      auto original_out_tv = expr->output(0)->as<TensorView>();
-
-      // Step 1
-      auto inp_domain =
+      const auto inp_domain =
           TensorDomain::noReductions(info.input_tv->getLogicalDomain());
-      std::vector<bool> bcast_flags(inp_domain.size() + 1, false);
-      auto repeated_id_offset = std::distance(
-          inp_domain.begin(),
-          std::find(inp_domain.begin(), inp_domain.end(), info.repeated_id));
-      bcast_flags.at(repeated_id_offset) = true;
-      auto broadcast_tv = broadcast(info.input_tv, bcast_flags);
-      NVF_ERROR((size_t)broadcast_tv->nDims() == inp_domain.size() + 1);
 
-      // Step 2
-      std::vector<Val*> expanded_sizes(
-          bcast_flags.size(), IrBuilder::create<Val>(-1L));
-      expanded_sizes.at(repeated_id_offset) =
-          IrBuilder::create<Val>((int64_t)info.cat_inp_tvs.size());
-      auto expanded_tv = expand(broadcast_tv, expanded_sizes);
+      std::vector<int64_t> repeated_times(inp_domain.size(), 1);
+      auto repeated_id_it =
+          std::find(inp_domain.begin(), inp_domain.end(), info.repeated_id);
+      NVF_ERROR(repeated_id_it != inp_domain.end());
+      auto repeated_dim = std::distance(inp_domain.begin(), repeated_id_it);
+      repeated_times.at(repeated_dim) = num_repetitions;
 
-      // Step 3
-      auto flattened_tv =
-          flatten(expanded_tv, repeated_id_offset, repeated_id_offset + 1);
+      TensorView* replacement_tv = repeat(info.input_tv, repeated_times);
 
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-          original_out_tv, flattened_tv);
+          expr->output(0), replacement_tv);
     }
   }
 

@@ -10,6 +10,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
@@ -407,7 +408,8 @@ void scheduleLoopDomainsLike(
 
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
-    Expr* transform) {
+    Expr* transform,
+    Direction replay_dir) {
   Fusion* fusion = transform->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   const ValGraph& exact_graph = id_model.buildExactGraph();
@@ -439,17 +441,19 @@ void scheduleLoopDomainsBy(
       }
     }
 
-    Direction replay_dir = Direction::Undefined;
-
     // It should be either: all of the inputs found and none of the
     // outputs found, or none of the inputs found and all of the
     // outputs found.
-    if (input_ids.size() == transform->inputs().size()) {
+    Direction replay_dir_tv = Direction::Undefined;
+    if (replay_dir != Direction::Backward &&
+        input_ids.size() == transform->inputs().size()) {
       NVF_ERROR(output_ids.empty());
-      replay_dir = Direction::Forward;
-    } else if (output_ids.size() == transform->outputs().size()) {
+      replay_dir_tv = Direction::Forward;
+    } else if (
+        replay_dir != Direction::Forward &&
+        output_ids.size() == transform->outputs().size()) {
       NVF_ERROR(input_ids.empty());
-      replay_dir = Direction::Backward;
+      replay_dir_tv = Direction::Backward;
     } else {
       // Replay not possible since none of inputs nor outputs are connected with
       // the transform
@@ -457,11 +461,12 @@ void scheduleLoopDomainsBy(
     }
 
     const auto& existing_ids =
-        replay_dir == Direction::Forward ? input_ids : output_ids;
+        replay_dir_tv == Direction::Forward ? input_ids : output_ids;
 
     // Clone inputs or outputs
-    auto& new_ids = replay_dir == Direction::Forward ? output_ids : input_ids;
-    const auto& ref_of_ids_to_generate = replay_dir == Direction::Forward
+    auto& new_ids =
+        replay_dir_tv == Direction::Forward ? output_ids : input_ids;
+    const auto& ref_of_ids_to_generate = replay_dir_tv == Direction::Forward
         ? transform->outputs()
         : transform->inputs();
 
@@ -498,6 +503,163 @@ void scheduleLoopDomainsBy(
   }
 
   return;
+}
+
+void cancelReshapeInLoopDomains(TensorView* from_tv) {
+  Fusion* fusion = from_tv->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // Reshapes producing these IDs should not be cancelled
+  ValGroups reshape_dependent_ids;
+  for (const ExprGroup& expr_g :
+       exact_graph.disjointExprSets().disjointSets()) {
+    if (expr_g->front()->isA<Resize>()) {
+      reshape_dependent_ids.pushBack(exact_graph.inputGroups(expr_g));
+    }
+  }
+
+  for (const ValGroup& val_g : exact_graph.disjointValSets().disjointSets()) {
+    if (std::any_of(val_g->begin(), val_g->end(), [](Val* val) {
+          NVF_ERROR(val->isA<IterDomain>());
+          return val->as<IterDomain>()->isReduction();
+        })) {
+      reshape_dependent_ids.pushBack(val_g);
+    }
+  }
+
+  auto all_dep_exprs_from_tv =
+      DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
+
+  // Visit all reshapes in a reverse topological order
+  for (auto exprs_it = all_dep_exprs_from_tv.rbegin();
+       exprs_it != all_dep_exprs_from_tv.rend();
+       ++exprs_it) {
+    auto reshape = dynamic_cast<ViewOp*>(*exprs_it);
+    if (reshape == nullptr) {
+      continue;
+    }
+
+    auto reshape_out = reshape->out();
+
+    auto all_dep_vals =
+        DependencyCheck::getAllValsBetween({reshape_out}, fusion->outputs());
+    // Exclude reshape_out. These tensors are going to be updated by
+    // replaying the reshape transform exprs using
+    // scheduleLoopDomainsBy. Since the reshape output
+    // tensor already has the exprs, replaying with
+    // scheduleLoopDomainsBy would complain if not excluded. For the
+    // reshape output tensor, setLoopDomain is done with the existing
+    // IDs without replaying.
+    all_dep_vals.erase(all_dep_vals.begin());
+    auto all_dep_tvs = ir_utils::filterByType<TensorView>(all_dep_vals);
+
+    // Find logical IDs that do not exist in the root domain. They are
+    // the new IDs that are produced by this reshape op. If a logical
+    // ID is already found in the root domain, there's nothing to do
+    // for it.
+    std::vector<IterDomain*> new_logical_ids;
+    for (const auto& logical_id : reshape_out->getLogicalDomain()) {
+      if (!reshape_out->domain()->isRoot(logical_id)) {
+        new_logical_ids.push_back(logical_id);
+      }
+    }
+
+    if (new_logical_ids.empty()) {
+      // Nothing to do with a no-op reshape. This may not happen.
+      continue;
+    }
+
+    // Find logical IDs that do not need to exist in the loop domain
+    std::unordered_set<Val*> cancellable_ids;
+    for (const auto new_logical_id : new_logical_ids) {
+      auto new_id_group = exact_graph.toGroup(new_logical_id);
+      // Not cancellable if used by resize or reduced.
+      auto reachable_exprs = getReachableNodesFrom<ValGraphPermissiveBFS>(
+          {new_id_group},
+          {reshape_dependent_ids.begin(), reshape_dependent_ids.end()},
+          Direction::Forward,
+          exact_graph);
+      if (!reachable_exprs.empty()) {
+        continue;
+      }
+
+      cancellable_ids.insert(new_logical_id);
+    }
+
+    if (cancellable_ids.empty()) {
+      continue;
+    }
+
+    // Update the loop domain by each of the reshape exprs in a
+    // reverse topological order.
+    auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+        {reshape_out->getRootDomain().begin(),
+         reshape_out->getRootDomain().end()},
+        {reshape_out->getLogicalDomain().begin(),
+         reshape_out->getLogicalDomain().end()});
+
+    auto reshape_out_loop_domain = reshape_out->getLoopDomain();
+
+    for (auto reshape_exprs_it = reshape_exprs.rbegin();
+         reshape_exprs_it != reshape_exprs.rend();
+         ++reshape_exprs_it) {
+      auto reshape_expr = *reshape_exprs_it;
+
+      // If any of the output IDs of reshape_expr is not found in
+      // cancellable_ids, that means the expr cannot be cancelled.
+      if (std::any_of(
+              reshape_expr->outputs().begin(),
+              reshape_expr->outputs().end(),
+              [&](Val* reshape_expr_out) -> bool {
+                return !cancellable_ids.count(reshape_expr_out);
+              })) {
+        continue;
+      }
+
+      // Update all of the dependent TVs by this reshape expr
+      scheduleLoopDomainsBy(
+          all_dep_tvs.vector(), reshape_expr, Direction::Backward);
+
+      cancellable_ids.insert(
+          reshape_expr->inputs().begin(), reshape_expr->inputs().end());
+
+      // For the reshape output tensor itself, since it already has the
+      // reshape expr, it just needs
+      // tv->setLoopDomain(tv->getRootDomain()). However, since some of the
+      // reshape exprs may not be cancellable, update a vector of the
+      // loop IDs for each of the cancelled exprs individually and use
+      // it to set the loop domain of the reshape output tensor
+
+      // Insert the input IDs to the loop domain
+      auto insert_pos = std::find(
+          reshape_out_loop_domain.begin(),
+          reshape_out_loop_domain.end(),
+          reshape_expr->outputs().front());
+      NVF_ERROR(insert_pos != reshape_out_loop_domain.end());
+      for (auto inp : reshape_expr->inputs()) {
+        insert_pos =
+            reshape_out_loop_domain.insert(insert_pos, inp->as<IterDomain>());
+        ++insert_pos;
+      }
+
+      // Remove the output IDs
+      reshape_out_loop_domain.erase(
+          std::remove_if(
+              reshape_out_loop_domain.begin(),
+              reshape_out_loop_domain.end(),
+              [&](IterDomain* cur_loop_id) {
+                return std::find(
+                           reshape_expr->outputs().begin(),
+                           reshape_expr->outputs().end(),
+                           cur_loop_id) != reshape_expr->outputs().end();
+              }),
+          reshape_out_loop_domain.end());
+    }
+
+    reshape_out->setLoopDomain(reshape_out_loop_domain);
+  }
 }
 
 } // namespace scheduler_tools

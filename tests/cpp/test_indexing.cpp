@@ -5629,4 +5629,41 @@ TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// Small repro of
+// https://github.com/NVIDIA/Fuser/issues/3688. Broadcast logical
+// IDs may not be reachable from loop IDs, thus the indexing for the
+// logical IDs of the pad output failed.
+TEST_F(IndexingTest, BroadcastLogicalDomainIndexing) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{1, 32};
+  std::vector<int64_t> shape2{8, 34};
+
+  auto tv0 = makeConcreteTensor(shape1);
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor(shape2);
+  fusion.addInput(tv1);
+
+  auto tv2 = pad(tv0, {fusion.oneVal(), fusion.oneVal()});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv2->inlineAt(-1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

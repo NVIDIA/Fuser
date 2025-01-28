@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+from collections.abc import Iterable
 import pytest_benchmark
 import torch
 from torch.autograd import DeviceType
@@ -13,7 +14,6 @@ import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
 
-
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
 # --benchmark-num-inputs=num_inputs
@@ -21,6 +21,8 @@ BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
+
+DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
 
 
 def clear_l2_cache() -> None:
@@ -43,18 +45,23 @@ def clear_dynamo_cache() -> None:
 
 
 # Backward function for torch baseline benchmarks.
-def unary_bwd_torch(inputs: List):  # [output, grad_out]
+# The first two inputs are expected to be out and grad_out. The remaining are inputs of the forward pass used to clear grad between subsequent runs to avoid grad accumulation. See setup() in run_benchmark().
+def unary_bwd_torch(inputs: List):  # [output, grad_out, fwd_inputs]
     inputs[0].backward(inputs[1], retain_graph=True)
 
 
-def with_executor(executor: str, fwd_fn: Callable) -> Callable:
-    assert executor in ["eager", "torchcompile", "thunder"]
+def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
+    assert executor in ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
     if executor == "eager":
         return fwd_fn
     if executor == "torchcompile":
-        return torch.compile(fwd_fn)
+        return torch.compile(fwd_fn, **kwargs)
     if executor == "thunder":
-        return thunder.jit(fwd_fn, nv_enable_bookend=False, executors=[nvfuserex])
+        return thunder.jit(
+            fwd_fn, nv_enable_bookend=False, executors=[nvfuserex], **kwargs
+        )
+    if executor == "thunder-torchcompile":
+        return thunder.jit(fwd_fn, executors=["torchcompile"], **kwargs)
 
 
 def compute_total_iobytes(
@@ -221,9 +228,9 @@ class NVFBenchmark:
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
-            if isinstance(inputs, torch.Tensor):
+            if not isinstance(inputs, Iterable):
                 inputs = [inputs]
-            if isinstance(outputs, torch.Tensor):
+            if not isinstance(outputs, Iterable):
                 outputs = [outputs]
 
             iobytes = 0
@@ -324,6 +331,9 @@ def run_benchmark(
     def setup():
         clear_l2_cache()
         if device == "cuda":
+            for inp in inputs:
+                if isinstance(inp, torch.Tensor):
+                    inp.grad = None
             return [inputs], {}
 
         # Device = 'host'

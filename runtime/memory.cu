@@ -93,6 +93,26 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 
 // TMA Loads:
 
+struct CpAsyncBulkG2SIndex {
+  const void* raw_gmem_addr;
+  uint32_t bytes;
+  uint32_t mbarrier;
+};
+// cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%r14],
+// [%rd5], %r18, [%r12]; // 1a. unicast
+__device__ inline void cpAsyncBulkG2S(
+    const CpAsyncBulkG2SIndex& src,
+    uint32_t smem_addr) {
+  asm volatile(
+      "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];\n"
+      :
+      : "r"(smem_addr),
+        "l"(src.raw_gmem_addr),
+        "r"(src.bytes),
+        "r"(src.mbarrier)
+      : "memory");
+}
+
 template <int dim>
 struct CpAsyncBulkTensorTileG2SIndex {
   const TensorMap* descriptor;

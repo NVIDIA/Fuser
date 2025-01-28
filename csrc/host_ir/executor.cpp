@@ -201,6 +201,7 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithInput(
@@ -295,6 +296,32 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+}
+
+void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
+  std::vector<c10::IValue> input_IValues;
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+  for (auto& input : launch_kernel->inputs()) {
+    NVF_ERROR(
+        expr_evaluator_.isKnown(input),
+        "No buffer associated with Val ",
+        input,
+        " for handling ",
+        launch_kernel->toString());
+    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
+    args.push(input_evaluation);
+  }
+
+  // run the compiled kernel
+  std::vector<at::Tensor> outputs =
+      container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
+
+  // Store the outputs in the context
+  for (auto output_idx : c10::irange(outputs.size())) {
+    expr_evaluator_.bind(
+        launch_kernel->outputs().at(output_idx), outputs.at(output_idx));
+  }
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
@@ -515,6 +542,35 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
     at::matmul_out(t_out, t_a, t_b);
   } else {
     unhandled(matmul);
+  }
+}
+
+void HostIrEvaluator::handle(LinearOp* linear) {
+  TensorView* in = linear->inA()->as<TensorView>();
+  TensorView* weight = linear->inB()->as<TensorView>();
+  TensorView* bias = linear->bias()->as<TensorView>();
+  TensorView* out = linear->out()->as<TensorView>();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(in) && expr_evaluator_.isKnown(weight) &&
+          (!linear->has_bias() || expr_evaluator_.isKnown(bias)),
+      "Inputs of the Linear Op ",
+      linear->toString(),
+      "must be precomputed before being retrieved");
+
+  if (!expr_evaluator_.isKnown(out)) {
+    unhandled(linear);
+    return;
+  }
+
+  auto in_at = expr_evaluator_.evaluate(in).as<at::Tensor>();
+  auto weight_at = expr_evaluator_.evaluate(weight).as<at::Tensor>();
+  auto out_at = expr_evaluator_.evaluate(out).as<at::Tensor>();
+
+  if (linear->has_bias()) {
+    auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
+    at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
+  } else {
+    at::linear_out(out_at, in_at, weight_at.squeeze());
   }
 }
 

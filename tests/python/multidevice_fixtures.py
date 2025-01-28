@@ -2,42 +2,38 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
+import nvfuser
 import pytest
 import torch
-import nvfuser
-
-from mpi4py import MPI
 
 
-class MpiTest:
+class MultideviceTest:
     def __init__(self):
-        self._communicator = MPI.COMM_WORLD
-        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
-        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
+        self._communicator = nvfuser.Communicator.instance()
 
         # This way, when individual tests create unsharded input, each rank
         # receives the same data.
         torch.manual_seed(0)
 
     @property
+    def communicator(self):
+        return self._communicator
+
+    @property
     def size(self):
-        return self._communicator.size
+        return self._communicator.size()
 
     @property
     def rank(self):
-        return self._communicator.rank
+        return self._communicator.rank()
 
     @property
     def local_size(self):
-        return self._local_size
+        return self._communicator.local_size()
 
     @property
     def local_rank(self):
-        return self._local_rank
-
-    def barrier(self):
-        self._communicator.barrier()
+        return self._communicator.local_rank()
 
     def shard_tensor(
         self, t: torch.Tensor, dim: int, mesh: nvfuser.DeviceMesh
@@ -51,8 +47,8 @@ class MpiTest:
 
 
 @pytest.fixture(scope="session")
-def mpi_test():
-    fixture = MpiTest()
+def multidevice_test():
+    fixture = MultideviceTest()
     yield fixture
     # Sync all ranks after each test for isolation.
-    fixture.barrier()
+    fixture.communicator.barrier()

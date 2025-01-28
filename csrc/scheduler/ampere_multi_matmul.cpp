@@ -489,8 +489,7 @@ void AmpereMultipleMatmulScheduler::cacheInputsAndOutputs() {
   scheduler_utils::clearMemorySpace(fusion_);
 
   // Cache inputs
-  scheduler_utils::cacheInputs(
-      fusion_, /*unroll=*/true, /*propagate_allocation=*/true);
+  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
 
   // Cache and fork outputs
   cached_outputs_ =

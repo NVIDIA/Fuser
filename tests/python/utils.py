@@ -288,7 +288,7 @@ def check_cpp_translation(
             "(A failure here suggests a mismatch in functionality between the original and cloned definitions.)"
         )
         print("Does FusionDefinition supports segmentation?\t", supports_segmentation)
-        print(fd.getReproErrorString("executing", inputs))
+        print(fd._repro_error_str("executing", inputs))
         raise err
 
 
@@ -455,6 +455,8 @@ class NVFuserTest(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
         torch.manual_seed(0)
+        if "id_model_extra_validation" not in _enable_options:
+            _enable_options.append("id_model_extra_validation")
         out = fd.execute(
             inputs,
             device=device,

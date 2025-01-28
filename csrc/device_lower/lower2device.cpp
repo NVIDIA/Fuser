@@ -341,7 +341,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
 
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
+          ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
         options.setBuildTensorIndexer(true);
         continue;
       }
