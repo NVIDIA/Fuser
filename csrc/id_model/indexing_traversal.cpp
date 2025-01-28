@@ -203,6 +203,37 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     return std::nullopt;
   }
 
+  // Similarly, to_ids may not be IDs found in any of the producer and
+  // consumer tensors of this expr. For example, if it's an allocation
+  // ID, it may be a loop promotion ID.
+  ValGroups to_groups;
+  for (auto to_id : to_ids) {
+    if (local_graph.hasGroup(to_id)) {
+      to_groups.pushBack(local_graph.toGroup(to_id));
+      continue;
+    }
+    // to_id is not found in the producer or consumer tensors of the
+    // expr. Look for a mapped ID in the ID group of the global graph.
+    bool found = false;
+    const auto& global_group = graph.toGroup(to_id);
+    for (const auto& vg : local_graph.disjointValSets().disjointSets()) {
+      if (global_group->has(vg->front())) {
+        to_groups.pushBack(vg);
+        found = true;
+        break;
+      }
+    }
+    // NVF_ERROR(found, "Indexing path for resize not found: ",
+    // to_id->toString());
+    if (!found) {
+      // If promoted, this to_id should be a loop ID. This WAR should
+      // not be necessary when indexing a loop ID.
+      return std::nullopt;
+      ;
+    }
+  }
+
+#if 0
   // from_ids are loop domains, which are representative
   // domains of loop groups and not necessarily domains of any
   // of the producer and the consumer.  In that case, find an ID out
@@ -231,29 +262,9 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     NVF_ERROR(
         found, "Indexing path for resize not found: ", from_id->toString());
   }
-
-  // Similarly, to_ids may not be IDs found in any of the producer and
-  // consumer tensors of this expr. For example, if it's an allocation
-  // ID, it may be a loop promotion ID.
-  ValGroups to_groups;
-  for (auto to_id : to_ids) {
-    if (local_graph.hasGroup(to_id)) {
-      to_groups.pushBack(local_graph.toGroup(to_id));
-      continue;
-    }
-    // to_id is not found in the producer or consumer tensors of the
-    // expr. Look for a mapped ID in the ID group of the global graph.
-    bool found = false;
-    const auto& global_group = graph.toGroup(to_id);
-    for (const auto& vg : local_graph.disjointValSets().disjointSets()) {
-      if (global_group->has(vg->front())) {
-        to_groups.pushBack(vg);
-        found = true;
-        break;
-      }
-    }
-    NVF_ERROR(found, "Indexing path for resize not found: ", to_id->toString());
-  }
+#else
+  ValGroups from_groups = local_graph.toGroups(consumer_tv->getLoopDomain());
+#endif
 
   IndexingTraversal traversal(
       expr,
@@ -264,14 +275,40 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   traversal.traverse();
   auto [path, all_visited] = traversal.getShortestExprPath();
 
+  bool resize_used = false;
   for (const auto& [g, d] : path) {
     if (g->front()->isA<Resize>()) {
-      return path;
+      resize_used = true;
     }
   }
 
   // If resize doesn't appear, the default path should work fine.
-  return std::nullopt;
+  if (!resize_used) {
+    return std::nullopt;
+  }
+
+  // Combine the path from from_ids to consumer_tv->getLoopDomain()
+
+  auto global_from_groups = graph.toGroups(from_ids);
+  auto global_loop_groups = graph.toGroups(consumer_tv->getLoopDomain());
+
+  IndexingTraversal global_traversal(
+      expr,
+      graph,
+      {global_from_groups.vector().begin(), global_from_groups.vector().end()},
+      {global_loop_groups.vector().begin(), global_loop_groups.vector().end()});
+  global_traversal.traverse();
+  auto promoted_loop_to_consumer_loop =
+      global_traversal.getShortestExprPath().first;
+
+  if (promoted_loop_to_consumer_loop.empty()) {
+    return path;
+  } else {
+    for (const auto& path_component : path) {
+      promoted_loop_to_consumer_loop.push_back(path_component);
+    }
+    return promoted_loop_to_consumer_loop;
+  }
 }
 
 IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
