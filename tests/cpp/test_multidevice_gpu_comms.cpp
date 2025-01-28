@@ -16,23 +16,7 @@
 
 namespace nvfuser {
 
-namespace {
-
 #define CUDA_CALL(call) ASSERT_EQ((call), cudaSuccess)
-
-template <typename T>
-std::vector<uint8_t> toBytes(T data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<uint8_t*>(&data),
-      reinterpret_cast<uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-T fromBytes(std::vector<uint8_t> bytes) {
-  return *reinterpret_cast<T*>(bytes.data());
-}
-
-} // namespace
 
 class GpuCommTest : public MultiDeviceTest {};
 
@@ -67,6 +51,27 @@ TEST_F(GpuCommTest, IpcMemHandle) {
   CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   CUDA_CALL(cudaFree(d_ptr));
 
+}
+
+TEST_F(GpuCommTest, Allgather) {
+  constexpr int64_t kTensorSize = 1024;
+
+  at::Tensor input = at::full({kTensorSize}, communicator_->deviceId(), tensor_options);
+  auto outputs = std::vector<at::Tensor>(communicator_->size());
+  std::generate(outputs.begin(), outputs.end(), [&]() {
+    return at::empty({kTensorSize}, tensor_options);
+  });
+
+  AllgatherThroughCudaMemcpyAsync allgather(input, outputs, communicator_);
+  allgather.post();
+
+  torch::cuda::synchronize();
+  communicator_->barrier();
+
+  for (int64_t i = 0; i < communicator_->size(); ++i) {
+    at::Tensor expected = at::full({kTensorSize}, i, tensor_options);
+    EXPECT_TRUE(outputs[i].equal(expected));
+  }
 }
 
 } // namespace nvfuser
