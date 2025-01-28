@@ -100,6 +100,25 @@ jobs:
           
           Consider insights from discarded methods, even if they weren't the final solution.
 
+        PR_DESCRIPTION__ADD_ORIGINAL_USER_DESCRIPTION: false
+        PR_DESCRIPTION__GENERATE_AI_TITLE: true
+        PR_DESCRIPTION__USE_BULLET_POINTS: true
+        PR_DESCRIPTION__EXTRA_INSTRUCTIONS: ""
+        PR_DESCRIPTION__ENABLE_PR_TYPE: false
+        PR_DESCRIPTION__FINAL_UPDATE_MESSAGE: true
+        PR_DESCRIPTION__ENABLE_HELP_TEXT: false
+        PR_DESCRIPTION__ENABLE_HELP_COMMENT: false
+        PR_DESCRIPTION__PUBLISH_DESCRIPTION_AS_COMMENT: true
+        PR_DESCRIPTION__PUBLISH_DESCRIPTION_AS_COMMENT_Persistent: true
+        PR_DESCRIPTION__ENABLE_SEMANTIC_FILES_TYPES: true
+        PR_DESCRIPTION__COLLAPSIBLE_FILE_LIST: 'adaptive'
+        PR_DESCRIPTION__COLLAPSIBLE_FILE_LIST_THRESHOLD: 8
+        PR_DESCRIPTION__INLINE_FILE_SUMMARY: false
+        PR_DESCRIPTION__USE_DESCRIPTION_MARKERS: false
+        PR_DESCRIPTION__INCLUDE_GENERATED_BY_HEADER: true
+
     steps:
-      - name: PR Agent review
-        run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review
+      # - name: PR Agent review
+      #   run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} review
+      - name: PR Agent describe
+        run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} describe
