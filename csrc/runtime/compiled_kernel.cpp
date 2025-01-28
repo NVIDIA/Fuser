@@ -1158,6 +1158,13 @@ NVF_API CompiledKernel::CompiledKernel(
       lowered_(std::make_unique<GpuLower>(fusion, compile_params)),
       device_(device) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
+    fusion->print();
+  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
+    fusion->printMath();
+  }
+
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
     hook(lowered_.get());
@@ -1201,12 +1208,6 @@ void CompiledKernel::compile(int64_t block_size) {
   // should be enabled in the cache, but since it's not, for now we will disable
   // it under these circumstances.
   disable_parameter_cache_ = requiresDisabledParamCache(kernel());
-
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    kernel()->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    kernel()->printMath();
-  }
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
     std::stringstream file_name;
