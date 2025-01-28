@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -58,18 +59,24 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 }
 
 TEST_F(HostIrIntegrationTest, HostIrCodepath) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
-  fusion.addInput(in);
+  fusion->addInput(in);
 
   TensorView* out = set(in);
-  fusion.addOutput(out);
+  fusion->addOutput(out);
 
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
 
-  //EXPECT_TRUE(outputs[0].equal(t0));
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
 }
 
 } // namespace hir

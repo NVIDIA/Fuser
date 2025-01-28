@@ -712,6 +712,7 @@ void FusionKernelRuntime::compileKernel(
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
+  std::mutex mutex;
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
@@ -732,6 +733,8 @@ void FusionKernelRuntime::compileKernel(
       "Kernel index type is not defined.");
 
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    const std::lock_guard<std::mutex> lock(mutex);
+
     // if it's a kernel executor, compile the segment and append to hic
     // otherwise, push the segment's exprs directly to the hic
     if (!HostIrExecutor::supported(fusion_to_run.get()) && !ExprEvalExecutor::supported(fusion_to_run.get())) {
@@ -741,6 +744,16 @@ void FusionKernelRuntime::compileKernel(
       auto ke = std::make_unique<KernelExecutor>();
       ke->compile(fusion_to_run.get(), args, heuristic_params->lparams, heuristic_params->cparams, heuristic_params->scheduler_type);
       hic->setKernelExecutor(group_id, std::move(ke));
+
+      auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
+
+      IrCloner ir_cloner(hic);
+      auto hic_in = ir_cloner.clone(group_to_run->inputs());
+      auto hic_out = ir_cloner.clone(group_to_run->outputs());
+      auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
+          0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
+
+      hic->pushBackTopLevelExprs(launch_kernel);
     } else {
       // push back segment's exprs into the container as top level expressions
       for (auto *expr : fusion_to_run->exprs()) {
