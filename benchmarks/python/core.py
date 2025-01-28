@@ -129,6 +129,7 @@ class NVFBenchmark:
         # Specifies if the timer in host measurement is called at the start/finish of execution.
         # Timings are measured at the end of execution.
         self.execution_start = True
+        self.num_kernels = None
 
     def __call__(self, function_to_benchmark: Callable, *args, **kwargs):
         return self.benchmark(function_to_benchmark, *args, **kwargs)
@@ -181,6 +182,8 @@ class NVFBenchmark:
         """
         elapsed_cuda_time = 0
         has_cuda_event = False
+        num_kernels = 0
+        cuda_events = []
         for event in prof_averages:
             if event.device_type != DeviceType.CUDA:
                 continue
@@ -191,6 +194,18 @@ class NVFBenchmark:
                 if hasattr(event, "self_device_time_total")
                 else event.self_cuda_time_total
             )
+            cuda_events.append(event)
+            num_kernels += 1
+        print()
+        for event in cuda_events:
+          print(event)
+        print()
+
+        if self.num_kernels is None:
+            self.num_kernels = num_kernels
+        else:
+            assert self.num_kernels == num_kernels, f"Expected {self.num_kernels}, got {num_kernels}"
+          
         assert has_cuda_event, "No CUDA events found"
         return elapsed_cuda_time / 1e6
 
@@ -390,5 +405,6 @@ def run_benchmark(
         nvf_benchmark.set_metrics(inputs, outputs, iobytes)
         # Stop torch.profiler instance
         nvf_benchmark.cleanup()
+        print (nvf_benchmark.num_kernels)
 
     return outputs
