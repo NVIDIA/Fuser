@@ -536,6 +536,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     for (auto producer_tv_of_broadcast_inp :
          ir_utils::producerTvsOf(broadcast_inp)) {
+      if (producer_tv_of_broadcast_inp->isFusionInput()) {
+        continue;
+      }
       int64_t pos = producer_tv_of_broadcast_inp->axis(-1)->getParallelType() ==
               ParallelType::Vectorize
           ? -2
