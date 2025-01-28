@@ -254,6 +254,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
+  std::cerr << "ResizeScheduler::schedule\n";
+
   FusionGuard fg(fusion);
   const auto resize_params = dynamic_cast<const ResizeParams*>(params);
   NVF_ERROR(resize_params != nullptr);
@@ -440,12 +442,13 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // which has the repeat ID, the full loop domain is propagated only
   // to the post-repeat group. For the pre-repeat group, the repeat ID
   // is dropped and only the remaining loop domain is propagated.
+
+  // Divide all tvs to the pre and posgt repeat groups
+  std::vector<TensorView*> post_repeat_tvs;
+  std::vector<TensorView*> pre_repeat_tvs;
   if (repeat_id_moved_to_outermost) {
-    // Divide all tvs to the pre and posgt repeat groups
     auto all_tvs = fusion->allTvs();
-    std::vector<TensorView*> post_repeat_tvs;
     post_repeat_tvs.reserve(static_repeat_info->repeat_tvs.size());
-    std::vector<TensorView*> pre_repeat_tvs;
     pre_repeat_tvs.reserve(
         all_tvs.size() - static_repeat_info->repeat_tvs.size());
     for (auto tv : all_tvs) {
@@ -455,7 +458,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         pre_repeat_tvs.push_back(tv);
       }
     }
+  }
 
+  if (repeat_id_moved_to_outermost) {
     // The repeat ID should be located at the outermost position
     std::vector<IterDomain*> non_repeated_loop{
         ref_tv->getLoopDomain().begin() + 1, ref_tv->getLoopDomain().end()};
@@ -469,10 +474,35 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true);
   } else {
-    scheduler_tools::scheduleLoopDomainsLike(
-        fusion->allTvs(),
-        ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true);
+    if (getenv("NEW")) {
+      id_model = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
+      id_model->buildExactGraph();
+      id_model->buildBroadcastGraph();
+      const auto& graph = id_model->idGraph(IdMappingMode::BROADCAST);
+      for (auto tv : fusion->allTvs()) {
+        if (tv->isFusionInput() || tv == ref_tv) {
+          continue;
+        }
+
+        std::cerr << "Pre: " << tv->toString() << "\n";
+
+        const auto path = reverse(ValGraphBFS::getExprGroupsBetween(
+                                      graph,
+                                      graph.toGroups(ref_tv->getLoopDomain()),
+                                      graph.toGroups(tv->getLoopDomain()),
+                                      /*require_all_to_visited=*/true,
+                                      Direction::Backward)
+                                      .first);
+        scheduler_tools::scheduleLoopDomainsBy(tv, path, graph);
+
+        std::cerr << "Post: " << tv->toString() << "\n";
+      }
+    } else {
+      scheduler_tools::scheduleLoopDomainsLike(
+          fusion->allTvs(),
+          ref_tv->getLoopDomain(),
+          /*update_loop_domain_only=*/true);
+    }
   }
 
   if (vec_factor > 1) {
@@ -490,7 +520,54 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     }
   }
 
-  inlineMost();
+  if (!repeat_id_moved_to_outermost) {
+    inlineMost();
+  } else {
+    // Inline the pre-repeat tvs to the tensor that is an input to the
+    // repeat ops.
+    auto it = std::find_if(
+        static_repeat_info->repeat_tvs.begin(),
+        static_repeat_info->repeat_tvs.end(),
+        [](TensorView* tv) { return tv->definition()->isA<BroadcastOp>(); });
+    NVF_ERROR(it != static_repeat_info->repeat_tvs.end());
+    auto broadcast_inp = (*it)->definition()->input(0)->as<TensorView>();
+
+    inlineMost({broadcast_inp->axis(0)});
+
+    for (auto producer_tv_of_broadcast_inp :
+         ir_utils::producerTvsOf(broadcast_inp)) {
+      int64_t pos = producer_tv_of_broadcast_inp->axis(-1)->getParallelType() ==
+              ParallelType::Vectorize
+          ? -2
+          : -1;
+      producer_tv_of_broadcast_inp->inlineAt(pos);
+    }
+
+    // The loop domain of the broadcast_inp should be exact mapped
+    // with the ref tensor minus the outermost repeat ID. Since the
+    // inlining is blocked there, the parallel types need to be
+    // explicitly set
+    NVF_ERROR(
+        ref_tv->getLoopDomain().size() ==
+        broadcast_inp->getLoopDomain().size() + 1);
+    for (const auto i : c10::irange(broadcast_inp->getLoopDomain().size())) {
+      auto ref_tv_ptype = ref_tv->getLoopDomain().at(i + 1)->getParallelType();
+      if (ref_tv_ptype == ParallelType::Vectorize) {
+        continue;
+      }
+      broadcast_inp->getLoopDomain().at(i)->parallelize(ref_tv_ptype);
+    }
+  }
+
+  fusion->printMath();
+
+  std::cerr << "Final\n";
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << tv->toString();
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString();
+    }
+  }
 
   markAliases(fusion);
 }
