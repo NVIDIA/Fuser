@@ -697,7 +697,7 @@ bool isIntegerOp(const BinaryOpType bopt);
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
 
-enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
+enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
   DIDx,

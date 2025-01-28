@@ -209,9 +209,6 @@ class NVF_API Fusion : public IrContainer {
   //! Return the Expr that produces val
   Expr* definition(const Val* val) const;
 
-  //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic() const;
-
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
 
