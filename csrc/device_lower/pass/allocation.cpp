@@ -846,8 +846,6 @@ class AllocationInserter : public kir::ExprMutator {
 // by AllocationInserter::insert, therefore not handled here.
 std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
     const std::vector<Expr*>& exprs) {
-  // TODO: for these asms, should I use ::memory or not?
-
   // Expressions to be inserted at the beginning of the top-level scope.
   std::list<Expr*> prologue;
   {
@@ -870,7 +868,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
         "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
         std::vector<Val*>{},
         std::vector<Val*>{},
-        kir::Asm::Options{/*volatile=*/true, /*memory=*/true});
+        kir::Asm::Options{/*volatile=*/true});
     prologue.push_back(tcgen05_relinquish_expr);
 
     // Block sync that makes allocation visible to all threads

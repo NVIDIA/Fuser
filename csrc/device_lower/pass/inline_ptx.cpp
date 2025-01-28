@@ -312,7 +312,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
             std::vector<Val*>{},
             std::vector<Val*>{alloc->address(), alloc->numColumns()},
-            kir::Asm::Options{/*volatile=*/true, /*memory=*/true}));
+            kir::Asm::Options{/*volatile=*/true}));
   }
 };
 
