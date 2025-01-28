@@ -753,10 +753,12 @@ void FusionKernelRuntime::compileKernel(
       auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
           0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
 
+      std::cout << "adding launch kernel" << std::endl;
       hic->pushBackTopLevelExprs(launch_kernel);
     } else {
       // push back segment's exprs into the container as top level expressions
       for (auto *expr : fusion_to_run->exprs()) {
+        std::cout << "adding expr" << std::endl;
         hic->pushBackTopLevelExprs(expr);
       }
     }
