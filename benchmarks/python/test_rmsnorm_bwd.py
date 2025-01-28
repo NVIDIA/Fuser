@@ -109,9 +109,12 @@ def test_rmsnorm_bwd_nvf_benchmark(
         rmsnorm_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        eager_output = weights.to(torch.double) * (
-            inputs.to(torch.double) / rms_eps.to(torch.double)
-        )
+        eager_output = torch.nn.functional.rms_norm(
+          inputs.to(torch.double),
+          inputs.shape[1:],
+          weight=weights.to(torch.double),
+            eps = eps
+          )
         eager_output.backward(grads.to(torch.double))
         fd.validate([inputs, rms_eps, grads, weights], [inputs.grad, weights.grad])
 
