@@ -51,6 +51,17 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
+  // short-circuit: wrap tma store expression with elect sync predicate
+  if (ir_utils::isCpAsyncBulkStore(expr)) {
+    // If we need a predicate, put expr inside an if then else
+    auto elect_sync_pred =
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync);
+    auto elect_sync_ite = IrBuilder::create<kir::IfThenElse>(elect_sync_pred);
+    elect_sync_ite->thenBody().push_back(expr);
+    kir::ExprMutator::registerReplace(expr, elect_sync_ite);
+    return;
+  }
+
   // short-circuit: mbarrier_init or mbarrier_inval with elect sync predicate.
   // predicate is specified for tma load with circular buffering.
   bool is_mbarrier_init = expr->isA<kir::MBarrierInit>();
