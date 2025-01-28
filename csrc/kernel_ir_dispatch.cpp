@@ -104,7 +104,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
       }
       auto pos_it = std::find(exprs_.begin(), exprs_.end(), info.reference);
       NVF_ERROR(
-          pos_it != exprs_.end(),
+          pos_it >= exprs_.begin() && pos_it != exprs_.end(),
           "Issue finding reference expression for insertion.");
       if (info.mode == MutationMode::BEFORE) {
         exprs_.insert(pos_it, info.new_expr);
