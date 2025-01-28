@@ -564,7 +564,11 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  void privatizeUpCast();
+
   void findSegments();
+
+  void revertUnnecessaryUpCast();
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no

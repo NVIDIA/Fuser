@@ -3955,7 +3955,9 @@ SegmentCandidateFinder::SegmentCandidateFinder(
            options_.run_final_merge),
       "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+  privatizeUpCast();
   findSegments();
+  revertUnnecessaryUpCast();
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {
@@ -4205,6 +4207,64 @@ void SegmentCandidateFinder::findSegments() {
     segmented_fusion_->draw();
   }
 }
+
+void SegmentCandidateFinder::privatizeUpCast() {
+  // Insert castOp to complete_fusion_
+  FusionGuard fg(segmented_fusion_->complete_fusion_.get());
+
+  const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+
+  for (auto expr : exprs) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    // for (auto maybe_upcast_out_tv:
+    // ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (const auto i : c10::irange(expr->inputs().size())) {
+      auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
+      if (maybe_upcast_out_tv == nullptr) {
+        continue;
+      }
+
+      // Check if the input is an output of an upcast op
+      auto maybe_upcast_op =
+          dynamic_cast<UnaryOp*>(maybe_upcast_out_tv->definition());
+      if (maybe_upcast_op == nullptr ||
+          maybe_upcast_op->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+
+      auto precisions =
+          ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+      if (!precisions.has_value() || precisions->first >= precisions->second) {
+        continue;
+      }
+
+      // Check if there's multiple uses of the upcast output
+      auto uses_of_upcast_out_tv = maybe_upcast_out_tv->uses();
+      if (uses_of_upcast_out_tv.size() < 2) {
+        continue;
+      }
+
+      // If this is the first use of the upcast output, keep it as is
+      if (expr == uses_of_upcast_out_tv.front()) {
+        continue;
+      }
+
+      std::cerr << "Recompute upcast: " << maybe_upcast_op->toString();
+
+      auto upcast_out_tv_clone =
+          castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
+      std::cerr << "Recomputed cast: "
+                << upcast_out_tv_clone->definition()->toString();
+      expr = ir_utils::replaceValInExprInputs(
+          expr, maybe_upcast_out_tv, upcast_out_tv_clone);
+    }
+  }
+}
+
+void SegmentCandidateFinder::revertUnnecessaryUpCast() {}
 
 // Decides whether we should forward an input (or a forwarded input) of a
 // fusion. Currently, we forward an input only when its single use is a UnaryOp.
