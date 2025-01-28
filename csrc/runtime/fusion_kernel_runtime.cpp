@@ -735,6 +735,8 @@ void FusionKernelRuntime::compileKernel(
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
     const std::lock_guard<std::mutex> lock(mutex);
 
+    IrCloner ir_cloner(hic);
+
     // if it's a kernel executor, compile the segment and append to hic
     // otherwise, push the segment's exprs directly to the hic
     if (!HostIrExecutor::supported(fusion_to_run.get()) && !ExprEvalExecutor::supported(fusion_to_run.get())) {
@@ -747,7 +749,6 @@ void FusionKernelRuntime::compileKernel(
 
       auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
-      IrCloner ir_cloner(hic);
       auto hic_in = ir_cloner.clone(group_to_run->inputs());
       auto hic_out = ir_cloner.clone(group_to_run->outputs());
       auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
@@ -759,7 +760,8 @@ void FusionKernelRuntime::compileKernel(
       // push back segment's exprs into the container as top level expressions
       for (auto *expr : fusion_to_run->exprs()) {
         std::cout << "adding expr" << std::endl;
-        hic->pushBackTopLevelExprs(expr);
+        auto cloned_expr = ir_cloner.clone(expr);
+        hic->pushBackTopLevelExprs(cloned_expr);
       }
     }
   } else {
