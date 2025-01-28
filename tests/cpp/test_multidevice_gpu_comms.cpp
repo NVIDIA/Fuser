@@ -69,48 +69,4 @@ TEST_F(GpuCommTest, IpcMemHandle) {
 
 }
 
-TEST_F(GpuCommTest, DeviceEnablePeerAccess) {
-  // Doesn't seem to work when the PID are differents, i.e., when it's one CPU rank per GPU. The line "udaMemcpy(d_ptr, peer_d_ptr, size, cudaMemcpyDeviceToDevice)" throws.
-  // https://github.com/NVIDIA/nccl/blob/1672c85781ba6158d5d173d3ecac969f8796af11/src/transport/p2p.cc#L324-328
-  // https://github.com/NVIDIA/nccl/blob/1672c85781ba6158d5d173d3ecac969f8796af11/src/transport/p2p.cc#L249
-  GTEST_SKIP();
-
-  // Allocate GPU memory
-  constexpr size_t size = sizeof(int64_t);
-  const int64_t num_devices = communicator_->size();
-  const int64_t rank = communicator_->deviceId();
-  const int64_t peer = (rank + 1) % num_devices;
-  // const int64_t accessing_peer = (num_devices + rank - 1) % num_devices;
-
-  int can_access_peer;
-  CUDA_CALL(cudaDeviceCanAccessPeer (&can_access_peer, rank, peer));
-  if (!can_access_peer) {
-    GTEST_SKIP() << "Peer access not enabled between devices " << rank << " and " << peer;
-  }
-
-  CUDA_CALL(cudaDeviceEnablePeerAccess(peer, /*flag (reserved)*/0));
-
-  void* d_ptr;
-  CUDA_CALL(cudaMalloc(&d_ptr, size));
-
-  const int64_t value = rank;
-  CUDA_CALL(cudaMemcpy(d_ptr, &value, size, cudaMemcpyHostToDevice));
-
-
-  auto store = communicator_->getTcpStore();
-  store->set("d_ptr_" + std::to_string(rank), toBytes(d_ptr));
-  communicator_->barrier();
-  auto peer_d_ptr = fromBytes<void*>(store->get("d_ptr_" + std::to_string(peer)));
-
-  CUDA_CALL(cudaMemcpy(d_ptr, peer_d_ptr, size, cudaMemcpyDeviceToDevice));
-  int64_t peer_value;
-  CUDA_CALL(cudaMemcpy(&peer_value, d_ptr, size, cudaMemcpyDeviceToHost));
-
-  EXPECT_EQ((value + 1) % num_devices, peer_value);
-
-  // Clean up
-  CUDA_CALL(cudaDeviceDisablePeerAccess(peer)); // not necessary
-  CUDA_CALL(cudaFree(d_ptr));
-}
-
 } // namespace nvfuser
