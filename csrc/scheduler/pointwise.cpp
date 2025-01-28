@@ -207,8 +207,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   NVF_ERROR(largest_out != nullptr);
 
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const auto device_multiprocessor_count = static_cast<int64_t>(
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
 
   // TODO: Set to 1?
   int64_t max_input_dtype_size = 2;
@@ -234,7 +234,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
       logical_reorder_map_entry.get();
 
-  auto ref_root = largest_out->getLogicalDomain();
+  auto ref_root = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
   if (!logical_reorder_map.empty()) {
