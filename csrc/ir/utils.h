@@ -48,8 +48,10 @@ struct MatmulInputs {
 namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator, it also updates fusion
-// output according to the replacement_map
-void replaceValue(
+// output according to the replacement_map. Returns the final
+// replacement map, which includes the given replacement entries as
+// well as those that are the results of the replacement.
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
 

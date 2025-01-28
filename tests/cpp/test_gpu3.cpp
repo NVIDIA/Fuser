@@ -37,6 +37,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -9351,6 +9352,65 @@ TEST_F(NVFuserTest, CastPrecision) {
   auto tv4_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
       tv4->definition()->as<UnaryOp>());
   ASSERT_FALSE(tv4_precision.has_value());
+}
+
+TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({16, 32});
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion.addInput(tv2);
+
+  auto tv3 = set(tv2);
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = add(tv0, tv5);
+  fusion.addOutput(tv6);
+
+  // Make the loop domains of tv3 and tv4 exact mapped with tv1's loop
+  // domain
+  scheduler_tools::scheduleLoopDomainsLike({tv3, tv4}, tv1->getLoopDomain());
+
+  EXPECT_TRUE(fusion.hasRegisteredExactMappings());
+
+  // tv3 and tv4 should have new cloned IDs that are exact mapped with
+  // tv1
+  auto registered_mappings = fusion.registeredExactMappings();
+  auto registered_mappings_it = registered_mappings.find(tv3->axis(1));
+  EXPECT_NE(registered_mappings_it, registered_mappings.end());
+  const auto& registered_ids = registered_mappings_it->second;
+  EXPECT_TRUE(registered_ids->has(tv4->axis(1)));
+  EXPECT_TRUE(registered_ids->has(tv1->axis(1)));
+
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    for (auto tv : {tv3, tv4}) {
+      EXPECT_EQ(
+          exact_graph.toGroups(tv->getLoopDomain()),
+          exact_graph.toGroups(tv1->getLoopDomain()));
+    }
+  }
+
+  // tv0 and tv1 are exact mapped. Since tv0 has static extents,
+  // replaceSymbolicSizes will replace the symbolic extents of tv1 and tv2
+  // with the static extents of tv0.
+  replaceSymbolicSizes(&fusion);
+
+  // Check if the exact mapping is still alive
+  {
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    for (auto tv : {tv3, tv4}) {
+      EXPECT_EQ(
+          exact_graph.toGroups(tv->getLoopDomain()),
+          exact_graph.toGroups(tv1->getLoopDomain()));
+    }
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
