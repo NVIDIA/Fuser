@@ -410,6 +410,28 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
+  // add all expressions and compiled kernels to the host ir container
+  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    IrCloner ir_cloner(hic.get());
+    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      if (!HostIrExecutor::supported(fusion_to_run.get()) && !ExprEvalExecutor::supported(fusion_to_run.get())) {
+        auto hic_in = ir_cloner.clone(group_to_run->inputs());
+        auto hic_out = ir_cloner.clone(group_to_run->outputs());
+        auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
+            run_order_id, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
+        hic->pushBackTopLevelExprs(launch_kernel);
+      } else {
+        // push back segment's exprs into the container as top level expressions
+        for (auto *expr : fusion_to_run->exprs()) {
+          auto cloned_expr = ir_cloner.clone(expr);
+          hic->pushBackTopLevelExprs(cloned_expr);
+        }
+      }
+    }
+  }
+
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
@@ -420,28 +442,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         thread_pool_error_message,
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
-/*
-  if(isOptionEnabled(EnableOption::HostIrLowering)) {
-    int64_t run_order_id = 0;
-    for (auto& executor : executors_) {
-      if (auto raw_ke = dynamic_cast<KernelExecutor*>(executor.get())) {
-        executor.release();
-        std::unique_ptr<KernelExecutor> ke(raw_ke);
-        hic->pushBackKernelExecutor(std::move(ke));
 
-        auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-
-        IrCloner ir_cloner(hic.get());
-        auto hic_in = ir_cloner.clone(group_to_run->inputs());
-        auto hic_out = ir_cloner.clone(group_to_run->outputs());
-        auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
-            0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
-        hic->pushBackTopLevelExprs(launch_kernel);
-      }
-      run_order_id++;
-    }
-  }
-*/
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
     hie_ = std::make_unique<nvfuser::hir::HostIrEvaluator>(std::move(hic));
   }
@@ -712,7 +713,6 @@ void FusionKernelRuntime::compileKernel(
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
-  std::mutex mutex;
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
@@ -733,10 +733,6 @@ void FusionKernelRuntime::compileKernel(
       "Kernel index type is not defined.");
 
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
-    const std::lock_guard<std::mutex> lock(mutex);
-
-    IrCloner ir_cloner(hic);
-
     // if it's a kernel executor, compile the segment and append to hic
     // otherwise, push the segment's exprs directly to the hic
     if (!HostIrExecutor::supported(fusion_to_run.get()) && !ExprEvalExecutor::supported(fusion_to_run.get())) {
@@ -746,23 +742,6 @@ void FusionKernelRuntime::compileKernel(
       auto ke = std::make_unique<KernelExecutor>();
       ke->compile(fusion_to_run.get(), args, heuristic_params->lparams, heuristic_params->cparams, heuristic_params->scheduler_type);
       hic->setKernelExecutor(group_id, std::move(ke));
-
-      auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
-
-      auto hic_in = ir_cloner.clone(group_to_run->inputs());
-      auto hic_out = ir_cloner.clone(group_to_run->outputs());
-      auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
-          0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
-
-      std::cout << "adding launch kernel" << std::endl;
-      hic->pushBackTopLevelExprs(launch_kernel);
-    } else {
-      // push back segment's exprs into the container as top level expressions
-      for (auto *expr : fusion_to_run->exprs()) {
-        std::cout << "adding expr" << std::endl;
-        auto cloned_expr = ir_cloner.clone(expr);
-        hic->pushBackTopLevelExprs(cloned_expr);
-      }
     }
   } else {
     // Initialize associated executors
