@@ -2141,13 +2141,29 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
 
     if (!ir_utils::isStMatrixOp(ldst)) {
-      in = lowerSrcIndex(
-          ldst->in(),
-          ldst->out(),
-          {},
-          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-      out =
-          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      if (auto tv = dynamic_cast<TensorView*>(ldst->in());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        auto index = IrBuilder::create<Val>(
+            std::vector<int64_t>{0, 0},
+            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        in = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::UInt32);
+      } else {
+        in = lowerSrcIndex(
+            ldst->in(),
+            ldst->out(),
+            {},
+            ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->out());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        auto index = IrBuilder::create<Val>(
+            std::vector<int64_t>{0, 0},
+            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        out = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::UInt32);
+      } else {
+        out = lowerDstIndex(
+            ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      }
     }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())

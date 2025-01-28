@@ -2773,6 +2773,8 @@ TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
   fusion.addOutput(tv4);
 
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->split(0, 32);
 
@@ -2813,7 +2815,12 @@ TEST_F(TMemTest, AddKernel) {
   fusion.addOutput(tv9);
 
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
   tv6->setMemoryType(MemoryType::Tensor);
+  tv6->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv7->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv9->split(0, 32);
 

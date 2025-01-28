@@ -96,11 +96,13 @@ TensorIndex::TensorIndex(
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  auto uint16x2 = ArrayType{std::make_shared<DataType>(DataType::UInt16), 2};
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
           index->dtype() ==
-              DataType::UInt64 /*For matrix descriptor for hopper MMA*/,
+              DataType::UInt64 /*For matrix descriptor for hopper MMA*/
+          || index->dtype() == uint16x2 /*For tensor memory tensor*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 

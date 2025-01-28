@@ -486,7 +486,9 @@ class AllocationInserter : public kir::ExprMutator {
             region.covered_tensors.end(),
             [&](const auto& tv_info) { return tv_info.tensor == info.buffer; });
         if (tv_info_it != region.covered_tensors.end()) {
-          alloc_expr->setBaseAddress(region.address);
+          auto address_ti = IrBuilder::create<kir::TensorIndex>(
+              region.address, region.address->fusion()->zeroVal());
+          alloc_expr->setBaseAddress(address_ti);
           alloc_expr->setLaneOffset(tv_info_it->lane_offset);
           alloc_expr->setColOffset(tv_info_it->column_offset);
           break;
@@ -858,7 +860,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
       prologue.push_back(address_alloc_expr);
       // the tcgen05.alloc instruction
       auto tcgen05_alloc_expr = IrBuilder::create<kir::Asm>(
-          "tcgen05.alloc.cta_group.sync.aligned.shared::cta.b32",
+          "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
           std::vector<Val*>{},
           std::vector<Val*>{
               IrBuilder::create<kir::TensorIndex>(
@@ -870,7 +872,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
 
     // Relinquish the right to allocate after all regions have been allocated
     auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
-        "tcgen05.relinquish_alloc_permit.cta_group.sync.aligned",
+        "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
         std::vector<Val*>{},
         std::vector<Val*>{},
         kir::Asm::Options{/*volatile=*/true, /*memory=*/true});
@@ -982,7 +984,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
           region_to_register_dealloc_map_[region] =
               [this, expr, region, current_scope]() {
                 auto tcgen05_dealloc_expr = IrBuilder::create<kir::Asm>(
-                    "tcgen05.dealloc.cta_group.sync.aligned.b32",
+                    "tcgen05.dealloc.cta_group::1.sync.aligned.b32",
                     std::vector<Val*>{},
                     std::vector<Val*>{
                         IrBuilder::create<kir::TensorIndex>(

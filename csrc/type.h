@@ -800,7 +800,9 @@ enum class LoadStoreOpType {
   LdMatrix,
   CpAsync,
   CpAsyncBulkTensorTile,
-  StMatrix
+  StMatrix,
+  LdTMem,
+  StTMem
 };
 
 // Used to label what part of the circular buffered iterdomain
