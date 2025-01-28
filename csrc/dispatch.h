@@ -116,6 +116,7 @@ class Val;
   f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
+  f(AllocTMem);                       \
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \

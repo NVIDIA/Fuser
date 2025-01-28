@@ -792,6 +792,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   // Generate allocation info for allocation after some pre-filtering
   //  conditions.
   void handle(kir::Allocate* alloc) final {
+    std::cout << "AllocationInfoMap::handle: " << alloc->toString() << std::endl;
     if (alloc->alias()) {
       // We shouldn't really see a case like this in general, but
       //  some Fusion outputs could have been aliased to inputs.
@@ -911,8 +912,11 @@ class AllocationInfoMap : private kir::IrVisitor {
     } else if (!ir_utils::isTvOp(expr)) {
       return;
     }
+    std::cout << "collectLivenessInfoOfExpr: " << expr->toString() << std::endl;
 
     const auto expr_pos = scope_map_.getExprPos(expr);
+
+    std::cout << "expr_pos: " << expr_pos << std::endl;
 
     // Collect all tv's that resolves broadcast in this
     //  expr. The current analysis isn't enough to capture
@@ -1682,10 +1686,13 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
  private:
   void dispatch(Expr* expr) final {
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+    std::cout << "Visiting expr: " << expr->toString() << std::endl;
+    std::cout << "Current position: " << position_ << std::endl;
 
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
     if (it != first_write_positions_.end()) {
+      std::cout << "Found first write at position " << position_ << std::endl;
       for (auto alloc_info : it->second) {
         waiting_to_push_.push_back(alloc_info);
       }
@@ -2081,8 +2088,6 @@ void assignSharedMemoryAllocations(
       continue;
     }
     auto alloc = alloc_info->alloc_expr;
-    // TODO: fix
-    alloc->setAddress(alloc->fusion()->zeroVal());
     NVF_ERROR(
         alloc->address(),
         "Unaliased allocation for shared memory tensor ",
@@ -2109,7 +2114,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   // downstream expressions. Rather than try to keep those in sync, we just
   // recompute the allocation info map here.
   if (inserted_syncs) {
-    allocation_info_map = AllocationInfoMap(synced_exprs, false);
+    allocation_info_map = AllocationInfoMap(synced_exprs, true);
   }
 
   assignSharedMemoryAllocations(synced_exprs, allocation_info_map);

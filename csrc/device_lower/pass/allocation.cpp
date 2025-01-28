@@ -500,7 +500,8 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   void dispatch(Expr* expr) override {
-    if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
+    if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
+        expr->isA<kir::AllocTMem>()) {
       ExprMutator::dispatch(expr);
       return;
     }
@@ -859,15 +860,9 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
           IrBuilder::create<kir::Allocate>(region.address, MemoryType::Shared);
       prologue.push_back(address_alloc_expr);
       // the tcgen05.alloc instruction
-      auto tcgen05_alloc_expr = IrBuilder::create<kir::Asm>(
-          "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
-          std::vector<Val*>{},
-          std::vector<Val*>{
-              IrBuilder::create<kir::TensorIndex>(
-                  region.address, IrBuilder::baseAddressExpr(region.address)),
-              region.num_columns},
-          kir::Asm::Options{/*volatile=*/true, /*memory=*/true});
-      prologue.push_back(tcgen05_alloc_expr);
+      auto alloc_expr =
+          IrBuilder::create<kir::AllocTMem>(region.address, region.num_columns);
+      prologue.push_back(alloc_expr);
     }
 
     // Relinquish the right to allocate after all regions have been allocated

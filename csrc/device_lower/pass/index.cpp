@@ -2574,6 +2574,13 @@ void IndexLowering::handle(const kir::Allocate* allocate) {
   pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::AllocTMem* alloc) {
+  const auto address = IrBuilder::create<kir::TensorIndex>(
+      alloc->address()->as<TensorView>(), alloc->fusion()->zeroVal());
+  pushBack(IrBuilder::create<kir::AllocTMem>(address, alloc->numColumns()));
+  GpuLower::current()->propagateExprInfo(alloc, back());
+}
+
 void IndexLowering::handle(const kir::BlockSync* sync) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::BlockSync*>(sync)); // NOLINT

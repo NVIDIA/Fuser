@@ -411,6 +411,35 @@ std::string Asm::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
 
+AllocTMem::AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(
+      ir_utils::getTv(address)->getMemoryType() == MemoryType::Shared,
+      "AllocTMem address must be a shared memory tensor");
+  addOutput(address);
+  NVF_ERROR(
+      num_columns->dtype() == DataType::UInt32,
+      "AllocTMem num_columns must be a uint32_t");
+  addInput(num_columns);
+}
+
+std::string AllocTMem::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = AllocTMem("
+                          << input(0)->toString() << ")\n";
+  return ss.str();
+}
+
+std::string AllocTMem::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AllocTMem)
+
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(

@@ -168,6 +168,7 @@ bool isTvOp(const Expr* expr) {
           PadOp,
           SliceOp,
           CatOp,
+          kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
           kir::GridBroadcast,
