@@ -689,7 +689,6 @@ std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
 std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const std::string& kernel_name,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -700,7 +699,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
-  createNvrtcProgram(program, kernel_name, full_src_code);
+  createNvrtcProgram(program, func_name, full_src_code);
 
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
@@ -716,7 +715,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     compiled_kernel->cubin = compileNvrtcProgramToCubin(program);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
       compiled_kernel->cubin_filename =
-          dumpCompiledCodeToFile(compiled_kernel->cubin, kernel_name, ".cubin");
+          dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
     }
   }
 
@@ -724,7 +723,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     compiled_kernel->ptx = compileNvrtcProgramToPtx(program);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
       compiled_kernel->ptx_filename =
-          dumpCompiledCodeToFile(compiled_kernel->ptx, kernel_name, ".ptx");
+          dumpCompiledCodeToFile(compiled_kernel->ptx, func_name, ".ptx");
     }
   }
 
@@ -810,11 +809,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
             (compile_to_sass ? compiled_kernel->cubin
                              : compiled_kernel->ptx)))) {
     compiled_kernel = compileSource(
-        full_src_code,
-        func_name,
-        compiled_kernel->kernel_name,
-        compile_to_sass,
-        nvrtc_compile_driver);
+        full_src_code, func_name, compile_to_sass, nvrtc_compile_driver);
     log << compiled_kernel->compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
