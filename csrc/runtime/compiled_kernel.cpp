@@ -520,8 +520,8 @@ void fillCompileOptions(
   std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
-  if (major == 9) {
-    // Hopper MMAs require 90a instead of 90
+  if (major >= 9) {
+    // Use 90a and 100a so that arch-specific PTX is available
     compute += "a";
   }
   nvrtc_compile_driver.setOption(compute);
