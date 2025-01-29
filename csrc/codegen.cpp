@@ -683,6 +683,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
 
+    if (ti->view()->getMemoryType() == MemoryType::Tensor) {
+      code_ << genInline(ti->index());
+      return;
+    }
+
     if (ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
@@ -3186,7 +3191,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         }
         case MemoryType::Tensor: {
-          NVF_THROW("Not implemented yet");
+          // Do nothing for now. This behavior will change soon.
           break;
         }
         default:
