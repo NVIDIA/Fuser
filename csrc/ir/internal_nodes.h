@@ -2714,4 +2714,79 @@ class SdpaBwdOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+class EmbeddingFwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  EmbeddingFwdOp(
+      IrBuilderPasskey,
+      TensorView* output,
+      TensorView* input,
+      TensorView* weight,
+      Val* padding_idx,
+      Val* max_norm,
+      Val* norm_type,
+      Val* scale_grad_by_freq,
+      Val* sparse);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "EmbeddingFwdOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* weight() const {
+    return input(1)->as<TensorView>();
+  }
+
+  Val* norm_type() const {
+    return input(2);
+  }
+
+  Val* scale_grad_by_freq() const {
+    return input(3);
+  }
+
+  Val* sparse() const {
+    return input(4);
+  }
+
+  Val* padding_idx() const {
+    if (has_padding_idx()) {
+      return input(5);
+    }
+    return nullptr;
+  }
+
+  Val* max_norm() const {
+    if (has_max_norm()) {
+      return input(5 + has_padding_idx());
+    }
+    return nullptr;
+  }
+
+  bool has_padding_idx() const {
+    return attribute<bool>(0);
+  }
+
+  bool has_max_norm() const {
+    return attribute<bool>(1);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser

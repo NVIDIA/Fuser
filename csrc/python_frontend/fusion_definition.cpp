@@ -533,10 +533,9 @@ std::string FusionDefinition::lastCudaCode(
 
   if (!override_user_schedule && (user_exec != nullptr)) {
     if (intrinsic_code) {
-      result = user_exec->getStructuredCode(
-          user_exec->kernelString(), user_exec->kernel()->indexType());
+      result = user_exec->compiledKernel()->getStructuredCode();
     } else {
-      result = user_exec->kernelString();
+      result = user_exec->compiledKernel()->kernelString();
     }
   } else {
     result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
@@ -562,10 +561,9 @@ std::string FusionDefinition::cudaCodeFor(
           scheds, user_sched_id.value(), device);
       auto user_exec = user_sched.executor.get();
       if (intrinsic_code) {
-        return user_exec->getStructuredCode(
-            user_exec->kernelString(), user_exec->kernel()->indexType());
+        return user_exec->compiledKernel()->getStructuredCode();
       } else {
-        return user_exec->kernelString();
+        return user_exec->compiledKernel()->kernelString();
       }
     }
   }

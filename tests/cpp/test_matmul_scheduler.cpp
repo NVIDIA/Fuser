@@ -2474,10 +2474,6 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
   matmul_heuristic_plugin::KernelConfigFactoryGuard factory_guard_;
-
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard option_guard_;
 };
 
 // Test that our fake plugin works to override the default heuristic
@@ -2797,7 +2793,6 @@ class MatmulFusionTest
     }
   }
 
-  EnableOptionsGuard eog_;
   bool fusion_enabled = GetParam().first;
   bool horizontal_fusion_enabled = GetParam().second;
 };
@@ -2953,8 +2948,6 @@ class AllocationDomainTest
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-
-  DisableOptionsGuard option_guard_;
 };
 
 // This tests fusions where inputs to a Matmul will have the root domains

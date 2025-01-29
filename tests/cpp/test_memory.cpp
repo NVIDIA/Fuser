@@ -86,16 +86,17 @@ TEST_P(MemoryTest, LoadCache) {
   }
 
   // Verify PTX.
-  const executor_utils::CompiledKernel& compiled_kernel = ke.compiledKernel();
-  std::string ptx(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end());
+  const executor_utils::CudaExecutable* compiled_kernel =
+      ke.compiledKernel()->cudaExecutable().get();
+  std::string ptx(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end());
   std::regex regex(R"(ld\.global\.)" + cache_op_str + R"(\.\S+)");
   std::smatch match;
   std::regex_search(ptx, match, regex);
   EXPECT_EQ(match.size(), 1);
 
   // Clean up the dumped PTX file.
-  debug() << "Removing " << compiled_kernel.ptx_filename << std::endl;
-  std::filesystem::remove(compiled_kernel.ptx_filename);
+  debug() << "Removing " << compiled_kernel->ptx_filename << std::endl;
+  std::filesystem::remove(compiled_kernel->ptx_filename);
 
   // Verify output tensors.
   std::vector<at::Tensor> actual_ts = ke.run({input});
@@ -161,14 +162,15 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   }
 
   // Verify PTX.
-  const executor_utils::CompiledKernel& compiled_kernel = ke.compiledKernel();
-  std::string ptx(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end());
+  const executor_utils::CudaExecutable* compiled_kernel =
+      ke.compiledKernel()->cudaExecutable().get();
+  std::string ptx(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end());
   expectMatchCount(ptx, R"(ld\.global\.ca\.v4\.\S+)", 1);
   expectMatchCount(ptx, R"(ld\.global\.cs\.v4\.\S+)", 1);
 
   // Clean up the dumped PTX file.
-  debug() << "Removing " << compiled_kernel.ptx_filename << std::endl;
-  std::filesystem::remove(compiled_kernel.ptx_filename);
+  debug() << "Removing " << compiled_kernel->ptx_filename << std::endl;
+  std::filesystem::remove(compiled_kernel->ptx_filename);
 
   std::vector<at::Tensor> actual_outputs = ke.run({a, b});
   testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
@@ -176,7 +178,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 
 // Begin TMA tests
 
-using TMATest = HopperBase;
+using TMATest = TmaBase;
 
 // Check that there is an xor "^" somewhere in the kernel
 class XorFinder : private kir::IrVisitor {
@@ -460,11 +462,12 @@ TEST_P(TMASimpleLdstTest, Load) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), dim);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), dim);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
   ASSERT_EQ(
-      XorFinder::findXor(ke.kernel()), (swizzle != MmaInputSmemSwizzle::None));
-  TMADimChecker::getDim(ke.kernel());
+      XorFinder::findXor(ke.compiledKernel()->kernel()),
+      (swizzle != MmaInputSmemSwizzle::None));
+  TMADimChecker::getDim(ke.compiledKernel()->kernel());
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -580,10 +583,11 @@ TEST_P(TMASimpleLdstTest, Store) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), dim);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), dim);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
   ASSERT_EQ(
-      XorFinder::findXor(ke.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+      XorFinder::findXor(ke.compiledKernel()->kernel()),
+      (swizzle != MmaInputSmemSwizzle::None));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -641,8 +645,8 @@ TEST_F(TMAIndexingTest, Load2DTensorWith1DTMA) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -678,8 +682,8 @@ TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -715,8 +719,8 @@ TEST_F(TMAIndexingTest, NonOneElementStride) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -786,8 +790,8 @@ TEST_F(TMAIndexingTest, Advanced) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 4);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 4);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -835,8 +839,9 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing1) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 4);
-  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, ke.kernel()));
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 4);
+  EXPECT_FALSE(
+      PredicatedChecker::isPredicated(tv1, ke.compiledKernel()->kernel()));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -887,8 +892,9 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 5);
-  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, ke.kernel()));
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 5);
+  EXPECT_FALSE(
+      PredicatedChecker::isPredicated(tv1, ke.compiledKernel()->kernel()));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -934,9 +940,10 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
 
   // Because merging dims will violate hardware requirement, we do not merge
   // dims.
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 4);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 4);
 
-  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, ke.kernel()));
+  EXPECT_TRUE(
+      PredicatedChecker::isPredicated(tv1, ke.compiledKernel()->kernel()));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -996,8 +1003,8 @@ TEST_F(TMAIndexingTest, DefineBoxByRotation1) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 3);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 3);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1048,8 +1055,8 @@ TEST_F(TMAIndexingTest, DefineBoxByRotation2) {
   // interpreted as viewing then tensor as 2D (M/8, 8) and then applying 2D TMA.
   // The outer dim of TMA is defined by boxing and striding splits, and the
   // inner dim is defined as implicit whole.
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1111,8 +1118,8 @@ TEST_F(TMAIndexingTest, DefineBoxByRotation3) {
   // TMA. The dim 0 of TMA is as implicit size-one, and the dim 1 is defined by
   // a boxing split whose box size is 8, and dim 2 is an implicit whole box with
   // size N.
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 3);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 3);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1167,9 +1174,9 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
-  ASSERT_TRUE(XorFinder::findXor(ke.kernel()));
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
+  ASSERT_TRUE(XorFinder::findXor(ke.compiledKernel()->kernel()));
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1222,8 +1229,8 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 3);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 3);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1270,8 +1277,8 @@ TEST_F(TMAMiscTest, AdvancedThreadParallelizationLoad) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 4);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 4);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1313,8 +1320,8 @@ TEST_F(TMAMiscTest, AdvancedThreadParallelizationStore) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 4);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 4);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1349,8 +1356,8 @@ TEST_F(TMAMiscTest, DisableIndexHoisting) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1381,8 +1388,8 @@ TEST_F(TMAMiscTest, Repro1977) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1635,7 +1642,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
 
   auto cg_outputs = ke.run({t0});
 
@@ -1646,9 +1653,6 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // TODO: remove the line below. The line below is here only to make the test
   // pass. The result is actually wrong.
   expect.flatten(0, 2).select(0, 1) = at::arange(17, 33, options);
-
-  std::cout << cg_outputs[0] << std::endl;
-  std::cout << expect << std::endl;
 
   EXPECT_TRUE(at::equal(cg_outputs[0], expect));
 }
@@ -1776,8 +1780,8 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0_aligned}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0_aligned});
   testValidate(
@@ -1832,8 +1836,8 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0_aligned}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0_aligned});
   testValidate(
@@ -1926,8 +1930,8 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0, items_of_16_bytes}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 1);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0, items_of_16_bytes});
   testValidate(
@@ -1979,7 +1983,7 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0_valid}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
 
   auto cg_outputs = ke.run({t0_valid});
   testValidate(&fusion, cg_outputs, {t0_valid}, {t0_valid}, __LINE__, __FILE__);
@@ -2223,8 +2227,8 @@ TEST_F(TMADocTest, Figure14a) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2299,8 +2303,8 @@ TEST_F(TMADocTest, Figure14b) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2377,8 +2381,8 @@ TEST_F(TMADocTest, Figure14c) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2448,8 +2452,8 @@ TEST_F(TMADocTest, Figure14d) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2528,8 +2532,8 @@ TEST_F(TMADocTest, Figure14e) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 1);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2573,8 +2577,8 @@ TEST_F(TMADocTest, Figure15a) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 0);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 0);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2615,8 +2619,8 @@ TEST_F(TMADocTest, Figure15b) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(ke.kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.kernel(), 4);
+  EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
+  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 4);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -3059,5 +3063,59 @@ INSTANTIATE_TEST_SUITE_P(
          << "x" << getK(macro);
       return os.str();
     });
+
+TEST_F(TMATest, CpAsyncBulk1D) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // cp.async.bulk copies 1D data and allows more than 256 elements
+  // cp.async.bulk.tensor.nd copies n-d data and each dimension must <= 256
+  // using CpAsyncBulkTensorTile will trigger the following error:
+  // boxDim array, which specifies number of elements to be traversed along each
+  // of the tensorRank dimensions, must be non-zero and less than or equal to
+  // 256. box_dim_val = 512
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv2b = tv2->cacheBefore();
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv1a->setMemoryType(MemoryType::Shared);
+
+  tv2->merge(0);
+  tv2->split(0, 512);
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  /// TIDx for computation, Bulk for load
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2b->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  constexpr int dim0 = 16384, dim1 = 16384;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
 
 } // namespace nvfuser

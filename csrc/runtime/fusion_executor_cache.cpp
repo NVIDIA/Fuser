@@ -179,7 +179,7 @@ std::string FusionExecutorCache::getCode(
       } else {
         kernel_code += "\n";
       }
-      kernel_code += ke->kernelString();
+      kernel_code += ke->compiledKernel()->kernelString();
     }
   }
 
@@ -194,7 +194,7 @@ std::string FusionExecutorCache::getCode(
         if (first_ke == nullptr) {
           first_ke = ke;
         }
-        auto cur_index_type = ke->kernel()->indexType();
+        auto cur_index_type = ke->compiledKernel()->kernel()->indexType();
         if (first_index_type == PrimDataType::Null) {
           first_index_type = cur_index_type;
         }
@@ -207,7 +207,7 @@ std::string FusionExecutorCache::getCode(
       }
     }
     if (first_ke != nullptr) {
-      return first_ke->getStructuredCode(kernel_code, first_index_type);
+      return first_ke->compiledKernel()->getStructuredCode();
     }
     return "";
   } else {
@@ -242,7 +242,7 @@ std::string FusionExecutorCache::getScheduledIr(
   }
   for (auto& ea : kernel_runtime->executors()) {
     if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
-      auto sched_ir = ke->kernel()->as<Fusion>();
+      auto sched_ir = ke->compiledKernel()->kernel()->as<Fusion>();
       sched_ir->print(ss, tensor_transforms);
     }
   }
@@ -321,7 +321,17 @@ void FusionExecutorCache::profile(bool to_profile) {
 void FusionExecutorCache::disableLaunchParamCache() {
   for (auto& it : kernel_runtimes_) {
     for (auto& kernel_runtime : it.second) {
-      kernel_runtime->disableLaunchParamCache();
+      NVF_CHECK(
+          kernel_runtime->isCompiled(),
+          "Tried to set parameters of executors before they were initialized.");
+      for (auto& executor : kernel_runtime->executors()) {
+        if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+          NVF_CHECK(
+              ke->compiledKernel(),
+              "Tried to disable parameter cache of uninitialized CompiledKernel.");
+          ke->compiledKernel()->disableLaunchParamCache();
+        }
+      }
     }
   }
 }
