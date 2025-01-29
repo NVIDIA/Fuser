@@ -2161,9 +2161,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
         // TODO: hard coded index zero for now.
-        auto index = IrBuilder::create<Val>(0, DataType::UInt32);
-        in = IrBuilder::create<kir::TensorIndex>(
-            tv, index, DataType::TMemAddress);
+        auto index = IrBuilder::create<Val>(
+            std::vector<int64_t>{0, 0},
+            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        in = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::TMemAddress);
       } else {
         in = lowerSrcIndex(
             ldst->in(),
@@ -2175,9 +2176,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       if (auto tv = dynamic_cast<TensorView*>(ldst->out());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
         // TODO: hard coded index zero for now.
-        auto index = IrBuilder::create<Val>(0, DataType::UInt32);
-        out = IrBuilder::create<kir::TensorIndex>(
-            tv, index, DataType::TMemAddress);
+        auto index = IrBuilder::create<Val>(
+            std::vector<int64_t>{0, 0},
+            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        out = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::TMemAddress);
       } else {
         out = lowerDstIndex(
             ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
@@ -2590,6 +2592,14 @@ void IndexLowering::handle(const kir::Asm* asm_) {
 void IndexLowering::handle(const kir::Allocate* allocate) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::AllocTMem* alloc) {
+  auto address_tv = alloc->address()->as<TensorView>();
+  const auto address = IrBuilder::create<kir::TensorIndex>(
+      address_tv, IrBuilder::baseAddressExpr(address_tv));
+  pushBack(IrBuilder::create<kir::AllocTMem>(address, alloc->numColumns()));
+  GpuLower::current()->propagateExprInfo(alloc, back());
 }
 
 void IndexLowering::handle(const kir::BlockSync* sync) {

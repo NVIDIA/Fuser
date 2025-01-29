@@ -309,9 +309,12 @@ class Allocate final : public Expr {
 
   //! Size of each dimension
   std::vector<Val*> shape() const {
+    constexpr int64_t num_attributes_before_shape = 8;
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 6);
-    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - num_attributes_before_shape);
+    for (auto i = attributes().begin() + num_attributes_before_shape;
+         i != attributes().end();
+         ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -375,11 +378,99 @@ class Allocate final : public Expr {
     attributes_[5] = addr;
   }
 
+  void setBaseAddress(Val* addr) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Allocation base address may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        baseAddress() == nullptr,
+        "Attempted to set base address twice for allocation ",
+        toString());
+    attributes_[5] = addr;
+  }
+
+  void setLaneOffset(Val* lane_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        laneOffset() == nullptr,
+        "Attempted to set lane offset twice for allocation ",
+        toString());
+    attributes_[6] = lane_offset;
+  }
+
+  void setColOffset(Val* col_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        colOffset() == nullptr,
+        "Attempted to set column offset twice for allocation ",
+        toString());
+    attributes_[7] = col_offset;
+  }
+
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Shared,
+        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType());
     return attributeVal(5);
+  }
+
+  Val* baseAddress() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Base address may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(5);
+  }
+
+  Val* laneOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(6);
+  }
+
+  Val* colOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(7);
+  }
+};
+
+// Allocate tensor memory tcgen05.alloc
+class AllocTMem final : public Expr {
+ public:
+  using Expr::Expr;
+  AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns);
+
+  const char* getOpString() const override {
+    return "AllocTMem";
+  }
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* address() const {
+    return output(0);
+  }
+
+  Val* numColumns() const {
+    return input(0);
   }
 };
 

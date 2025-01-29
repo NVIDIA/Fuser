@@ -9,13 +9,10 @@
 
 namespace nvfuser {
 
+class TensorView;
 class Fusion;
 
-// Information used to lower tensor memory. So far, there is no information
-// needed, the computeTMemInfo just check that there is only one tensor on TMem
-// in the fusion. This limitation is described in the note below, and it is only
-// for incremental development. This limitation will be removed soon in the
-// future.
+// Information used to lower tensor memory. So far, it is just about allocation.
 struct TensorMemoryInfo;
 TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 
@@ -48,18 +45,20 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 // relinquishes the right to allocate, the next CTA that is blocked will be
 // unblocked and can acquire the mutex to allocate TMem.
 //
-// Currently, the TMem allocation is not supported in nvFuser. We currently only
-// allow one TensorView to be on TMem, and because we never relinquish the right
-// to allocate TMem, CTA will be serialized on SM. A new CTA can be scheduled on
-// an SM only after the previous CTA on that SM has completely finished
-// executing. Thanks to this serialization, we can just skip allocating and
-// think that our only TMem TensorView own the entire TMem, because we are sure
-// that there will not be another CTA using that address. As a result, we could
-// just provide address 0 to our instructions that access TMem. In principle, it
-// is clearly wrong to write to an address that is not allocated, but because we
-// are sure that it will in practice work for the specific unit test that we are
-// targeting, we just do it so we have incremental development.
+// Currently, our TMem allocation strategy is as naive as follows:
+// We assume there is at most one TensorView on TMem in the fusion. With this
+// assumption, we don't have to worry about where to place different tensors on
+// TMem. We will traverse the fusion to look for a TMem TensorView. If we can
+// find such a TensorView, we will generate a tcgen05.alloc and
+// tcgen05.relinquish_alloc_permit at the beginning of the kernel. We do not
+// dealloc TMem for now.
 
-struct TensorMemoryInfo {};
+// The actual definition of TensorMemoryInfo.
+struct TensorMemoryInfo {
+  // The address returned by tcgen05.alloc.
+  // tcgen05.alloc stores the allocated address in shared memory. So we use a
+  // TensorView with MemoryType::Shared to store this address.
+  TensorView* allocation_address;
+};
 
 } // namespace nvfuser

@@ -684,7 +684,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (ti->view()->getMemoryType() == MemoryType::Tensor) {
-      code_ << genInline(ti->index());
+      code_ << "(uint32_t)(" << genVariableName(ti->view()) << " + "
+            << genInline(ti->index()) << ")";
       return;
     }
 
@@ -3191,7 +3192,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         }
         case MemoryType::Tensor: {
-          // Do nothing for now. This behavior will change soon.
+          indent() << "TMemTensor " << genVariableName(tv) << "("
+                   << genInline(alloc->baseAddress()) << ", "
+                   << genInline(alloc->laneOffset()) << ", "
+                   << genInline(alloc->colOffset()) << ");\n";
           break;
         }
         default:

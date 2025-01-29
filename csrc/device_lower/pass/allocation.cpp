@@ -473,12 +473,27 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     // Create the allocation node
-    return IrBuilder::create<kir::Allocate>(
+    auto alloc_expr = IrBuilder::create<kir::Allocate>(
         info.buffer, info.buffer->getMemoryType(), alloc_dims);
+
+    // Fill in the base address, lane offset, and column offset for tensor
+    // memory allocations
+    if (memory_type == MemoryType::Tensor) {
+      auto allocation_address =
+          GpuLower::current()->tmemInfo().allocation_address;
+      auto address_ti = IrBuilder::create<kir::TensorIndex>(
+          allocation_address, allocation_address->fusion()->zeroVal());
+      alloc_expr->setBaseAddress(address_ti);
+      alloc_expr->setLaneOffset(allocation_address->fusion()->zeroVal());
+      alloc_expr->setColOffset(allocation_address->fusion()->zeroVal());
+    }
+
+    return alloc_expr;
   }
 
   void dispatch(Expr* expr) override {
-    if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
+    if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
+        expr->isA<kir::AllocTMem>()) {
       ExprMutator::dispatch(expr);
       return;
     }
@@ -813,11 +828,56 @@ class AllocationInserter : public kir::ExprMutator {
   }
 };
 
+// Insert IR nodes that allocate and deallocate TMem regions.
+// See note [Tensor Memory Allocation] for the overall design.
+// We insert the tcgen05.alloc and the relinquish of the right to allocate at
+// the beginning of the top-level scope of the kernel. We do not tcgen05.dealloc
+// yet. The allocation of each TMem TensorView is inserted by
+// AllocationInserter::insert, therefore not handled here.
+std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
+    const std::vector<Expr*>& exprs) {
+  // Expressions to be inserted at the beginning of the top-level scope.
+  std::list<Expr*> prologue;
+  {
+    // Allocate the address tensor
+    auto allocation_address =
+        GpuLower::current()->tmemInfo().allocation_address;
+    auto address_alloc_expr = IrBuilder::create<kir::Allocate>(
+        allocation_address, MemoryType::Shared);
+    prologue.push_back(address_alloc_expr);
+
+    // the tcgen05.alloc instructions
+    auto alloc_expr = IrBuilder::create<kir::AllocTMem>(
+        allocation_address, IrBuilder::create<Val>(0, DataType::UInt32));
+    prologue.push_back(alloc_expr);
+
+    // Relinquish the right to allocate after we are done with tcgen05.allocs
+    auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
+        "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+        std::vector<Val*>{},
+        std::vector<Val*>{},
+        kir::Asm::Options{/*volatile=*/true});
+    prologue.push_back(tcgen05_relinquish_expr);
+
+    // Block sync that makes allocation visible to all threads
+    auto block_sync = IrBuilder::create<kir::BlockSync>();
+    prologue.push_back(block_sync);
+  }
+
+  // Combine prologue and exprs
+  std::vector<Expr*> result;
+  result.reserve(prologue.size() + exprs.size());
+  result.insert(result.end(), prologue.begin(), prologue.end());
+  result.insert(result.end(), exprs.begin(), exprs.end());
+  return result;
+}
+
 } // namespace
 
 std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::insertAllocations");
-  return AllocationInserter::insert(exprs);
+  auto result = insertTMemRegionAllocsAndDeallocs(exprs);
+  return AllocationInserter::insert(result);
 }
 
 } // namespace nvfuser
