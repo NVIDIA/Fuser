@@ -581,7 +581,6 @@ class FusionDefinition(_C._FusionDefinition):
         for inx, fusion_output in enumerate(fusion_outputs):
             atol, rtol = tolerance_values[inx]
             reference_output = reference_outputs[inx]
-
             assert (
                 reference_output.shape == fusion_output.shape
             ), "Mismatch in reference and fusion output dimensions"

@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
+from thunder.examine import get_fusions
 
 def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
     T0 = fd.define_tensor(shape=[2048, 8192], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
@@ -79,7 +80,7 @@ def run_thunder_func():
   weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
   # Compile the fwd fn for torchcompile
-  fwd_fn = thunder.jit(rmsnorm_prims, executors=[nvfuserex])
+  fwd_fn = thunder.jit(rmsnorm_func, executors=[nvfuserex])
   fwd_inputs = [inputs, weights]
   outputs = fwd_fn(fwd_inputs)
   outputs.backward(grads)
@@ -91,5 +92,7 @@ def run_thunder_func():
   
   print (fwd_trace)
   print (bwd_trace)
+  bwd_fusion = get_fusions(bwd_trace)
+  print (bwd_fusion[-1][-1].last_used)
 
 run_thunder_func()
