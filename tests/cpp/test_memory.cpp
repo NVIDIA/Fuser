@@ -2762,7 +2762,7 @@ TEST_F(TMADocTest, Figure15e) {
 // End TMA tests
 
 // Tensor memory tests
-using TMemTest = NVFuserTest;
+using TMemTest = BlackwellBase;
 
 TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
   Fusion fusion;
