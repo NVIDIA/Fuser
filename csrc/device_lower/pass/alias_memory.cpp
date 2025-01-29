@@ -2107,7 +2107,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   // downstream expressions. Rather than try to keep those in sync, we just
   // recompute the allocation info map here.
   if (inserted_syncs) {
-    allocation_info_map = AllocationInfoMap(synced_exprs, true);
+    allocation_info_map = AllocationInfoMap(synced_exprs, false);
   }
 
   assignSharedMemoryAllocations(synced_exprs, allocation_info_map);
