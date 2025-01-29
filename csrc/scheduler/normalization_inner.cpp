@@ -43,6 +43,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
+          runtime_info,
           reduction_tvs,
           persistent_buffer_info,
           persistent_buffer_size_info,
@@ -58,7 +59,12 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 
   int64_t available_persistent_buffer_size = normalization_scheduler_utils::
       getMaxRegOrSharedMemorySizeForPersistentBuffer(
-          fusion, reduction_tvs, can_use_smem_persistent);
+          fusion,
+          runtime_info,
+          reduction_tvs,
+          persistent_buffer_info,
+          can_use_smem_persistent,
+          project_persistent_buffers);
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
@@ -146,7 +152,9 @@ int64_t getMaxPersistentBatch(
   // occupancy due to the limitation of the current heuristics. TODO: remove
   // this parameter when we have a better heuristic to select the best
   // persistent batch size.
-  int64_t max_batches_per_block = is_high_bandwidth_flops_ratio ? 12l : 10l;
+  int64_t max_batches_per_block =
+      normalization_scheduler_utils::getInnerPersistentMaxBatchSize(
+          is_high_bandwidth_flops_ratio);
   return std::min(max_batches_per_block, batch_size);
 }
 
