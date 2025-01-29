@@ -155,6 +155,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
   ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
   ${NVFUSER_SRCS_DIR}/ir/container.cpp
+  ${NVFUSER_SRCS_DIR}/ir/evaluate.cpp
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
