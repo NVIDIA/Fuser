@@ -154,7 +154,6 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
 
 PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
-  communicator_->setDefaultBackend(CommunicatorBackend::kNccl);
 }
 
 // To run the following tests on several devices, pytorch must be installed with
