@@ -41,7 +41,8 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
   tv->split(-2, params_->tile_sizes.warp_tile.n);
   tv->split(-2, getN(params_->mma_macro));
   // K dimension is present for mma_result
-  // We don't need to split by warp_tile.k, since we always have cta_tile.k==warp_tile.k
+  // We don't need to split by warp_tile.k, since we always have
+  // cta_tile.k==warp_tile.k
   tv->split(-1, getK(params_->mma_macro));
   // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Kw, Ki]
   tv->reorder({
