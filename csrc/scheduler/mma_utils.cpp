@@ -1321,7 +1321,7 @@ void scheduleStMatrixForMmaOutput(
     // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
     tv->split(-3, 2);
     // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
-    tv->reorder({{-4, -5}});
+    tv->reorder({{-4, 0}});
     // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
     tv->merge(-3);
     tv->merge(-2);
@@ -1329,7 +1329,7 @@ void scheduleStMatrixForMmaOutput(
     // Let [M, N] be [64, 16]
     // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
     // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
-    tv->reorder({{-3, -4}});
+    tv->reorder({{-3, 0}});
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
