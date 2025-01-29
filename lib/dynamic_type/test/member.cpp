@@ -41,19 +41,19 @@ struct E {
 struct CD {
   std::variant<C, D> v;
 
-  constexpr const int& operator->*(int C::*member) const {
+  constexpr const int& operator->*(int C::* member) const {
     return std::get<C>(v).*member;
   }
 
-  constexpr const int& operator->*(int D::*member) const {
+  constexpr const int& operator->*(int D::* member) const {
     return std::get<D>(v).*member;
   }
 
-  constexpr int& operator->*(int C::*member) {
+  constexpr int& operator->*(int C::* member) {
     return std::get<C>(v).*member;
   }
 
-  constexpr int& operator->*(int D::*member) {
+  constexpr int& operator->*(int D::* member) {
     return std::get<D>(v).*member;
   }
 };
