@@ -30,9 +30,13 @@
 namespace nvfuser {
 
 void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
-  // TODO Add constraints
-  // No Reduction Axis - Post MMA
-  // At least 4 iterDomains
+  NVF_ERROR(
+      tv->domain()->loop().size() >= 4,
+      "transformLikeMmaOutput requires at least four iterDomains but ",
+      tv->toString(),
+      " only has ",
+      tv->domain()->loop().size(),
+      ".");
 
   // Original: [..., Mo, No, Mi, Ni]
   tv->split(-2, getM(params_->mma_macro));
