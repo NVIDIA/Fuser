@@ -210,6 +210,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/expr_eval_exec.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_cache_utils.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp

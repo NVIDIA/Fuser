@@ -10,6 +10,7 @@
 
 #include <host_ir/executor.h>
 #include <instrumentation.h>
+#include <runtime/expr_eval_exec.h>
 
 #include <typeinfo>
 
