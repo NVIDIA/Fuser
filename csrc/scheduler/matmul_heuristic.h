@@ -241,7 +241,7 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
-       <<  cluster_dims.toString() << "\n"
+       << cluster_dims.toString() << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
