@@ -684,6 +684,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (ti->view()->getMemoryType() == MemoryType::Tensor) {
+      // Generate code like:
+      // (uint32_t)(T2 + Array<uint16_t, 2, 1>{0, 0})
       code_ << "(uint32_t)(" << genVariableName(ti->view()) << " + "
             << genInline(ti->index()) << ")";
       return;
@@ -3192,6 +3194,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         }
         case MemoryType::Tensor: {
+          // Generate code like:
+          // TMemTensor T2(T5[0]);
           indent() << "TMemTensor " << genVariableName(tv) << "("
                    << genInline(alloc->address()) << ");\n";
           break;
