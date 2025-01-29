@@ -998,31 +998,30 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto lhs = gen(bop->lhs());
 
     if (print_inline_) {
-      if (exponent == 1) {
+      for (int i = 0; i < exponent; ++i) {
+        if (i != 0) {
+          code_ << " * ";
+        }
         code_ << lhs;
-      } else if (exponent == 2) {
-        code_ << lhs << " * " << lhs;
-      } else if (exponent == 3) {
-        code_ << lhs << " * " << lhs << " * " << lhs;
       }
     } else {
       indent() << gen(bop->out());
       if (bop->out()->isScalar()) {
-        if (exponent == 1) {
-          code_ << " = " << lhs;
-        } else if (exponent == 2) {
-          code_ << " = " << lhs << " * " << lhs;
-        } else if (exponent == 3) {
-          code_ << " = " << lhs << " * " << lhs << " * " << lhs;
+        for (int i = 0; i < exponent; ++i) {
+          if (i == 0) {
+            code_ << " = " << lhs;
+          } else {
+            code_ << " * " << lhs;
+          }
         }
       } else {
-        code_ << "\n";
-        if (exponent == 1) {
-          indent() << kTab << "= " << lhs;
-        } else if (exponent == 2) {
-          indent() << kTab << "= " << lhs << "\n * " << lhs;
-        } else if (exponent == 3) {
-          indent() << kTab << "= " << lhs << "\n * " << lhs << "\n * " << lhs;
+        for (int i = 0; i < exponent; ++i) {
+          if (i == 0) {
+            code_ << "\n";
+            indent() << kTab << "= " << lhs;
+          } else {
+            indent() << "\n" << kTab << "* " << lhs;
+          }
         }
       }
     }
