@@ -208,7 +208,7 @@ class MatmulParams : public HeuristicParams {
 
     std::string toString() const {
       std::stringstream ss;
-      ss << x << " " << y << " " << z;
+      ss << "__cluster_dims__(" << x << ", " << "Y" << ", " << "Z" << ")";
       return ss.str();
     }
 
@@ -241,7 +241,7 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
-       << "Cluster dimensions: " << cluster_dims.toString() << "\n"
+       <<  cluster_dims.toString() << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
