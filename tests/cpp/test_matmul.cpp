@@ -4503,7 +4503,7 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<MLPBenchmarkTestParams>& info) {
       std::stringstream ss;
       ss << (info.param.persistent_kernel ? "persistent" : "dataparallel");
-      ss << (info.param.warp_specialization ? "_warpspec" : "_nowarpspec");
+      ss << (info.param.warp_specialization ? "_warpspec" : "_non_warpspec");
       return ss.str();
     });
 
