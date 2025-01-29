@@ -88,6 +88,7 @@ enum class PrimDataType {
   ComplexFloat,
   // Pointers
   SMemAddress,
+  TMemAddress,
   // Null
   Null
 };
@@ -196,6 +197,7 @@ struct DataType {
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
+  static constexpr PrimDataType TMemAddress = PrimDataType::TMemAddress;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
 
@@ -297,7 +299,7 @@ inline bool isUnsignedIntegralType(DataType dtype) {
 // Returns if the datatype is a pointer type
 inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
-      dtype == DataType::SMemAddress;
+      dtype == DataType::SMemAddress || dtype == DataType::TMemAddress;
 }
 
 // Returns if the datatype is an integer or pointer type
@@ -1056,6 +1058,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::UInt16:
       return sizeof(uint16_t);
     case DataType::UInt32:
+    case DataType::TMemAddress:
       return sizeof(uint32_t);
     case DataType::UInt64:
       return sizeof(uint64_t);

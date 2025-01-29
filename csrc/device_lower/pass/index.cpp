@@ -2159,7 +2159,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         auto index = IrBuilder::create<Val>(
             std::vector<int64_t>{0, 0},
             ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
-        in = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::UInt32);
+        in = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::TMemAddress);
       } else {
         in = lowerSrcIndex(
             ldst->in(),
@@ -2173,7 +2173,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         auto index = IrBuilder::create<Val>(
             std::vector<int64_t>{0, 0},
             ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
-        out = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::UInt32);
+        out = IrBuilder::create<kir::TensorIndex>(tv, index, DataType::TMemAddress);
       } else {
         out = lowerDstIndex(
             ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);

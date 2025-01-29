@@ -682,8 +682,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (ti->view()->getMemoryType() == MemoryType::Tensor) {
-      code_ << genVariableName(ti->view()) << " + "
-            << genInline(ti->index());
+      code_ << "(uint32_t)(" << genVariableName(ti->view()) << " + "
+            << genInline(ti->index()) << ")";
       return;
     }
 

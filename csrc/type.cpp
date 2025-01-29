@@ -243,11 +243,11 @@ static std::string data_type2string(DataType t) {
             case DataType::UInt16:
               return "uint16_t";
             case DataType::UInt32:
+            case DataType::SMemAddress:
+            case DataType::TMemAddress:
               return "uint32_t";
             case DataType::UInt64:
               return "uint64_t";
-            case DataType::SMemAddress:
-              return "unsigned";
             case DataType::ComplexFloat:
               return "std::complex<float>";
             case DataType::ComplexDouble:
