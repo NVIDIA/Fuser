@@ -122,11 +122,11 @@ scriptdir=$(mktemp -d -t codediffXXXXXX)
 cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
-    find . -maxdepth 1 \( -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' \) -exec mv '{}' "$1" \;
+    find . -maxdepth 1 \( -name '__tmp_nvfuser_*.cu' -o -name '__tmp_nvfuser_*.ptx' \) -exec mv '{}' "$1" \;
 }
 
 cleanup() {
-    numkernels=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' | wc -l)
+    numkernels=$(find . -maxdepth 1 -name '__tmp_nvfuser_*.cu' -o -name '__tmp_nvfuser_*.ptx' | wc -l)
 
     if (( numkernels > 0 ))
     then
