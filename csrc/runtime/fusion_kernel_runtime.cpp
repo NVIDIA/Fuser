@@ -280,6 +280,16 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
+  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+    if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      debug() << "=================RUNNING HOSTIR EVALUATOR================="
+              << std::endl;
+    }
+    ArgumentManager args_manager(
+        args, runtime_workspace_, segmented_fusion_->inputs());
+    return hie_->runWithInput(args_manager.getTensorMap());
+  }
+
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "=================RUNNING FUSION SEGMENTS================="
             << std::endl;
@@ -413,6 +423,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   // add all expressions and compiled kernels to the host ir container
   if(isOptionEnabled(EnableOption::HostIrLowering)) {
     IrCloner ir_cloner(hic.get());
+    FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
       auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;

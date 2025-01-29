@@ -221,6 +221,23 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
+std::vector<at::Tensor> HostIrEvaluator::runWithInput(
+    std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue) {
+  // process input values
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    expr_evaluator_.bind(val, *pvalue);
+  }
+
+  // Interpret each instruction in an "eager" way by iterate over the Host Ir
+  // Container's top level expression list
+  for (auto expr : container_->topLevelExprs()) {
+    dispatch(expr);
+  }
+
+  // Collect global outputs
+  return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
 std::string HostIrEvaluator::canRun() const {
   const int64_t requested_n_gpus = requestedNumberOfDevices(container_.get());
 
