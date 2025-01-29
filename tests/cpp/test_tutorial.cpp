@@ -345,9 +345,9 @@ TEST_F(Tutorial, ReductionRFactor) {
 
     // The fusion math should now look like:
     //
-    // tv2[r1/1024, i1024] = tv0[i0]
-    // tv1[r1024] = tv2[r1/1024, i1024]
-    //
+    // tv0: root = logical = [i0]
+    // tv2 = reduction(tv0): root = [i0], logical = [r1/1024, i1024]
+    // tv1 = reduction(tv2): root = logical = [r1024]
     if (verbose_) {
       fusion_copy.printMath();
     }
