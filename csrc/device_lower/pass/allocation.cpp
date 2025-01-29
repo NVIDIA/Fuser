@@ -848,7 +848,11 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
 
     // the tcgen05.alloc instructions
     auto alloc_expr = IrBuilder::create<kir::AllocTMem>(
-        allocation_address, IrBuilder::create<Val>(0, DataType::UInt32));
+        allocation_address,
+        IrBuilder::create<Val>(
+            32,
+            DataType::UInt32) // TODO: hard code allocation size to 32 for now
+    );
     prologue.push_back(alloc_expr);
 
     // Relinquish the right to allocate after we are done with tcgen05.allocs
