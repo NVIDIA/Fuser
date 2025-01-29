@@ -69,7 +69,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e));
+      HostIrLower lower;
+      std::vector<Expr*> communications = lower.lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -408,6 +409,45 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 }
 
+int64_t AllgatherThroughCudaMemcpyAsync::running_counter = 0;
+
+AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor input, std::vector<at::Tensor> outputs, Communicator* communicator) : unique_id(running_counter++), communicator_(communicator) {
+  cudaIpcMemHandle_t input_ipc_handle;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&input_ipc_handle, input.data_ptr()));
+
+  auto store = communicator->getTcpStore();
+  const int64_t my_rank = communicator->deviceId();
+  store->set(prefix() + std::to_string(my_rank), toBytes(input_ipc_handle));
+
+  communicator_->barrier();
+
+  sizes_.resize(communicator_->size(), 0);
+  input_ptrs_.resize(communicator_->size(), nullptr);
+  output_ptrs_.resize(communicator_->size(), nullptr);
+  for (int64_t rank: c10::irange(communicator_->size())) {
+    auto output = outputs.at(rank);
+    sizes_.at(rank) = output.numel() * output.element_size();
+
+    output_ptrs_.at(rank) = output.data_ptr();
+    if (rank == my_rank) {
+      input_ptrs_.at(rank) = input.data_ptr();
+    } else {
+      auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + std::to_string(rank)));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&input_ptrs_.at(rank), peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+    }
+  }
+}
+
+void AllgatherThroughCudaMemcpyAsync::post() const {
+  for (size_t i = 0; i < sizes_.size(); i++) {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice));
+  }
+}
+
+
+
+
+
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
@@ -418,14 +458,30 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
 
-  c10d::Backend* backend =
-      communicator_->getBackendForTeam(communication->team(), std::nullopt);
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      backend,
-      input_tensor,
-      output_tensor);
+  CommunicatorBackend backend_type = communication->backend();
+
+  if (backend_type != CommunicatorBackend::kCuda) {
+    c10d::Backend* backend =
+        communicator_->getBackendForTeam(communication->team(), backend_type);
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
+    return;
+  }
+
+  NVF_ERROR(communication->type() == CommunicationType::Allgather);
+  if (allgather_backends_.find(communication) == allgather_backends_.end()) {
+    allgather_backends_.try_emplace(
+        communication,
+        AllgatherThroughCudaMemcpyAsync(
+            input_tensor,
+            getKnownTensorOrUndefined(communication->outputs(), expr_evaluator_),
+            communicator_));
+  }
+  allgather_backends_.at(communication).post();
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -446,8 +502,11 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
+  auto it = works_.find(communication);
+  if (it == works_.end()) {
+    return;
+  }
+  auto& work = it->second;
   if (work != nullptr) {
     work->wait();
   }

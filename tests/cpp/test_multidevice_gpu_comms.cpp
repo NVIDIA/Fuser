@@ -62,7 +62,7 @@ TEST_F(GpuCommTest, Allgather) {
     return at::empty({kTensorSize}, tensor_options);
   });
 
-  AllgatherThroughCudaMemcpyAsync allgather(input, outputs, communicator_);
+  hir::AllgatherThroughCudaMemcpyAsync allgather(input, outputs, communicator_);
   allgather.post();
 
   torch::cuda::synchronize();

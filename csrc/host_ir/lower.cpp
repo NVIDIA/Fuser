@@ -304,6 +304,10 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
       lowerToBroadcastOrSendRecv(input_tv, output_tv, comms);
     }
   }
+
+  std::for_each(comms.begin(), comms.end(), [this](Expr* comm) {
+    comm->as<Communication>()->backend() = params_.communicator_backend;
+  });
   return comms;
 }
 
