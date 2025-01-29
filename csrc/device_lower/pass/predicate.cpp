@@ -263,6 +263,19 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               IrBuilder::ltExpr(
                   NamedScalar::getParallelIndex(ParallelType::TIDx),
                   warp_size));
+
+    // Inline predicate may be necessary for TMA Store
+    if (pred->expr() != nullptr || pred->thread_pred() != nullptr) {
+      return SimplifyingIrBuilder::logicalAndExpr(
+          conditional,
+          PredicateCompute::getInlinePredicate(
+              pred->expr(),
+              for_loops_,
+              rotated_loop_,
+              pred->thread_pred(),
+              PredicateType::Inline));
+    }
+
     for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
       if (pdim_map.has(pt) && load_warp_on != pt) {
         conditional = SimplifyingIrBuilder::logicalAndExpr(
