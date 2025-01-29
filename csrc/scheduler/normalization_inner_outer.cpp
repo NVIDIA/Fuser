@@ -217,7 +217,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
-          runtime_info,
+          reduction_tvs,
           persistent_buffer_info,
           persistent_buffer_size_info,
           InnerOuterPersistentKernelScheduler::schedulerType(),

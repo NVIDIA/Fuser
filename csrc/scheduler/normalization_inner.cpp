@@ -43,7 +43,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
-          runtime_info,
+          reduction_tvs,
           persistent_buffer_info,
           persistent_buffer_size_info,
           InnerPersistentKernelScheduler::schedulerType(),
@@ -58,9 +58,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 
   int64_t available_persistent_buffer_size = normalization_scheduler_utils::
       getMaxRegOrSharedMemorySizeForPersistentBuffer(
-          runtime_info,
-          persistent_buffer_info.persistent_buffers,
-          can_use_smem_persistent);
+          fusion, reduction_tvs, can_use_smem_persistent);
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }

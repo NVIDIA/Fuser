@@ -285,8 +285,8 @@ void schedulePersistentKernel(
 
 // Get max register or shared memory size for persistent buffer
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
-    SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers,
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
     const bool can_use_smem_persistent);
 
 enum class BufferProjectionStrategy {
@@ -330,7 +330,7 @@ enum class BufferProjectionStrategy {
 // smaller than the original persistent buffers, this function returns true.
 BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
