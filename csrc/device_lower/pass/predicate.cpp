@@ -108,11 +108,14 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
-      auto conditional = generateConditional(expr->predicate());
 
-      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
-        checkElectSyncCompatibility(expr);
-      }
+      // The ElectSync predicate is handled separately because it requires
+      // information about the thread parallelization of the expressions within
+      // the kir::IfThenElse block.
+      Val* conditional =
+          (expr->predicate()->predicate_type() == PredicateType::ElectSync)
+          ? generateElectSyncConditional(expr)
+          : generateConditional(expr->predicate());
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -219,6 +222,57 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     }
   }
 
+  Val* generateElectSyncConditional(Expr* expr) {
+    NVF_ERROR(expr->predicate()->predicate_type() == PredicateType::ElectSync);
+    checkElectSyncCompatibility(expr);
+    kir::Predicate* pred = expr->predicate();
+
+    Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+    Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+    Val* full_mask_val =
+        IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+
+    Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+    IrBuilder::create<UnaryOp>(
+        UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+
+    auto load_warp_loop_it =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+          return fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::LoadWarp;
+        });
+    ParallelType load_warp_on = ParallelType::Serial;
+    if (load_warp_loop_it != for_loops_.end()) {
+      load_warp_on =
+          std::get<WarpSpecialized>(GpuLower::current()
+                                        ->circularBufferInfo()
+                                        .getCircularBufferOptionsFor(
+                                            (*load_warp_loop_it)->iter_domain())
+                                        .type)
+              .on;
+    }
+
+    // If we are in a load warp, then the warp-dispatching IfThenElse
+    // already selects on `load_warp_on`, so we should not generate
+    // predicates for it here.
+    const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+    Val* conditional = load_warp_on == ParallelType::TIDx
+        ? pred->fusion()->trueVal()
+        : SimplifyingIrBuilder::logicalAndExpr(
+              elect_sync_val,
+              IrBuilder::ltExpr(
+                  NamedScalar::getParallelIndex(ParallelType::TIDx),
+                  warp_size));
+    for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+      if (pdim_map.has(pt) && load_warp_on != pt) {
+        conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional,
+            IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+      }
+    }
+    return conditional;
+  }
+
   // Generate conditional according to PredicateType
   Val* generateConditional(kir::Predicate* pred) {
     switch (pred->predicate_type()) {
@@ -261,50 +315,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
-        Val* full_mask_val =
-            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-
-        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-        IrBuilder::create<UnaryOp>(
-            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-
-        auto load_warp_loop_it =
-            std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
-              return fl->circularBufferLoopStage() ==
-                  CircularBufferLoopStage::LoadWarp;
-            });
-        ParallelType load_warp_on = ParallelType::Serial;
-        if (load_warp_loop_it != for_loops_.end()) {
-          load_warp_on = std::get<WarpSpecialized>(
-                             GpuLower::current()
-                                 ->circularBufferInfo()
-                                 .getCircularBufferOptionsFor(
-                                     (*load_warp_loop_it)->iter_domain())
-                                 .type)
-                             .on;
-        }
-
-        // If we are in a load warp, then the warp-dispatching IfThenElse
-        // already selects on `load_warp_on`, so we should not generate
-        // predicates for it here.
-        const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-        Val* conditional = load_warp_on == ParallelType::TIDx
-            ? pred->fusion()->trueVal()
-            : SimplifyingIrBuilder::logicalAndExpr(
-                  elect_sync_val,
-                  IrBuilder::ltExpr(
-                      NamedScalar::getParallelIndex(ParallelType::TIDx),
-                      warp_size));
-        for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-          if (pdim_map.has(pt) && load_warp_on != pt) {
-            conditional = SimplifyingIrBuilder::logicalAndExpr(
-                conditional,
-                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-          }
-        }
-        return conditional;
+        NVF_THROW("Use generateElectSyncConditional");
       }
       default:
         break;
