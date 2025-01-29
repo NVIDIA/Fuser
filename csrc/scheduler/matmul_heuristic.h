@@ -208,7 +208,7 @@ class MatmulParams : public HeuristicParams {
 
     std::string toString() const {
       std::stringstream ss;
-      ss << "__cluster_dims__(" << x << ", " << "Y" << ", " << "Z" << ")";
+      ss << "__cluster_dims__(" << x << ", " << y << ", " << z << ")";
       return ss.str();
     }
 
