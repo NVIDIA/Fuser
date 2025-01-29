@@ -2115,13 +2115,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
           out = hardCodedIndexGenerationForStMatrix(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32:
           out = hardCodedIndexGenerationForStMatrixSwizzle(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
