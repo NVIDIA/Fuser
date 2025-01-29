@@ -58,7 +58,7 @@ struct TensorMemoryInfo {
   // The address returned by tcgen05.alloc.
   // tcgen05.alloc stores the allocated address in shared memory. So we use a
   // TensorView with MemoryType::Shared to store this address.
-  TensorView* allocation_address;
+  TensorView* allocation_address = nullptr;
 };
 
 } // namespace nvfuser
