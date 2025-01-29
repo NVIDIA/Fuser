@@ -483,9 +483,7 @@ class AllocationInserter : public kir::ExprMutator {
           GpuLower::current()->tmemInfo().allocation_address;
       auto address_ti = IrBuilder::create<kir::TensorIndex>(
           allocation_address, allocation_address->fusion()->zeroVal());
-      alloc_expr->setBaseAddress(address_ti);
-      alloc_expr->setLaneOffset(allocation_address->fusion()->zeroVal());
-      alloc_expr->setColOffset(allocation_address->fusion()->zeroVal());
+      alloc_expr->setAddress(address_ti);
     }
 
     return alloc_expr;

@@ -187,8 +187,6 @@ Allocate::Allocate(
   addAttribute(alias);
   // Always initialize smem/tmem addresses to nullptr
   addAttribute(nullptr);
-  addAttribute(nullptr);
-  addAttribute(nullptr);
 
   for (auto s : shape) {
     addAttribute(s);
