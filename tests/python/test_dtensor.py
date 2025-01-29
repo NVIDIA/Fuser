@@ -126,7 +126,7 @@ def test_linear(setup_process_group):
             self.b = batch
             self.s = sequence
             self.e = hidden
-    
+
     class LinearForwardDefinition(FusionDefintionArguments):
         def __call__(self, fd: FusionDefinition):
             inp = fd.define_tensor([self.b, self.s, self.e])
@@ -146,7 +146,7 @@ def test_linear(setup_process_group):
             grad = fd.ops.reshape(grad, [self.d, self.b * self.s, self.e])
 
             grad_x_partials = fd.ops.matmul(grad, w)
-            grad_x = fd.ops.sum(grad_x_partials, [0]) # all reduce
+            grad_x = fd.ops.sum(grad_x_partials, [0])  # all reduce
             grad_t = fd.ops.permute(grad, [0, 2, 1])
             grad_w = fd.ops.matmul(grad_t, x)
             grad_b = fd.ops.sum(grad, [1])
@@ -178,7 +178,7 @@ def test_linear(setup_process_group):
             input, weight = ctx.saved_tensors
             outputs = op([input, weight, grad_output])
             return outputs[0], outputs[1], outputs[2]
-    
+
     world_size = dist.get_world_size()
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
@@ -207,20 +207,18 @@ def test_linear(setup_process_group):
     out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor, bias_dtensor)
 
     # expected backward
-    (expected_grad_x, expected_grad_w, expected_grad_b)
-        = torch.autograd.grad(
-            unsharded_out_tensor,
-            (inp_tensor, weight_tensor, bias_tensor),
-            torch.ones_like(unsharded_out_tensor)
-        )
+    (expected_grad_x, expected_grad_w, expected_grad_b) = torch.autograd.grad(
+        unsharded_out_tensor,
+        (inp_tensor, weight_tensor, bias_tensor),
+        torch.ones_like(unsharded_out_tensor),
+    )
 
     # multidevice backward
-    (grad_x, grad_w, grad_b)
-        = torch.autograd.grad(
-            out_dtensor,
-            (inp_dtensor, weight_dtensor, bias_dtensor),
-            torch.ones_like(out_dtensor)
-        )
+    (grad_x, grad_w, grad_b) = torch.autograd.grad(
+        out_dtensor,
+        (inp_dtensor, weight_dtensor, bias_dtensor),
+        torch.ones_like(out_dtensor),
+    )
 
     torch.testing.assert_close(
         out_dtensor.to_local(), expected_out_tensor, rtol=1.3e-6, atol=1e-3
