@@ -3183,7 +3183,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (va.find(tv) != va.end()) {
             aligned_array_of_regs_.insert(tv);
           }
-        } break;
+          break;
+        }
+        case MemoryType::Tensor: {
+          NVF_THROW("Not implemented yet");
+          break;
+        }
         default:
           NVF_THROW("Unexpected memory type");
       }
