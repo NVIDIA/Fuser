@@ -642,10 +642,10 @@ int warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    const std::string& id,
+    const std::string& kernel_name,
     const std::string& full_src_code) {
   std::stringstream ss;
-  ss << "__tmp_kernel_" << id << ".cu";
+  ss << "__tmp_" << kernel_name << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
   NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
@@ -667,10 +667,10 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 // Returns the name of the dumped file.
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    const std::string& id,
+    const std::string& kernel_name,
     const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel_" << id << suffix;
+  file_name << "__tmp_" << kernel_name << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -691,7 +691,7 @@ std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
 std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const std::string& id,
+    const std::string& kernel_name,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -702,7 +702,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
-  createNvrtcProgram(program, id, full_src_code);
+  createNvrtcProgram(program, kernel_name, full_src_code);
 
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
@@ -718,7 +718,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     compiled_kernel->cubin = compileNvrtcProgramToCubin(program);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
       compiled_kernel->cubin_filename =
-          dumpCompiledCodeToFile(compiled_kernel->cubin, id, ".cubin");
+          dumpCompiledCodeToFile(compiled_kernel->cubin, kernel_name, ".cubin");
     }
   }
 
@@ -726,7 +726,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     compiled_kernel->ptx = compileNvrtcProgramToPtx(program);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
       compiled_kernel->ptx_filename =
-          dumpCompiledCodeToFile(compiled_kernel->ptx, id, ".ptx");
+          dumpCompiledCodeToFile(compiled_kernel->ptx, kernel_name, ".ptx");
     }
   }
 
@@ -812,7 +812,11 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
             (compile_to_sass ? compiled_kernel->cubin
                              : compiled_kernel->ptx)))) {
     compiled_kernel = compileSource(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
+        full_src_code,
+        func_name,
+        compiled_kernel->kernel_name,
+        compile_to_sass,
+        nvrtc_compile_driver);
     log << compiled_kernel->compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(

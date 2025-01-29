@@ -713,6 +713,7 @@ inline bool isMemoryPartitionedAcross(
       return isParallelTypeThread(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Shared:
+    case MemoryType::Tensor:
       return isParallelTypeBlockDim(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Global:
@@ -734,7 +735,8 @@ inline bool isMemorySharedAcross(
       // Nothing is shared if it's Local
       return false;
     case MemoryType::Shared:
-      // Only TID parallelized domains are shared if it's Shared
+    case MemoryType::Tensor:
+      // Only TID parallelized domains are shared if it's Shared or Tensor
       return isParallelTypeThreadDim(parallel_type);
     case MemoryType::Global:
       // Only TID and BID parallelized domains are shared if it's Global
