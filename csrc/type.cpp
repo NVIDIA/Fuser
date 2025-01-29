@@ -774,6 +774,8 @@ static const char* memory_type2string(MemoryType t) {
       return "shared";
     case MemoryType::Global:
       return "global";
+    case MemoryType::Tensor:
+      return "tensor";
     default:
       NVF_THROW("Unexpected MemoryType");
   }
@@ -854,6 +856,8 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "StMatrix";
     case LoadStoreOpType::CpAsync:
       return "CpAsync";
+    case LoadStoreOpType::CpAsyncBulk:
+      return "CpAsyncBulk";
     case LoadStoreOpType::CpAsyncBulkTensorTile:
       return "CpAsyncBulkTensorTile";
     default:

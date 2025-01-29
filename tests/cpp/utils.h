@@ -555,6 +555,9 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
+
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModelExtraValidation);
   }
 
   void TearDown() override {
@@ -599,11 +602,26 @@ class NVFuserTest : public ::testing::Test {
     return str;
   }
 
+ protected:
+  EnableOptionsGuard enable_options_guard_;
+  DisableOptionsGuard disable_options_guard_;
+
  private:
   bool capturing_ = false;
 };
 
 class HopperBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// TMA is supported on Hopper and newer GPUs
+class TmaBase : public NVFuserTest {
  protected:
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
@@ -826,7 +844,7 @@ bool isSchedulerInUse(
     const SchedulerType& scheduler_type);
 
 // Disable magic zero
-constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+const CompileParams matmul_cparams{DataType::Int32, 255, false};
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);

@@ -18,8 +18,7 @@ template <
     int NumVals,
     typename DataTypeT,
     typename IndexTypeT,
-    template <int, typename>
-    typename MakeTuple>
+    template <int, typename> typename MakeTuple>
 struct WelfordTripletTuple {
   static constexpr int num_vals = NumVals;
   using DataType = DataTypeT;

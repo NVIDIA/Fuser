@@ -617,7 +617,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           value);
       auto atype = std::get<ArrayType>(dtype.type);
       auto dims = static_cast<int64_t>(value.as<std::vector>().size());
-      code_ << "{ ";
+      code_ << "{";
       for (auto i = 0; i < dims; i++) {
         if (i > 0) {
           code_ << ", ";
@@ -711,7 +711,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << genVariableName(tv);
   }
 
-  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+  void genCpAsyncBulkMaybeTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
 
@@ -722,8 +722,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     kir::TensorIndex* smem_ti = nullptr;
     std::string func_name;
 
+    bool is_tensor_tile =
+        ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+
     if (out->view()->getMemoryType() == MemoryType::Shared) {
-      func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      func_name = is_tensor_tile ? "Hopper::cpAsyncBulkTensorTileG2S"
+                                 : "Hopper::cpAsyncBulkG2S";
       NVF_ERROR(
           in_tv->getMemoryType() == MemoryType::Global,
           "Expected input in global for G2S operation");
@@ -736,7 +740,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           out_tv->getMemoryType() == MemoryType::Global,
           "Expected input in shared for S2G operation");
-      func_name = "Hopper::cpAsyncBulkTensorTileS2G";
+      func_name = is_tensor_tile ? "Hopper::cpAsyncBulkTensorTileS2G"
+                                 : "Hopper::cpAsyncBulkS2G";
       smem_ti = in;
       gmem_ti = out;
     }
@@ -1466,9 +1471,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             "Vectorized store/load requires input and output datatypes match.");
       }
 
-      // dispatch cp.async.bulk.tensor.tile
-      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
-        genCpAsyncBulkTensorTile(ldst);
+      // dispatch cp.async.bulk.{tensor}
+      if (optype == LoadStoreOpType::CpAsyncBulk ||
+          optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkMaybeTensorTile(ldst);
         return;
       }
 
@@ -3177,7 +3183,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (va.find(tv) != va.end()) {
             aligned_array_of_regs_.insert(tv);
           }
-        } break;
+          break;
+        }
+        case MemoryType::Tensor: {
+          NVF_THROW("Not implemented yet");
+          break;
+        }
         default:
           NVF_THROW("Unexpected memory type");
       }

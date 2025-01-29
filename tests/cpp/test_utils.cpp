@@ -1119,12 +1119,13 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
   ke.compile(&fusion, {t0});
 
   EXPECT_THAT(
-      [&]() { ke.disassembledKernelSASS(); },
+      [&]() { ke.compiledKernel()->disassembledKernelSASS(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("I am fake")));
 
   auto cg_outputs = ke.run({t0});
-  testValidate(ke.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, ProveLinearAndGetStride) {
