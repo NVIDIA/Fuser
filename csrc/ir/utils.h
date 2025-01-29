@@ -718,8 +718,6 @@ inline bool isMemoryPartitionedAcross(
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Global:
       return isParallelTypeDeviceDim(parallel_type);
-    case MemoryType::Tensor:
-      return isParallelTypeDeviceDim(parallel_type);
     default:
       NVF_THROW("Unknown MemoryType: ", memory_type);
   }
@@ -742,8 +740,6 @@ inline bool isMemorySharedAcross(
       // Only TID and BID parallelized domains are shared if it's Global
       return isParallelTypeThreadDim(parallel_type) ||
           isParallelTypeBlockDim(parallel_type);
-    case MemoryType::Tensor:
-      return isParallelTypeThreadDim(parallel_type);
     default:
       NVF_THROW("Unknown MemoryType: ", memory_type);
   }

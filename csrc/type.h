@@ -1059,12 +1059,11 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::UInt16:
       return sizeof(uint16_t);
     case DataType::UInt32:
+    case DataType::SMemAddress:
     case DataType::TMemAddress:
       return sizeof(uint32_t);
     case DataType::UInt64:
       return sizeof(uint64_t);
-    case DataType::SMemAddress:
-      return sizeof(unsigned);
     default:
       NVF_THROW("Size undefined for data type.");
   }

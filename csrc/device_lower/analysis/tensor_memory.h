@@ -36,7 +36,17 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 //
 // Because multiple CTAs can execute on the same SM simultaneously, there must
 // be some handshaking mechanism for each CTA to know the region of TMem that it
-// can use. This is done by using the PTX instruction tcgen05.alloc.
+// can use. This is done by using the PTX instruction tcgen05.alloc. To ensure
+// safety, there is a mutex "I have the right to allocate TMem" in the
+// hardware. At the beginning of each CTA, the CTA will try to acquire the mutex
+// automatically. If it fails, the CTA will be blocked until the mutex is free.
+// This means, only one CTA can allocate TMem at a time. Once the CTA has
+// finished allocating TMem, it should release the mutex to relinquish the right
+// to allocate. After the right to allocate is relinquished, this CTA can not
+// allocate new TMem any more, but it can still access the TMem that it has
+// allocated, and it can also free the TMem that it has allocated. Once one CTA
+// relinquishes the right to allocate, the next CTA that is blocked will be
+// unblocked and can acquire the mutex to allocate TMem.
 //
 // The tcgen05.alloc instruction is like the following:
 //   tcgen05.alloc [dest], nCols
