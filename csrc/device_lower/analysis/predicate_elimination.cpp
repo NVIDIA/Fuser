@@ -571,11 +571,11 @@ class PredicateChcker : public IterVisitor {
   // For details on zero loops, see indexMapFromTV in
   //  lower index pass.
   std::vector<Val*> getZeroLeafIds(const TensorView* tv) const {
-    // NVF_ERROR(
-    //     tv->getMemoryType() == MemoryType::Local ||
-    //         tv->getMemoryType() == MemoryType::Shared,
-    //     "Local or shared memory tensor is assumed: ",
-    //     tv->toString());
+    NVF_ERROR(
+        tv->getMemoryType() == MemoryType::Local ||
+            tv->getMemoryType() == MemoryType::Shared,
+        "Local or shared memory tensor is assumed: ",
+        tv->toString());
     bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
     std::vector<Val*> zero_loop_ids;
     for (const auto i : c10::irange(tv->nDims())) {
