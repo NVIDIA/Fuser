@@ -444,6 +444,23 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 } // namespace
 
+void AmpereMultipleMatmulScheduler::validate() const {
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int cc = device_prop->major * 10 + device_prop->minor;
+  NVF_ERROR(
+      cc >= 75 && cc < 90,
+      "This matmul scheduler is restricted to Ampere and Turing.");
+
+  NVF_CHECK(
+      params_->persistence_strategy ==
+          MatmulParams::PersistenceStrategy::DataParallel,
+      "Ampere matmul scheduler does not support scheduling persistent CTAs");
+
+  NVF_CHECK(
+      params_->warp_specialization == false,
+      "Ampere matmul scheduler does not support warp specialization");
+}
+
 void AmpereMultipleMatmulScheduler::run() {
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs

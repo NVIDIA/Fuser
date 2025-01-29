@@ -4275,6 +4275,9 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
   mparams.async_gmem_load_operands = true;
+  mparams.warp_specialization = false;
+  mparams.persistence_strategy =
+      MatmulParams::PersistenceStrategy::DataParallel;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;

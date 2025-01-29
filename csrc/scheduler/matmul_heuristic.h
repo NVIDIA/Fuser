@@ -187,6 +187,21 @@ class MatmulParams : public HeuristicParams {
   //! Promote reuse of prologue shared memory
   bool promote_prologue_smem_reuse = false;
 
+  //! Whether to use an additional warp group for loading operands (Hopper only)
+  bool warp_specialization = false;
+
+  //! This dictates our strategy for mapping tiles to CTAs/warp groups
+  //! - DataParallel: Every output tile corresponds to a single CTA in the grid,
+  //!   or to multiple CTAs if splitk_factor != 1. Every CTA computes only a
+  //!   single output tile.
+  //! - Cooperative (Hopper only): Launch exactly num_SMs CTAs. Each CTA loops
+  //!   over output tiles and computes the entire tile and its epilogue before
+  //!   moving on to the next output tile.
+  enum class PersistenceStrategy {
+    DataParallel,
+    Cooperative
+  } persistence_strategy = PersistenceStrategy::Cooperative;
+
   //! Whether to do single-kernel split-K. If this is >1, we will rfactor the K
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;

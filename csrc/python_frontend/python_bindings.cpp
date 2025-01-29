@@ -671,6 +671,10 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .MMAMACROPROP(k, uint16_t)
       .TOSTRINGTOPLEVEL(MmaMacro);
 #undef MMAMACROPROP
+  py::enum_<MatmulParams::PersistenceStrategy>(
+      nvfuser, "MatmulPersistenceStrategy")
+      .value("data_parallel", MatmulParams::PersistenceStrategy::DataParallel)
+      .value("cooperative", MatmulParams::PersistenceStrategy::Cooperative);
 
   // Base class for scheduler parameters
   DEFINECLASS(HeuristicParams)
@@ -746,6 +750,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
+      .PARAM(MatmulParams, warp_specialization)
+      .PARAM(MatmulParams, persistence_strategy)
       .PARAM(MatmulParams, cta_order)
       .PARAM(MatmulParams, mma_macro);
 
