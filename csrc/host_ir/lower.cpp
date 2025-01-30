@@ -475,7 +475,11 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       CommunicationType::Allgather,
       /*out=*/tva_allgathered_j,
       /*in=*/tva_j,
-      /*team=*/tva->getDeviceMesh().vector());
+      /*team=*/tva->getDeviceMesh().vector(),
+      /*root=*/-1,
+      /*red_op=*/RedOpType::UNUSED,
+      /*scattered_axis=*/-1,
+      params_.communicator_backend);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   Expr* compute = nullptr;

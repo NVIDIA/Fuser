@@ -415,9 +415,12 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
   cudaIpcMemHandle_t input_ipc_handle;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&input_ipc_handle, input.data_ptr()));
 
+  std::string rank_prefix = "_rank=";
+
   auto store = communicator->getTcpStore();
   const int64_t my_rank = communicator->deviceId();
-  store->set(prefix() + std::to_string(my_rank), toBytes(input_ipc_handle));
+  store->set(prefix() + rank_prefix + std::to_string(my_rank), toBytes(input_ipc_handle));
+  std::cout << "rank " << communicator_->deviceId() << " sets at key " << prefix() + rank_prefix + std::to_string(my_rank) <<  std::endl;
 
   communicator_->barrier();
 
@@ -432,7 +435,8 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
     if (rank == my_rank) {
       input_ptrs_.at(rank) = input.data_ptr();
     } else {
-      auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + std::to_string(rank)));
+      std::cout << "rank " << communicator_->deviceId() << " gets at key " << prefix() + rank_prefix + std::to_string(rank) << " for iteration " << rank <<  std::endl;
+      auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + rank_prefix + std::to_string(rank)));
       NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&input_ptrs_.at(rank), peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
     }
   }
@@ -440,6 +444,7 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
 
 void AllgatherThroughCudaMemcpyAsync::post() const {
   for (size_t i = 0; i < sizes_.size(); i++) {
+    std::cout << "rank " << communicator_->deviceId() <<", iteration " << i << ", input_ptr=" << input_ptrs_.at(i) << ", output_ptr=" << output_ptrs_.at(i) << ", size=" << sizes_.at(i)<<  std::endl;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice));
   }
 }
@@ -473,15 +478,23 @@ void HostIrEvaluator::handle(Communication* communication) {
   }
 
   NVF_ERROR(communication->type() == CommunicationType::Allgather);
-  if (allgather_backends_.find(communication) == allgather_backends_.end()) {
-    allgather_backends_.try_emplace(
-        communication,
-        AllgatherThroughCudaMemcpyAsync(
-            input_tensor,
-            getKnownTensorOrUndefined(communication->outputs(), expr_evaluator_),
-            communicator_));
-  }
-  allgather_backends_.at(communication).post();
+  // if (allgather_backends_.find(communication) == allgather_backends_.end()) {
+  //   // TODO: retrieve sharded axis here
+  //   auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  //   allgather_backends_.try_emplace(
+  //       communication,
+  //       AllgatherThroughCudaMemcpyAsync(
+  //           input_tensor,
+  //           output_tensors,
+  //           communicator_));
+  // }
+  // allgather_backends_.at(communication).post();
+
+  auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  AllgatherThroughCudaMemcpyAsync allgather_backend(input_tensor, output_tensors, communicator_);
+  allgather_backend.post();
+  torch::cuda::synchronize();
+  communicator_->barrier();
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -492,12 +505,19 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
-      buffer);
+  CommunicatorBackend backend_type = communication->backend();
+
+  if (backend_type != CommunicatorBackend::kCuda) {
+
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        communicator_->getWorld(),
+        buffer);
+    return;
+  }
+  NVF_ERROR(false, "CUDA backend not supported yet");
 }
 
 void HostIrEvaluator::handle(Wait* wait) {

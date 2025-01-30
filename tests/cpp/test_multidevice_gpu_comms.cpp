@@ -53,6 +53,42 @@ TEST_F(GpuCommTest, IpcMemHandle) {
 
 }
 
+TEST_F(GpuCommTest, IpcMemHandlePtrArithmetic) {
+  // Allocate GPU memory
+  constexpr size_t size = 2 * sizeof(int64_t);
+  const int64_t num_devices = communicator_->size();
+  const int64_t rank = communicator_->deviceId();
+  const int64_t peer_rank = (rank + 1) % num_devices;
+  void* d_ptr;
+  CUDA_CALL(cudaMalloc(&d_ptr, size));
+
+  std::vector<int64_t> values;
+  values.push_back(2 * rank);
+  values.push_back(2 * rank + 1);
+  CUDA_CALL(cudaMemcpy(d_ptr, values.data(), size, cudaMemcpyHostToDevice));
+
+  cudaIpcMemHandle_t ipc_handle;
+  CUDA_CALL(cudaIpcGetMemHandle(&ipc_handle, d_ptr));
+
+  auto store = communicator_->getTcpStore();
+  store->set("ipc_handle_" + std::to_string(rank), toBytes(ipc_handle));
+  communicator_->barrier();
+  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get("ipc_handle_" + std::to_string(peer_rank)));
+
+  int64_t* peer_d_ptr;
+  CUDA_CALL(cudaIpcOpenMemHandle((void**)&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+
+  int64_t peer_value;
+  CUDA_CALL(cudaMemcpy(&peer_value, peer_d_ptr + 1, size / 2, cudaMemcpyDeviceToHost));
+
+  EXPECT_EQ(2 * peer_rank + 1, peer_value);
+
+  // Clean up
+  CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
+  CUDA_CALL(cudaFree(d_ptr));
+
+}
+
 TEST_F(GpuCommTest, Allgather) {
   constexpr int64_t kTensorSize = 1024;
 

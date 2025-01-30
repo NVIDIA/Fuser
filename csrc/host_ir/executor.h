@@ -71,7 +71,7 @@ class AllgatherThroughCudaMemcpyAsync {
 
  private:
   std::string prefix() const {
-    return "AllgatherThroughCudaMemcpyAsync" + std::to_string(unique_id);
+    return "AllgatherThroughCudaMemcpyAsync_uniqueId=" + std::to_string(unique_id);
   }
 
   static int64_t running_counter;

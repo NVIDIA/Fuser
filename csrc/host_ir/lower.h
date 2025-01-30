@@ -36,7 +36,7 @@ class HostIrLower {
       int64_t my_device_index);
 
  private:
-  static std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
+  std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
   HostIrLowerParams params_;
 };
 
