@@ -3054,11 +3054,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       //
       // Unroll "prefetch" many circular buffered loops regardless of buffer
       // stage (prologue, main, or epilogue)
-      int64_t prefetch = kernel_->summary()
-                             .circular_buffer_info
-                             .getCircularBufferOptionsFor(loop->iter_domain())
-                             .prefetch;
-      indent() << "#pragma unroll " << prefetch << "\n";
+      // int64_t prefetch = kernel_->summary()
+      //                        .circular_buffer_info
+      //                        .getCircularBufferOptionsFor(loop->iter_domain())
+      //                        .prefetch;
+      indent() << "#pragma unroll "<< "\n";
+      // indent() << "#pragma unroll " << prefetch << "\n";
     } else if (loop->isUnrolled()) {
       indent() << "#pragma unroll\n";
     } else {

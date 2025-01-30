@@ -7,8 +7,8 @@
 // clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/tools/inlining.h>
@@ -319,12 +319,107 @@ TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer2) {
       fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
 
-//0.884 ms
+namespace {
+// Function to get the number of CUDA cores per SM.
+// convert {major, minor} to hex number and check the map.
+int getCoresPerSM(int major, int minor) {
+  int sm_version = (major << 4) + minor;
+  std::unordered_map<int, int> cores_per_sm_map = {
+      {0x30, 192},
+      {0x32, 192},
+      {0x35, 192},
+      {0x37, 192},
+      {0x50, 128},
+      {0x52, 128},
+      {0x53, 128},
+      {0x60, 64},
+      {0x61, 128},
+      {0x62, 128},
+      {0x70, 64},
+      {0x72, 64},
+      {0x75, 64},
+      {0x80, 64},
+      {0x86, 128},
+      {0x87, 128},
+      {0x89, 128},
+      {0x90, 128},
+      {0xa0, 128}};
+  auto it = cores_per_sm_map.find(sm_version);
+  if (it != cores_per_sm_map.end()) {
+    return it->second;
+  }
+  NVF_THROW("Unknown GPU architecture: ", major, ".", minor);
+  return 128;
+}
+} // namespace
+// Compute bandwidth flops ratio, return true if it's higher than
+// the reference value of 0.07. It returns true for B100/200 and A100.
+// Returns false for H100. The reference value is based on test of softmax,
+// layer norm, and rms norm. Treating A100 as high bandwidth to flops ratio
+// leads to better performance for softmax and dropout fused with layer norm
+// or rms norm, but caused minor regressions for layer norm or rms norm alone.
+bool isHighBandwidthFlopsRatio() {
+  // A100-PCIe-80GB, 1.935e12 B/s, 1.95e13 flops, ratio = 0.0993
+  // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
+  // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
+  constexpr float reference_ratio = 0.07f;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  // bandwidth
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)dev_prop->memoryClockRate * 1000.f;
+  // fp32 cuda core flops
+  const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
+  const int flops_per_cycle = 2;
+  float flops = (float)dev_prop->clockRate * 1000.f *
+      (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
+      (float)flops_per_cycle;
+  std::cout << "flops " << flops << std::endl;
+  std::cout << "hardware_bandwidth " << hardware_bandwidth << std::endl;
+  float bandwidth_flops_ratio = hardware_bandwidth / flops;
+  return bandwidth_flops_ratio > reference_ratio;
+}
+
+// 0.154 ms, tidx = 256, vect = 4, unroll = 4
+TEST_F(InnerReductionTest, MagicScheduler) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  constexpr int dim0 = 16384, dim1 = 16384;
+
+  std::cout << isHighBandwidthFlopsRatio() << std::endl;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {-1});
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({at_tv0});
+
+  testValidate(fusion, cg_outputs, {at_tv0}, __LINE__, __FILE__);
+}
+
+// umbriel-b200-026
+// IO bytes: 16384 x 16385 x 4 = 1.07 GB
+// 0.154 ms, main branch, tidx = 256, vect = 4, unroll = 4
+// 0.201 ms, stages 2, prefecch 1, tidx = 256
+
+
+// 0.589 ms, CpAsyncBulkTensorTile, tidx = 256, stages = 2, pf = 1
+// rs: BlockDim.x = 256, BlockDim.y = -1, BlockDim.z = -1, GridDim.x = 16384, GridDim.y = -1, GridDim.z = -1, Smem Size = 3104
 TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};
   constexpr int dim0 = 16384, dim1 = 16384;
+
+  std::cout << isHighBandwidthFlopsRatio() << std::endl;
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -333,12 +428,16 @@ TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer) {
   auto tv1 = sum(tv0, {-1});
   fusion->addOutput(tv1);
 
-  int64_t tidx = 128;
-  int64_t number_of_stages = 2;
-  int64_t prefetch_distance = 0;
-  CircularBufferType circular_buffer_type = Pipelined(true);
 
-  auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  int64_t tidx = 256;
+  int64_t number_of_stages = 2;
+  int64_t prefetch_distance = 1;
+  CircularBufferType circular_buffer_type = Pipelined(false);
+
+  // why sometimes stuck if prefetch_distance = 1
+  // ioctl(8, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x2a, 0x20), 0x7fffb0420850) = 0
+  auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  // auto tv0s = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv0s->setMemoryType(MemoryType::Shared);
   auto tv1r = tv1->cacheBefore();
   // tv0 --> tv0s --> tv1r ---> tv1
@@ -376,7 +475,9 @@ TEST_F(InnerReductionTest, CpAsyncBulk1DCircularBuffer) {
   // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
   // Circular buffer
-  inlineMost();
+  // inlineSelectedAt();
+  inlineSelectedAt({tv0s}, reduction_tv_ref, /*pos=*/2);
+
   // inlineAllAt(reduction_tv_ref, /*pos=*/2);
   tv0s->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);

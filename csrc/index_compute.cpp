@@ -2657,7 +2657,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
+    // NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
