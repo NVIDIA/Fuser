@@ -4532,6 +4532,38 @@ std::string MatmulOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace {
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
+// the rfactored DID axis to correctly bind with the logical domain. See
+// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(static_cast<int64_t>(logical.size()))) {
+    if (!logical.at(idx)->isRFactorProduct()) {
+      continue;
+    }
+
+    if (!logical.at(idx)->isDeviceDim()) {
+      continue;
+    }
+
+    NVF_ERROR(
+        rfactor_did_idx == -1,
+        "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+        logical);
+    rfactor_did_idx = idx;
+  }
+
+  return rfactor_did_idx;
+}
+} // namespace
+
 std::vector<PolymorphicValue> MatmulOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -4540,28 +4572,8 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
 
   auto matmul_out = at::matmul(a, b);
 
-  // When the contracting dimension is sharded, each device has a partial
-  // matmul output and is followed by an allreduce. For loop split, this is
-  // represented as an rfactored reduction. The local matmul logical domain
-  // after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze the
-  // rfactored DID axis to correctly bind with the logical domain. See
-  // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
-  auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
-  int64_t rfactor_did_idx = -1;
-  for (auto idx : c10::irange(static_cast<int64_t>(out_logical.size()))) {
-    if (!out_logical.at(idx)->isRFactorProduct() ||
-        !out_logical.at(idx)->isDeviceDim()) {
-      continue;
-    }
-    if (rfactor_did_idx != -1) {
-      NVF_THROW(
-          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
-          out_logical);
-    }
-    rfactor_did_idx = idx;
-  }
-
-  if (rfactor_did_idx != -1) {
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
     matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
   }
 
@@ -4651,26 +4663,8 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   }
 
   // Handle rFactor DIDs similar to MatmulOp::evaluate.
-  auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
-  int64_t rfactor_did_idx = -1;
-  for (auto idx : c10::irange(static_cast<int64_t>(out_logical.size()))) {
-    if (!out_logical.at(idx)->isRFactorProduct()) {
-      continue;
-    }
-
-    if (!out_logical.at(idx)->isDeviceDim()) {
-      continue;
-    }
-
-    if (rfactor_did_idx != -1) {
-      NVF_THROW(
-          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
-          out_logical);
-    }
-    rfactor_did_idx = idx;
-  }
-
-  if (rfactor_did_idx != -1) {
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
     out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
   }
 
