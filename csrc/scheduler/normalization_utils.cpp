@@ -727,7 +727,6 @@ int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
   int64_t max_batches_per_block = getInnerPersistentMaxBatchSize(
       scheduler_utils::isHighBandwidthFlopsRatio());
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t warp_size = (int64_t)dev_prop->warpSize;
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   int64_t max_smem = 0;
   int64_t max_vectorize_factor =
