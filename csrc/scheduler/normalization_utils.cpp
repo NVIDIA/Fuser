@@ -724,23 +724,32 @@ namespace {
 // overhead. This function estimates the maximum possible shared memory size
 // due to this round up by iterating over different batch sizes.
 int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
-  int64_t vectorize_factor =
-      SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
-  int64_t dim_size = tv_buffer_size / data_type_size;
-  int64_t after_vect = dim_size / vectorize_factor;
-  int64_t max_smem = 0;
   int64_t max_batches_per_block = getInnerPersistentMaxBatchSize(
       scheduler_utils::isHighBandwidthFlopsRatio());
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t warp_size = (int64_t)dev_prop->warpSize;
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
-  for (int64_t pbs = 1; pbs <= max_batches_per_block; pbs += 1) {
-    int64_t threads = ceilDiv(after_vect, pbs);
-    if (threads % warp_size != 0 && threads < max_threads_per_block) {
-      threads = ceilDiv(threads, warp_size) * warp_size;
+  int64_t max_smem = 0;
+  int64_t max_vectorize_factor =
+      SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
+  int64_t dim_size = tv_buffer_size / data_type_size;
+  // Check all possible combinations of vectorization factor, batch size and
+  // threads per block
+  for (int64_t vectorize_factor = 1; vectorize_factor <= max_vectorize_factor;
+       vectorize_factor *= 2) {
+    // heuristic only uses divisible vectorization factor
+    if (dim_size % vectorize_factor != 0) {
+      continue;
     }
-    max_smem =
-        std::max(max_smem, pbs * vectorize_factor * threads * data_type_size);
+    int64_t after_vect = dim_size / vectorize_factor;
+    for (int64_t pbs = 1; pbs <= max_batches_per_block; pbs += 1) {
+      int64_t threads = ceilDiv(after_vect, pbs);
+      if (threads % warp_size != 0 && threads < max_threads_per_block) {
+        threads = ceilDiv(threads, warp_size) * warp_size;
+      }
+      max_smem =
+          std::max(max_smem, pbs * vectorize_factor * threads * data_type_size);
+    }
   }
   return max_smem;
 }
@@ -753,10 +762,13 @@ int64_t sharedMemoryRoundUpOverhead(
       : persistent_buffer_info.persistent_buffers;
   int64_t total_smem_overhead = 0;
   for (auto buffer : buffers) {
+    // Buffer size derived from shape and dtype of the persistent tensor
     int64_t buffer_size_regs = scheduler_utils::getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
+    // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
         buffer_size_regs, dataTypeSize(buffer->getDataType().value()));
+    // The difference is counted as roundup overhead
     total_smem_overhead += (buffer_size_smem - buffer_size_regs);
   }
   return total_smem_overhead;
