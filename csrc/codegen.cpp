@@ -279,9 +279,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& kernel_name,
       std::optional<int64_t> num_threads_per_cta) {
     code_ << "__global__ void ";
-    if (num_threads_per_cta.has_value()) {
+    PolymorphicValue num_threads =
+        kernel_->summary()
+            .parallel_dimension_map.getNumThreadsEachBlock()
+            ->evaluate();
+    if (num_threads.hasValue()) {
       code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads_per_cta.value() << ") ";
+            << num_threads.as<int64_t>() << ") ";
     }
     if (kernel_->hasManaged("enable_register_sharing") &&
         kernel_->getManaged<bool>("enable_register_sharing")) {
