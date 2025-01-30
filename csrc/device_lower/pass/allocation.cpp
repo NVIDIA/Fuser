@@ -871,9 +871,10 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
         kir::Asm::Options{/*volatile=*/true});
     prologue.push_back(tcgen05_relinquish_expr);
 
-    // Block sync that makes allocation visible to all threads
-    auto block_sync = IrBuilder::create<kir::BlockSync>();
-    prologue.push_back(block_sync);
+      // Block sync that makes allocation visible to all threads
+      auto block_sync = IrBuilder::create<kir::BlockSync>();
+      prologue.push_back(block_sync);
+    }
   }
 
   // Add deallocations to existing expressions
