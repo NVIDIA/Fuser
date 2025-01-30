@@ -1315,13 +1315,15 @@ void scheduleStMatrixForMmaOutput(
       dataTypeSize(tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
+  // NOTE: There can be iterDomains to left of the mma output if there is cta
+  // or warp tiling.
   if (tile_m == 16 && tile_n == 16) {
     // Let [M, N] be [64, 32]
     // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
     // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
     tv->split(-3, 2);
     // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
-    tv->reorder({{-4, 0}});
+    tv->reorder({{-4, -5}});
     // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
     tv->merge(-3);
     tv->merge(-2);
@@ -1329,7 +1331,7 @@ void scheduleStMatrixForMmaOutput(
     // Let [M, N] be [64, 16]
     // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
     // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
-    tv->reorder({{-3, 0}});
+    tv->reorder({{-3, -4}});
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
