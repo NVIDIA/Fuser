@@ -100,7 +100,9 @@ TensorIndex::TensorIndex(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
           index->dtype() ==
-              DataType::UInt64 /*For matrix descriptor for hopper MMA*/,
+              DataType::UInt64 /*For matrix descriptor for hopper MMA*/
+          || index->dtype() ==
+              DataType::UInt32 /*Temporarily enabled for TMem tensor*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
