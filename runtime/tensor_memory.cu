@@ -12,6 +12,8 @@
 //    -> address (lane=0x1234, col=0x5678):
 //  TMemTensor T1 = T0 + {64, 64}:
 //    -> address (lane=T0.lane+64, col=T0.col+64)
+//  TMemTensor T2(0x12345678, 32, 32):
+//    -> address (lane=0x1234+32, col=0x5678+32)
 struct TMemTensor {
   uint32_t raw_address;
 
@@ -28,6 +30,9 @@ struct TMemTensor {
   }
 
   TMemTensor(uint32_t raw_address) : raw_address(raw_address) {}
+
+  TMemTensor(uint32_t base_address, uint16_t lane_offset, uint16_t col_offset)
+      : raw_address(add(base_address, lane_offset, col_offset)) {}
 
   operator uint32_t() const {
     return raw_address;

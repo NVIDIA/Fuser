@@ -310,8 +310,8 @@ class Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 6);
-    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 8);
+    for (auto i = attributes().begin() + 8; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -376,6 +376,30 @@ class Allocate final : public Expr {
     attributes_[5] = addr;
   }
 
+  void setLaneOffset(Val* lane_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        laneOffset() == nullptr,
+        "Attempted to set lane offset twice for allocation ",
+        toString());
+    attributes_[6] = lane_offset;
+  }
+
+  void setColOffset(Val* col_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        colOffset() == nullptr,
+        "Attempted to set column offset twice for allocation ",
+        toString());
+    attributes_[7] = col_offset;
+  }
+
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
@@ -386,6 +410,22 @@ class Allocate final : public Expr {
         "Allocation address may only be set for shared memory allocations. Memory type is ",
         memoryType());
     return attributeVal(5);
+  }
+
+  Val* laneOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(6);
+  }
+
+  Val* colOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(7);
   }
 };
 

@@ -7,8 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <vector>
+
 namespace nvfuser {
 
+class Val;
 class TensorView;
 class Fusion;
 
@@ -45,20 +48,105 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 // relinquishes the right to allocate, the next CTA that is blocked will be
 // unblocked and can acquire the mutex to allocate TMem.
 //
-// Currently, our TMem allocation strategy is as naive as follows:
-// We assume there is at most one TensorView on TMem in the fusion. With this
-// assumption, we don't have to worry about where to place different tensors on
-// TMem. We will traverse the fusion to look for a TMem TensorView. If we can
-// find such a TensorView, we will generate a tcgen05.alloc and
-// tcgen05.relinquish_alloc_permit at the beginning of the kernel. We do not
-// dealloc TMem for now.
+// The tcgen05.alloc instruction is like the following:
+//   tcgen05.alloc [dest], nCols
+//
+// There are three important things to note about this instruction:
+//
+// 1. The output of this instruction is in shared memory address.
+// 2. The unit of allocation is 32 whole columns of tensor memory. And nCols
+//    must be a power of two.
+// 3. The right to allocate is like a mutex and will serialize CTA scheduling.
+//    The tcgen05.alloc is blocking when there is no space to allocate.
+//
+// The point 1 above is not a big trouble for us, but we need to make sure we
+// allocate the address tensor in shared memory before allocating the tensor
+// memory. But the point 2 and 3 can be a big challenge. There are basically
+// two things to worry about when allocating tensor memory:
+//
+// 1. Fragmentation. When the tensor does not occupy all lanes or the tensor's
+// size is not a power of two columns or < 32 columns, naively allocating all
+// lanes with 32 or higher power of 2 columns could waste some space. In a
+// perfect world, it would be nice to have a 2D allocator that is capable
+// merging the allocation of multiple tensors into a single tcgen05.alloc.
+// For example, if tv0 and tv2 both has 64 rows and 32 columns, we can allocate
+// tv0 on the first 64 lanes, and tv1 on the next 64 lanes. Another example is,
+// if tv0 has 128 rows and 31 columns, and tv1 has 128 rows and 33 columns, we
+// pack the two tensors into a single tcgen05.alloc of 64 columns.
+//
+// 2. Latency. We should relinquish the right to allocate as soon as we are done
+// with allocating, so that other CTAs can grab the "right to allocate" mutex.
+// We should also deallocate the tensor memory as soon as we are done with using
+// it, so that other CTA's tcgen05.alloc can get unblocked. In a perfect world,
+// it would be nice to able to break one TensorView into multiple deallocations.
+// For example, if tv0 has 128 rows and 256 columns, and we are sequentially
+// reading these 256 columns one by one. For this case, instead of waiting for
+// the entire 256-size loop to finish, it would be nice to deallocate the first
+// 128 columns if we are done with reading them, so that other CTAs have a
+// chance to allocate their memory in the freed space.
+//
+// From the above analysis, it is important to realize that the allocation of
+// TensorView and the allocation of the tensor memory are not a one-to-one
+// correspondence. A TensorView can be allocated by multiple tcgen05.allocs, and
+// a tcgen05.alloc can be used to allocate multiple TensorViews.
+//
+// In practice, it is very difficult to optimize both fragmentation and latency
+// perfectly. Although tensor memory was originally designed for matmul, because
+// it is a large and fast memory, it would be nice to use it for other purposes,
+// such as persistent buffers. This could make it even more difficult to
+// allocate tensor memory optimally. Considering the complexity of the problem,
+// the development of a tensor memory allocator is likely an incremental
+// process. With this in mind, we design the allocation of tensor memory in
+// nvFuser to be hackable.
+//
+// There are three main components in the design:
+// 1. A data structure, TMemAllocationInfo, that describes how we allocate
+//    tensor memory.
+// 2. A heuristic, executed as part of computeTMemInfo, that generates the
+//    allocation information as an instance of TMemAlllocationInfo.
+// 3. A pass, executed as part of insertAllocations, that generates the actual
+//    IR nodes based on the TMemAlllocationInfo.
+//
+// The TMemAllocationInfo data structure and the insertAllocations support
+// a wider range of allocation strategies than the heuristic in computeTMemInfo.
+// This provides some flexibility for prototyping and experimentation by just
+// manually specifying TMemAllocationInfo.
+
+// The data structure that describes how we allocate tensor memory. It is
+// assumed that:
+// 1. TMem allocation are split into regions, with each region described by a
+//    Region. Each region spans a full 128 lanes and N columns of tensor memory.
+//    The number of columns must be a power of two and minimum 32. Each region
+//    is allocated by a single tcgen05.alloc and deallocated by a matching
+//    tcgen05.dealloc.
+// 2. Each kernel can have multiple regions.
+// 3. Each region can cover multiple TensorViews, but each TensorView can not
+//    span multiple regions.
+struct TMemAlllocationInfo {
+  // Each entry describes a region of 128 rows x N columns of tensor memory
+  // allocated by a single tcgen05.alloc.
+  struct Region {
+    // tcgen05.alloc stores the allocated address in shared memory. So we use a
+    // TensorView with MemoryType::Shared to store this address.
+    TensorView* address;
+    // The number of columns to allocate. Must be >= 32 and a power of two.
+    Val* num_columns;
+    // The TMem TensorViews covered by this region. Each region can be used to
+    // store multiple TensorViews. The (lane_offset, column_offset) specifies
+    // the starting offset of each TensorView in this region.
+    struct TVInfo {
+      TensorView* tensor;
+      Val* lane_offset;
+      Val* column_offset;
+    };
+    std::vector<TVInfo> covered_tensors;
+  };
+  std::vector<Region> regions;
+};
 
 // The actual definition of TensorMemoryInfo.
 struct TensorMemoryInfo {
-  // The address returned by tcgen05.alloc.
-  // tcgen05.alloc stores the allocated address in shared memory. So we use a
-  // TensorView with MemoryType::Shared to store this address.
-  TensorView* allocation_address = nullptr;
+  TMemAlllocationInfo allocation;
 };
 
 } // namespace nvfuser

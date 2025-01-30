@@ -3195,9 +3195,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
         case MemoryType::Tensor: {
           // Generate code like:
-          // TMemTensor T2(T5[0]);
+          // TMemTensor T2(T5[0], 0, 0);
           indent() << "TMemTensor " << genVariableName(tv) << "("
-                   << genInline(alloc->address()) << ");\n";
+                   << genInline(alloc->address()) << ", "
+                   << genInline(alloc->laneOffset()) << ", "
+                   << genInline(alloc->colOffset()) << ");\n";
           break;
         }
         default:
