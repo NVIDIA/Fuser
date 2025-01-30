@@ -2800,7 +2800,7 @@ TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMemTest, AddKernel) {
+void testTMemAddKernel(bool same_region) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2817,6 +2817,13 @@ TEST_F(TMemTest, AddKernel) {
   auto tv8 = add(tv3, tv7); // register
   auto tv9 = set(tv8); // gmem
   fusion.addOutput(tv9);
+
+  if (same_region) {
+    using Region = std::vector<TensorView*>
+    Region region1{tv2, tv6};
+    std::vector<Region> regions{region1};
+    fusion.manage("tmem_regions", regions);
+  }
 
   tv2->setMemoryType(MemoryType::Tensor);
   tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
@@ -2846,6 +2853,14 @@ TEST_F(TMemTest, AddKernel) {
       {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto cg_outputs = ke.run({t0, t1});
   testValidate(&fusion, cg_outputs, {t0, t1}, {t0 + t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TMemTest, AddKernelMultipleRegions) {
+  testTMemAddKernel(false);
+}
+
+TEST_F(TMemTest, AddKernelSameRegion) {
+  testTMemAddKernel(true);
 }
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
