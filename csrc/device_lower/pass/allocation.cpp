@@ -837,33 +837,35 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
   // Expressions to be inserted at the beginning of the top-level scope.
   std::list<Expr*> prologue;
   {
-    // Allocate the address tensor
-    auto allocation_address =
-        GpuLower::current()->tmemInfo().allocation_address;
-    auto address_alloc_expr = IrBuilder::create<kir::Allocate>(
-        allocation_address, MemoryType::Shared);
-    prologue.push_back(address_alloc_expr);
+    if (GpuLower::current()->tmemInfo().allocation_address != nullptr) {
+      // Allocate the address tensor
+      auto allocation_address =
+          GpuLower::current()->tmemInfo().allocation_address;
+      auto address_alloc_expr = IrBuilder::create<kir::Allocate>(
+          allocation_address, MemoryType::Shared);
+      prologue.push_back(address_alloc_expr);
 
-    // the tcgen05.alloc instructions
-    auto alloc_expr = IrBuilder::create<kir::AllocTMem>(
-        allocation_address,
-        IrBuilder::create<Val>(
-            32,
-            DataType::UInt32) // TODO: hard code allocation size to 32 for now
-    );
-    prologue.push_back(alloc_expr);
+      // the tcgen05.alloc instructions
+      auto alloc_expr = IrBuilder::create<kir::AllocTMem>(
+          allocation_address,
+          IrBuilder::create<Val>(
+              32,
+              DataType::UInt32) // TODO: hard code allocation size to 32 for now
+      );
+      prologue.push_back(alloc_expr);
 
-    // Relinquish the right to allocate after we are done with tcgen05.allocs
-    auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
-        "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-        std::vector<Val*>{},
-        std::vector<Val*>{},
-        kir::Asm::Options{/*volatile=*/true});
-    prologue.push_back(tcgen05_relinquish_expr);
+      // Relinquish the right to allocate after we are done with tcgen05.allocs
+      auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
+          "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+          std::vector<Val*>{},
+          std::vector<Val*>{},
+          kir::Asm::Options{/*volatile=*/true});
+      prologue.push_back(tcgen05_relinquish_expr);
 
-    // Block sync that makes allocation visible to all threads
-    auto block_sync = IrBuilder::create<kir::BlockSync>();
-    prologue.push_back(block_sync);
+      // Block sync that makes allocation visible to all threads
+      auto block_sync = IrBuilder::create<kir::BlockSync>();
+      prologue.push_back(block_sync);
+    }
   }
 
   // Combine prologue and exprs
