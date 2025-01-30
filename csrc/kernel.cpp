@@ -91,6 +91,8 @@ class KernelIrScanner : private IrVisitor {
           summary_.dynamic_lmem_allocations.emplace_back(allocate);
         }
         break;
+      case MemoryType::Tensor:
+        break;
       default:
         NVF_THROW("Unknown memory type to allocate.");
     }

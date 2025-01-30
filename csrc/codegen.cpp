@@ -617,7 +617,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           value);
       auto atype = std::get<ArrayType>(dtype.type);
       auto dims = static_cast<int64_t>(value.as<std::vector>().size());
-      code_ << "{ ";
+      code_ << "{";
       for (auto i = 0; i < dims; i++) {
         if (i > 0) {
           code_ << ", ";
@@ -680,6 +680,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (is_u32_ptr) {
         code_ << ")";
       }
+      return;
+    }
+
+    if (ti->view()->getMemoryType() == MemoryType::Tensor) {
+      code_ << genInline(ti->index());
       return;
     }
 
@@ -3183,7 +3188,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (va.find(tv) != va.end()) {
             aligned_array_of_regs_.insert(tv);
           }
-        } break;
+          break;
+        }
+        case MemoryType::Tensor: {
+          // Do nothing for now. This behavior will change soon.
+          break;
+        }
         default:
           NVF_THROW("Unexpected memory type");
       }

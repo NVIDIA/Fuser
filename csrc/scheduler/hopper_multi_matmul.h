@@ -152,8 +152,13 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
   //! data
   void setCGADims() const {
-    if (params_->cluster_dims != std::tuple<int, int, int>{1, 1, 1}) {
-      fusion_->manage("cluster_dims", params_->cluster_dims);
+    if (params_->cluster_dims != MatmulParams::ClusterDims{1, 1, 1}) {
+      fusion_->manage(
+          "cluster_dims",
+          std::tuple<int64_t, int64_t, int64_t>{
+              params_->cluster_dims.x,
+              params_->cluster_dims.y,
+              params_->cluster_dims.z});
     }
   }
 
