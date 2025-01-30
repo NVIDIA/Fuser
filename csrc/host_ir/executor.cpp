@@ -420,8 +420,6 @@ struct IpcTensorInfo {
 AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor input, std::vector<at::Tensor> outputs, Communicator* communicator) : unique_id(running_counter++), communicator_(communicator) {
 
   std::string rank_prefix = "_rank=";
-  std::string ipc_handle_prefix = "_IpcHandle=";
-  std::string offset_prefix = "_Offset=";
 
   IpcTensorInfo ipc_tensor_info;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, input.data_ptr()));
@@ -431,10 +429,6 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
   const int64_t my_rank = communicator->deviceId();
   auto store = communicator->getTcpStore();
   store->set(prefix() + rank_prefix + std::to_string(my_rank), toBytes(ipc_tensor_info));
-  std::cout << "rank " << communicator_->deviceId()
-            << " sets at key " << prefix() + rank_prefix + std::to_string(my_rank)
-            << " offset " << input.storage_offset() << " at key " << prefix() + offset_prefix + std::to_string(my_rank)
-             << ", for input=" << input <<  std::endl;
 
   communicator_->barrier();
 
@@ -449,7 +443,6 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
     if (rank == my_rank) {
       input_ptrs_.at(rank) = input.data_ptr();
     } else {
-      std::cout << "rank " << communicator_->deviceId() << " gets at key " << prefix() + rank_prefix + std::to_string(rank) << " for iteration " << rank <<  std::endl;
       ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix() + rank_prefix + std::to_string(rank)));
       // auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + rank_prefix + std::to_string(rank)));
       void*& ptr = input_ptrs_.at(rank);
@@ -457,18 +450,16 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
       ptr = (void*)((uint8_t*)ptr + ipc_tensor_info.storage_offset * ipc_tensor_info.element_size);
     }
   }
+  // TODO: close ipc mem handle at shutdown
 }
 
 void AllgatherThroughCudaMemcpyAsync::post() const {
+  // TODO: use multicast
   for (size_t i = 0; i < sizes_.size(); i++) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice));
     torch::cuda::synchronize();
-    std::cout << "rank " << communicator_->deviceId() <<", iteration " << i << ", input_ptr=" << input_ptrs_.at(i) << ", output_ptr=" << output_ptrs_.at(i) << ", size=" << sizes_.at(i) <<  std::endl;
   }
 }
-
-
-
 
 
 void HostIrEvaluator::handle(Communication* communication) {
@@ -513,9 +504,6 @@ void HostIrEvaluator::handle(Communication* communication) {
   allgather_backend.post();
   torch::cuda::synchronize();
   communicator_->barrier();
-  if (communicator_->deviceId() == 0) {
-    std::cout << "rank " << communicator_->deviceId() << " finishes allgather, output=" << output_tensor << std::endl;
-  }
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {

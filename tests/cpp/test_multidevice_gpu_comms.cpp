@@ -88,7 +88,6 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtReceiver) {
   // Clean up
   CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   CUDA_CALL(cudaFree(d_ptr));
-
 }
 
 TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtSender) {
@@ -126,7 +125,6 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtSender) {
   // Clean up
   CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   CUDA_CALL(cudaFree(d_ptr));
-
 }
 
 TEST_F(GpuCommTest, Allgather) {
