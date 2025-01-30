@@ -11345,17 +11345,16 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
   __syncthreads();
   if ((((nvfuser_index_t)threadIdx.y) == 2)) {
     asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n"::"n"(56));
-    #pragma unroll 3
-    for(nvfuser_index_t i24 = 0; i24 < i3; ++i24) {
-      nvfuser_index_t i25;
-      i25 = 64 * i24;
-      nvfuser_index_t i26;
-      i26 = i24 % 4;
-      unsigned i27;
-      i27 = i6 + (32768 * i26);
-      unsigned i28;
-      i28 = i9 + (16384 * i26);
-      if ((Hopper::electSync(4294967295U) && b16)) {
+    if ((Hopper::electSync(4294967295U) && b16)) {
+      for(nvfuser_index_t i24 = 0; i24 < i3; ++i24) {
+        nvfuser_index_t i25;
+        i25 = 64 * i24;
+        nvfuser_index_t i26;
+        i26 = i24 % 4;
+        unsigned i27;
+        i27 = i6 + (32768 * i26);
+        unsigned i28;
+        i28 = i9 + (16384 * i26);
         mbarrier::waitParity(toSmem((&T8[((i24 % 4) + 4LL)])), (uint32_t)(((i24 / 4) % 2)));
         mbarrier::arriveExpectTX(toSmem((&T8[(i24 % 4)])), 32768U);
         #pragma unroll
@@ -11388,15 +11387,14 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
     // * Mma warp group continues to 1st stage.
     { 
       nvfuser_index_t i32 = 0;
+      mbarrier::waitParity(toSmem((&T8[(i32 % 4)])), (uint32_t)(((i32 / 4) % 2)));
       nvfuser_index_t i33;
       i33 = i32 % 4;
       unsigned i34;
       i34 = i10 + (16384 * i33);
       unsigned i35;
       i35 = i6 + (32768 * i33);
-      mbarrier::waitParity(toSmem((&T8[(i32 % 4)])), (uint32_t)(((i32 / 4) % 2)));
       asm volatile("wgmma.fence.sync.aligned;\n");
-      #pragma unroll
       for(nvfuser_index_t i36 = 0; i36 < 4; ++i36) {
         nvfuser_index_t i37;
         i37 = 2048 * i36;
@@ -11558,15 +11556,14 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
     // * Release prev stage (N-1 % pipeline) for load warp group.
     // * Continue to N+1 stage
     for(nvfuser_index_t i32 = 1; i32 < i3; ++i32) {
+      mbarrier::waitParity(toSmem((&T8[(i32 % 4)])), (uint32_t)(((i32 / 4) % 2)));
       nvfuser_index_t i33;
       i33 = i32 % 4;
       unsigned i34;
       i34 = i10 + (16384 * i33);
       unsigned i35;
       i35 = i6 + (32768 * i33);
-      mbarrier::waitParity(toSmem((&T8[(i32 % 4)])), (uint32_t)(((i32 / 4) % 2)));
       asm volatile("wgmma.fence.sync.aligned;\n");
-      #pragma unroll
       for(nvfuser_index_t i36 = 0; i36 < 4; ++i36) {
         nvfuser_index_t i37;
         i37 = 2048 * i36;
@@ -11718,7 +11715,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
         );
       }
       asm volatile("wgmma.commit_group.sync.aligned;\n");
-      asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(1LL):"memory");
+      asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
       mbarrier::arrive(toSmem((&T8[(((i32 - 1) % 4) + 4LL)])));
     }
   }
@@ -11726,6 +11723,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
   // * Wait for all wgmma operations to finish
   // * Release all circular buffer stages
   asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
+
   #pragma unroll
   for(nvfuser_index_t i42 = 0; i42 < 32; ++i42) {
     nvfuser_index_t i43;
@@ -11743,7 +11741,6 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
       }
     }
   }
-  __syncthreads();
   #pragma unroll
   for(nvfuser_index_t i48 = 0; i48 < 16; ++i48) {
     if ((b20 && (i21 < (-(16 * i48))))) {
@@ -11759,10 +11756,10 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
     }
   }
   __syncthreads();
-  #pragma unroll
-  for(nvfuser_index_t i49 = 0; i49 < 4; ++i49) {
-    asm volatile("fence.proxy.async;\n");
-    if (Hopper::electSync(4294967295U) && b16 && b19) {
+  asm volatile("fence.proxy.async;\n");
+  if (Hopper::electSync(4294967295U) && b16 && b19) {
+    #pragma unroll
+    for(nvfuser_index_t i49 = 0; i49 < 4; ++i49) {
       Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i49)), i15}) }), (i12 + (8192 * i49)));
     }
   }

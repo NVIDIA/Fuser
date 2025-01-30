@@ -2214,38 +2214,22 @@ struct __align__(1) __e4m3 {
   uint8_t __x;
 };
 
-__device__ __inline__ __e4m3 __double2e4m3(const double f) {
-  unsigned short _tmp_buffer;
-  __e4m3 val;
-  asm("{\n\t"
-      ".reg .b16 buf0;\n\t"
-      ".reg .b32 buf1;\n\t"
-      "cvt.rn.f16.f64 buf0, %1;\n\t"
-      "cvt.u32.u16 buf1, buf0;\n\t"
-      "cvt.rn.satfinite.e4m3x2.f16x2 %0, buf1;\n\t"
-      "}"
-      : "=h"(_tmp_buffer)
-      : "d"(f));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-  return val;
-}
-
-__device__ __inline__ double __e4m32double(const __e4m3 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  double val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e4m3x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, buf0;\n\t"
-      "cvt.f64.f16 %0, %1;"
-      "}"
-      : "=d"(val)
-      : "h"(_tmp_buffer));
-
-  return val;
-}
-
+// NOTE [ fp8 cast optimization ]
+//
+// For simplicity, we only provided fp8 <-> fp32 cast implementation, while
+// relying on any other fp cast in the form of target_fp <-> fp32 <-> fp8.
+// This avoids the complication of handling hardware specific instructions on
+// various compute capabilities.
+// But this simplicity could come at the cost of performance. In cuda_fp8.hpp,
+// 1. bf16 -> fp8 is done via bf16 -> float -> fp8
+// 2. fp16 -> fp8 is done with a conditional
+//    # if (> sm_89)
+//    fp16 -> fp8
+//    # else
+//    fp16 -> fp32 -> fp8
+//    # endif
+// 3. fp64 -> fp8 is handled explicitly as bitwise operations.
+// TODO consider cuda_fp8.hpp for performance optimized cast.
 __device__ __inline__ __e4m3 __float2e4m3(const float f) {
   constexpr float f_const_zero = 0.f;
   unsigned short _tmp_buffer;
@@ -2258,9 +2242,9 @@ __device__ __inline__ __e4m3 __float2e4m3(const float f) {
   return val;
 }
 
-__device__ __inline__ float __e4m32float(const __e4m3 h) {
+__device__ __inline__ float __e4m32float(const __e4m3 b) {
   unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
+  memcpy(&_tmp_buffer, &b, sizeof(uint8_t));
   float val;
   asm("{\n\t"
       ".reg .b32 buf0;\n\t"
@@ -2274,63 +2258,28 @@ __device__ __inline__ float __e4m32float(const __e4m3 h) {
   return val;
 }
 
-__device__ __inline__ __e4m3 __half2e4m3(const __half h) {
-  uint32_t buffer;
-  memcpy(&buffer, &h, sizeof(__half));
-  unsigned short _tmp_buffer;
-  __e4m3 val;
-  asm("{cvt.rn.satfinite.e4m3x2.f16x2 %0, %1;}\n\t"
-      : "=h"(_tmp_buffer)
-      : "r"(buffer));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-
-  return val;
+__device__ __inline__ __e4m3 __double2e4m3(const double d) {
+  return __float2e4m3(d);
 }
 
-__device__ __inline__ __half __e4m32half(const __e4m3 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  __half val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e4m3x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %0, buf0;\n\t"
-      "}"
-      : "=h"(__NVFUSER_HALF_TO_US(val))
-      : "h"(_tmp_buffer));
+__device__ __inline__ double __e4m32double(const __e4m3 b) {
+  return __e4m32float(b);
+}
 
-  return val;
+__device__ __inline__ __e4m3 __half2e4m3(const __half h) {
+  return __float2e4m3(__half2float(h));
+}
+
+__device__ __inline__ __half __e4m32half(const __e4m3 b) {
+  return __float2half(__e4m32float(b));
 }
 
 __device__ __inline__ __e4m3 __bfloat2e4m3(const __bfloat h) {
-  unsigned short _tmp_buffer;
-  __e4m3 val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16.bf16 %1, %1;\n\t"
-      "cvt.u32.u16 buf0, %1;\n\t"
-      "cvt.rn.satfinite.e4m3x2.f16x2 %0, buf0;\n\t"
-      "}"
-      : "=h"(_tmp_buffer)
-      : "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-  return val;
+  return __float2e4m3(__bfloat2float(h));
 }
 
-__device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  __bfloat val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e4m3x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %0, buf0;\n\t"
-      "cvt.bf16.f16 %0, %0;\n\t"
-      "}"
-      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
-      : "h"(_tmp_buffer));
-
-  return val;
+__device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 b) {
+  return __float2bfloat(__e4m32float(b));
 }
 
 __device__ __inline__ __e4m3 operator|(const __e4m3 x, const __e4m3 y) {
@@ -2424,38 +2373,7 @@ struct __align__(1) __e5m2 {
   uint8_t __x;
 };
 
-__device__ __inline__ __e5m2 __double2e5m2(const double f) {
-  unsigned short _tmp_buffer;
-  __e5m2 val;
-  asm("{\n\t"
-      ".reg .b16 buf0;\n\t"
-      ".reg .b32 buf1;\n\t"
-      "cvt.rn.f16.f64 buf0, %1;\n\t"
-      "cvt.u32.u16 buf1, buf0;\n\t"
-      "cvt.rn.satfinite.e5m2x2.f16x2 %0, buf1;\n\t"
-      "}"
-      : "=h"(_tmp_buffer)
-      : "d"(f));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-  return val;
-}
-
-__device__ __inline__ double __e5m22double(const __e5m2 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  double val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e5m2x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, buf0;\n\t"
-      "cvt.f64.f16 %0, %1;"
-      "}"
-      : "=d"(val)
-      : "h"(_tmp_buffer));
-
-  return val;
-}
-
+// see NOTE [ fp8 cast optimization ]
 __device__ __inline__ __e5m2 __float2e5m2(const float f) {
   constexpr float f_const_zero = 0.f;
   unsigned short _tmp_buffer;
@@ -2468,9 +2386,9 @@ __device__ __inline__ __e5m2 __float2e5m2(const float f) {
   return val;
 }
 
-__device__ __inline__ float __e5m22float(const __e5m2 h) {
+__device__ __inline__ float __e5m22float(const __e5m2 b) {
   unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
+  memcpy(&_tmp_buffer, &b, sizeof(uint8_t));
   float val;
   asm("{\n\t"
       ".reg .b32 buf0;\n\t"
@@ -2484,63 +2402,28 @@ __device__ __inline__ float __e5m22float(const __e5m2 h) {
   return val;
 }
 
-__device__ __inline__ __e5m2 __half2e5m2(const __half h) {
-  uint32_t buffer;
-  memcpy(&buffer, &h, sizeof(__half));
-  unsigned short _tmp_buffer;
-  __e5m2 val;
-  asm("{cvt.rn.satfinite.e5m2x2.f16x2 %0, %1;}\n\t"
-      : "=h"(_tmp_buffer)
-      : "r"(buffer));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-
-  return val;
+__device__ __inline__ __e5m2 __double2e5m2(const double f) {
+  return __float2e5m2(f);
 }
 
-__device__ __inline__ __half __e5m22half(const __e5m2 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  __half val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e5m2x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %0, buf0;\n\t"
-      "}"
-      : "=h"(__NVFUSER_HALF_TO_US(val))
-      : "h"(_tmp_buffer));
+__device__ __inline__ double __e5m22double(const __e5m2 b) {
+  return __e5m22float(b);
+}
 
-  return val;
+__device__ __inline__ __e5m2 __half2e5m2(const __half h) {
+  return __float2e5m2(__half2float(h));
+}
+
+__device__ __inline__ __half __e5m22half(const __e5m2 b) {
+  return __float2half(__e5m22float(b));
 }
 
 __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
-  unsigned short _tmp_buffer;
-  __e5m2 val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16.bf16 %1, %1;\n\t"
-      "cvt.u32.u16 buf0, %1;\n\t"
-      "cvt.rn.satfinite.e5m2x2.f16x2 %0, buf0;\n\t"
-      "}"
-      : "=h"(_tmp_buffer)
-      : "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-  return val;
+  return __float2e5m2(__bfloat2float(h));
 }
 
-__device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 h) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
-  __bfloat val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e5m2x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %0, buf0;\n\t"
-      "cvt.bf16.f16 %0, %0;\n\t"
-      "}"
-      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
-      : "h"(_tmp_buffer));
-
-  return val;
+__device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 b) {
+  return __float2bfloat(__e5m22float(b));
 }
 
 __device__ __inline__ __e5m2 operator|(const __e5m2 x, const __e5m2 y) {
@@ -2940,39 +2823,42 @@ __device__ unsigned int mulhilo32(
   return a * b;
 }
 
-__device__ uint4 single_round(uint4 ctr, uint2 key) {
+__device__ Array<uint32_t, 4> single_round(
+    Array<uint32_t, 4> ctr,
+    Array<uint32_t, 2> key) {
   constexpr unsigned long kPhiloxSA = 0xD2511F53;
   constexpr unsigned long kPhiloxSB = 0xCD9E8D57;
   unsigned int hi0;
   unsigned int hi1;
-  unsigned int lo0 = mulhilo32(kPhiloxSA, ctr.x, &hi0);
-  unsigned int lo1 = mulhilo32(kPhiloxSB, ctr.z, &hi1);
-  uint4 ret = {hi1 ^ ctr.y ^ key.x, lo1, hi0 ^ ctr.w ^ key.y, lo0};
+  unsigned int lo0 = mulhilo32(kPhiloxSA, ctr[0], &hi0);
+  unsigned int lo1 = mulhilo32(kPhiloxSB, ctr[2], &hi1);
+  Array<uint32_t, 4> ret = {
+      hi1 ^ ctr[1] ^ key[0], lo1, hi0 ^ ctr[3] ^ key[1], lo0};
   return ret;
 }
 
-__device__ uint4 philox(
+__device__ Array<uint32_t, 4> philox(
     unsigned long long seed,
     unsigned long long subsequence,
     unsigned long long offset) {
   constexpr unsigned long kPhilox10A = 0x9E3779B9;
   constexpr unsigned long kPhilox10B = 0xBB67AE85;
-  uint2 key = {};
-  key.x = (unsigned int)seed;
-  key.y = (unsigned int)(seed >> 32);
-  uint4 counter = make_uint4(0, 0, 0, 0);
-  counter.x = (unsigned int)(offset);
-  counter.y = (unsigned int)(offset >> 32);
-  counter.z = (unsigned int)(subsequence);
-  counter.w = (unsigned int)(subsequence >> 32);
+  Array<uint32_t, 2> key;
+  key[0] = (unsigned int)seed;
+  key[1] = (unsigned int)(seed >> 32);
+  Array<uint32_t, 4> counter;
+  counter[0] = (unsigned int)(offset);
+  counter[1] = (unsigned int)(offset >> 32);
+  counter[2] = (unsigned int)(subsequence);
+  counter[3] = (unsigned int)(subsequence >> 32);
 
-  uint4 output = {};
-  uint2 key_ = key;
-  uint4 counter_ = counter;
+  Array<uint32_t, 4> output = {};
+  Array<uint32_t, 2> key_ = key;
+  Array<uint32_t, 4> counter_ = counter;
   for (int i = 0; i < 9; i++) {
     counter_ = single_round(counter_, key_);
-    key_.x += (kPhilox10A);
-    key_.y += (kPhilox10B);
+    key_[0] += (kPhilox10A);
+    key_[1] += (kPhilox10B);
   }
   output = single_round(counter_, key_);
   return output;
@@ -3012,27 +2898,31 @@ __device__ double uniform(unsigned int x, unsigned int y) {
   return result == 1.0 ? 0.0 : result;
 }
 
-__device__ double rng_uniform(const uint4& rng_result, int rng_component) {
+__device__ double rng_uniform(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return uniform(
-      (&rng_result.x)[rng_component * 2],
-      (&rng_result.x)[rng_component * 2 + 1]);
+      rng_result[rng_component * 2], rng_result[rng_component * 2 + 1]);
 }
 
-__device__ float rng_uniformf(const uint4& rng_result, int rng_component) {
-  return uniformf((&rng_result.x)[rng_component]);
+__device__ float rng_uniformf(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
+  return uniformf(rng_result[rng_component]);
 }
 
-__device__ __half rng_uniform_half(const uint4& rng_result, int rng_component) {
-  return uniform_half((&rng_result.x)[rng_component]);
+__device__ __half
+rng_uniform_half(const Array<uint32_t, 4>& rng_result, int rng_component) {
+  return uniform_half(rng_result[rng_component]);
 }
 
 __device__ __bfloat
-rng_uniform_bfloat(const uint4& rng_result, int rng_component) {
-  return uniform_bfloat((&rng_result.x)[rng_component]);
+rng_uniform_bfloat(const Array<uint32_t, 4>& rng_result, int rng_component) {
+  return uniform_bfloat(rng_result[rng_component]);
 }
 
 __device__ double rng_uniform_range(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     double from,
     double to) {
@@ -3042,7 +2932,7 @@ __device__ double rng_uniform_range(
 }
 
 __device__ float rng_uniform_rangef(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     float from,
     float to) {
@@ -3052,23 +2942,23 @@ __device__ float rng_uniform_rangef(
 }
 
 __device__ __half rng_uniform_range_half(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     float from,
     float to) {
   auto range = to - from;
-  float uniform01 = raw_uniform_float((&rng_result.x)[rng_component]);
+  float uniform01 = raw_uniform_float(rng_result[rng_component]);
   __half result = __float2half(from + range * uniform01);
   return __heq(result, __float2half(to)) ? __float2half(from) : result;
 }
 
 __device__ __bfloat rng_uniform_range_bfloat(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     float from,
     float to) {
   auto range = to - from;
-  float uniform01 = raw_uniform_float((&rng_result.x)[rng_component]);
+  float uniform01 = raw_uniform_float(rng_result[rng_component]);
   __bfloat result = __float2bfloat(from + range * uniform01);
   return __heq(result, __float2bfloat(to)) ? __float2bfloat(from) : result;
 }
@@ -3101,39 +2991,45 @@ __device__ double normal(
 }
 
 __device__ double rng_normal_standard(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component) {
   return normal(
-      rng_result.x, rng_result.y, rng_result.z, rng_result.w, rng_component);
-}
-
-__device__ float rng_normal_standardf(
-    const uint4& rng_result,
-    int rng_component) {
-  return normalf(
-      (&rng_result.x)[rng_component / 2 * 2],
-      (&rng_result.y)[rng_component / 2 * 2],
+      rng_result[0],
+      rng_result[1],
+      rng_result[2],
+      rng_result[3],
       rng_component);
 }
 
-__device__ __half
-rng_normal_standard_half(const uint4& rng_result, int rng_component) {
+__device__ float rng_normal_standardf(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
+  return normalf(
+      rng_result[rng_component / 2 * 2],
+      rng_result[1 + rng_component / 2 * 2],
+      rng_component);
+}
+
+__device__ __half rng_normal_standard_half(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return __float2half(normalf(
-      (&rng_result.x)[rng_component / 2 * 2],
-      (&rng_result.y)[rng_component / 2 * 2],
+      rng_result[rng_component / 2 * 2],
+      rng_result[1 + rng_component / 2 * 2],
       rng_component));
 }
 
-__device__ __bfloat
-rng_normal_standard_bfloat(const uint4& rng_result, int rng_component) {
+__device__ __bfloat rng_normal_standard_bfloat(
+    const Array<uint32_t, 4>& rng_result,
+    int rng_component) {
   return __float2bfloat(normalf(
-      (&rng_result.x)[rng_component / 2 * 2],
-      (&rng_result.y)[rng_component / 2 * 2],
+      rng_result[rng_component / 2 * 2],
+      rng_result[1 + rng_component / 2 * 2],
       rng_component));
 }
 
 __device__ double rng_normal_general(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     double mean,
     double std) {
@@ -3142,7 +3038,7 @@ __device__ double rng_normal_general(
 }
 
 __device__ float rng_normal_generalf(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     float mean,
     float std) {
@@ -3151,25 +3047,25 @@ __device__ float rng_normal_generalf(
 }
 
 __device__ __half rng_normal_general_half(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     float mean,
     float std) {
   auto normal01 = normalf(
-      (&rng_result.x)[rng_component / 2 * 2],
-      (&rng_result.y)[rng_component / 2 * 2],
+      rng_result[rng_component / 2 * 2],
+      rng_result[1 + rng_component / 2 * 2],
       rng_component);
   return __float2half(normal01 * std + mean);
 }
 
 __device__ __bfloat rng_normal_general_bfloat(
-    const uint4& rng_result,
+    const Array<uint32_t, 4>& rng_result,
     int rng_component,
     float mean,
     float std) {
   auto normal01 = normalf(
-      (&rng_result.x)[rng_component / 2 * 2],
-      (&rng_result.y)[rng_component / 2 * 2],
+      rng_result[rng_component / 2 * 2],
+      rng_result[1 + rng_component / 2 * 2],
       rng_component);
   return __float2bfloat(normal01 * std + mean);
 }
@@ -5266,6 +5162,16 @@ __device__ inline uint64_t arriveExpectTX(
                : "=l"(state)
                : "r"(smem_barrier_ptr), "r"(tx_count));
   return state;
+}
+
+__device__ inline void arrive(uint32_t smem_barrier_ptr, uint32_t cta_id) {
+  asm volatile(
+      "{.reg .b32 remaddr32;\n"
+      "mapa.shared::cluster.u32  remaddr32, %0, %1;\n"
+      "mbarrier.arrive.shared::cluster.b64  _, [remaddr32];\n"
+      "}"
+      :
+      : "r"(smem_barrier_ptr), "r"(cta_id));
 }
 #endif
 
@@ -7689,6 +7595,26 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 
 // TMA Loads:
 
+struct CpAsyncBulkG2SIndex {
+  const void* raw_gmem_addr;
+  uint32_t bytes;
+  uint32_t mbarrier;
+};
+// cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%r14],
+// [%rd5], %r18, [%r12]; // 1a. unicast
+__device__ inline void cpAsyncBulkG2S(
+    const CpAsyncBulkG2SIndex& src,
+    uint32_t smem_addr) {
+  asm volatile(
+      "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];\n"
+      :
+      : "r"(smem_addr),
+        "l"(src.raw_gmem_addr),
+        "r"(src.bytes),
+        "r"(src.mbarrier)
+      : "memory");
+}
+
 template <int dim>
 struct CpAsyncBulkTensorTileG2SIndex {
   const TensorMap* descriptor;
@@ -7708,6 +7634,23 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 }
 
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<1>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster"
+      " [%0], [%1, {%3}], [%2], %4;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "h"(cta_mask)
+      : "memory");
+}
+
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<2>& src,
     uint32_t smem_addr) {
@@ -7721,6 +7664,24 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
         "r"(src.mbarrier),
         "r"(src.crds[0]),
         "r"(src.crds[1])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<2>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster"
+      " [%0], [%1, {%3, %4}], [%2], %5;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "h"(cta_mask)
       : "memory");
 }
 
@@ -7738,6 +7699,25 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<3>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5}], [%2], %6;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "h"(cta_mask)
       : "memory");
 }
 
@@ -7759,6 +7739,26 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 }
 
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<4>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5, %6}], [%2], %7;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3]),
+        "h"(cta_mask)
+      : "memory");
+}
+
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<5>& src,
     uint32_t smem_addr) {
@@ -7775,6 +7775,27 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
         "r"(src.crds[2]),
         "r"(src.crds[3]),
         "r"(src.crds[4])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<5>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5, %6, %7}], [%2], %8;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3]),
+        "r"(src.crds[4]),
+        "h"(cta_mask)
       : "memory");
 }
 
@@ -7880,8 +7901,7 @@ template <
     int NumVals,
     typename DataTypeT,
     typename IndexTypeT,
-    template <int, typename>
-    typename MakeTuple>
+    template <int, typename> typename MakeTuple>
 struct WelfordTripletTuple {
   static constexpr int num_vals = NumVals;
   using DataType = DataTypeT;
@@ -11280,7 +11300,7 @@ __device__ __inline__ void ParallelReduce<
 }
 
 } // namespace fused_reduction
-__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, Tensor<__half, 2, 2> T3) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, const __grid_constant__ TensorMap var2, Tensor<__half, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i3;
@@ -11325,23 +11345,20 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
   b20 = b19 && (((((8 + (16 * (i18 / 8))) + (i18 % 8)) + i14) + i8) < T0.logical_size[1LL]);
   nvfuser_index_t i21;
   i21 = ((9 - T1.logical_size[2LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4))) + i5;
-  float T2[128];
+  Array<float, 128, 1> T2;
   ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
-  asm volatile("wgmma.fence.sync.aligned;\n");
-  asm volatile("fence.proxy.async;\n");
   uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
-  #pragma unroll
-  for(nvfuser_index_t i22 = 0; i22 < 4; ++i22) {
-    if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+  if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+    #pragma unroll
+    for(nvfuser_index_t i22 = 0; i22 < 4; ++i22) {
       mbarrier::init(toSmem((&T8[i22])), 2U);
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i23 = 0; i23 < 4; ++i23) {
-    if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+    #pragma unroll
+    for(nvfuser_index_t i23 = 0; i23 < 4; ++i23) {
       mbarrier::init(toSmem((&T8[(i23 + 4LL)])), 256U);
     }
   }
+  asm volatile("fence.proxy.async;\n");
   __syncthreads();
   if ((((nvfuser_index_t)threadIdx.y) == 2)) {
     asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n"::"n"(56));
@@ -11357,12 +11374,10 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
         i28 = i9 + (16384 * i26);
         mbarrier::waitParity(toSmem((&T8[((i24 % 4) + 4LL)])), (uint32_t)(((i24 / 4) % 2)));
         mbarrier::arriveExpectTX(toSmem((&T8[(i24 % 4)])), 32768U);
-        #pragma unroll
         for(nvfuser_index_t i29 = 0; i29 < 4; ++i29) {
           Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i29)), i25}), toSmem((&T8[(i24 % 4)])) }), (i27 + (8192 * i29)));
         }
         mbarrier::arriveExpectTX(toSmem((&T8[(i24 % 4)])), 16384U);
-        #pragma unroll
         for(nvfuser_index_t i30 = 0; i30 < 2; ++i30) {
           Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i30)), i25}), toSmem((&T8[(i24 % 4)])) }), (i28 + (8192 * i30)));
         }
@@ -11375,7 +11390,9 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
     for(nvfuser_index_t i31 = 0; i31 < 4; ++i31) {
       mbarrier::arrive(toSmem((&T8[(i31 + 4LL)])));
     }
-    for(nvfuser_index_t i32 = 0; i32 < i3; ++i32) {
+
+    {
+      nvfuser_index_t i32 = 0;
       nvfuser_index_t i33;
       i33 = i32 % 4;
       unsigned i34;
@@ -11536,10 +11553,175 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
         );
       }
       asm volatile("wgmma.commit_group.sync.aligned;\n");
-      asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-      mbarrier::arrive(toSmem((&T8[((i32 % 4) + 4LL)])));
+    }
+
+    for(nvfuser_index_t i32 = 1; i32 < i3; ++i32) {
+      nvfuser_index_t i33;
+      i33 = i32 % 4;
+      unsigned i34;
+      i34 = i10 + (16384 * i33);
+      unsigned i35;
+      i35 = i6 + (32768 * i33);
+      mbarrier::waitParity(toSmem((&T8[(i32 % 4)])), (uint32_t)(((i32 / 4) % 2)));
+      #pragma unroll
+      for(nvfuser_index_t i36 = 0; i36 < 4; ++i36) {
+        nvfuser_index_t i37;
+        i37 = 2048 * i36;
+        unsigned i38;
+        i38 = i34 + i37;
+        unsigned i39;
+        i39 = i35 + i37;
+        asm volatile("wgmma.fence.sync.aligned;\n");
+        asm volatile(
+          "{\n"
+          "  .reg .pred p0; \n"
+          "  setp.ne.b32 p0, %130, 0;\n"
+          "  wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64, %65, %66, %67, %68, %69, %70, %71, %72, %73, %74, %75, %76, %77, %78, %79, %80, %81, %82, %83, %84, %85, %86, %87, %88, %89, %90, %91, %92, %93, %94, %95, %96, %97, %98, %99, %100, %101, %102, %103, %104, %105, %106, %107, %108, %109, %110, %111, %112, %113, %114, %115, %116, %117, %118, %119, %120, %121, %122, %123, %124, %125, %126, %127}, %128, %129, p0, %131, %132, %133, %134;\n"
+          "}\n"
+          :"+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[0]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[1]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[2]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[3]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[4]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[5]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[6]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[7]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[8]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[9]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[10]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[11]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[12]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[13]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[14]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[15]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[16]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[17]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[18]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[19]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[20]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[21]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[22]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[23]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[24]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[25]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[26]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[27]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[28]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[29]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[30]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[31]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[32]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[33]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[34]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[35]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[36]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[37]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[38]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[39]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[40]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[41]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[42]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[43]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[44]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[45]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[46]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[47]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[48]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[49]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[50]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[51]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[52]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[53]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[54]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[55]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[56]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[57]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[58]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[59]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[60]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[61]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[62]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[63]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[64]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[65]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[66]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[67]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[68]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[69]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[70]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[71]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[72]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[73]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[74]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[75]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[76]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[77]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[78]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[79]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[80]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[81]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[82]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[83]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[84]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[85]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[86]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[87]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[88]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[89]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[90]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[91]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[92]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[93]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[94]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[95]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[96]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[97]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[98]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[99]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[100]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[101]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[102]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[103]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[104]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[105]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[106]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[107]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[108]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[109]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[110]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[111]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[112]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[113]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[114]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[115]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[116]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[117]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[118]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[119]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[120]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[121]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[122]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[123]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[124]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[125]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[126]),
+           "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[127])
+          :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i38)) >> 4ULL))),
+           "l"((4611686293338849280ULL | ((262143ULL & (uint64_t)(i39)) >> 4ULL))),
+           "n"((uint32_t)(true)),
+           "n"(1),
+           "n"(1),
+           "n"(1),
+           "n"(1)
+        );
+      }
+      asm volatile("wgmma.commit_group.sync.aligned;\n");
+      asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(1LL):"memory");
+      mbarrier::arrive(toSmem((&T8[(((i32 - 1) % 4) + 4LL)])));
     }
   }
+  asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
+
   #pragma unroll
   for(nvfuser_index_t i42 = 0; i42 < 32; ++i42) {
     nvfuser_index_t i43;
@@ -11557,6 +11739,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
       }
     }
   }
+  __syncthreads();
   #pragma unroll
   for(nvfuser_index_t i48 = 0; i48 < 16; ++i48) {
     if ((b20 && (i21 < (-(16 * i48))))) {
@@ -11573,23 +11756,22 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) nvfuser_none_f0
   }
   __syncthreads();
   asm volatile("fence.proxy.async;\n");
-  #pragma unroll
-  for(nvfuser_index_t i49 = 0; i49 < 4; ++i49) {
-    if (Hopper::electSync(4294967295U) && b16 && b19) {
+  if (Hopper::electSync(4294967295U) && b16 && b19) {
+    #pragma unroll
+    for(nvfuser_index_t i49 = 0; i49 < 4; ++i49) {
       Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr13, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i49)), i15}) }), (i12 + (8192 * i49)));
     }
   }
   asm volatile("cp.async.bulk.commit_group;\n");
   asm volatile("cp.async.bulk.wait_group.read %0;\n"::"n"(0LL):"memory");
-  #pragma unroll
-  for(nvfuser_index_t i40 = 0; i40 < 4; ++i40) {
-    if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+
+  if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+   #pragma unroll
+   for(nvfuser_index_t i40 = 0; i40 < 4; ++i40) {
       mbarrier::inval(toSmem((&T8[(i40 + 4LL)])));
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i41 = 0; i41 < 4; ++i41) {
-    if (((Hopper::electSync(4294967295U) && b16) && b17)) {
+    #pragma unroll
+    for(nvfuser_index_t i41 = 0; i41 < 4; ++i41) {
       mbarrier::inval(toSmem((&T8[i41])));
     }
   }
