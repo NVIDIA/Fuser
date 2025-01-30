@@ -4,7 +4,7 @@
 import pytest
 import torch
 from nvfuser import FusionDefinition, DataType
-import core
+from .core import run_benchmark
 
 
 # Qwen2 fusion that involves concatenation. Note that there are no Mistral-Nemo
@@ -183,7 +183,7 @@ def test_cat_qwen2_fwd_11_nvfuser(benchmark):
     def benchmark_fn(inputs):
         fd.execute(inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 # _tc tests are "torch.compile"-based tests. They are the equivalent set of ops
@@ -401,7 +401,7 @@ def test_cat_qwen2_fwd_11_tc(benchmark):
     def benchmark_fn(inputs):
         func(*inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 def test_cat_phi3_1_nvfuser(benchmark):
@@ -436,7 +436,7 @@ def test_cat_phi3_1_nvfuser(benchmark):
     def benchmark_fn(inputs):
         fd.execute(inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 def test_cat_phi3_1_tc(benchmark):
@@ -474,7 +474,7 @@ def test_cat_phi3_1_tc(benchmark):
     def benchmark_fn(inputs):
         func(*inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 @pytest.mark.skip("issue 3740")
@@ -672,7 +672,7 @@ def test_cat_qwen2_v2(benchmark):
     def benchmark_fn(inputs):
         fd.execute(inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 # Nanogpt has no concat operations, but because it has split operations concat
@@ -736,7 +736,7 @@ def test_cat_nanogpt_bwd_6_nvfuser(benchmark):
     def benchmark_fn(inputs):
         fd.execute(inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 def test_cat_nanogpt_bwd_6_tc(benchmark):
@@ -778,4 +778,4 @@ def test_cat_nanogpt_bwd_6_tc(benchmark):
     def benchmark_fn(inputs):
         func(*inputs)
 
-    core.run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
