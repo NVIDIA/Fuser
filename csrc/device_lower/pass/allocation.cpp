@@ -488,7 +488,7 @@ class AllocationInserter : public kir::ExprMutator {
         if (tv_info_it != region.covered_tensors.end()) {
           auto address_ti = IrBuilder::create<kir::TensorIndex>(
               region.address, region.address->fusion()->zeroVal());
-          alloc_expr->setBaseAddress(address_ti);
+          alloc_expr->setAddress(address_ti);
           alloc_expr->setLaneOffset(tv_info_it->lane_offset);
           alloc_expr->setColOffset(tv_info_it->column_offset);
           break;

@@ -368,24 +368,13 @@ class Allocate final : public Expr {
   // aligned address in bytes.
   void setAddress(Val* addr) {
     NVF_CHECK(
-        memoryType() == MemoryType::Shared,
-        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared/tensor memory allocations. Memory type is ",
         memoryType());
     NVF_CHECK(
         address() == nullptr,
         "Attempted to set address twice for allocation ",
-        toString());
-    attributes_[5] = addr;
-  }
-
-  void setBaseAddress(Val* addr) {
-    NVF_CHECK(
-        memoryType() == MemoryType::Tensor,
-        "Allocation base address may only be set for tensor memory allocations. Memory type is ",
-        memoryType());
-    NVF_CHECK(
-        baseAddress() == nullptr,
-        "Attempted to set base address twice for allocation ",
         toString());
     attributes_[5] = addr;
   }
@@ -419,16 +408,9 @@ class Allocate final : public Expr {
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
     NVF_CHECK(
-        memoryType() == MemoryType::Shared,
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
         "Allocation address may only be set for shared memory allocations. Memory type is ",
-        memoryType());
-    return attributeVal(5);
-  }
-
-  Val* baseAddress() const {
-    NVF_CHECK(
-        memoryType() == MemoryType::Tensor,
-        "Base address may only be set for tensor memory allocations. Memory type is ",
         memoryType());
     return attributeVal(5);
   }
