@@ -480,6 +480,7 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
                  << d << ").";
   }
 
+  // Use randint instead of randn to avoid floating point accumulation errors.
   auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options);
   auto w_tensor = at::randint(/*high=*/5, {e, e}, tensor_options);
   auto sharded_x = shardTensor(x_tensor, x);
