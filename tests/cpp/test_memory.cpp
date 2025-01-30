@@ -2819,7 +2819,7 @@ void testTMemAddKernel(bool same_region) {
   fusion.addOutput(tv9);
 
   if (same_region) {
-    using Region = std::vector<TensorView*>
+    using Region = std::vector<TensorView*>;
     Region region1{tv2, tv6};
     std::vector<Region> regions{region1};
     fusion.manage("tmem_regions", regions);

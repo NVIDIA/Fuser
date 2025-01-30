@@ -26,7 +26,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   using Partition = std::vector<std::vector<TensorView*>>;
   Partition partitions;
   if (fusion->hasManaged("tmem_regions")) {
-    partitions = &fusion->getManaged<Partition>("tmem_regions");
+    partitions = fusion->getManaged<Partition>("tmem_regions");
   } else {
     partitions = {};
   }
@@ -50,7 +50,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
       continue;
     }
     if (tensors.count(tv) == 0) {
-      partitions.emplace_back({tv});
+      partitions.push_back({tv});
     }
   }
 
