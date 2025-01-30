@@ -498,10 +498,11 @@ SdpfaFwdResult sdpfa_fwd(
       query_domain);
 
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
       "Expected dropout to be a scalar double.");
   NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
@@ -565,7 +566,7 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       scale);
   return {output, log_sumexp, philox_seed, philox_offset};
@@ -618,10 +619,11 @@ SdpfaBwdResult sdpfa_bwd(
       query_domain.size());
 
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
       "Expected dropout to be a scalar double.");
   NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
@@ -654,7 +656,7 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       philox_seed,
       philox_offset,
