@@ -4751,8 +4751,6 @@ void SegmentCandidateFinder::finalize() {
     resolveScalarsInGroup(group);
   }
 
-  // Remove unnecessary upcast ops
-  // TODO:
   for (auto group : segmented_fusion_->groups()) {
     revertPrivatizedUpcast(group);
   }
