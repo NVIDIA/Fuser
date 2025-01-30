@@ -190,7 +190,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -280,13 +280,13 @@ void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
   streams_.insert(
       {get_current_stream->stream(),
        c10::cuda::getCurrentCUDAStream(
-           static_cast<c10::DeviceIndex>(my_device_index_))});
+           static_cast<c10::DeviceIndex>(my_local_device_index_))});
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
   cudaStream_t current_stream =
       c10::cuda::getCurrentCUDAStream(
-          static_cast<c10::DeviceIndex>(my_device_index_))
+          static_cast<c10::DeviceIndex>(my_local_device_index_))
           .stream();
   cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
 
@@ -419,7 +419,6 @@ struct IpcTensorInfo {
 
 AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor input, std::vector<at::Tensor> outputs, Communicator* communicator) : unique_id(running_counter++), communicator_(communicator) {
 
-  std::string rank_prefix = "_rank=";
 
   IpcTensorInfo ipc_tensor_info;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, input.data_ptr()));
@@ -428,7 +427,7 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
 
   const int64_t my_rank = communicator->deviceId();
   auto store = communicator->getTcpStore();
-  store->set(prefix() + rank_prefix + std::to_string(my_rank), toBytes(ipc_tensor_info));
+  store->set(prefix() + std::to_string(my_rank), toBytes(ipc_tensor_info));
 
   communicator_->barrier();
 
@@ -443,8 +442,7 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
     if (rank == my_rank) {
       input_ptrs_.at(rank) = input.data_ptr();
     } else {
-      ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix() + rank_prefix + std::to_string(rank)));
-      // auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + rank_prefix + std::to_string(rank)));
+      ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix() + std::to_string(rank)));
       void*& ptr = input_ptrs_.at(rank);
       NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&ptr, ipc_tensor_info.ipc_handle, cudaIpcMemLazyEnablePeerAccess));
       ptr = (void*)((uint8_t*)ptr + ipc_tensor_info.storage_offset * ipc_tensor_info.element_size);
@@ -454,10 +452,10 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
 }
 
 void AllgatherThroughCudaMemcpyAsync::post() const {
+  cudaStream_t stream = c10::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(communicator_->local_rank())).stream();
   // TODO: use multicast
   for (size_t i = 0; i < sizes_.size(); i++) {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice));
-    torch::cuda::synchronize();
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice, stream));
   }
 }
 
@@ -487,6 +485,7 @@ void HostIrEvaluator::handle(Communication* communication) {
   }
 
   NVF_ERROR(communication->type() == CommunicationType::Allgather);
+  // TODO: fix registration cache
   // if (allgather_backends_.find(communication) == allgather_backends_.end()) {
   //   // TODO: retrieve sharded axis here
   //   auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
@@ -502,8 +501,6 @@ void HostIrEvaluator::handle(Communication* communication) {
   auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
   AllgatherThroughCudaMemcpyAsync allgather_backend(input_tensor, output_tensors, communicator_);
   allgather_backend.post();
-  torch::cuda::synchronize();
-  communicator_->barrier();
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {

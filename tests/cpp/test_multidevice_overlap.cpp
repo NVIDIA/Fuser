@@ -350,10 +350,10 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmark) {
 }
 
 TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
-  // constexpr int64_t number_of_warmups = 50;
-  // constexpr int64_t number_of_iterations = 200;
-  // constexpr int64_t iteration_profiler_start = 10;
-  // constexpr int64_t iteration_profiler_end = 15;
+  constexpr int64_t number_of_warmups = 50;
+  constexpr int64_t number_of_iterations = 200;
+  constexpr int64_t iteration_profiler_start = 10;
+  constexpr int64_t iteration_profiler_end = 15;
 
   const int64_t D = communicator_->size();
   auto [backend,
@@ -422,39 +422,34 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
   std::vector<c10::IValue> inputs = {ta, tb};
   at::Tensor tc;
 
-  std::cout << "rank " << communicator_->deviceId() << ", ta_unsharded_ptr=" << ta_unsharded.data_ptr() << ", ta_ptr=" << ta.data_ptr()  << std::endl;
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
 
-  // cudaEvent_t start, stop;
-  // cudaEventCreate(&start);
-  // cudaEventCreate(&stop);
-
-  // for (const auto& iteration :
-  //      c10::irange(1)) {
-    // if (iteration == iteration_profiler_start) {
-    //   cudaProfilerStart();;
-    // }
-    // if (iteration == number_of_warmups) {
-    //   cudaEventRecord(start);
-    // }
+  for (const auto& iteration :
+       c10::irange(number_of_iterations)) {
+    if (iteration == iteration_profiler_start) {
+      // cudaProfilerStart();;
+    }
+    if (iteration == number_of_warmups) {
+      cudaEventRecord(start);
+    }
 
     tc = executor.runWithInput(inputs).at(0);
 
-    // if (iteration == iteration_profiler_end) {
-    //   cudaProfilerStop();;
-    // }
-  // }
-  // cudaEventRecord(stop);
-  // cudaEventSynchronize(stop);
-  // float milliseconds = 0;
-  // cudaEventElapsedTime(&milliseconds, start, stop);
-  // milliseconds /= number_of_iterations;
+    if (iteration == iteration_profiler_end) {
+      // cudaProfilerStop();;
+    }
+  }
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  milliseconds /= number_of_iterations;
 
-  // std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
-  // times.insert({test_name, milliseconds});
-  // std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
-
-  torch::cuda::synchronize();
-  communicator_->barrier();
+  std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  times.insert({test_name, milliseconds});
+  std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
 
   EXPECT_TRUE(torch::allclose(tc_ref, tc, 1e-1, 1e-1)) << "rank " << communicator_->deviceId() << "failed.\ntc_ref: " << tc_ref << ",\ntc: " << tc;
 }
