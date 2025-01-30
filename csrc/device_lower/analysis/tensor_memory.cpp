@@ -54,8 +54,9 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
     }
   }
 
-  // Compute the allocation information for tensor memory. That is, for each
-  // partition, we create a Region object and fill in the necessary information.
+  // Step 2: Compute the allocation information for tensor memory. That is, for
+  // each partition, we create a Region object and fill in the necessary
+  // information.
   auto& regions = result.allocation.regions;
   for (const auto& partition : partitions) {
     regions.emplace_back();
