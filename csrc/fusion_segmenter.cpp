@@ -4354,6 +4354,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         auto updated_expr = ir_utils::replaceValInExprInputs(
             expr, *input_it, upcast_val_to_keep);
         expr = updated_expr;
+        replaced = true;
       }
 
       // Update a consumer edge if its val is
