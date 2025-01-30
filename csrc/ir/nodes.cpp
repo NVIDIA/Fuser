@@ -4637,19 +4637,44 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   auto num_device_dims = weight.dim() - 2;
   squeeze_device_dims(weight, num_device_dims);
 
-  at::Tensor out;
+  at::Tensor out_tensor;
   if (has_bias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
     squeeze_device_dims(bias, num_device_dims);
-    out = at::linear(in, weight, bias);
+    out_tensor = at::linear(in, weight, bias);
   } else {
-    out = at::linear(in, weight);
+    out_tensor = at::linear(in, weight);
   }
 
   for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
-    out = out.unsqueeze(0);
+    out_tensor = out_tensor.unsqueeze(0);
   }
-  return {out};
+
+  // Handle rFactor DIDs similar to MatmulOp::evaluate.
+  auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(static_cast<int64_t>(out_logical.size()))) {
+    if (!out_logical.at(idx)->isRFactorProduct()) {
+      continue;
+    }
+
+    if (!out_logical.at(idx)->isDeviceDim()) {
+      continue;
+    }
+
+    if (rfactor_did_idx != -1) {
+      NVF_THROW(
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          out_logical);
+    }
+    rfactor_did_idx = idx;
+  }
+
+  if (rfactor_did_idx != -1) {
+    out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
+  }
+
+  return {out_tensor};
 }
 
 SdpaFwdOp::SdpaFwdOp(
