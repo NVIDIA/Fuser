@@ -718,11 +718,11 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
 
 namespace {
 // For inner persistent kernel, shared memory is allocated as:
-// ceilDiv(ceilDiv(N/vect, batch), threads) * vect * batch * threads.
-// The required shared memory size is larger than buffer size when split is
-// not divisible or threads is padded. The difference is counted as roundup
-// overhead. This function estimates the maximum possible shared memory size
-// due to this round up by iterating over different batch sizes.
+// ceilDiv(N/vect, batch) * vect * batch. The required shared memory size is
+// larger than buffer size when split is not divisible. The difference is
+// counted as roundup overhead. This function estimates the maximum possible
+// shared memory size due to this round up by iterating over different batch
+// sizes.
 int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
   int64_t max_batches_per_block = getInnerPersistentMaxBatchSize(
       scheduler_utils::isHighBandwidthFlopsRatio());
@@ -744,8 +744,9 @@ int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
     int64_t after_vect = dim_size / vectorize_factor;
     for (int64_t pbs = 1; pbs <= max_batches_per_block; pbs += 1) {
       int64_t threads = ceilDiv(after_vect, pbs);
-      if (threads % warp_size != 0 && threads < max_threads_per_block) {
-        threads = ceilDiv(threads, warp_size) * warp_size;
+      // skip non-valid combinations
+      if (threads > max_threads_per_block) {
+        continue;
       }
       max_smem =
           std::max(max_smem, pbs * vectorize_factor * threads * data_type_size);
