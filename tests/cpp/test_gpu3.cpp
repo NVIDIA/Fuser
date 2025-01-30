@@ -7432,13 +7432,8 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
         "");
   };
   // loop from 16K to 128K hidden size
-  // for (auto dtype : {DataType::Float, DataType::Half}) {
-  {
-    DataType dtype = DataType::Half;
-    // for (int i = 8; i <= 128; i += 8) {
-    {
-      int i = 80;
-      std::cerr << "i: " << i << "\n";
+  for (auto dtype : {DataType::Float, DataType::Half}) {
+    for (int i = 8; i <= 128; i += 8) {
       test(i * 1024, dtype);
     }
   }
@@ -9416,59 +9411,6 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
           exact_graph.toGroups(tv1->getLoopDomain()));
     }
   }
-}
-
-TEST_F(NVFuserTest, InnerPersistentNotEnoughSharedMemory) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
-
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  fusion.addInput(tv0);
-  auto tv1 = makeContigTensor(1, DataType::Half);
-  fusion.addInput(tv1);
-  auto tv2 = makeContigTensor(1, DataType::Half);
-  fusion.addInput(tv2);
-
-  auto tv3 = castOp(DataType::Float, tv0);
-  auto tvs = Welford(tv3, {1});
-  auto tv6 = tvs.avg;
-  auto tv7 = tvs.var_sum;
-  auto tv9 = broadcast(tv6, {false, true});
-  TensorView* tv10 = nullptr;
-  if (getenv("UNIQUE_CAST")) {
-    auto tv21 = castOp(DataType::Float, tv0);
-    tv10 = sub(tv21, tv9);
-  } else {
-    tv10 = sub(tv3, tv9);
-  }
-  auto tv11 = broadcast(tv7, {false, true});
-  auto tv13 = add(tv11, IrBuilder::create<Val>(0.001));
-  auto tv14 = rsqrt(tv13);
-  auto tv15 = mul(tv10, tv14);
-  auto tv4 = castOp(DataType::Float, tv1);
-  auto tv16 = broadcast(tv4, {true, false});
-  auto tv17 = mul(tv15, tv16);
-  auto tv5 = castOp(DataType::Float, tv2);
-  auto tv18 = broadcast(tv5, {true, false});
-  auto tv19 = add(tv17, tv18);
-  auto tv20 = castOp(DataType::Half, tv19);
-
-  fusion.addOutput(tv20);
-  fusion.addOutput(tv9);
-  fusion.addOutput(tv14);
-
-  std::vector<int64_t> input_shape{2048, 80 * 1024};
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = at::randn({input_shape[1]}, options);
-  auto t2 = at::randn({input_shape[1]}, options);
-  std::vector<c10::IValue> inputs({t0, t1, t2});
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
