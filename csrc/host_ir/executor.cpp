@@ -411,16 +411,30 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 
 int64_t AllgatherThroughCudaMemcpyAsync::running_counter = 0;
 
+struct IpcTensorInfo {
+  cudaIpcMemHandle_t ipc_handle;
+  int64_t storage_offset;
+  int64_t element_size;
+};
+
 AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor input, std::vector<at::Tensor> outputs, Communicator* communicator) : unique_id(running_counter++), communicator_(communicator) {
-  cudaIpcMemHandle_t input_ipc_handle;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&input_ipc_handle, input.data_ptr()));
 
   std::string rank_prefix = "_rank=";
+  std::string ipc_handle_prefix = "_IpcHandle=";
+  std::string offset_prefix = "_Offset=";
 
-  auto store = communicator->getTcpStore();
+  IpcTensorInfo ipc_tensor_info;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, input.data_ptr()));
+  ipc_tensor_info.storage_offset = input.storage_offset();
+  ipc_tensor_info.element_size = input.element_size();
+
   const int64_t my_rank = communicator->deviceId();
-  store->set(prefix() + rank_prefix + std::to_string(my_rank), toBytes(input_ipc_handle));
-  std::cout << "rank " << communicator_->deviceId() << " sets at key " << prefix() + rank_prefix + std::to_string(my_rank) <<  std::endl;
+  auto store = communicator->getTcpStore();
+  store->set(prefix() + rank_prefix + std::to_string(my_rank), toBytes(ipc_tensor_info));
+  std::cout << "rank " << communicator_->deviceId()
+            << " sets at key " << prefix() + rank_prefix + std::to_string(my_rank)
+            << " offset " << input.storage_offset() << " at key " << prefix() + offset_prefix + std::to_string(my_rank)
+             << ", for input=" << input <<  std::endl;
 
   communicator_->barrier();
 
@@ -436,16 +450,20 @@ AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor inpu
       input_ptrs_.at(rank) = input.data_ptr();
     } else {
       std::cout << "rank " << communicator_->deviceId() << " gets at key " << prefix() + rank_prefix + std::to_string(rank) << " for iteration " << rank <<  std::endl;
-      auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + rank_prefix + std::to_string(rank)));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&input_ptrs_.at(rank), peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+      ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix() + rank_prefix + std::to_string(rank)));
+      // auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get(prefix() + rank_prefix + std::to_string(rank)));
+      void*& ptr = input_ptrs_.at(rank);
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&ptr, ipc_tensor_info.ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+      ptr = (void*)((uint8_t*)ptr + ipc_tensor_info.storage_offset * ipc_tensor_info.element_size);
     }
   }
 }
 
 void AllgatherThroughCudaMemcpyAsync::post() const {
   for (size_t i = 0; i < sizes_.size(); i++) {
-    std::cout << "rank " << communicator_->deviceId() <<", iteration " << i << ", input_ptr=" << input_ptrs_.at(i) << ", output_ptr=" << output_ptrs_.at(i) << ", size=" << sizes_.at(i)<<  std::endl;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice));
+    torch::cuda::synchronize();
+    std::cout << "rank " << communicator_->deviceId() <<", iteration " << i << ", input_ptr=" << input_ptrs_.at(i) << ", output_ptr=" << output_ptrs_.at(i) << ", size=" << sizes_.at(i) <<  std::endl;
   }
 }
 
@@ -495,6 +513,9 @@ void HostIrEvaluator::handle(Communication* communication) {
   allgather_backend.post();
   torch::cuda::synchronize();
   communicator_->barrier();
+  if (communicator_->deviceId() == 0) {
+    std::cout << "rank " << communicator_->deviceId() << " finishes allgather, output=" << output_tensor << std::endl;
+  }
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {

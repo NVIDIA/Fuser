@@ -422,6 +422,8 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
   std::vector<c10::IValue> inputs = {ta, tb};
   at::Tensor tc;
 
+  std::cout << "rank " << communicator_->deviceId() << ", ta_unsharded_ptr=" << ta_unsharded.data_ptr() << ", ta_ptr=" << ta.data_ptr()  << std::endl;
+
   // cudaEvent_t start, stop;
   // cudaEventCreate(&start);
   // cudaEventCreate(&stop);
