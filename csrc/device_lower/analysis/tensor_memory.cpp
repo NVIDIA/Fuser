@@ -81,6 +81,8 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
       region.num_columns =
           SimplifyingIrBuilder::addExpr(region.num_columns, num_columns);
     }
+    region.num_columns =
+        IrBuilder::maybeCastExpr(DataType::UInt32, region.num_columns);
   }
 
   return result;
