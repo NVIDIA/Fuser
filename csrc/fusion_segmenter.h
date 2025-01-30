@@ -564,10 +564,16 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  // Replicate upcast ops when consumed by multiple expressions. This
+  // promotes segmented fusions to share pre-upcast tensors rather
+  // than post-upcast tensors. Replicated upcast ops will be reverted
+  // when they are grouped into the same segment. See
+  // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
   void privatizeUpcast();
 
   void findSegments();
 
+  // Revert privatized upcast ops when not necessary
   void revertPrivatizedUpcast(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the

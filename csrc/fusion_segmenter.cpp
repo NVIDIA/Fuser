@@ -4254,8 +4254,6 @@ void SegmentCandidateFinder::privatizeUpcast() {
 
       auto upcast_out_tv_clone =
           castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
-      std::cerr << "Recomputed cast: "
-                << upcast_out_tv_clone->definition()->toString();
       expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_out_tv, upcast_out_tv_clone);
 
@@ -4274,6 +4272,8 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         continue;
       }
 
+      upcast_in_group.push_back(uop);
+
       auto upcast_tv = uop->out();
 
       // Prefer the original upcast if found
@@ -4287,8 +4287,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
       continue;
     }
 
-    for (const auto i : c10::irange(upcast_in_group.size())) {
-      UnaryOp* uop = upcast_in_group.at(i);
+    for (auto uop : upcast_in_group) {
       Val* upcast_val_to_replace = uop->out();
       if (upcast_val_to_replace == upcast_val_to_keep) {
         // Keep this uop as is since its output replaces the other
@@ -4309,18 +4308,18 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         auto updated_expr = ir_utils::replaceValInExprInputs(
             expr, *input_it, upcast_val_to_keep);
         expr = updated_expr;
-
-        // Update consumer edge vals
-        for (auto consumer_edge : group->consumer_edges) {
-          if (consumer_edge->val == upcast_val_to_replace) {
-            consumer_edge->val = upcast_val_to_keep;
-          }
-        }
-
-        // Note that it should not be necessary to do anything with
-        // group->output_vals since the inserted upcast ops should never produce
-        // fusion outputs.
       }
+
+      // Update consumer edge vals
+      for (auto consumer_edge : group->consumer_edges) {
+        if (consumer_edge->val == upcast_val_to_replace) {
+          consumer_edge->val = upcast_val_to_keep;
+        }
+      }
+
+      // Note that it should not be necessary to do anything with
+      // group->output_vals since the inserted upcast ops should never produce
+      // fusion outputs.
     }
   }
 }

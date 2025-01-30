@@ -703,6 +703,7 @@ TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+// Test to verify an upcast is replicated between different segments
 TEST_F(NVFuserTest, PrivatizeUpcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -727,9 +728,30 @@ TEST_F(NVFuserTest, PrivatizeUpcast) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // There must be three segments, one with ExprEvalExecutor and two
+  // with KernelExecutor.
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(3));
+
+  for (const auto& executor : runtime->executors()) {
+    // Ignore the one taken care by ExprEvalExecutor
+    if (executor.get()->isA<ExprEvalExecutor>()) {
+      continue;
+    }
+    // This segment should corresponds to each of the reductions. Both
+    // of them should use tv1.
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    EXPECT_EQ(kernel->inputs().size(), 1);
+    EXPECT_EQ(kernel->inputs().at(0)->name(), 1);
+  }
 }
 
-TEST_F(NVFuserTest, PrivatizeUpcast2) {
+// Unlike PrivatizeUpcast, verify replicated upcast ops are
+// consolidated back as they are grouped into the same segment
+TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -753,6 +775,35 @@ TEST_F(NVFuserTest, PrivatizeUpcast2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // There must be two segments, one with ExprEvalExecutor and another
+  // with KernelExecutor.
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+
+  for (const auto& executor : runtime->executors()) {
+    // Ignore the one taken care by ExprEvalExecutor
+    if (executor.get()->isA<ExprEvalExecutor>()) {
+      continue;
+    }
+    // This segment should have the two reductions. There must be only
+    // one upcast op with tv1 as its producer.
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    int64_t num_upcast_ops = 0;
+    for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
+      auto uop = dynamic_cast<UnaryOp*>(expr);
+      if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+
+      EXPECT_EQ(uop->in()->as<kir::TensorIndex>()->view()->name(), 1);
+
+      ++num_upcast_ops;
+    }
+    EXPECT_EQ(num_upcast_ops, 1);
+  }
 }
 
 } // namespace nvfuser
