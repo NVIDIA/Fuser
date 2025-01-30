@@ -40,6 +40,14 @@ struct SegmentedEdge {
   Val* val;
 
   void print() const;
+
+  bool operator==(const SegmentedEdge& other) const {
+    return from == other.from && to == other.to && val == other.val;
+  }
+
+  bool operator!=(const SegmentedEdge& other) const {
+    return !(*this == other);
+  }
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);

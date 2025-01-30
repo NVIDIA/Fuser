@@ -4264,6 +4264,45 @@ void SegmentCandidateFinder::privatizeUpcast() {
 }
 
 void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
+  // If a given consumer edge is a duplicate of another edge of the
+  // same producer group, remove the given edge from both the producer
+  // and consumer groups.
+  auto maybe_deduplicate_edge =
+      [](SegmentedEdge* maybe_duplicated_consumer_edge) {
+        SegmentedGroup* producer_group = maybe_duplicated_consumer_edge->from;
+
+        auto same_edge_it = std::find_if(
+            producer_group->consumer_edges.begin(),
+            producer_group->consumer_edges.end(),
+            [&](SegmentedEdge* consumer_edge) {
+              return consumer_edge != maybe_duplicated_consumer_edge &&
+                  *consumer_edge == *maybe_duplicated_consumer_edge;
+            });
+
+        if (same_edge_it == producer_group->consumer_edges.end()) {
+          return;
+        }
+
+        // maybe_duplicated_consumer_edge is redundant. Remove it from the
+        // from and the two groups
+        auto consumer_edge_to_remove = std::find(
+            producer_group->consumer_edges.begin(),
+            producer_group->consumer_edges.end(),
+            maybe_duplicated_consumer_edge);
+        NVF_ERROR(
+            consumer_edge_to_remove != producer_group->consumer_edges.end());
+        producer_group->consumer_edges.erase(consumer_edge_to_remove);
+
+        SegmentedGroup* consumer_group = maybe_duplicated_consumer_edge->to;
+        auto producer_edge_to_remove = std::find(
+            consumer_group->producer_edges.begin(),
+            consumer_group->producer_edges.end(),
+            maybe_duplicated_consumer_edge);
+        NVF_ERROR(
+            producer_edge_to_remove != consumer_group->producer_edges.end());
+        consumer_group->producer_edges.erase(producer_edge_to_remove);
+      };
+
   for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
     std::vector<UnaryOp*> upcast_in_group;
     Val* upcast_val_to_keep = nullptr;
@@ -4317,11 +4356,26 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         expr = updated_expr;
       }
 
-      // Update consumer edge vals
+      // Update a consumer edge if its val is
+      // upcast_val_to_replace. Again, there must be at most one such
+      // edge.
+      SegmentedEdge* consumer_edge_to_update = nullptr;
       for (auto consumer_edge : group->consumer_edges) {
         if (consumer_edge->val == upcast_val_to_replace) {
+          NVF_ERROR(
+              consumer_edge_to_update == nullptr,
+              "Multiple consumer edges using ",
+              upcast_val_to_replace->toString(),
+              " found");
           consumer_edge->val = upcast_val_to_keep;
+          consumer_edge_to_update = consumer_edge;
         }
+      }
+
+      // Now that the consumer edge is updated, it may be a duplicate
+      // of an exising edge. Remove if so.
+      if (consumer_edge_to_update != nullptr) {
+        maybe_deduplicate_edge(consumer_edge_to_update);
       }
 
       // Note that it should not be necessary to do anything with
