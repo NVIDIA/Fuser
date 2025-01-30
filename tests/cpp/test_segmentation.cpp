@@ -703,4 +703,56 @@ TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, PrivatizeUpcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  auto tv1 = segment_set(tv0);
+  auto tv2 = castOp(DataType::Float, tv1);
+
+  auto tv3 = sum(tv2, {0});
+  fusion.addOutput(tv3);
+
+  auto tv4 = sum(tv2, {1});
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 32}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, PrivatizeUpcast2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  auto tv1 = segment_set(tv0);
+  auto tv2 = castOp(DataType::Float, tv1);
+
+  auto tv3 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+
+  auto tv4 = sum(tv2, {1});
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 32}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

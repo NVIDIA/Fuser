@@ -3955,9 +3955,8 @@ SegmentCandidateFinder::SegmentCandidateFinder(
            options_.run_final_merge),
       "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
-  privatizeUpCast();
+  privatizeUpcast();
   findSegments();
-  revertUnnecessaryUpCast();
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {
@@ -4208,7 +4207,10 @@ void SegmentCandidateFinder::findSegments() {
   }
 }
 
-void SegmentCandidateFinder::privatizeUpCast() {
+void SegmentCandidateFinder::privatizeUpcast() {
+  if (getenv("DISABLE_PRIVATIZE")) {
+    return;
+  }
   // Insert castOp to complete_fusion_
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
 
@@ -4219,8 +4221,6 @@ void SegmentCandidateFinder::privatizeUpCast() {
       continue;
     }
 
-    // for (auto maybe_upcast_out_tv:
-    // ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (const auto i : c10::irange(expr->inputs().size())) {
       auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
       if (maybe_upcast_out_tv == nullptr) {
@@ -4252,19 +4252,78 @@ void SegmentCandidateFinder::privatizeUpCast() {
         continue;
       }
 
-      std::cerr << "Recompute upcast: " << maybe_upcast_op->toString();
-
       auto upcast_out_tv_clone =
           castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
       std::cerr << "Recomputed cast: "
                 << upcast_out_tv_clone->definition()->toString();
       expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_out_tv, upcast_out_tv_clone);
+
+      privatized_upcast_ops_[maybe_upcast_op].insert(
+          upcast_out_tv_clone->definition()->as<UnaryOp>());
     }
   }
 }
 
-void SegmentCandidateFinder::revertUnnecessaryUpCast() {}
+void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
+  for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
+    std::vector<UnaryOp*> upcast_in_group;
+    Val* upcast_val_to_keep = nullptr;
+    for (auto uop : ir_utils::filterByType<UnaryOp>(group->exprs())) {
+      if (uop != original_upcast && !clones.count(uop)) {
+        continue;
+      }
+
+      auto upcast_tv = uop->out();
+
+      // Prefer the original upcast if found
+      if (upcast_val_to_keep == nullptr ||
+          upcast_tv == original_upcast->out()) {
+        upcast_val_to_keep = upcast_tv;
+      }
+    }
+
+    if (upcast_in_group.size() < 2) {
+      continue;
+    }
+
+    for (const auto i : c10::irange(upcast_in_group.size())) {
+      UnaryOp* uop = upcast_in_group.at(i);
+      Val* upcast_val_to_replace = uop->out();
+      if (upcast_val_to_replace == upcast_val_to_keep) {
+        // Keep this uop as is since its output replaces the other
+        // upcast outputs
+        continue;
+      }
+
+      // Replace upcast_val_to_replace with upcast_val_to_keep
+      for (auto& expr : group->exprs_) {
+        auto input_it = std::find(
+            expr->inputs().begin(),
+            expr->inputs().end(),
+            upcast_val_to_replace);
+        if (input_it == expr->inputs().end()) {
+          continue;
+        }
+
+        auto updated_expr = ir_utils::replaceValInExprInputs(
+            expr, *input_it, upcast_val_to_keep);
+        expr = updated_expr;
+
+        // Update consumer edge vals
+        for (auto consumer_edge : group->consumer_edges) {
+          if (consumer_edge->val == upcast_val_to_replace) {
+            consumer_edge->val = upcast_val_to_keep;
+          }
+        }
+
+        // Note that it should not be necessary to do anything with
+        // group->output_vals since the inserted upcast ops should never produce
+        // fusion outputs.
+      }
+    }
+  }
+}
 
 // Decides whether we should forward an input (or a forwarded input) of a
 // fusion. Currently, we forward an input only when its single use is a UnaryOp.
@@ -4690,6 +4749,12 @@ void SegmentCandidateFinder::finalize() {
   // Resolve all the scalar expressions needed in each group
   for (auto group : segmented_fusion_->groups()) {
     resolveScalarsInGroup(group);
+  }
+
+  // Remove unnecessary upcast ops
+  // TODO:
+  for (auto group : segmented_fusion_->groups()) {
+    revertPrivatizedUpcast(group);
   }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.

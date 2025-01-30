@@ -564,11 +564,11 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
-  void privatizeUpCast();
+  void privatizeUpcast();
 
   void findSegments();
 
-  void revertUnnecessaryUpCast();
+  void revertPrivatizedUpcast(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -726,6 +726,10 @@ class SegmentCandidateFinder {
   // This is allowed to be null in the multidevice case where the segmenter is
   // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
+
+  // DisjointSets<UnaryOp*> privatized_upcast_ops_;
+  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
+      privatized_upcast_ops_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
