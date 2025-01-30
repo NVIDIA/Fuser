@@ -4295,7 +4295,9 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         continue;
       }
 
-      // Replace upcast_val_to_replace with upcast_val_to_keep
+      // Replace upcast_val_to_replace with upcast_val_to_keep. There
+      // must be only one expr using upcast_val_to_replace.
+      bool replaced = false;
       for (auto& expr : group->exprs_) {
         auto input_it = std::find(
             expr->inputs().begin(),
@@ -4304,6 +4306,11 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         if (input_it == expr->inputs().end()) {
           continue;
         }
+
+        NVF_ERROR(
+            !replaced,
+            "Multiple use of replicated upcast tensor, ",
+            upcast_val_to_replace->toString());
 
         auto updated_expr = ir_utils::replaceValInExprInputs(
             expr, *input_it, upcast_val_to_keep);
