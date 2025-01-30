@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <iostream>
 #include "c10/core/ScalarType.h"
+#include "scheduler/matmul_heuristic.h"
 
 namespace nvfuser {
 
@@ -4294,10 +4295,12 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
   mparams.async_gmem_load_operands = true;
-  mparams.warp_specialization = test_params.warp_specialization;
-  mparams.persistence_strategy = test_params.persistent_kernel
-      ? MatmulParams::PersistenceStrategy::Cooperative
-      : MatmulParams::PersistenceStrategy::DataParallel;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
@@ -4368,10 +4371,12 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   gemm_tile.warp_tile = GemmTile(64, 64, 16);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-  mparams.warp_specialization = test_params.warp_specialization;
-  mparams.persistence_strategy = test_params.persistent_kernel
-      ? MatmulParams::PersistenceStrategy::Cooperative
-      : MatmulParams::PersistenceStrategy::DataParallel;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
@@ -4453,10 +4458,12 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   gemm_tile.warp_tile = GemmTile(64, 64, 16);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-  mparams.warp_specialization = test_params.warp_specialization;
-  mparams.persistence_strategy = test_params.persistent_kernel
-      ? MatmulParams::PersistenceStrategy::Cooperative
-      : MatmulParams::PersistenceStrategy::DataParallel;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;

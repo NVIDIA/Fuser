@@ -63,8 +63,7 @@ void HopperMultipleMatmulScheduler::validate() const {
   NVF_ERROR(
       cc >= 90 && cc < 100, "This matmul scheduler is restricted to Hopper.");
 
-  if (params_->persistence_strategy !=
-      MatmulParams::PersistenceStrategy::DataParallel) {
+  if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
         params_->splitk_factor == 1,
         "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
@@ -654,9 +653,14 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         " but is expected to be positive and not greater than number of stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
-    CircularBufferType cb_type = params_->warp_specialization
-        ? (CircularBufferType)WarpSpecialized(ParallelType::TIDy)
-        : (CircularBufferType)Pipelined(false);
+    CircularBufferType cb_type;
+    switch (params_->circular_buffering_strategy) {
+      case MatmulParams::CircularBufferingStrategy::Pipelined:
+        cb_type = (CircularBufferType)Pipelined(false);
+        break;
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
+        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+    }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,

@@ -452,12 +452,12 @@ void AmpereMultipleMatmulScheduler::validate() const {
       "This matmul scheduler is restricted to Ampere and Turing.");
 
   NVF_CHECK(
-      params_->persistence_strategy ==
-          MatmulParams::PersistenceStrategy::DataParallel,
+      params_->tiling_strategy == MatmulParams::TilingStrategy::OneTilePerCTA,
       "Ampere matmul scheduler does not support scheduling persistent CTAs");
 
   NVF_CHECK(
-      params_->warp_specialization == false,
+      params_->circular_buffering_strategy ==
+          MatmulParams::CircularBufferingStrategy::Pipelined,
       "Ampere matmul scheduler does not support warp specialization");
 }
 
