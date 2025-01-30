@@ -429,7 +429,7 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
   for (const auto& iteration :
        c10::irange(number_of_iterations)) {
     if (iteration == iteration_profiler_start) {
-      // cudaProfilerStart();;
+      cudaProfilerStart();
     }
     if (iteration == number_of_warmups) {
       cudaEventRecord(start);
@@ -438,7 +438,7 @@ TEST_P(OverlapBenchmark, PipelinedAGMatmulBenchmarkStreamParallelType) {
     tc = executor.runWithInput(inputs).at(0);
 
     if (iteration == iteration_profiler_end) {
-      // cudaProfilerStop();;
+      cudaProfilerStop();
     }
   }
   cudaEventRecord(stop);
