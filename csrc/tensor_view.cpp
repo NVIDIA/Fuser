@@ -60,6 +60,9 @@ std::string TensorView::toString(int indent_size) const {
     case MemoryType::Local:
       ss << "_l";
       break;
+    case MemoryType::Tensor:
+      ss << "_t";
+      break;
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
@@ -800,13 +803,16 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   FusionGuard fg(fusion());
   NVF_CHECK(
       definition() != nullptr &&
-          (definition()->isStrictlyOneOf<ReductionOp, MmaOp>()),
+          (definition()->isStrictlyOneOf<ReductionOp, MmaOp, MatmulOp>()),
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. Thus, the original logical domain is moved to
+  // the root domain.
   NVF_CHECK(
-      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
-
+      definition()->isA<MmaOp>() || !domain()->hasRoot(),
+      "Cannot call rfactor on the same view twice.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
@@ -859,6 +865,14 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
     //  warp or cta.
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add, this_mma->init(), consumer, producer);
+  } else if (auto this_matmul = dynamic_cast<MatmulOp*>(definition())) {
+    IrBuilder::create<MatmulOp>(
+        producer, this_matmul->inA(), this_matmul->inB());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
     NVF_THROW("RFactor: unsupported tensor definition");
   }
@@ -935,8 +949,12 @@ std::vector<TensorView*> TensorView::rFactor(
       this,
       " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
 
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. Thus, the original logical domain is moved to
+  // the root domain.
   NVF_CHECK(
-      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
+      definition()->isA<MmaOp>() || !domain()->hasRoot(),
+      "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       definition()->outputs().size() == tvs.size(),

@@ -48,10 +48,16 @@ struct MatmulInputs {
 namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator, it also updates fusion
-// output according to the replacement_map
-void replaceValue(
+// output according to the replacement_map. Returns the final
+// replacement map, which includes the given replacement entries as
+// well as those that are the results of the replacement.
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
+
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr);
 
 template <typename FilterType, typename Iterator>
 class FilterIterator {
@@ -707,6 +713,7 @@ inline bool isMemoryPartitionedAcross(
       return isParallelTypeThread(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Shared:
+    case MemoryType::Tensor:
       return isParallelTypeBlockDim(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Global:
@@ -726,7 +733,8 @@ inline bool isMemorySharedAcross(
       // Nothing is shared if it's Local
       return false;
     case MemoryType::Shared:
-      // Only TID parallelized domains are shared if it's Shared
+    case MemoryType::Tensor:
+      // Only TID parallelized domains are shared if it's Shared or Tensor
       return isParallelTypeThreadDim(parallel_type);
     case MemoryType::Global:
       // Only TID and BID parallelized domains are shared if it's Global
@@ -779,28 +787,15 @@ TensorView* getTvOutput(const Expr*);
 // Returns the first input of Expr that is a TensorView
 TensorView* getTvInput(const Expr*);
 
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
 // Generates the allocation domain for the given logical domain based on the
 // stride order.
 std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
+
+// Returns the number of bytes of data types of the producer and
+// consumer tensors of a cast unary op
+std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
+    UnaryOp* cast_op);
 
 } // namespace nvfuser::ir_utils

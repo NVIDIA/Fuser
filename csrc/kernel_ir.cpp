@@ -100,7 +100,9 @@ TensorIndex::TensorIndex(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
           index->dtype() ==
-              DataType::UInt /*For matrix descriptor for hopper MMA*/,
+              DataType::UInt64 /*For matrix descriptor for hopper MMA*/
+          || index->dtype() ==
+              DataType::UInt32 /*Temporarily enabled for TMem tensor*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -485,6 +487,47 @@ std::string WgMmaFence::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WgMmaFence)
 
+SetMaxNReg::SetMaxNReg(
+    IrBuilderPasskey passkey,
+    Val* number_of_registers,
+    bool increase_registers)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addInput(number_of_registers);
+  addDataAttribute(increase_registers);
+}
+
+std::string SetMaxNReg::toString(int indent_size) const {
+  return (increaseRegisters()) ? "setmaxnreg.inc.sync.aligned.u32"
+                               : "setmaxnreg.dec.sync.aligned.u32";
+}
+
+std::string SetMaxNReg::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "SetMaxNReg can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Return::toString(int indent_size) const {
+  return "return";
+}
+
+std::string Return::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Return can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Return)
+
 MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,
     Val* mbarrier,
@@ -536,7 +579,7 @@ MBarrierArrive::MBarrierArrive(
   NVF_ERROR(passkey.ir_container_ != nullptr);
   addInput(mbarrier);
   if (state != nullptr) {
-    NVF_CHECK(state->dtype() == DataType::UInt);
+    NVF_CHECK(state->dtype() == DataType::UInt64);
     addOutput(state);
   }
 }
@@ -565,7 +608,7 @@ MBarrierArriveExpectTx::MBarrierArriveExpectTx(
   addInput(mbarrier);
   addInput(tx_count);
   if (state != nullptr) {
-    NVF_CHECK(state->dtype() == DataType::UInt);
+    NVF_CHECK(state->dtype() == DataType::UInt64);
     addOutput(state);
   }
 }
@@ -586,7 +629,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
 MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(state->dtype() == DataType::UInt);
+  NVF_CHECK(state->dtype() == DataType::UInt64);
   addInput(mbarrier);
   addInput(state);
 }

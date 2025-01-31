@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/util/irange.h>
 #include <multidevice/utils.h>
 #include <scheduler/ampere_multi_matmul.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -21,7 +22,23 @@ void MultipleMatmulScheduler::findPatterns() {
 void MultipleMatmulScheduler::translatePatterns() {
   mma_results_.reserve(patterns_.size());
   for (mma_utils::MatmulPattern& pattern : patterns_) {
-    MmaOp* mma = pattern.translateToMmaOp();
+    // TODO: properly handle all mul+sum patterns for Hopper. For now, these
+    // should work fine as long as the inner dimensions are the ones being
+    // reduced.
+    if (!isAmpere(params_->mma_macro) && !isTuring(params_->mma_macro) &&
+        pattern.output->definition()->isA<ReductionOp>()) {
+      bool found_reduction = false;
+      for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+        NVF_ERROR(
+            !found_reduction ||
+                !pattern.output->axis((int64_t)dim)->isReduction(),
+            "Mul+Sum patterns can only be translated on Hopper if the reduction dim is innermost");
+      }
+    }
+
+    MmaOp* mma = pattern.translateToMmaOp(
+        /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
+        !isTuring(params_->mma_macro));
     mma_results_.push_back(mma->out()->as<TensorView>());
   }
 

@@ -198,7 +198,11 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.
-  ValGraph& buildLoopGraph();
+  //
+  // (For debugging only) When force_full_loop_promotion_analysis is
+  // true, it always performs the full loop promotion analysis even
+  // when it's possible to take a quicker shortcut.
+  ValGraph& buildLoopGraph(bool force_full_loop_promotion_analysis = false);
 
   // Build a graph. Dependent graphs are also built if not yet done.
   void buildGraph(IdMappingMode mode);

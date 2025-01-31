@@ -159,6 +159,12 @@ inline bool shouldUseZeroIndex(
   // Trivial loop
   auto promotion_id =
       getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model);
+
+  // ExprSimplify should be disabled here as it would fail to
+  // recognize size-one IterDomain.
+  DisableOptionsGuard options_guard;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
+
   if (promotion_id->isBroadcast() ||
       simplifyExpr(promotion_id->extent())->isOneInt()) {
     return true;

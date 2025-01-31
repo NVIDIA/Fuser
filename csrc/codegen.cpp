@@ -158,9 +158,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
  public:
   static std::string generateKernelDefinition(
       const kir::Kernel* kernel,
-      const std::string& kernel_name) {
+      const std::string& kernel_name,
+      std::optional<int64_t> num_threads_per_cta) {
     CudaKernelGenerator codegen(kernel);
-    codegen.genDeclaration(kernel_name);
+    codegen.genDeclaration(kernel_name, num_threads_per_cta);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -206,10 +207,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
         // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
         return "LL";
-      case DataType::UInt:
-        return "ULL";
       case DataType::UInt32:
         return "U";
+      case DataType::UInt64:
+        return "ULL";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
@@ -264,7 +265,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else if (v->isA<TensorView>()) {
       tv = v->as<TensorView>();
     }
-    if (tv && aligned_array_of_regs_.count(tv)) {
+    if (tv &&
+        (aligned_array_of_regs_.count(tv) ||
+         tv->getMemoryType() == MemoryType::Local)) {
       return genVariableName(tv).append(".array");
     } else {
       return genVariableName(v);
@@ -272,8 +275,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   // Generates the kernel function declaration
-  void genDeclaration(const std::string& kernel_name) {
-    code_ << "__global__ void " << kernel_name << "(";
+  void genDeclaration(
+      const std::string& kernel_name,
+      std::optional<int64_t> num_threads_per_cta) {
+    code_ << "__global__ void ";
+    if (kernel_->hasManaged("enable_register_sharing") &&
+        kernel_->getManaged<bool>("enable_register_sharing")) {
+      NVF_ERROR(
+          num_threads_per_cta.has_value(),
+          "__launch_bounds__ must be set for register sharing warp specialization");
+      code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
+            << num_threads_per_cta.value() << ") ";
+    }
+    if (kernel_->hasManaged("cluster_dims")) {
+      auto cluster_dims =
+          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+              "cluster_dims");
+      code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
+            << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
+            << ") ";
+    }
+    code_ << kernel_name << "(";
 
     std::unordered_set<Val*> unique_args;
 
@@ -338,7 +360,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& kernel_summary = kernel_->summary();
 
     if (kernel_summary.has_philox_op) {
-      indent() << "uint4 rng_result;\n";
+      indent() << "Array<uint32_t, 4> rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
     }
@@ -595,7 +617,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           value);
       auto atype = std::get<ArrayType>(dtype.type);
       auto dims = static_cast<int64_t>(value.as<std::vector>().size());
-      code_ << "{ ";
+      code_ << "{";
       for (auto i = 0; i < dims; i++) {
         if (i > 0) {
           code_ << ", ";
@@ -661,6 +683,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
 
+    if (ti->view()->getMemoryType() == MemoryType::Tensor) {
+      code_ << genInline(ti->index());
+      return;
+    }
+
     if (ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
@@ -689,7 +716,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << genVariableName(tv);
   }
 
-  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+  void genCpAsyncBulkMaybeTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
 
@@ -700,8 +727,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     kir::TensorIndex* smem_ti = nullptr;
     std::string func_name;
 
+    bool is_tensor_tile =
+        ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+
     if (out->view()->getMemoryType() == MemoryType::Shared) {
-      func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      func_name = is_tensor_tile ? "Hopper::cpAsyncBulkTensorTileG2S"
+                                 : "Hopper::cpAsyncBulkG2S";
       NVF_ERROR(
           in_tv->getMemoryType() == MemoryType::Global,
           "Expected input in global for G2S operation");
@@ -714,7 +745,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           out_tv->getMemoryType() == MemoryType::Global,
           "Expected input in shared for S2G operation");
-      func_name = "Hopper::cpAsyncBulkTensorTileS2G";
+      func_name = is_tensor_tile ? "Hopper::cpAsyncBulkTensorTileS2G"
+                                 : "Hopper::cpAsyncBulkS2G";
       smem_ti = in;
       gmem_ti = out;
     }
@@ -963,32 +995,38 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return false;
     }
 
-    // Only **2 and **3 are considered
-    if (!(exponent == 2 || exponent == 3)) {
+    // Only **1, **2 and **3 are considered
+    if (!(exponent == 1 || exponent == 2 || exponent == 3)) {
       return false;
     }
 
     auto lhs = gen(bop->lhs());
 
     if (print_inline_) {
-      code_ << lhs << " * " << lhs;
-      if (exponent == 3) {
-        code_ << " * " << lhs;
+      for (int i = 0; i < exponent; ++i) {
+        if (i != 0) {
+          code_ << " * ";
+        }
+        code_ << lhs;
       }
     } else {
       indent() << gen(bop->out());
       if (bop->out()->isScalar()) {
-        code_ << " = " << lhs << " * " << lhs;
-        if (exponent == 3) {
-          code_ << " * " << lhs;
+        for (int i = 0; i < exponent; ++i) {
+          if (i == 0) {
+            code_ << " = " << lhs;
+          } else {
+            code_ << " * " << lhs;
+          }
         }
       } else {
-        code_ << "\n";
-        indent() << kTab << "= " << lhs << "\n";
-        indent() << kTab << "* " << lhs;
-        if (exponent == 3) {
-          code_ << "\n";
-          indent() << kTab << "* " << lhs;
+        for (int i = 0; i < exponent; ++i) {
+          if (i == 0) {
+            code_ << "\n";
+            indent() << kTab << "= " << lhs;
+          } else {
+            indent() << "\n" << kTab << "* " << lhs;
+          }
         }
       }
     }
@@ -1444,9 +1482,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             "Vectorized store/load requires input and output datatypes match.");
       }
 
-      // dispatch cp.async.bulk.tensor.tile
-      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
-        genCpAsyncBulkTensorTile(ldst);
+      // dispatch cp.async.bulk.{tensor}
+      if (optype == LoadStoreOpType::CpAsyncBulk ||
+          optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkMaybeTensorTile(ldst);
         return;
       }
 
@@ -3017,17 +3056,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->isUnrolled()) {
-      indent() << "#pragma unroll\n";
-    } else if (
-        loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
-      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth() - 1
-               << "\n";
-    } else if (
-        loop->circularBufferLoopStage() !=
+    if (loop->circularBufferLoopStage() !=
         CircularBufferLoopStage::NotApplicable) {
-      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
-               << "\n";
+      // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
+      // loops when static shapes are used. To avoid hinting that the compiler
+      // should maximally unroll such loops leading to very long compiles, we
+      // handle that case explicitly here and ignore loop->isUnrolled().
+      //
+      // Unroll "prefetch" many circular buffered loops regardless of buffer
+      // stage (prologue, main, or epilogue)
+      int64_t prefetch = kernel_->summary()
+                             .circular_buffer_info
+                             .getCircularBufferOptionsFor(loop->iter_domain())
+                             .prefetch;
+      indent() << "#pragma unroll " << prefetch << "\n";
+    } else if (loop->isUnrolled()) {
+      indent() << "#pragma unroll\n";
     } else {
       indent() << "#pragma unroll 1\n";
     }
@@ -3144,16 +3188,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
+          indent() << "Array<" << buffer_dtype << ", " << genInline(size)
+                   << ", " << (va.find(tv) != va.end() ? va.at(tv) : 1) << "> "
+                   << genVariableName(tv) << ";\n";
           if (va.find(tv) != va.end()) {
-            indent() << "Array<" << buffer_dtype << ", " << genInline(size)
-                     << ", " << va.at(tv) << "> " << genVariableName(tv)
-                     << ";\n";
             aligned_array_of_regs_.insert(tv);
-          } else {
-            indent() << buffer_dtype << " " << genVariableName(tv) << "["
-                     << genInline(size) << "];\n";
           }
-        } break;
+          break;
+        }
+        case MemoryType::Tensor: {
+          // Do nothing for now. This behavior will change soon.
+          break;
+        }
         default:
           NVF_THROW("Unexpected memory type");
       }
@@ -3496,6 +3542,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
+  void handle(const kir::Return* ret) final {
+    indent() << "return;\n";
+  }
+
  private:
   std::stringstream code_;
   const kir::Kernel* kernel_;
@@ -3524,9 +3574,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
 std::string generateCudaKernel(
     const kir::Kernel* kernel,
-    const std::string& kernel_name) {
+    const std::string& kernel_name,
+    std::optional<int64_t> num_threads_per_cta) {
   FUSER_PERF_SCOPE("generateCudaKernel");
-  return CudaKernelGenerator::generateKernelDefinition(kernel, kernel_name);
+  return CudaKernelGenerator::generateKernelDefinition(
+      kernel, kernel_name, num_threads_per_cta);
 }
 
 } // namespace codegen

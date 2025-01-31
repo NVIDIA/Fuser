@@ -419,6 +419,8 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
   }
   os << "} // %kernel\n";
 
+  os << std::flush;
+
   return os;
 }
 
@@ -431,6 +433,8 @@ void Fusion::printKernel(const CompileParams& compile_params) {
   GpuLower lower(this, compile_params);
   lower.run();
   debug() << codegen::generateCudaKernel(lower.kernel());
+
+  debug() << std::flush;
 }
 
 std::unordered_map<
@@ -538,6 +542,8 @@ void Fusion::printMath(bool from_outputs_only) {
     debug() << expr;
   }
   debug() << "} // %kernel_math \n\n";
+
+  debug() << std::flush;
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -851,7 +857,7 @@ std::vector<TensorView*> Fusion::allTvs() {
 
 void Fusion::registerExactMapping(IterDomain* id0, IterDomain* id1) {
   NVF_ERROR(
-      id0->sameAs(id1),
+      id0->extent()->sameAs(id1->extent()),
       "Invalid domains to map: ",
       id0->toString(),
       ", ",
@@ -872,6 +878,12 @@ DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
   }
 
   return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
+}
+
+void Fusion::resetExactMappings() {
+  if (hasRegisteredExactMappings()) {
+    stopManaging(exact_mappings_key);
+  }
 }
 
 } // namespace nvfuser

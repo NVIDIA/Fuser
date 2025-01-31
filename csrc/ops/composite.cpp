@@ -56,6 +56,59 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
+TensorView* triu(TensorView* tv, Val* offset) {
+  NVF_CHECK(
+      isIntegralType(offset->getDataType().value()),
+      "offset must have integral type");
+
+  // Let's say we want a triu of a 2D tensor of shape [2, 4]
+  // We broadcast the iota of the outer dim
+  // [0    [0, 0, 0, 0]
+  // 1] -> [1, 1, 1, 1]
+  // We broadcast the iota of the inner dim
+  // [0, 1, 2, 3] -> [0, 1, 2, 3]
+  //                 [0, 1, 2, 3]
+  // Using LE on the bcast tensors we get the mask
+  //[0, 0, 0, 0]  LE [0, 1, 2, 3]
+  //[1, 1, 1, 1]     [0, 1, 2, 3]
+  // Gives:
+  //[1, 1, 1, 1]
+  //[0, 1, 1, 1]
+  auto tv_logical_no_reductions =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto dims = tv_logical_no_reductions.size();
+
+  NVF_CHECK(
+      dims >= 2,
+      "input tensor for triu must have 2 or more dims, but got ",
+      dims,
+      " dims");
+
+  auto fusion = tv->fusion();
+
+  auto tv_rows = iota(
+      tv_logical_no_reductions[dims - 2]->extent(),
+      fusion->zeroVal(DataType::Index),
+      fusion->oneVal(DataType::Index),
+      DataType::Index);
+
+  // If triu has an offset of k, we shift/subtract the iota of the columns by k
+  // before broadcasting and comparing with the iota of the rows.
+  // So when building an iota op, instead of starting from 0 with a step of 1
+  // we start from -offset (== -k) with a step of 1.
+  auto start_shifted_by_offset = SimplifyingIrBuilder::negExpr(offset);
+  auto tv_columns = iota(
+      tv_logical_no_reductions[dims - 1]->extent(),
+      start_shifted_by_offset,
+      fusion->oneVal(DataType::Index),
+      DataType::Index);
+
+  auto tv_rows_b = broadcast(tv_rows, {false, true});
+  auto tv_cols_b = broadcast(tv_columns, {true, false});
+  auto mask = le(tv_rows_b, tv_cols_b);
+  return where(mask, tv, fusion->zeroVal(DataType::Index));
+}
+
 namespace {
 
 TensorView* newForLinear(
@@ -445,13 +498,15 @@ SdpfaFwdResult sdpfa_fwd(
       query_domain);
 
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
-      "Expected dropout to be a scalar double.");
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
+      "Expected dropout to be a real-valued scalar.");
   NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
-      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+      !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
+      "Expected scale to be a real-valued scalar.");
 
   // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
   // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
@@ -512,9 +567,11 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
-      scale);
+      scale == nullptr
+          ? scale
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
@@ -565,13 +622,15 @@ SdpfaBwdResult sdpfa_bwd(
       query_domain.size());
 
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
-      "Expected dropout to be a scalar double.");
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
+      "Expected dropout to be a real-valued scalar.");
   NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
-      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+      !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
+      "Expected scale to be a real-valued scalar.");
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -601,12 +660,82 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       philox_seed,
       philox_offset,
-      scale);
+      scale == nullptr
+          ? scale
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {grad_query, grad_key, grad_value};
+}
+
+TensorView* embedding_fwd(
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse) {
+  auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
+  auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
+  NVF_CHECK(
+      !input_domain.empty(),
+      "Expected input to be atleast 1D, got: ",
+      input_domain.size());
+  NVF_CHECK(
+      weight_domain.size() == 2,
+      "Expected weight to be 2D, got: ",
+      weight_domain.size());
+
+  NVF_CHECK(
+      !padding_idx || padding_idx->isScalar(),
+      "Expected padding_idx to be a scalar int.");
+  NVF_CHECK(
+      !max_norm || max_norm->isScalar(),
+      "Expected max_norm to be a scalar double.");
+  NVF_CHECK(
+      !norm_type || norm_type->isScalar(),
+      "Expected scale to be a scalar double.");
+  NVF_CHECK(
+      !scale_grad_by_freq || scale_grad_by_freq->isScalar(),
+      "Expected scale to be a scalar bool.");
+  NVF_CHECK(
+      !sparse || sparse->isScalar(), "Expected scale to be a scalar bool.");
+
+  auto ndims_out = input_domain.size() + 1;
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] = ops::newOutputIterDomain({input_domain[idx]});
+  }
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.back()});
+  TensorDomain* out_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(out_td, weight->dtype());
+
+  if (norm_type == nullptr) {
+    norm_type = IrBuilder::create<Val>(2.0, DataType::Double);
+  }
+
+  if (scale_grad_by_freq == nullptr) {
+    scale_grad_by_freq = input->fusion()->falseVal();
+  }
+  if (sparse == nullptr) {
+    sparse = input->fusion()->falseVal();
+  }
+  IrBuilder::create<EmbeddingFwdOp>(
+      output,
+      input,
+      weight,
+      padding_idx,
+      max_norm,
+      norm_type,
+      scale_grad_by_freq,
+      sparse);
+
+  return output;
 }
 
 } // namespace nvfuser

@@ -20,6 +20,27 @@
 
 namespace nvfuser::ir_utils {
 
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr) {
+  auto* ldst = dynamic_cast<LoadStoreOp*>(expr);
+  if (ldst == nullptr) {
+    return false;
+  }
+  auto in_tv = dynamic_cast<TensorView*>(ldst->in());
+  if (in_tv == nullptr) {
+    return false;
+  }
+  auto out_tv = dynamic_cast<TensorView*>(ldst->out());
+  if (out_tv == nullptr) {
+    return false;
+  }
+
+  return ldst->opType() == LoadStoreOpType::Set &&
+      // The hasRoot() check is to prevent picking up Set.Permute ops here
+      !out_tv->hasRoot();
+}
+
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
     int64_t ndims) {
@@ -439,7 +460,7 @@ bool hasAnyReductionOps(Fusion* fusion) {
 
 namespace {
 
-class ValReplacementMutator : private OptOutMutator {
+class ValReplacementMutator : public OptOutMutator {
  public:
   ValReplacementMutator(
       Fusion* fusion,
@@ -451,7 +472,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmtsTo(allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getAllStmtsTo(allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -501,6 +522,24 @@ class ValReplacementMutator : private OptOutMutator {
     std::unordered_set<Val*> outputs;
     std::vector<Val*> ordered_outputs;
     for (auto expr : exprs) {
+      // Iter domains and their exprs are taken care by traversing
+      // from TensorDomain with TensorDomain::allStatements, so they
+      // don't need to be included here
+      if (std::any_of(
+              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+                return output->isA<IterDomain>();
+              })) {
+        NVF_ERROR(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<IterDomain>();
+            }));
+        NVF_ERROR(std::all_of(
+            expr->inputs().begin(), expr->inputs().end(), [](Val* input) {
+              return input->isA<IterDomain>();
+            }));
+        continue;
+      }
+
       inputs.insert(expr->inputs().begin(), expr->inputs().end());
       outputs.insert(expr->outputs().begin(), expr->outputs().end());
       ordered_outputs.insert(
@@ -526,11 +565,12 @@ class ValReplacementMutator : private OptOutMutator {
 
 } // namespace
 
-void replaceValue(
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map) {
   // NOLINTNEXTLINE(bugprone-unused-raii)
-  ValReplacementMutator(fusion, replacement_map);
+  ValReplacementMutator mutator(fusion, replacement_map);
+  return mutator.mutations_;
 }
 
 Val* getReductionInitValOf(TensorView* tv) {
@@ -920,14 +960,13 @@ CompareDomainWithReferenceResult compareDomainWithReference(
     //  the reference domain. If it's connected even with missing
     //  dependencies, it should be considered redundant. For this
     //  reason, a variant of IRBFS with a relaxed dependency condition
-    //  is used. IRBFSWithPermissiveDependence can traverse as long as one of
+    //  is used. IRPermissiveBFS can traverse as long as one of
     //  the inputs or outputs is visited.
-    const auto from_remaining_ids =
-        getExprsBetween<IRBFSWithPermissiveDependence>(
-            {unused_ids.begin(), unused_ids.end()},
-            {reference.begin(), reference.end()},
-            /*require_all_to_visited=*/false)
-            .first;
+    const auto from_remaining_ids = getExprsBetween<IRPermissiveBFS>(
+                                        {unused_ids.begin(), unused_ids.end()},
+                                        {reference.begin(), reference.end()},
+                                        /*require_all_to_visited=*/false)
+                                        .first;
     // Nothing is reachable, which means all of the unused IDs are not redundant
     if (from_remaining_ids.empty()) {
       additional_ids = unused_ids;
@@ -1505,6 +1544,34 @@ std::vector<IterDomain*> strideOrderToAllocation(
     }
   }
   return allocation_domain;
+}
+
+std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
+    UnaryOp* uop) {
+  NVF_CHECK(
+      uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast,
+      "Invalid expr: ",
+      uop->toString());
+
+  auto inp_tv = ir_utils::getTvInput(uop);
+  auto out_tv = ir_utils::getTvOutput(uop);
+  if (inp_tv == nullptr || out_tv == nullptr) {
+    return std::nullopt;
+  }
+
+  auto inp_dtype = inp_tv->dtype().type;
+  auto out_dtype = out_tv->dtype().type;
+  auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
+  auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
+
+  if (inp_prim_type == nullptr || out_prim_type == nullptr ||
+      *inp_prim_type == PrimDataType::Index ||
+      *out_prim_type == PrimDataType::Index) {
+    return std::nullopt;
+  }
+
+  return std::make_pair(
+      primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
 }
 
 } // namespace nvfuser::ir_utils

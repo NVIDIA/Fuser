@@ -316,6 +316,28 @@ class StmtSort : public IterVisitor {
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
+  // Returns all ordered Statements of a given fusion. Unlike
+  // getStmts, for TensorDomain, all of its iter domains and exprs are
+  // grabbed and returned in a topological order.
+  NVF_API static std::vector<Statement*> getAllStmts(
+      Fusion* fusion,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
+  // Returns ordered Statements required to produce 'to', including
+  // 'to'. Unlike getStmtsTo, for TensorDomain, all of its iter domains and
+  // exprs are grabbed and returned in a topological order, regardless of
+  // `traverse_members`.
+  //
+  // The to vals are assumed to be either TensorView or scalar
+  // Val. This assumption could be removed if desired.
+  NVF_API static std::vector<Statement*> getAllStmtsTo(
+      const std::vector<Val*>& to,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
   // Returns ordered Statements required to produce from, including from.
   // Stops traversal once hiting any Statements in to. Includes Statements in
   // to.
@@ -612,55 +634,28 @@ inline std::vector<Val*> getOutputsOfExpr(Expr* expr, Direction dir) {
   return getOutputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
 }
 
-// Unlike the default IRBFS behavior, Expr is considered ready to
-// visit as long as one of the inputs or outputs has its dependency met
-class IRBFSWithPermissiveDependence : public IRBFS {
+class IRPermissiveBFS : public BFSWithPermissiveDependence<
+                            Expr*,
+                            Val*,
+                            IRDefinitions,
+                            IRUses,
+                            IRInputs,
+                            IROutputs> {
  public:
-  IRBFSWithPermissiveDependence(
-      const std::vector<Val*>& from_ids,
-      const std::vector<Val*>& to_ids,
-      bool require_all_to_visited = true,
+  IRPermissiveBFS(
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited,
       Direction allowed_direction = Direction::Undefined)
-      : IRBFS(
-            {from_ids.begin(), from_ids.end()},
-            {to_ids.begin(), to_ids.end()},
+      : BFSWithPermissiveDependence(
+            IRDefinitions{},
+            IRUses{},
+            IRInputs{},
+            IROutputs{},
+            std::move(from_groups),
+            std::move(to_groups),
             require_all_to_visited,
             allowed_direction) {}
-
-  std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
-      const ExprType& expr) const override {
-    // Either any inputs or any outputs must have been visited
-    decltype(auto) inputs = inputs_(expr);
-    if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
-        std::any_of(
-            inputs.begin(), inputs.end(), [&](const ValType& input) -> bool {
-              return isDependencySatisfied(input);
-            })) {
-      std::vector<NodeType> prev_nodes;
-      std::copy_if(
-          inputs.begin(),
-          inputs.end(),
-          std::back_inserter(prev_nodes),
-          [&](const ValType& input) -> bool { return isVisited(input); });
-      return std::make_pair(Direction::Forward, prev_nodes);
-    }
-
-    decltype(auto) outputs = outputs_(expr);
-    if (!outputs.empty() && allowed_direction_ != Direction::Forward &&
-        std::any_of(
-            outputs.begin(), outputs.end(), [&](const ValType& output) -> bool {
-              return isDependencySatisfied(output);
-            })) {
-      std::vector<NodeType> prev_nodes;
-      std::copy_if(
-          outputs.begin(),
-          outputs.end(),
-          std::back_inserter(prev_nodes),
-          [&](const ValType& output) -> bool { return isVisited(output); });
-      return std::make_pair(Direction::Backward, prev_nodes);
-    }
-    return std::nullopt;
-  }
 };
 
 } // namespace nvfuser

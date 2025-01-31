@@ -84,14 +84,11 @@ class MultiDeviceExecutor {
     return &comm_;
   }
 
-  // Returns the Fusion
-  auto completeFusion() const {
-    return complete_fusion_.get();
-  }
-
   // check if the runtime is valid returns an error msg.
   // An empty message means that the runtime is valid
-  std::string validate() const;
+  std::string validate() const {
+    return host_ir_executor_->canRun();
+  }
 
   //! Print to default debugging output stream
   std::ostream& print(std::ostream& os = debug());
@@ -103,8 +100,6 @@ class MultiDeviceExecutor {
  private:
   // holds the Communicator to be used for execution
   Communicator& comm_;
-  // holds the original complete fusion
-  std::unique_ptr<Fusion> complete_fusion_;
   // holds the HostIrEvaluator used for execution
   std::unique_ptr<hir::HostIrEvaluator> host_ir_executor_;
 };

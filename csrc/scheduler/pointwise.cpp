@@ -29,36 +29,148 @@ namespace {
 // Unused at the moment, commenting for clang tidy
 constexpr int64_t kThreadX = 128;
 
-class DomainMap : public pointwise_utils::DomainMap {
- public:
-  using pointwise_utils::DomainMap::DomainMap;
+// Get number of vectorizable non-outer broadcast inputs
+// vectorizable_inputs: all vectorizable inputs
+// break_point: the break point of the broadcast flags.
+// Used to determine the influence of inputs on unroll factor.
+// outer broadcast inputs are not counted since outer unroll is used
+// and they are only loaded once regardless of the unroll factor due to
+// the re-use across different unrolled iterations.
+int64_t getNumOfNonOuterBcastInputs(
+    std::vector<TensorView*> vectorizable_inputs,
+    int64_t break_point) {
+  if (break_point == 0) {
+    return std::max((int64_t)vectorizable_inputs.size(), 1L);
+  }
 
-  // The pointwise scheduler heuristics requires a minimum number of axes.
-  // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensorView(int64_t minimum_num_axes = 0) const {
-    TensorView* result = nullptr;
-    int64_t max_dims = -1;
-    for (auto output_tv :
-         ir_utils::filterByType<TensorView>(fusion_->outputs())) {
-      if (isValidReference(output_tv) &&
-          hasMinimumSize(output_tv, minimum_num_axes) &&
-          !output_tv->isFusionInput()) {
-        int64_t n_dims = pointwise_utils::nRootDims(output_tv);
-        if (n_dims > max_dims) {
-          result = output_tv;
-          max_dims = n_dims;
+  // Returns true if tv is outer broadcast tv or is used by outer broadcast
+  // op.
+  auto isUsedByOuterBcast = [&break_point](TensorView* tv) {
+    // If all the dims to the left of the break point are broadcast, then
+    // this tv is considered as an outer broadcast.
+    const auto& domains = tv->getLogicalDomain();
+    if (std::all_of(
+            domains.begin(), domains.begin() + break_point, [](IterDomain* id) {
+              return id->isBroadcast();
+            })) {
+      return true;
+    }
+    // check consumers
+    const auto& all_consumers = DependencyCheck::getAllDependentVals({tv});
+    for (auto tv : all_consumers) {
+      if (tv->definition()->isA<BroadcastOp>()) {
+        const auto& bcast_flags =
+            tv->definition()->as<BroadcastOp>()->getBroadcastDimFlags();
+
+        if (std::all_of(
+                bcast_flags.begin(),
+                bcast_flags.begin() + break_point,
+                [](bool flag) { return flag; })) {
+          return true;
         }
       }
     }
-    return result;
+    return false;
+  };
+  int64_t n_non_bcast_inputs = 0;
+  for (auto tv : vectorizable_inputs) {
+    if (!isUsedByOuterBcast(tv)) {
+      n_non_bcast_inputs++;
+    }
+  }
+  // return 1 if no non-outer broadcast inputs to avoid division by 0
+  return std::max(n_non_bcast_inputs, 1L);
+}
+
+// calculate unroll factor based on inputs and computations.
+int64_t getEmpiricalUnrollFactor(
+    Fusion* fusion,
+    int64_t break_point,
+    int64_t vectorization_bytes,
+    std::vector<TensorView*> vectorizable_inputs) {
+  // no need to unroll if no vectorizable inputs
+  if (vectorizable_inputs.empty()) {
+    return 1;
+  }
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  // calculate the required bytes in flight to cover the latency.
+  // assuming 100% occupancy.
+  int64_t required_bytes_per_thread =
+      scheduler_utils::getRequiredBytesInFlight() /
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor;
+  int64_t unroll_factor =
+      std::max(1L, required_bytes_per_thread / vectorization_bytes);
+  // If unroll is required, further scale up with computation cost and scale
+  // down with input counts. Won't be triggered on A100 and H100.
+  if (unroll_factor > 1) {
+    int64_t computation_factor =
+        scheduler_utils::getComputationCostFactor(fusion);
+    unroll_factor *= computation_factor;
+    int64_t n_inputs_factor =
+        getNumOfNonOuterBcastInputs(vectorizable_inputs, break_point);
+    unroll_factor = scheduler_utils::safeDiv(unroll_factor, n_inputs_factor);
+  }
+  return unroll_factor;
+}
+
+// calculate unroll factor based on total blocks to ensure we still
+// have 8 waves after unroll.
+int64_t getElementBasedUnrollFactor(int64_t total_blocks) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t target_waves = 8L;
+  int64_t max_block_per_sm =
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor / kThreadX;
+  int64_t n_waves_wo_unroll = ceilDiv(
+      total_blocks, max_block_per_sm * (int64_t)dev_prop->multiProcessorCount);
+  int64_t n_elems_limited_unroll =
+      scheduler_utils::roundUpPow2(ceilDiv(n_waves_wo_unroll, target_waves));
+  return n_elems_limited_unroll;
+}
+
+// returns unroll factor.
+// The unroll factor is calculated based on the following:
+// (1) ensure enough bytes in flight to cover gmem access latency
+// (2) ensure enough threads for thread level parallelism (TLP)
+// (3) when kernel doesn't have enough TLP and split is not divisible, don't
+// unroll.
+int64_t getUnrollFactor(
+    Fusion* fusion,
+    int64_t break_point,
+    int64_t total_blocks,
+    int64_t vectorization_bytes,
+    bool divisible_split,
+    std::vector<TensorView*> vectorizable_io_tvs) {
+  // only consider vectorizable inputs,
+  // needs to check if it's already in the list to avoid duplication since a tv
+  // may be both input and output, e.g. NVFuserTest.FusionIssue2372_CUDA
+  std::vector<TensorView*> vectorizable_inputs;
+  for (auto* tv : vectorizable_io_tvs) {
+    if (tv->isFusionInput() &&
+        std::find(vectorizable_inputs.begin(), vectorizable_inputs.end(), tv) ==
+            vectorizable_inputs.end()) {
+      vectorizable_inputs.push_back(tv);
+    }
   }
 
- private:
-  bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
-    NVF_ERROR(tv != nullptr);
-    return (num_axes == 0 || (int64_t)tv->getLogicalDomain().size() > num_axes);
+  int64_t empirical_unroll = getEmpiricalUnrollFactor(
+      fusion, break_point, vectorization_bytes, vectorizable_inputs);
+
+  // limit unroll factor when n_elems is small to ensure enough
+  // blocks for thread level parallelism.
+  int64_t n_elems_limited_unroll = getElementBasedUnrollFactor(total_blocks);
+
+  // Avoid unrolling when the unroll factor is constrained by `n_elems` and the
+  // split is not divisible. Why? While unrolling increases instruction-level
+  // parallelism (ILP), it decreases thread-level parallelism (TLP). A
+  // non-divisible split further reduces the number of effective threads, which
+  // negatively impacts TLP. Therefore, if the kernel lacks sufficient TLP,
+  // unrolling should be avoided.
+  if (n_elems_limited_unroll < empirical_unroll && !divisible_split) {
+    return 1;
+  } else {
+    return std::min(n_elems_limited_unroll, empirical_unroll);
   }
-};
+}
 
 } // namespace
 
@@ -70,7 +182,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
-
   auto params = std::make_unique<PointwiseParams>();
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
@@ -79,14 +190,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
-          data_cache,
-          [fusion]() { return std::make_unique<DomainMap>(fusion); });
-  const auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
+          data_cache, [fusion]() {
+            return std::make_unique<scheduler_tools::PointwiseDomainMap>(
+                fusion);
+          });
+  const auto& domain_map = dynamic_cast<scheduler_tools::PointwiseDomainMap&>(
+      domain_map_entry.get());
 
   auto largest_out_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
           data_cache, [&domain_map]() {
-            std::vector<TensorView*> data{domain_map.findReferenceTensorView()};
+            std::vector<TensorView*> data{domain_map.findReferenceTensor()};
             return std::make_unique<std::vector<TensorView*>>(std::move(data));
           });
   TensorView* largest_out = largest_out_entry.get()[0];
@@ -183,28 +297,22 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       });
 
   constexpr int64_t kSixteen = 16; // clang tidy
-
-  auto max_vect_unroll_factor = ceilDiv(
-      // Available unrolling based on size of data type
+  auto max_vect_factor = ceilDiv(
+      // Available vectorization based on size of data type
       (int64_t)kSixteen / max_input_dtype_size,
-      // Reduce max unrolling factor if we have many inputs/outputs to unroll
-      // as it could start consuming a lot of registers.
+      // Reduce max vectorization factor if we have many inputs/outputs to
+      // vectorize as it could start consuming a lot of registers.
       std::max(
           (scheduler_utils::lastPow2(
                (int64_t)vectorizable_inputs_outputs_entry.get().size()) >>
            2),
           (int64_t)1));
-
-  // Don't unroll at the cost of getting a full wave on the GPU
-  if (n_elems < device_multiprocessor_count * kThreadX &&
-      max_vect_unroll_factor > 1) {
-    max_vect_unroll_factor = std::min(
-        max_vect_unroll_factor,
+  // Don't vectorize at the cost of getting a full wave on the GPU
+  if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
+    max_vect_factor = std::min(
+        max_vect_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
-
-  auto max_vect_factor =
-      std::min(kSixteen / max_input_dtype_size, max_vect_unroll_factor);
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -254,6 +362,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     dtype_sum += (int64_t)dataTypeSize(out->getDataType().value(), index_type);
   }
 
+  // Indicates whether the fusion is outer broadcast dominated or not.
+  bool is_outer_broadcast_dominated = false;
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -267,7 +377,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // If there isn't very much parallelism available, just use 1D scheduler
     if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
       int64_t min_total_transfer = std::numeric_limits<int64_t>::max();
-
+      int64_t threads_per_warp =
+          (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
       for (const auto break_point_i : c10::irange((int64_t)ref_root.size())) {
@@ -318,7 +429,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // Need to be able to parallelize, don't use break if there's not
         // at least an unrolled warp.
-        if (ceilDiv(cur_right_elem_count, max_vect_unroll_factor) <=
+        if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
             at::cuda::getCurrentDeviceProperties()->warpSize) {
           continue;
         }
@@ -334,17 +445,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           flip_grid_binding = false;
         }
         // Min transfer found, start setting values
-        bdimx = std::min(
-            ceilDiv(cur_right_elem_count, max_vect_unroll_factor), kThreadX);
-        bdimy = 1;
-        // Put remainder in bdimy if there's at least a wave of grid level
-        // parallelism.
-        if (cur_left_elem_count > device_multiprocessor_count) {
-          bdimy = kThreadX / bdimx;
+        // Start bdimx with 1 warp, increase if split is divisible
+        int64_t after_vect = ceilDiv(cur_right_elem_count, max_vect_factor);
+        bdimx = std::min(after_vect, threads_per_warp);
+        while (bdimx * 2 <= kThreadX && bdimx * 2 <= after_vect &&
+               after_vect % (bdimx * 2) == 0) {
+          bdimx *= 2;
         }
+        bdimy = kThreadX / bdimx;
         auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
         auto remainder_right =
-            ceilDiv(cur_right_elem_count, bdimx * max_vect_unroll_factor);
+            ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
         // Use this break point
         break_point = static_cast<int>(break_point_i);
         min_total_transfer = cur_transfer_size;
@@ -352,6 +463,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         gdim_left = remainder_left;
         gdim_right = remainder_right;
+
+        // when lhs byte multiple is smaller than rhs byte multiple,
+        // there is broadcast in the lhs, which is outer broadcast.
+        is_outer_broadcast_dominated = lhs_byte_multiple < rhs_byte_multiple;
       }
     }
   }
@@ -365,29 +480,31 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  // preserve the old heuristic where unroll is used only when vectorization is
-  // not used. should allow to use both unroll and vectorization together in
-  // heuristics tuning.
-  if (params->vectorization_factor == 1) {
-    auto total_unroll = scheduler_utils::safeDiv(
-        max_vect_unroll_factor, params->vectorization_factor);
-    // for 1D scheduler, unroll the inner dimension
-    // since there is no outer dimension.
-    if (break_point == 0) {
-      params->unroll_factor_inner = total_unroll;
-      params->unroll_factor_outer = 1L;
-    } else {
-      // for 2D scheduler, unroll the outer dimension
-      // to prioritize resue across different rows, will
-      // be revised in heuristics tuning, e.g. unroll different
-      // dims based on the broadcast dimension.
-      params->unroll_factor_inner = 1L;
-      params->unroll_factor_outer = total_unroll;
-    }
+  // get unroll factor:
+
+  int64_t total_blocks = break_point > 0
+      ? gdim_left * gdim_right
+      : ceilDiv(n_elems / max_vect_factor, kThreadX);
+  bool divisible_split = break_point > 0
+      ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
+      : (n_elems % (params->vectorization_factor * kThreadX) == 0);
+  int64_t unroll_factor = getUnrollFactor(
+      fusion,
+      break_point,
+      total_blocks,
+      params->vectorization_factor * max_input_dtype_size,
+      divisible_split,
+      vectorizable_inputs_outputs_entry.get());
+
+  if (is_outer_broadcast_dominated) {
+    params->unroll_factor_outer = unroll_factor;
+  } else {
+    params->unroll_factor_inner = unroll_factor;
   }
+  gdim_left = ceilDiv(gdim_left, params->unroll_factor_outer);
+  gdim_right = ceilDiv(gdim_right, params->unroll_factor_inner);
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
-  NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
 
   params->break_point = break_point;
   params->flip_grid_binding = flip_grid_binding;
@@ -432,19 +549,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   return params;
 }
 
-// Return reference tensor view.
-TensorView* getReferenceTensorView(Fusion* fusion) {
-  FusionGuard fg(fusion);
-  DomainMap domain_map(fusion);
-  auto reference_tv = domain_map.findReferenceTensorView();
-  return reference_tv;
-}
-
 //! Utility for canSchedule interface to check if this fusion has
 //!  a fully broadcasted reference tensor, which is necessary for
 //!  the pointwise scheduler.
 bool hasReferenceTensorView(Fusion* fusion) {
-  return getReferenceTensorView(fusion) != nullptr;
+  return pointwise_utils::getReferenceTensor(fusion) != nullptr;
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -529,11 +638,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_dims = std::max(scheduler_utils::nLogicalDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_dims = std::max(scheduler_utils::nLogicalDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.
@@ -541,7 +650,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     return;
   }
 
-  TensorView* reference_tv = getReferenceTensorView(fusion);
+  TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
 
   NVF_ERROR(
       reference_tv != nullptr,

@@ -1527,7 +1527,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         ldst, mbarrier_index, for_loops_, rotated_loop_);
 
     // arrive and expect_tx mbarrier
-    Val* state = IrBuilder::create<Val>(DataType::UInt);
+    Val* state = IrBuilder::create<Val>(DataType::UInt64);
     pushBack(IrBuilder::create<kir::Allocate>(
         state, MemoryType::Local, ldst->container()->oneVal()));
     pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
@@ -1686,8 +1686,8 @@ Val* hardCodedIndexGenerationForStMatrix(
   Val* out_index = nullptr;
 
   NVF_ERROR(
-      ldst->out()->dtype() == DataType::Half,
-      "we only support half type in stmatrix");
+      dataTypeSize(ldst->out()->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
@@ -1959,8 +1959,8 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
       "size not currently supported for stmatrix");
 
   NVF_ERROR(
-      ldst->out()->dtype() == DataType::Half,
-      "we only support half type in stmatrix");
+      dataTypeSize(ldst->out()->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(ldst->out()->isA<TensorView>());
   TensorView* out_tv = ldst->out()->as<TensorView>();
@@ -1972,6 +1972,7 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   constexpr int64_t warp_size = 32;
   constexpr int64_t swizzle_row_size = 8;
   constexpr int64_t stsm_column_size = 8;
+  constexpr int64_t max_stsm_n_tile = 16;
   constexpr int64_t megabank_size_bytes = 16;
 
   // Derived constants
@@ -1987,7 +1988,8 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   // NvFuser Val for constants
   Val* warp_size_val = IrBuilder::create<Val>(warp_size, DataType::Index);
   Val* stsm_m_tile_val = IrBuilder::create<Val>(stsm_m_tile, DataType::Index);
-  Val* stsm_n_tile_val = IrBuilder::create<Val>(stsm_n_tile, DataType::Index);
+  Val* max_stsm_n_tile_val =
+      IrBuilder::create<Val>(max_stsm_n_tile, DataType::Index);
   Val* stsm_n_tile_stride_val =
       IrBuilder::create<Val>(stsm_n_tile_stride, DataType::Index);
   Val* swizzle_row_size_val =
@@ -2020,7 +2022,7 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   row = GpuLower::current()->commonScalarMap().hoistScalar(row, {loop});
 
   // Calculate Column
-  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, stsm_n_tile_val);
+  Val* lane_col = SimplifyingIrBuilder::divExpr(lane_id, max_stsm_n_tile_val);
   Val* iter_col =
       SimplifyingIrBuilder::mulExpr(inner_index, stsm_n_tile_stride_val);
   Val* col = SimplifyingIrBuilder::addExpr(lane_col, iter_col);
@@ -2113,13 +2115,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
           out = hardCodedIndexGenerationForStMatrix(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32:
           out = hardCodedIndexGenerationForStMatrixSwizzle(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
@@ -2139,13 +2141,47 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
 
     if (!ir_utils::isStMatrixOp(ldst)) {
-      in = lowerSrcIndex(
-          ldst->in(),
-          ldst->out(),
-          {},
-          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-      out =
-          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
+          ldst->opType() == LoadStoreOpType::StTMem;
+      if (is_ldst_tmem) {
+        // TODO: support other types
+        NVF_ERROR(
+            dataTypeSize(ldst->in()->dtype()) == 4,
+            "For now, we only support 32-bit types in tmem");
+        NVF_ERROR(
+            dataTypeSize(ldst->out()->dtype()) == 4,
+            "For now, we only support 32-bit types in tmem");
+        // TODO: hard code size 1 for now.
+        // According to the specification of tcgen05.{ld,st}, the register
+        // operand must be viewed as a vector of 32-bit elements.
+        // See:
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
+        as_type = ArrayType{std::make_shared<DataType>(ldst->in()->dtype()), 1};
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->in());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        // TODO: hard coded index zero for now.
+        auto index = IrBuilder::create<Val>(0, DataType::UInt32);
+        in = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        in = lowerSrcIndex(
+            ldst->in(),
+            ldst->out(),
+            {},
+            ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst),
+            as_type);
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->out());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        // TODO: hard coded index zero for now.
+        auto index = IrBuilder::create<Val>(0, DataType::UInt32);
+        out = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        out = lowerDstIndex(
+            ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      }
     }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
@@ -2158,10 +2194,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
 static Val* matrixDescriptorEncode(Val* x) {
-  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt, x);
-  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt);
+  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
+  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
   auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
-  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt);
+  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
@@ -2174,15 +2210,15 @@ static Val* constructMatrixDescriptor(
   auto or0 = matrixDescriptorEncode(start_address);
   auto or1 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(leading_dim_byte_offset),
-      IrBuilder::create<Val>(16, DataType::UInt));
+      IrBuilder::create<Val>(16, DataType::UInt64));
   auto or2 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(stride_dim_byte_offset),
-      IrBuilder::create<Val>(32, DataType::UInt));
+      IrBuilder::create<Val>(32, DataType::UInt64));
   auto or3 = IrBuilder::lShiftExpr(
-      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt));
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
   auto or4 = IrBuilder::lShiftExpr(
-      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt),
-      IrBuilder::create<Val>(62, DataType::UInt));
+      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt64),
+      IrBuilder::create<Val>(62, DataType::UInt64));
   return IrBuilder::bitwiseOrExpr(
       IrBuilder::bitwiseOrExpr(
           IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
@@ -2442,7 +2478,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(0, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt64),
         getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
         tv,
@@ -2474,7 +2510,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(0, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt64),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
@@ -2579,6 +2615,16 @@ void IndexLowering::handle(const kir::FenceAsyncProxy* fence) {
 void IndexLowering::handle(const kir::WgMmaFence* fence) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Return* ret) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Return*>(ret)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::AsyncCommit* commit) {

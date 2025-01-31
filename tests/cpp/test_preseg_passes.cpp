@@ -12,8 +12,10 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/translate_repeat_to_expand.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -24,6 +26,8 @@
 #include <c10/cuda/CUDAStream.h>
 
 namespace nvfuser::preseg_passes {
+
+using testing::ElementsAre;
 
 using PresegTest = NVFuserTest;
 
@@ -770,4 +774,506 @@ TEST_F(PresegTest, DisjointSetsOfExtentsConcreteSymbolic) {
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+// Trivial repeat pattern
+TEST_F(PresegTest, TranslateRepeatToExpand1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0}, -1);
+  fusion.addOutput(tv1);
+
+  {
+    // Make sure pad and cat no longer exist
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+}
+
+// Consecutive repetitions with the same IDs
+TEST_F(PresegTest, TranslateRepeatToExpand2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0}, -1);
+  auto tv2 = cat({tv1, tv1}, -1);
+
+  fusion.addOutput(tv2);
+
+  {
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+}
+
+// Consecutive repetitions with different IDs
+TEST_F(PresegTest, TranslateRepeatToExpand3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0}, 1);
+  auto tv2 = cat({tv1, tv1}, 0);
+
+  fusion.addOutput(tv2);
+
+  {
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+}
+
+// Repeat the same ID of the same tensor multiple times. While the
+// repetitions are the same, there's nothing to allow the output IDs
+// to be mapped, so the translated fusion will be segmented. This is a
+// downside compared to the original fusion, where all IDs are
+// connected, so it's relatively straightforward to fuse them together
+// without segmentation.
+TEST_F(PresegTest, TranslateRepeatToExpand4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+
+  // Consecutive repetitions with the same IDs
+  auto tv1 = cat({tv0, tv0}, 1);
+  auto tv2 = cat({tv0, tv0}, 1);
+
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  {
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be segmented to two pointwise kernels
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& heuristic_list = runtime->schedulerHeuristics()->heuristicsList();
+  ASSERT_EQ(heuristic_list.size(), 2);
+  EXPECT_EQ(heuristic_list.at(0)->scheduler_type, SchedulerType::PointWise);
+  EXPECT_EQ(heuristic_list.at(1)->scheduler_type, SchedulerType::PointWise);
+}
+
+// Repeating more than two times
+TEST_F(PresegTest, TranslateRepeatToExpand5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0, tv0, tv0}, -1);
+  fusion.addOutput(tv1);
+
+  {
+    // Make sure pad and cat no longer exist
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+}
+
+// Repeating a broadcast ID. Repro of
+// https://github.com/NVIDIA/Fuser/issues/3682.
+TEST_F(PresegTest, TranslateRepeatToExpand6) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32, 1});
+  fusion.addInput(tv0);
+
+  auto tv1 = cat({tv0, tv0}, -1);
+  fusion.addOutput(tv1);
+
+  {
+    // Make sure pad and cat no longer exist
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isOneOf<PadOp, CatOp>(); }),
+        new_exprs.end());
+    // RepeatOp should be used
+    EXPECT_NE(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isA<RepeatOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 1}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp0) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = reshape(tv1, {2, 4}, {8});
+  auto tv3 = castOp(DataType::Float, tv2);
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure cast no longer exists
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isA<UnaryOp>() &&
+                  new_expr->as<UnaryOp>()->getUnaryOpType() ==
+                  UnaryOpType::Cast;
+            }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = reshape(tv1, {2, 4}, {8});
+  fusion.addOutput(tv2);
+  // tv2 is fusion output, we should not replay the reshape operation after the
+  // cast op
+  auto tv3 = castOp(DataType::Float, tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  bool is_segmented =
+      executor_cache.getMostRecentKernelRuntime()->isSegmented();
+  NVF_CHECK(!is_segmented, "Fusion should not be segmented");
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = reshape(tv1, {2, 4}, {8});
+  // tv2 has another use in relu, we should not replay the reshape operation
+  // after the cast op
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = relu(tv2);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  bool is_segmented =
+      executor_cache.getMostRecentKernelRuntime()->isSegmented();
+  NVF_CHECK(!is_segmented, "Fusion should not be segmented");
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = reshape(tv2, {4}, {2, 2});
+  auto tv4 = castOp(DataType::Float, tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4});
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = reshape(tv1, {2, 3, 4}, {2, 3, 2, 2});
+  auto tv3 = castOp(DataType::Float, tv2);
+  std::vector<IterDomain*> tv3_nhwc = {
+      tv3->axis(0), tv3->axis(2), tv3->axis(3), tv3->axis(1)};
+  tv3->setAllocationDomain(tv3_nhwc, true);
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure cast no longer exists
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isA<UnaryOp>() &&
+                  new_expr->as<UnaryOp>()->getUnaryOpType() ==
+                  UnaryOpType::Cast;
+            }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  ASSERT_TRUE(outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4});
+  fusion.addInput(tv0);
+  // multiple segements with cast should be merged
+  auto tv1 = castOp(DataType::Double, tv0);
+  auto tv2 = reshape(tv1, {2, 3, 4}, {2, 3, 2, 2});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = reshape(tv3, {2, 3, 2, 2}, {6, 2, 2});
+  auto tv5 = castOp(DataType::Half, tv4);
+  fusion.addOutput(tv5);
+
+  {
+    // Make sure we merge all cast together
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::count_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isA<UnaryOp>() &&
+                  new_expr->as<UnaryOp>()->getUnaryOpType() ==
+                  UnaryOpType::Cast;
+            }),
+        1);
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4}, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, {2, 3, 4}, {6, 4});
+  // casting to higher precision dtype, we shouldn't propagate this cast to
+  // producer, since it would result in increase in intermediate buffer size.
+  auto tv3 = castOp(DataType::Double, tv2);
+  fusion.addOutput(tv3);
+
+  {
+    // Make sure we merge all cast together
+    Fusion fusion_copy = fusion;
+    OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::count_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) {
+              return new_expr->isA<UnaryOp>() &&
+                  new_expr->as<UnaryOp>()->getUnaryOpType() ==
+                  UnaryOpType::Cast;
+            }),
+        2);
+    auto expr_iter =
+        std::find_if(new_exprs.begin(), new_exprs.end(), [](Expr* new_expr) {
+          return new_expr->isA<ViewOp>();
+        });
+    EXPECT_TRUE(
+        expr_iter != new_exprs.end() &&
+        (*(*expr_iter)->input(0)->getDataType() == DataType::Float));
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kHalf);
+  auto t0 = at::randn({2, 3, 4}, options);
+  std::vector<c10::IValue> inputs = {t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes

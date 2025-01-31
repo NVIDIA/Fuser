@@ -74,6 +74,9 @@ struct HostIrEvaluatorParams {
   // Experimental: whether to cache fusion executor. WAR: avoid recompilation
   // but implicitely assumes that the input shape don't change over iterations
   bool cache_fusion_executor = false;
+  // number of additional cuda streams to use at runtime for comm+compute
+  // pipelining
+  int64_t number_of_streams = 4;
 };
 
 class HostIrEvaluator final : public OptOutDispatch {
@@ -89,6 +92,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->inputs();
   }
 
+  const std::vector<Val*>& outputs() {
+    return container_->outputs();
+  }
+
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
@@ -101,11 +108,17 @@ class HostIrEvaluator final : public OptOutDispatch {
     return streams_;
   }
 
+  // check if the runtime is valid returns an error msg.
+  // An empty message means that the runtime is valid
+  std::string canRun() const;
+
  private:
   using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
+  void handle(GetCurrentStream* get_current_stream) override;
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
+  void handle(LaunchKernel* post_ir) override;
   void handle(Communication* communication) override;
   void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
@@ -114,6 +127,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(EndCoalescing* end_coalescing) override;
   void handle(kir::IfThenElse* if_then_else) override;
   void handle(MatmulOp* matmul) override;
+  void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
   void unhandled(Statement* stmt) override;
 
@@ -130,6 +144,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
+  const int64_t my_device_index_;
 };
 
 } // namespace hir

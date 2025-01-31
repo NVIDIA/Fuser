@@ -33,6 +33,7 @@ class MultiDeviceTest : public NVFuserTest {
   // tensor. Currently, we don't support this, so for now it returns a slice.
   at::Tensor shardTensor(at::Tensor tensor, TensorView* tv);
 
+  // A lower-level helper that doesn't require a TensorView.
   at::Tensor shardTensor(
       at::Tensor tensor,
       int64_t axis,

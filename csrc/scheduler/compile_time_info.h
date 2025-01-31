@@ -10,6 +10,7 @@
 #include <fusion.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/scheduler_types.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -54,7 +55,7 @@ enum class CompileTimeEntryType {
 //!  stores the domain map of a fusion.
 class DomainMap {
  public:
-  using DataType = pointwise_utils::DomainMap;
+  using DataType = scheduler_tools::DomainMap;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::DOMAIN_MAP;
 };
@@ -63,7 +64,7 @@ class DomainMap {
 //!  stores the domain map of a fusion, used by transpose scheduler.
 class TransposeDomainMap {
  public:
-  using DataType = pointwise_utils::DomainMap;
+  using DataType = scheduler_tools::DomainMap;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::TRANSPOSE_DOMAIN_MAP;
 };

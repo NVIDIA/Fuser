@@ -282,6 +282,37 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   return id_graph;
 }
 
+namespace {
+// In Exact and AlmostExact graphs, for all IDs of a group that have
+// static extents, they should be equal.
+void checkStaticExtentGroups(const ValGraph& graph) {
+  std::stringstream err_msg;
+  for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
+    std::optional<int64_t> known_static_extent;
+    for (const auto val : *group) {
+      auto id = val->as<IterDomain>();
+      if (!id->extent()->isConstScalar()) {
+        continue;
+      }
+
+      auto extent_int = id->extent()->evaluate().as<int64_t>();
+      if (known_static_extent.has_value()) {
+        if (known_static_extent.value() != extent_int) {
+          err_msg << "Different static extents found in an ID group: "
+                  << known_static_extent.value() << " and " << extent_int
+                  << " in {" << toDelimitedString(group->vector()) << "}\n";
+          break;
+        }
+      } else {
+        known_static_extent = extent_int;
+      }
+    }
+  }
+
+  NVF_ERROR(err_msg.str().empty(), err_msg.str());
+}
+} // namespace
+
 ValGraph& IdModel::buildExactGraph() {
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
@@ -377,6 +408,10 @@ ValGraph& IdModel::buildExactGraph() {
 
   graph.validateConsistency();
 
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    checkStaticExtentGroups(graph);
+  }
+
   return graph;
 }
 
@@ -387,13 +422,15 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    // Size-one domains should be broadcast, so just checking
-    // isBroadcast should be sufficient, but just in case if there's
-    // any missing conversion to broadcast
-    if (merge->inner()->isBroadcast() || merge->inner()->extent()->isOneInt()) {
+    // Note that broacast IDs may have extents larger than 1, thus
+    // merge->inner()->isBroadcast() is not a sufficient condition to
+    // check. Merging a non-broadcast ID with such a broadcast ID
+    // result in a non-broadcast ID with extent multiplied by the
+    // broadcast extent.
+    if (merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->isBroadcast() || merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
@@ -484,6 +521,10 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    checkStaticExtentGroups(almost_exact_graph);
+  }
 
   return almost_exact_graph;
 }
@@ -754,7 +795,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   }
 }
 
-ValGraph& IdModel::buildLoopGraph() {
+ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
   // Make sure the depedent graphs are already built
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -767,7 +808,10 @@ ValGraph& IdModel::buildLoopGraph() {
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   loop_promotion_map_ = LoopPromotionMapBuilder::get(
-      *this, inlining_info, loop_promotion_map_builder_callback_);
+      *this,
+      inlining_info,
+      loop_promotion_map_builder_callback_,
+      force_full_loop_promotion_analysis);
 
   // New domains are added. Make sure there's still no self mapping in
   // the loop domains

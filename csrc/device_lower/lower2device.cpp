@@ -341,12 +341,20 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
 
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
+          ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
         options.setBuildTensorIndexer(true);
         continue;
       }
     } else if (expr->isA<MmaOp>()) {
       options.setBuildTensorIndexer(true);
+      continue;
+    } else if (expr->isOneOf<SliceOp, PadOp>()) {
+      options.setProducerIndex(true);
+      options.setConsumerIndex(true);
+      options.setInlinePredicate(true);
+      options.setUnswitchPredicate(true);
+      options.setLoop(true);
       continue;
     } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
@@ -591,6 +599,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
+
+  tmemInfo() = computeTMemInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {

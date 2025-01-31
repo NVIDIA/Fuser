@@ -17,13 +17,16 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
+#include <runtime/allocations.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
 
 #include <c10/util/irange.h>
+#include <torch/nn/options/embedding.h>
 
 #include <complex>
 #include <iterator>
@@ -557,6 +560,12 @@ std::string UnaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string UnaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getUnaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(UnaryOp)
 
 BinaryOp::BinaryOp(
@@ -724,6 +733,12 @@ std::string BinaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string BinaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getBinaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BinaryOp)
 
 TernaryOp::TernaryOp(
@@ -822,6 +837,12 @@ std::string TernaryOp::toInlineString(int indent_size) const {
       in1()->toInlineString(),
       in2()->toInlineString(),
       in3()->toInlineString());
+  return ss.str();
+}
+
+std::string TernaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getTernaryOpType() << ")";
   return ss.str();
 }
 
@@ -1250,7 +1271,17 @@ BroadcastOp::BroadcastOp(
 std::string BroadcastOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = broadcast( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = broadcast( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getBroadcastDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
@@ -2106,6 +2137,86 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
+
+RepeatOp::RepeatOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
+    : Expr(passkey) {
+  auto in_domain = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto& out_domain = out->getLogicalDomain();
+
+  NVF_ERROR(in_domain.size() == out_domain.size());
+
+  NVF_ERROR(
+      std::none_of(
+          out->getLogicalDomain().begin(),
+          out->getLogicalDomain().end(),
+          [](IterDomain* out_logical_id) {
+            return out_logical_id->isReduction();
+          }),
+      "Output should not have reduction IDs.");
+
+  bool repetition_found = false;
+  for (const auto i : c10::irange(in_domain.size())) {
+    if (in_domain.at(i)->isBroadcast() && !out_domain.at(i)->isBroadcast()) {
+      NVF_ERROR(!in_domain.at(i)->hasExpandedExtent());
+      NVF_ERROR(in_domain.at(i)->extent()->isOneInt());
+      repetition_found = true;
+    }
+  }
+
+  NVF_ERROR(
+      repetition_found,
+      "No repetition dim found: ",
+      out->toString(),
+      ", ",
+      in->toString());
+
+  addOutput(out);
+  addInput(in);
+}
+
+std::string RepeatOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = repeat( " << in()
+                          << " )\n";
+  return ss.str();
+}
+
+std::string RepeatOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> RepeatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "RepeatOp expects exactly 1 input, but received ",
+      inputs.size());
+  auto tensor = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> multipliers;
+  multipliers.reserve(out()->getLogicalDomain().size());
+  const auto c2p =
+      PairwiseLogicalDomainMap(in(), out()).mapConsumerToProducer();
+  for (const auto i : c10::irange(out()->getLogicalDomain().size())) {
+    auto out_id = out()->getLogicalDomain().at(i);
+    auto inp_id = c2p.at(out_id);
+    auto out_extent = ee.evaluate(out_id->extent()).as<int64_t>();
+    auto inp_extent = ee.evaluate(inp_id->extent()).as<int64_t>();
+    NVF_ERROR(
+        out_extent % inp_extent == 0,
+        "For dimension ",
+        i,
+        ", the output extent (",
+        out_extent,
+        " should be a multiple of the input extent (",
+        inp_extent,
+        ").");
+    multipliers.push_back(out_extent / inp_extent);
+  }
+  return {tensor.repeat(multipliers)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(RepeatOp)
 
 ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
@@ -2966,6 +3077,59 @@ void validateContiguity(
   }
 }
 
+// Check if loop_domain is a valid domain with no
+// redundancy. The logical domain is used as a reference to find if
+// there's any ID that's not covered by the new loop domain.
+void validateLoopDomain(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<IterDomain*>& loop_domain,
+    const std::vector<IterDomain*>& additional_ids) {
+  // Skip if there's any symbolic ID
+  if (std::any_of(
+          logical_domain.begin(),
+          logical_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          loop_domain.begin(),
+          loop_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          additional_ids.begin(), additional_ids.end(), [](IterDomain* id) {
+            return id->isSymbolic();
+          })) {
+    return;
+  }
+
+  std::vector<IterDomain*> reference;
+  reference.reserve(logical_domain.size() + additional_ids.size());
+  reference.insert(
+      reference.end(), logical_domain.begin(), logical_domain.end());
+  // additional_ids are also considered part of the refernece domain
+  reference.insert(
+      reference.end(), additional_ids.begin(), additional_ids.end());
+
+  auto [redundant_ids, _, unreachable_reference_ids] =
+      ir_utils::compareDomainWithReference(loop_domain, reference);
+
+  auto empty_or_broadcast = [](const auto& ids) {
+    return std::all_of(ids.begin(), ids.end(), [](IterDomain* id) {
+      return id->isBroadcast();
+    });
+  };
+
+  NVF_ERROR(
+      empty_or_broadcast(redundant_ids),
+      "Trying to set a loop domain with non-broadcast redundant IDs: ",
+      toDelimitedString(redundant_ids));
+
+  NVF_ERROR(
+      empty_or_broadcast(unreachable_reference_ids),
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(loop_domain),
+      ". Unreachable logical IDs: ",
+      toDelimitedString(unreachable_reference_ids));
+}
+
 } // namespace
 
 TensorDomain::TensorDomain(
@@ -3036,8 +3200,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3061,8 +3224,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3095,8 +3257,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3627,6 +3788,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
                           (is_rfactor_dim && inp_id->isBroadcast())
                               ? IterType::Iteration
                               : inp_id->getIterType())
+                      .expanded_extent(nullptr)
                       .build();
     new_root_domain.push_back(out_id);
   }
@@ -3670,33 +3832,7 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  // Check if new_loop_domain is a valid domain with no
-  // redundancy. The logical domain is used as a reference to find if
-  // there's any ID that's not covered by the new loop domain.
-  std::vector<IterDomain*> reference;
-  reference.reserve(logical_domain_.size() + additional_ids_.size());
-  reference.insert(
-      reference.end(), logical_domain_.begin(), logical_domain_.end());
-  // additional_ids_ are also considered part of the refernece domain
-  reference.insert(
-      reference.end(), additional_ids_.begin(), additional_ids_.end());
-  auto [redundant_ids, additional_ids, unreachable_reference_ids] =
-      ir_utils::compareDomainWithReference(new_loop_domain, reference);
-  NVF_ERROR(
-      redundant_ids.empty(),
-      "Trying to set a loop domain with redundant IDs: ",
-      toDelimitedString(redundant_ids));
-  if (!unreachable_reference_ids.empty()) {
-    NVF_ERROR(
-        std::all_of(
-            unreachable_reference_ids.begin(),
-            unreachable_reference_ids.end(),
-            [](const auto id) { return id->isBroadcast(); }),
-        "Not all logical IDs are covered by loop domain. Loop: ",
-        toDelimitedString(new_loop_domain),
-        ". Unreachable logical IDs: ",
-        toDelimitedString(unreachable_reference_ids));
-  }
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
@@ -3716,10 +3852,10 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 6> all_domains = {
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &initial_loop_domain_,
-      &loop_domain_,
       &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
@@ -3763,8 +3899,10 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
   while (!ids_to_be_sorted.empty()) {
     auto it = ids_to_be_sorted.begin();
     while (it != ids_to_be_sorted.end()) {
-      auto in_it = out2in.find(*it);
-      if (in_it == out2in.end() || sorted_ids.has(in_it->second)) {
+      auto range = out2in.equal_range(*it);
+      if (std::all_of(range.first, range.second, [&](const auto& kv) {
+            return sorted_ids.has(kv.second);
+          })) {
         sorted_ids.pushBack(*it);
         it = ids_to_be_sorted.erase(it);
       } else {
@@ -3799,6 +3937,34 @@ std::vector<Expr*> TensorDomain::allExprs() const {
   }
 
   return exprs.vector();
+}
+
+std::vector<Statement*> TensorDomain::allStatements() const {
+  auto all_ids = allIDs();
+  std::unordered_set<Val*> all_id_set{all_ids.begin(), all_ids.end()};
+
+  VectorOfUniqueEntries<Statement*> stmts;
+  for (auto id : all_ids) {
+    // Visit definition if available and all inputs are already visited
+    auto def = id->definition();
+    if (def != nullptr) {
+      if (std::all_of(
+              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+                return all_id_set.find(inp) != all_id_set.end();
+              })) {
+        stmts.pushBack(def);
+      } else {
+        NVF_ERROR(std::none_of(
+            def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+              return all_id_set.find(inp) != all_id_set.end();
+            }));
+      }
+    }
+
+    stmts.pushBack(id);
+  }
+
+  return stmts.vector();
 }
 
 Split::Split(
@@ -4371,7 +4537,44 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
-  return {at::matmul(a, b)};
+
+  auto matmul_out = at::matmul(a, b);
+
+  // When the contracting dimension is sharded, each device has a partial
+  // matmul output and is followed by an allreduce. For loop split, this is
+  // represented as an rfactored reduction. The local matmul logical domain
+  // after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze the
+  // rfactored DID axis to correctly bind with the logical domain. See
+  // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+  auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(static_cast<int64_t>(out_logical.size()))) {
+    if (!out_logical.at(idx)->isRFactorProduct() ||
+        !out_logical.at(idx)->isDeviceDim()) {
+      continue;
+    }
+    if (rfactor_did_idx != -1) {
+      NVF_THROW(
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          out_logical);
+    }
+    rfactor_did_idx = idx;
+  }
+
+  if (rfactor_did_idx != -1) {
+    matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
+  }
+
+  const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
+  auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
+
+  if (meta_out.is_contiguous()) {
+    return {matmul_out};
+  }
+
+  auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
 }
 
 LinearOp::LinearOp(
@@ -5131,4 +5334,94 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       slice_last_dim(grad_value)};
 }
 
+EmbeddingFwdOp::EmbeddingFwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse)
+    : Expr(passkey) {
+  addOutput(output);
+
+  addInput(input);
+  addInput(weight);
+  addInput(norm_type);
+  addInput(scale_grad_by_freq);
+  addInput(sparse);
+  if (padding_idx != nullptr) {
+    addInput(padding_idx);
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
+  }
+  if (max_norm != nullptr) {
+    addInput(max_norm);
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingFwdOp)
+
+std::string EmbeddingFwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = embedding(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << weight()->toString() << ",\n";
+  if (padding_idx() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          padding_idx = " << padding_idx()->toString() << ",\n";
+  }
+  if (max_norm() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          max_norm = " << max_norm()->toString() << ",\n";
+  }
+  indent(ss, indent_size + 1)
+      << "          norm_type = " << norm_type()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          scale_grad_by_freq = "
+      << scale_grad_by_freq()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          sparse = " << sparse()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string EmbeddingFwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
+  auto norm_type = inputs.at(2).as<double>();
+  auto scale_grad_by_freq = inputs.at(3).as<bool>();
+  auto sparse = inputs.at(4).as<bool>();
+  std::optional<int64_t> padding_idx = std::nullopt;
+  if (has_padding_idx()) {
+    padding_idx = inputs.at(5).as<int64_t>();
+  }
+  std::optional<double> max_norm = std::nullopt;
+  if (has_max_norm()) {
+    auto idx = 5 + has_padding_idx();
+    max_norm = inputs.at(idx).as<double>();
+  }
+
+  namespace F = torch::nn::functional;
+  return {F::embedding(
+      input,
+      weight,
+      F::EmbeddingFuncOptions()
+          .padding_idx(padding_idx)
+          .max_norm(max_norm)
+          .norm_type(norm_type)
+          .scale_grad_by_freq(scale_grad_by_freq)
+          .sparse(sparse))};
+}
 } // namespace nvfuser

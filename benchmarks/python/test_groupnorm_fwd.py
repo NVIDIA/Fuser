@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, with_executor
+from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -126,7 +126,7 @@ def test_groupnorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [x, weight, bias])
 
 
-@pytest.mark.parametrize("executor", ["eager", "torchcompile", "thunder"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_groupnorm_fwd_baseline_benchmark(

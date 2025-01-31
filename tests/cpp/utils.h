@@ -555,6 +555,9 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
+
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModelExtraValidation);
   }
 
   void TearDown() override {
@@ -599,11 +602,36 @@ class NVFuserTest : public ::testing::Test {
     return str;
   }
 
+ protected:
+  EnableOptionsGuard enable_options_guard_;
+  DisableOptionsGuard disable_options_guard_;
+
  private:
   bool capturing_ = false;
 };
 
 class HopperBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+class BlackwellBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// TMA is supported on Hopper and newer GPUs
+class TmaBase : public NVFuserTest {
  protected:
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
@@ -703,39 +731,7 @@ static auto kAllHopperMacros = testing::Values(
     MmaMacro::Hopper_64_248_16,
     MmaMacro::Hopper_64_256_16);
 
-static std::unordered_map<MmaMacro, std::string> mma_macro_to_str_map = {
-    {MmaMacro::Hopper_64_8_16, "m64_n8_k16"},
-    {MmaMacro::Hopper_64_16_16, "m64_n16_k16"},
-    {MmaMacro::Hopper_64_24_16, "m64_n24_k16"},
-    {MmaMacro::Hopper_64_32_16, "m64_n32_k16"},
-    {MmaMacro::Hopper_64_40_16, "m64_n40_k16"},
-    {MmaMacro::Hopper_64_48_16, "m64_n48_k16"},
-    {MmaMacro::Hopper_64_56_16, "m64_n56_k16"},
-    {MmaMacro::Hopper_64_64_16, "m64_n64_k16"},
-    {MmaMacro::Hopper_64_72_16, "m64_n72_k16"},
-    {MmaMacro::Hopper_64_80_16, "m64_n80_k16"},
-    {MmaMacro::Hopper_64_88_16, "m64_n88_k16"},
-    {MmaMacro::Hopper_64_96_16, "m64_n96_k16"},
-    {MmaMacro::Hopper_64_104_16, "m64_n104_k16"},
-    {MmaMacro::Hopper_64_112_16, "m64_n112_k16"},
-    {MmaMacro::Hopper_64_120_16, "m64_n120_k16"},
-    {MmaMacro::Hopper_64_128_16, "m64_n128_k16"},
-    {MmaMacro::Hopper_64_136_16, "m64_n136_k16"},
-    {MmaMacro::Hopper_64_144_16, "m64_n144_k16"},
-    {MmaMacro::Hopper_64_152_16, "m64_n152_k16"},
-    {MmaMacro::Hopper_64_160_16, "m64_n160_k16"},
-    {MmaMacro::Hopper_64_168_16, "m64_n168_k16"},
-    {MmaMacro::Hopper_64_176_16, "m64_n176_k16"},
-    {MmaMacro::Hopper_64_184_16, "m64_n184_k16"},
-    {MmaMacro::Hopper_64_192_16, "m64_n192_k16"},
-    {MmaMacro::Hopper_64_200_16, "m64_n200_k16"},
-    {MmaMacro::Hopper_64_208_16, "m64_n208_k16"},
-    {MmaMacro::Hopper_64_216_16, "m64_n216_k16"},
-    {MmaMacro::Hopper_64_224_16, "m64_n224_k16"},
-    {MmaMacro::Hopper_64_232_16, "m64_n232_k16"},
-    {MmaMacro::Hopper_64_240_16, "m64_n240_k16"},
-    {MmaMacro::Hopper_64_248_16, "m64_n248_k16"},
-    {MmaMacro::Hopper_64_256_16, "m64_n256_k16"}};
+std::string macroToString(const MmaMacro macro);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
@@ -858,7 +854,7 @@ bool isSchedulerInUse(
     const SchedulerType& scheduler_type);
 
 // Disable magic zero
-constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+const CompileParams matmul_cparams{DataType::Int32, 255, false};
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);

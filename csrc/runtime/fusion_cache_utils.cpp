@@ -42,7 +42,7 @@ ArgumentManager::ArgumentManager(
 }
 
 const std::unordered_map<Val*, const PolymorphicValue*>& ArgumentManager::
-    getTensorMap() {
+    getTensorMap() const {
   return tensor_map_;
 }
 const PolymorphicValue* ArgumentManager::checkTensorMap(Val* v) {

@@ -479,9 +479,8 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor =
-      at::randn({8}, options)
+      at::randn({8}, tensor_options)
           .as_strided(
               {parallelizes_broadcast ? 3 : num_devices * 3, 8}, {0, 1});
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];

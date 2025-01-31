@@ -892,10 +892,12 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
         scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input});
     auto rparams = cg_results.heuristic_params->as<ReductionParams>();
 
-    // 24576 is the threshold to project to inputs. see deriviation in
-    // isProjectBufferToInputs()
+    // Threshold to project to inputs
+    int64_t buffer_threshold = scheduler_utils::isHighBandwidthFlopsRatio()
+        ? 24 * 1024 * 4
+        : 6 * 1024 * 4;
     bool should_project_to_input =
-        feature * dataTypeSize(DataType::Float) > 24576l;
+        feature * dataTypeSize(DataType::Float) > buffer_threshold;
     NVF_CHECK(
         rparams->project_persistent_buffers == should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
@@ -1017,9 +1019,15 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs2) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, SchedulerType::InnerPersistent, {t0});
   auto rparams = heuristic_params->as<ReductionParams>();
-  NVF_CHECK(
-      rparams->project_persistent_buffers,
-      "Should project persistent buffers to inputs!");
+  if (scheduler_utils::isHighBandwidthFlopsRatio()) {
+    NVF_CHECK(
+        !rparams->project_persistent_buffers,
+        "Should not project persistent buffers to inputs!");
+  } else {
+    NVF_CHECK(
+        rparams->project_persistent_buffers,
+        "Should project persistent buffers to inputs!");
+  }
 }
 
 TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs3) {
@@ -1041,7 +1049,10 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs3) {
   auto tv5 = add(tv1, tv4);
   fusion->addOutput(tv5);
 
-  auto tv6 = exp(tv5);
+  // Ensure there is no exp op in the fusion, otherwise
+  // project to inputs depends on the buffer size and bandwidth flops ratio of
+  // the hardware.
+  auto tv6 = mul(tv5, tv5);
   auto tv7 = sum(tv6, {1, 2});
   auto tv8 = broadcast(tv7, {false, true, true});
   auto tv9 = add(tv6, tv8);
@@ -1302,8 +1313,8 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   KernelExecutor ke;
   ke.compile(fusion.get(), aten_inputs);
   // Shared memory access should be vectorized.
-  // getBankConflictInfo(ke.kernel()) triggers error "std::get: wrong index for
-  // variant" when trying to evaluate index with:
+  // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
+  // "std::get: wrong index for variant" when trying to evaluate index with:
   // `expr_eval.evaluate(ti->index()).as<int64_t>();`
   for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {

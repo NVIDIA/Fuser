@@ -190,14 +190,14 @@ int64_t runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
-  const auto& compile_log = executor_cache->getMostRecentExecutorInfo();
-  auto params = toString(compile_log.params);
-  auto lparams = toString(
-      compile_log.fusion_executor->as<KernelExecutor>()->lastLaunchParams());
   // Only set if not segmented. In the case of segmented fusions,
   // this could be confusing as the log would refect only the last
   // segment. Revisit if necessary.
   if (!segmented) {
+    const auto& compile_log = executor_cache->getMostRecentExecutorInfo();
+    auto params = toString(compile_log.params);
+    auto lparams = toString(
+        compile_log.fusion_executor->as<KernelExecutor>()->lastLaunchParams());
     benchmark_state.SetLabel(params + lparams);
   }
 

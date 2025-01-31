@@ -41,10 +41,18 @@ class MatmulParams : public HeuristicParams {
     // greater than one. Otherwise it is ignored.
     int smem_circular_buffer_stage = 2;
 
+    // The circular buffering prefetch distance will be set to
+    //   smem_circular_buffer_stage - smem_circular_buffer_prefetch_gap
+    // This value must be positive since the prefetch distance must be strictly
+    // less than the number of stages.
+    int smem_circular_buffer_prefetch_gap = 1;
+
     bool operator==(const CircularBufferOptions& other) const {
       return other.circular_buffer_smem_write == circular_buffer_smem_write &&
           other.circular_buffer_smem_read == circular_buffer_smem_read &&
-          other.smem_circular_buffer_stage == smem_circular_buffer_stage;
+          other.smem_circular_buffer_stage == smem_circular_buffer_stage &&
+          other.smem_circular_buffer_prefetch_gap ==
+          smem_circular_buffer_prefetch_gap;
     }
 
     std::string toString() const {
@@ -54,12 +62,16 @@ class MatmulParams : public HeuristicParams {
          << (circular_buffer_smem_write ? "true" : "false") << "\n"
          << "  circular_buffer_smem_read: "
          << (circular_buffer_smem_read ? "true" : "false") << "\n"
-         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage;
+         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage
+         << "\n"
+         << "  smem_circular_buffer_prefetch_gap: "
+         << smem_circular_buffer_prefetch_gap;
       return ss.str();
     }
 
     size_t hash() const {
       return std::hash<size_t>{}(
+                 (static_cast<size_t>(smem_circular_buffer_prefetch_gap) << 3) |
                  (static_cast<size_t>(smem_circular_buffer_stage) << 2) |
                  (static_cast<size_t>(circular_buffer_smem_write)) << 1) |
           (static_cast<size_t>(circular_buffer_smem_read));
@@ -179,6 +191,35 @@ class MatmulParams : public HeuristicParams {
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;
 
+  //! This is the CGA size on Hopper+ devices. This parameter is ignored on
+  //! Ampere and Turing.
+  struct ClusterDims {
+    int64_t x = 1;
+    int64_t y = 1;
+    int64_t z = 1;
+
+    bool operator==(const ClusterDims& other) const {
+      return x == other.x && y == other.y && z == other.z;
+    }
+
+    bool operator!=(const ClusterDims& other) const {
+      return !(*this == other);
+    }
+
+    std::string toString() const {
+      std::stringstream ss;
+      ss << "__cluster_dims__(" << x << ", " << y << ", " << z << ")";
+      return ss.str();
+    }
+
+    size_t hash() const {
+      return std::hash<size_t>{}(
+                 (static_cast<size_t>(x) << 32) |
+                 (static_cast<size_t>(y)) << 16) |
+          (static_cast<size_t>(z));
+    }
+  } cluster_dims;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -200,6 +241,7 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << cluster_dims.toString() << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"

@@ -11,9 +11,9 @@
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
@@ -513,6 +513,26 @@ TEST_F(StreamTest, HostIrDefaultStream) {
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
 
+TEST_F(StreamTest, HostIrGetCurrentStream) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  auto get_stream = IrBuilder::create<GetCurrentStream>();
+  auto current_stream = get_stream->stream();
+  auto other_stream = IrBuilder::create<Stream>();
+  hic->pushBackTopLevelExprs(get_stream);
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(other_stream));
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<SetCurrentStream>(current_stream));
+
+  auto cuda_stream = c10::cuda::getStreamFromPool();
+  setCurrentCUDAStream(cuda_stream);
+
+  HostIrEvaluator hie(std::move(hic));
+  hie.runWithInput({});
+
+  EXPECT_EQ(cuda_stream, c10::cuda::getCurrentCUDAStream(0));
+}
+
 TEST_F(StreamTest, ByIndex) {
   constexpr int64_t kStreamIndex1 = 2;
   constexpr int64_t kStreamIndex2 = 3;
@@ -827,6 +847,92 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   auto ref_output = at::matmul(a_tensor, b_tensor);
 
   EXPECT_TRUE(ref_output.allclose(c_tensor));
+}
+
+using LinearHostIrTest = NVFuserTest;
+
+TEST_F(LinearHostIrTest, HostIr) {
+  constexpr int64_t B = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(3);
+  TensorView* weight = makeContigTensor(2);
+  TensorView* bias = makeContigTensor(1);
+  TensorView* out = linear(in, weight, bias);
+
+  hic->addInput(in);
+  hic->addInput(weight);
+  hic->addInput(bias);
+  hic->addOutput(out);
+
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor in_at = at::randn({B, M, K}, options);
+  at::Tensor weight_at = at::randn({N, K}, options);
+  at::Tensor bias_at = at::randn({N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), in_at},
+      {hie.inputs().at(1), weight_at},
+      {hie.inputs().at(2), bias_at}};
+
+  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+
+  // validate
+  auto ref_output = at::linear(in_at, weight_at, bias_at);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
+
+TEST_F(LinearHostIrTest, HostIrLinearOut) {
+  constexpr int64_t B = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(3);
+  TensorView* weight = makeContigTensor(2);
+  TensorView* bias = makeContigTensor(1);
+  TensorView* out = makeContigTensor(3);
+
+  auto linear_op = IrBuilder::create<LinearOp>(out, in, weight, bias);
+
+  hic->addInput(in);
+  hic->addInput(weight);
+  hic->addInput(bias);
+  hic->addInput(out);
+
+  hic->pushBackTopLevelExprs(linear_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor in_at = at::randn({B, M, K}, options);
+  at::Tensor weight_at = at::randn({N, K}, options);
+  at::Tensor bias_at = at::randn({N}, options);
+  at::Tensor out_at = at::empty({B, M, N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), in_at},
+      {hie.inputs().at(1), weight_at},
+      {hie.inputs().at(2), bias_at},
+      {hie.inputs().at(3), out_at}};
+
+  hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  auto ref_output = at::linear(in_at, weight_at, bias_at);
+
+  EXPECT_TRUE(ref_output.allclose(out_at));
 }
 
 using SelectHostIrTestParams = bool;
