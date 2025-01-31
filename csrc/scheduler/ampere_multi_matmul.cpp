@@ -456,6 +456,11 @@ void AmpereMultipleMatmulScheduler::validate() const {
       "Ampere matmul scheduler does not support scheduling persistent CTAs");
 
   NVF_CHECK(
+      params_->buffering_loop_level ==
+          MatmulParams::BufferingLoopLevel::CTATiles,
+      "Ampere matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+
+  NVF_CHECK(
       params_->circular_buffering_strategy ==
           MatmulParams::CircularBufferingStrategy::Pipelined,
       "Ampere matmul scheduler does not support warp specialization");

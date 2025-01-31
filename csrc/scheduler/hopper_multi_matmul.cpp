@@ -68,6 +68,21 @@ void HopperMultipleMatmulScheduler::validate() const {
         params_->splitk_factor == 1,
         "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
   }
+
+  NVF_CHECK(
+      params_->tiling_strategy !=
+          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
+      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
+
+  NVF_CHECK(
+      params_->tiling_strategy !=
+          MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
+      "Hopper matmul scheduler does not support distributing stages across SMs a la stream-K");
+
+  NVF_CHECK(
+      params_->buffering_loop_level ==
+          MatmulParams::BufferingLoopLevel::CTATiles,
+      "Hopper matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
 }
 
 void HopperMultipleMatmulScheduler::run() {
