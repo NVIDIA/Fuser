@@ -119,7 +119,6 @@ jobs:
         PR_DESCRIPTION__INCLUDE_GENERATED_BY_HEADER: true
         PR_DESCRIPTION__ENABLE_LARGE_PR_HANDLING: true
 
-
     steps:
       - name: PR Agent combined action
         run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} combined
