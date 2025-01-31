@@ -62,6 +62,8 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
     regions.emplace_back();
     auto& region = regions.back();
 
+    // tcgen05.alloc stores the allocated address in shared memory. So we use a
+    // TensorView with MemoryType::Shared to store this address.
     region.address = TensorViewBuilder()
                          .shape(std::vector<Val*>{})
                          .dtype(DataType::UInt32)

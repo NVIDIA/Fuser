@@ -88,7 +88,11 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 // From the above analysis, it is important to realize that the allocation of
 // TensorView and the allocation of the tensor memory are not a one-to-one
 // correspondence. A TensorView can be allocated by multiple tcgen05.allocs, and
-// a tcgen05.alloc can be used to allocate multiple TensorViews.
+// a tcgen05.alloc can be used to allocate multiple TensorViews. For now, we
+// limit ourselves that a TensorView can not span multiple tcgen05.allocs, and
+// we call a piece of TMem area that is allocated by a single tcgen05.alloc and
+// may span multiple TensorViews a "region". This design derives a
+// TMem -> region -> TensorView hierarchy.
 //
 // In practice, it is very difficult to optimize both fragmentation and latency
 // perfectly. Although tensor memory was originally designed for matmul, because
@@ -110,7 +114,10 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 // The TMemAllocationInfo data structure and the insertAllocations support
 // a wider range of allocation strategies than the heuristic in computeTMemInfo.
 // This provides some flexibility for prototyping and experimentation by just
-// manually specifying TMemAllocationInfo.
+// manually specifying TMemAllocationInfo. To manually specify the allocation
+// strategy, the user can specify a managed variable "tmem_regions" in the
+// fusion. The type of this managed variable is vector<vector<TensorView*>>
+// which specifies which TensorViews should be coalesced into the same region.
 
 // The data structure that describes how we allocate tensor memory. It is
 // assumed that:
