@@ -25,7 +25,7 @@ struct TMemTensor {
   TMemTensor(uint32_t raw_address) : raw_address(raw_address) {}
 
   TMemTensor(uint32_t base_address, uint16_t lane_offset, uint16_t col_offset)
-      : raw_address(add(base_address, lane_offset, col_offset)) {}
+      : raw_address(add(base_address, {lane_offset, col_offset})) {}
 
   operator uint32_t() const {
     return raw_address;
