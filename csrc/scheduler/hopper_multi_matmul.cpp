@@ -13,6 +13,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
@@ -104,11 +105,6 @@ void HopperMultipleMatmulScheduler::validate() const {
         params_->splitk_factor == 1,
         "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
   }
-
-  NVF_CHECK(
-      params_->tiling_strategy !=
-          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
-      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
 
   NVF_CHECK(
       params_->tiling_strategy !=
@@ -373,6 +369,21 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
           tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
         }
       }
+    }
+
+    if (params_->tiling_strategy ==
+        MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+      // Persistent kernel scheduling
+      if (params_->cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        tv->reorder(
+            {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+      }
+      tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
+
+      const int64_t num_sms =
+          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      tv->split(num_device_and_batch_dims_, num_sms);
     }
   }
   return all_merged_roles;

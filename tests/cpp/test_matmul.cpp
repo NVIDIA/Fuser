@@ -4262,9 +4262,6 @@ class MLPBenchmarkTest
       // warp specialization requires Hopper+
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     }
-    if (test_params.persistent_kernel) {
-      GTEST_SKIP() << "persistent kernel tests are currently disabled";
-    }
   }
 };
 
@@ -4508,6 +4505,9 @@ INSTANTIATE_TEST_SUITE_P(
         MLPBenchmarkTestParams{
             .warp_specialization = true,
             .persistent_kernel = false},
+        MLPBenchmarkTestParams{
+            .warp_specialization = false,
+            .persistent_kernel = true},
         MLPBenchmarkTestParams{
             .warp_specialization = true,
             .persistent_kernel = true}),
