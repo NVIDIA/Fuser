@@ -647,6 +647,13 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       nvfuser, "MatmulTileRasterizationOrder")
       .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
+
+  DEFINECLASS(MatmulParams::ClusterDims)
+      .PARAM(MatmulParams::ClusterDims, x)
+      .PARAM(MatmulParams::ClusterDims, y)
+      .PARAM(MatmulParams::ClusterDims, z)
+      .TOSTRINGMETHOD(MatmulParams::ClusterDims);
+
   py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
       .value("no_mma", MmaMacroEncode::Arch::NoMma)
       .value("volta", MmaMacroEncode::Arch::Volta)
@@ -767,6 +774,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, tiling_strategy)
       .PARAM(MatmulParams, buffering_loop_level)
       .PARAM(MatmulParams, circular_buffering_strategy)
+      .PARAM(MatmulParams, cta_order)
+      .PARAM(MatmulParams, cluster_dims)
       .PARAM(MatmulParams, mma_macro);
 
 #undef PARAM
