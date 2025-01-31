@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+
 #include <fusion.h>
 #include <runtime/executor_abstract.h>
 
@@ -36,7 +37,25 @@ class ExprEvalExecutor : public ExecutorAbstract {
   }
 
  private:
-  // TODO: Set properly
   std::unique_ptr<Fusion> fusion_;
+
+  // Expressions to evaluate
+  std::vector<Expr*> exprs_;
+
+  // Sizes of the output of view ops, only one value can be unknown at it gets
+  // processed in aten as a -1 size, every other dim is a constant positive
+  // integer value.
+  std::unordered_map<ViewOp*, std::vector<int64_t>> output_view_sizes;
+  // Indicates if it's safe to use at::view instead of at::reshape
+  std::unordered_map<ViewOp*, bool> use_view;
+
+  // Permute map, stores permutation axes if a LoadStoreOp requires them.
+  std::unordered_map<LoadStoreOp*, std::vector<int64_t>> permutation_orders;
+
+  void compile(ViewOp* view_op);
+  at::Tensor run(ViewOp* view_op, at::Tensor input);
+
+  void compile(LoadStoreOp* ld_st_op);
+  at::Tensor run(LoadStoreOp* ld_st_op, at::Tensor input);
 };
 } // namespace nvfuser

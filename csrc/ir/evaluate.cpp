@@ -685,6 +685,9 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   // doesn't always produce an alias. For example, when merging an expanded
   // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
   // the expand.
+  if (in_tensor.is_contiguous()) {
+    return {in_tensor.view(out_shape)};
+  }
   return {in_tensor.reshape(out_shape)};
 }
 

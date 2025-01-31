@@ -134,6 +134,7 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::bindTensorDomain");
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_ERROR(
       t.dim() == (int64_t)logical_domain.size(),
@@ -178,6 +179,7 @@ void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value,
     bool evaluate_validate) {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::bind_");
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
   if (value->isConst()) {
