@@ -1502,7 +1502,15 @@ void schedulePersistentKernel(
   if (rparams->use_tma) {
     for (auto tv : smem_tvs) {
       tv->split(-1, 256);
+      // [I0, I1/256, 256]
+      tv->split(-2, rparams->batches_per_block_inner_reduction, false);
+      // [I0, 5, I1/256/5, 256]
+      tv->split(-2, 1);
+      // [I0, 5, I1/256/5, 1, 256]
+      tv->reorder({{-4, -3}, {-3, -4}});
+      // [I0, I1/256/5, 5, 1, 256]
       tv->axis(-1)->parallelize(ParallelType::Bulk);
+      tv->axis(-2)->parallelize(ParallelType::Unswitch);
     }
     for(auto cached_after_smem : smem_consumers) {
       auto smem_tv = ir_utils::getSoleProducerTv(cached_after_smem);
