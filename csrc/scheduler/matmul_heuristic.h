@@ -224,13 +224,39 @@ class MatmulParams : public HeuristicParams {
   // responsibility is to monitor the circular buffer and issue asynchronous
   // load instructions. The mma instructions are left to the other warp groups,
   // which we call "math warp groups".
+  //
+  // [Split-K and Stream-K]
+  // When the M, N are much smaller than the K dimension, distributing separate
+  // output tiles across the grid will not fully-occupy all compute resources on
+  // the GPU. An alternative is to parallelize work along the K dimension and
+  // then have a single CTA aggregate results for an output tile.
+  //
+  // Split-K divides the K dimension by constant factor. For example, when the
+  // split-k factor is 4, the k dimension is split across 4 CTAs. Each CTA
+  // accumulates a (CTA-M, CTA-N, K/4) output tile. A grid reductions is then
+  // performed on the K dimension to get the complete (CTA-M, CTA-N) tile. When
+  // the split-k factor is 1, it is equivalent to the data-parallel approach.
+  //
+  // The Steam-K approach combines the persistent grid strategy, which launches
+  // a single wave of CTAs, and k dimension parallelization. The core idea is to
+  // have each SM complete a fixed unit of work per stage, utilizing M, N, and K
+  // dimension parallelization. Each CTA computes a fixed (CTA-M, CTA-N, CTA-K)
+  // tile per stage. CTA-K dimension may split across multiple (CTA-M, CTA-N)
+  // output tiles. Once all partial tiles are completed, a grid sum accumulates
+  // all partial tiles. The advantage of stream-k over split-k is finding the
+  // optimal split-k factor to avoid wave quantization is non-trivial.
+  //
+  // When (CTA-K == K), then stream-k is equivalent to the persistent
+  // data-parallel strategy. When K dimension is evenly divided among CTAs (K %
+  // CTA-K == 0), then stream-k is equivalent to persistent split-k strategy.
 
   //! Specify whether to use a 1-1 mapping from output tile to CTA or to launch
   //! one CTA per SM then loop over a subset of output tiles within the kernel
   //! (persistent).
   enum class TilingStrategy {
     OneTilePerCTA, // Map each output tile to a single CTA and launch as many as
-                   // are needed to cover the tile grid
+                   // are needed to cover the tile grid. This is also commonly
+                   // referred to as the (data-parallel) strategy.
     DistributeTilesAcrossSMs, // Use persistent kernels to compute entire output
                               // tiles
     DistributeStagesAcrossSMs // Use persistent kernels to compute whole and
