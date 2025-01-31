@@ -2865,7 +2865,7 @@ void testTMemAddKernel(bool same_region) {
         std::string sub = "tcgen05.dealloc";
         // count number of sub in str
         size_t pos = 0;
-        while ((pos = s.find(sub, pos)) != std::string::npos) {
+        while ((pos = str.find(sub, pos)) != std::string::npos) {
           ++num_deallocs;
           pos += sub.length();
         }
