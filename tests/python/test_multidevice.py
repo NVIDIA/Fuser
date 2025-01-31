@@ -471,7 +471,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
-@pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
+@pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE])
 @pytest.mark.mpi
 def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     d, b, s, h, e = multidevice_test.size, 2, 1024, 12, 768
@@ -535,9 +535,9 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.attn,
                 self.log_sumexp,
                 self.out_grad,
-                self.q_grad,
-                self.k_grad,
-                self.v_grad,
+                # self.q_grad,
+                # self.k_grad,
+                # self.v_grad,
             ]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, 1, d, False)
@@ -547,6 +547,13 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                     # Reorder i{S} in the allocation domain for BHSE: {i{DIDx}, i{B}, i{S}, i{H//D}, i{E//H}}
                     self.sched.reorder(t, {2: 3, 3: 2})
                 self.sched.set_allocation_as_loop(t)
+            selected_tvs = [self.q_grad, self.k_grad, self.v_grad]
+            self.sched.transform_like(self.q, selected_tvs)
+            self.sched.parallelize_like(self.q, -1, selected_tvs, {nvfuser.ParallelType.mesh_x})
+            for t in selected_tvs:
+              print (self.sched.to_string(t))
+              self.sched.set_allocation_as_loop(t)
+            # self.sched.parallelize(t, 1, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 

@@ -1024,4 +1024,39 @@ TEST_F(SDPATest, ComputeAt) {
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
+TEST_F(SDPATest, PropagateLoopSplit) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  std::vector<int64_t> qkv_shape({b, s, h, e});
+
+  auto tvq = makeConcreteTensor(qkv_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(qkv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(qkv_shape, DataType::Half);
+  auto output = sdpfa_fwd(
+    tvq,
+    tvk,
+    tvv,
+    /*dropout_p=*/IrBuilder::create<Val>(0.0),
+    /*is_causal=*/IrBuilder::create<Val>(false),
+    /*scale=*/nullptr);
+
+  addSdpaFwdOutputs(fusion.get(), output);
+
+  auto selected_tvs = {output.output, output.log_sumexp};
+
+  for (TensorView* tv : {tvq, tvk, tvv}) {
+    tv->split(tv, -1, /*inner_split*/=false);
+  }
+  for (TensorView* to_tv: selected_tvs){
+    TransformPropagator::propagateC2P(tvq, to);
+    debug() << to_tv->getLoopDomain() << std::endl;
+    debug() << to_tv->getAllocationDomain() << std::endl;
+    debug() << to_tv->getLogicalDomain() << std::endl;
+  }
+}
+
 } // namespace nvfuser
