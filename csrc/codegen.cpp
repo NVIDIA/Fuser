@@ -280,9 +280,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       std::optional<int64_t> num_threads_per_cta) {
     code_ << "__global__ void ";
     {
-      // Avoid a const_cast that would be required to use kernel_ by picking the
-      // fusion of the first kernel output
-      FusionGuard fg(kernel_->outputs().front()->fusion());
+      FusionGuard fg(const_cast<kir::Kernel*>(kernel_));
       Val* num_threads =
           kernel_->summary().parallel_dimension_map.getNumThreadsEachBlock();
       if (num_threads->isConstInt()) {
