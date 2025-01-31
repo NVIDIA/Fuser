@@ -453,26 +453,22 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
   fusion->addOutput(y);
 
   const auto d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  x->setDeviceMesh(mesh);
   x->split(-1, d, /*inner_split=*/false);
   x->axis(-2)->parallelize(ParallelType::DIDx);
-  x->setAllocationDomain(x->getLoopDomain(), true);
 
-  w->setDeviceMesh(mesh);
   w->split(-1, d, /*inner_split=*/false);
   w->axis(-2)->parallelize(ParallelType::DIDx);
-  w->setAllocationDomain(w->getLoopDomain(), true);
 
-  y->setDeviceMesh(mesh);
   y->split(-1, d, /*inner_split=*/false);
   TensorView* local_y = y->rFactor({-1});
-  y->setAllocationDomain(y->getLoopDomain(), true);
 
-  local_y->setDeviceMesh(mesh);
   local_y->axis(-2)->parallelize(ParallelType::DIDx);
-  local_y->setAllocationDomain(local_y->getLoopDomain(), true);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto tv : {x, w, y, local_y}) {
+    tv->setDeviceMesh(mesh);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
 
   constexpr int64_t b = 1, s = 4, e = 12;
   if (e % d != 0) {
