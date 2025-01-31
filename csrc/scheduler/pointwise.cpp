@@ -651,6 +651,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
+  std::vector<IterDomain*> orig_loop = reference_tv->getLoopDomain();
 
   NVF_ERROR(
       reference_tv != nullptr,
@@ -682,8 +683,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getLogicalDomain().begin(),
-         reference_tv->getLogicalDomain().begin() + device_aware_break_point},
+        {orig_loop.begin(), orig_loop.begin() + device_aware_break_point},
         {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
@@ -691,8 +691,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getLogicalDomain().begin() + device_aware_break_point,
-         reference_tv->getLogicalDomain().end()},
+        {orig_loop.begin() + device_aware_break_point, orig_loop.end()},
         {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
