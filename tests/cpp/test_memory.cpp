@@ -2859,10 +2859,17 @@ void testTMemAddKernel(bool same_region) {
             return asm_->code().find("tcgen05.alloc") != std::string::npos;
           });
       EXPECT_EQ(num_allocs, same_region ? 1 : 2);
-      int64_t num_deallocs =
-          std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
-            return expr->toString().find("tcgen05.dealloc") != std::string::npos;
-          });
+      int64_t num_deallocs = 0;
+      for (auto expr : exprs) {
+        std::string str = expr->toString();
+        std::string sub = "tcgen05.dealloc";
+        // count number of sub in str
+        size_t pos = 0;
+        while ((pos = s.find(sub, pos)) != std::string::npos) {
+          ++num_deallocs;
+          pos += sub.length();
+        }
+      }
       EXPECT_EQ(num_deallocs, same_region ? 1 : 2);
       return exprs;
     };
