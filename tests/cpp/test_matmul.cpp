@@ -4251,17 +4251,15 @@ struct MLPBenchmarkTestParams {
 };
 
 class MLPBenchmarkTest
-    : public NVFuserTest,
+    : public HopperBase,
       public ::testing::WithParamInterface<MLPBenchmarkTestParams> {
  protected:
   MLPBenchmarkTestParams test_params;
   void SetUp() override {
+    HopperBase::SetUp();
+
     test_params = GetParam();
-    NVFuserTest::SetUp();
-    if (test_params.warp_specialization) {
-      // warp specialization requires Hopper+
-      NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-    }
+
     if (test_params.persistent_kernel) {
       GTEST_SKIP() << "persistent kernel tests are currently disabled";
     }
