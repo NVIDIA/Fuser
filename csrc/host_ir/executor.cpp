@@ -409,57 +409,6 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 }
 
-int64_t AllgatherThroughCudaMemcpyAsync::running_counter = 0;
-
-struct IpcTensorInfo {
-  cudaIpcMemHandle_t ipc_handle;
-  int64_t storage_offset;
-  int64_t element_size;
-};
-
-AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor input, std::vector<at::Tensor> outputs, Communicator* communicator) : unique_id(running_counter++), communicator_(communicator) {
-
-
-  IpcTensorInfo ipc_tensor_info;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, input.data_ptr()));
-  ipc_tensor_info.storage_offset = input.storage_offset();
-  ipc_tensor_info.element_size = input.element_size();
-
-  const int64_t my_rank = communicator->deviceId();
-  auto store = communicator->getTcpStore();
-  store->set(prefix() + std::to_string(my_rank), toBytes(ipc_tensor_info));
-
-  communicator_->barrier();
-
-  sizes_.resize(communicator_->size(), 0);
-  input_ptrs_.resize(communicator_->size(), nullptr);
-  output_ptrs_.resize(communicator_->size(), nullptr);
-  for (int64_t rank: c10::irange(communicator_->size())) {
-    auto output = outputs.at(rank);
-    sizes_.at(rank) = output.numel() * output.element_size();
-
-    output_ptrs_.at(rank) = output.data_ptr();
-    if (rank == my_rank) {
-      input_ptrs_.at(rank) = input.data_ptr();
-    } else {
-      ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix() + std::to_string(rank)));
-      void*& ptr = input_ptrs_.at(rank);
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&ptr, ipc_tensor_info.ipc_handle, cudaIpcMemLazyEnablePeerAccess));
-      ptr = (void*)((uint8_t*)ptr + ipc_tensor_info.storage_offset * ipc_tensor_info.element_size);
-    }
-  }
-  // TODO: close ipc mem handle at shutdown
-}
-
-void AllgatherThroughCudaMemcpyAsync::post() const {
-  cudaStream_t stream = c10::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(communicator_->local_rank())).stream();
-  // TODO: use multicast
-  for (size_t i = 0; i < sizes_.size(); i++) {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice, stream));
-  }
-}
-
-
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
@@ -485,22 +434,16 @@ void HostIrEvaluator::handle(Communication* communication) {
   }
 
   NVF_ERROR(communication->type() == CommunicationType::Allgather);
-  // TODO: fix registration cache
-  // if (allgather_backends_.find(communication) == allgather_backends_.end()) {
-  //   // TODO: retrieve sharded axis here
-  //   auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
-  //   allgather_backends_.try_emplace(
-  //       communication,
-  //       AllgatherThroughCudaMemcpyAsync(
-  //           input_tensor,
-  //           output_tensors,
-  //           communicator_));
-  // }
-  // allgather_backends_.at(communication).post();
 
-  auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
-  AllgatherThroughCudaMemcpyAsync allgather_backend(input_tensor, output_tensors, communicator_);
-  allgather_backend.post();
+  std::vector<at::Tensor> output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  std::vector<void*> input_ptrs = communicator_->getRemotePtrs(input_tensor);
+  cudaStream_t stream = c10::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(communicator_->local_rank())).stream();
+  // TODO: use multicast
+  for (auto i = 0; i < communicator_->size(); i++) {
+    auto output = output_tensors.at(i);
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output.data_ptr(), input_ptrs.at(i), output.numel() * output.element_size(), cudaMemcpyDeviceToDevice, stream));
+  }
+
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {

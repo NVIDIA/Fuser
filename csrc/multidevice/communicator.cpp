@@ -319,4 +319,45 @@ void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
   getWorld(backend)->barrier(options)->wait();
 }
 
+struct IpcTensorInfo {
+  cudaIpcMemHandle_t ipc_handle;
+  int64_t storage_offset;
+  int64_t element_size;
+};
+
+std::vector<void*> Communicator::getRemotePtrs(at::Tensor tensor) {
+  auto it = remote_ptrs_.find(tensor);
+  if (it == remote_ptrs_.end()) {
+    if (deviceId() == 0) {
+      std::cout << "rank " << deviceId() << " registers tensor " << tensor.data_ptr() << "with hash" << std::endl;
+    }
+    std::vector<void*> remote_ptrs(size(), nullptr);
+    std::string prefix = "nvfuser_ipc_tensor_info_";
+    IpcTensorInfo ipc_tensor_info;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, tensor.data_ptr()));
+    ipc_tensor_info.storage_offset = tensor.storage_offset();
+    ipc_tensor_info.element_size = tensor.element_size();
+
+    const int64_t my_rank = deviceId();
+    auto store = getTcpStore();
+    store->set(prefix + std::to_string(my_rank), toBytes(ipc_tensor_info));
+
+    barrier();
+
+    for (int64_t rank: c10::irange(size())) {
+      if (rank == my_rank) {
+        remote_ptrs.at(rank) = tensor.data_ptr();
+      } else {
+        ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix + std::to_string(rank)));
+        void*& ptr = remote_ptrs.at(rank);
+        NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&ptr, ipc_tensor_info.ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+        // TODO: close ipc mem handle at shutdown
+        ptr = (void*)((uint8_t*)ptr + ipc_tensor_info.storage_offset * ipc_tensor_info.element_size);
+      }
+    }
+    it = remote_ptrs_.emplace(tensor, std::move(remote_ptrs)).first;
+  }
+  return it->second;
+}
+
 } // namespace nvfuser

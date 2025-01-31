@@ -24,6 +24,18 @@
 
 namespace nvfuser {
 
+template <typename T>
+std::vector<uint8_t> toBytes(T data) {
+  return std::vector<uint8_t>(
+      reinterpret_cast<uint8_t*>(&data),
+      reinterpret_cast<uint8_t*>(&data) + sizeof(T));
+}
+
+template <typename T>
+T fromBytes(std::vector<uint8_t> bytes) {
+  return *reinterpret_cast<T*>(bytes.data());
+}
+
 // This file implements the class Communicator which sets up the inter-process
 // Backend. This class contains inter-process information, such as the rank, the
 // world size, as well as the Process Group that can be called to perform
@@ -142,7 +154,24 @@ class Communicator {
     return store_;
   }
 
+  std::vector<void*> getRemotePtrs(at::Tensor tensor);
+
  private:
+  struct TensorHash {
+    std::size_t operator()(const at::Tensor& tensor) const {
+      auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
+      auto offset = tensor.storage_offset();
+      auto element_size = tensor.element_size();
+      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^ std::hash<int>()(element_size);
+    }
+  };
+
+  struct TensorEqual {
+    bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
+      return lhs.equal(rhs);
+    }
+  };
+
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
@@ -175,6 +204,7 @@ class Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
+  std::unordered_map<at::Tensor, std::vector<void*>, TensorHash, TensorEqual> remote_ptrs_;
 };
 
 } // namespace nvfuser
