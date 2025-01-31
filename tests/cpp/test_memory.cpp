@@ -2850,8 +2850,8 @@ void testTMemAddKernel(bool same_region) {
   // check number of tcgen05.alloc calls
   ke.registerLoweringHook([same_region](GpuLower* lower) {
     auto check_pass = [same_region](const std::vector<Expr*>& exprs) {
-      int64_t num_allocs = std::count_if(
-          exprs.begin(), exprs.end(), [](Expr* expr) {
+      int64_t num_allocs =
+          std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
             auto asm_ = dynamic_cast<kir::Asm*>(expr);
             if (asm_ == nullptr) {
               return false;
