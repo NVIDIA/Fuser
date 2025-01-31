@@ -47,11 +47,18 @@ class HostIrContainer final : public Fusion {
   }
 
   void reserveKernelExecutors(std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
-    kernel_executors_.reserve(sz);
+    kernel_executors_.resize(sz);
+    for (auto& ptr : kernel_executors_) {
+        ptr = nullptr;
+    }
   }
 
   void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke) {
     kernel_executors_[index] = std::move(ke);
+  }
+
+  bool hasKernelExecutor(int64_t index) const {
+    return kernel_executors_.at(index) != nullptr;
   }
 
   KernelExecutor* getKernelExecutor(int64_t index) const {
