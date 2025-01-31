@@ -308,6 +308,10 @@ bool fillDefaultHopperHeuristic(
 
   mparams->tile_sizes = {cta_tile, warp_tile};
 
+  // Use warp specialization on hopper by default
+  mparams->circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+
   // stages and async mem copy
   mparams->circular_buffer_options.smem_circular_buffer_stage = 8;
 
