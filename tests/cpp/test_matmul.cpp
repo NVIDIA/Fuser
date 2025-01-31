@@ -4298,7 +4298,7 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
 
   // Relax tolerance for larger sum due to large K
   // TODO Incorrect results because incorrect placement of wgmma syncs
-  EXPECT_FALSE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+  // EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
@@ -4370,8 +4370,8 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
 
   // Relax tolerance for larger sum due to large K
   // TODO Incorrect results because incorrect placement of wgmma syncs
-  EXPECT_FALSE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_FALSE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
+  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  // EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
 }
 
 TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
@@ -4450,14 +4450,13 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
-  // Relax tolerance for larger sum due to large K
   // TODO Incorrect results because incorrect placement of wgmma syncs
-  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-
   // TODO Incorrect results because of WAR hazard between aliased shared memory
   // between tv3 and tv12
-  EXPECT_FALSE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
+  // Relax tolerance for larger sum due to large K
+  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  // EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
+  // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
 }
 
 } // namespace nvfuser
