@@ -16,15 +16,8 @@ struct TMemTensor {
   uint32_t raw_address;
 
  public:
-  uint32_t static add(
-      uint32_t base,
-      uint16_t lane_offset,
-      uint16_t col_offset) {
-    uint32_t base_lane = base >> 16;
-    uint32_t base_col = base & 0xFFFF;
-    uint32_t lane = base_lane + lane_offset;
-    uint32_t col = base_col + col_offset;
-    return (lane << 16) | col;
+  uint32_t static add(uint32_t base, Array<uint16_t, 2> offset) {
+    return base + *reinterpret_cast<const uint32_t*>(&offset);
   }
 
   TMemTensor(uint32_t raw_address) : raw_address(raw_address) {}
@@ -34,7 +27,7 @@ struct TMemTensor {
   }
 
   uint32_t operator+(Array<uint16_t, 2> offset) const {
-    return add(raw_address, offset[0], offset[1]);
+    return add(raw_address, offset);
   }
 };
 
