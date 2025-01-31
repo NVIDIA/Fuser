@@ -4303,6 +4303,19 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         consumer_group->producer_edges.erase(producer_edge_to_remove);
       };
 
+  // Replace old_expr with new_expr if found in a given group. Return
+  // true if replaced.
+  auto maybe_replace =
+      [](SegmentedGroup* group, Expr* old_expr, Expr* new_expr) -> bool {
+    auto it = std::find(group->exprs_.begin(), group->exprs_.end(), old_expr);
+    if (it != group->exprs_.end()) {
+      *it = new_expr;
+      return true;
+    } else {
+      return false;
+    }
+  };
+
   for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
     std::vector<UnaryOp*> upcast_in_group;
     Val* upcast_val_to_keep = nullptr;
@@ -4334,27 +4347,30 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         continue;
       }
 
-      // Replace upcast_val_to_replace with upcast_val_to_keep. There
-      // must be only one expr using upcast_val_to_replace.
-      bool replaced = false;
-      for (auto& expr : group->exprs_) {
-        auto input_it = std::find(
-            expr->inputs().begin(),
-            expr->inputs().end(),
-            upcast_val_to_replace);
-        if (input_it == expr->inputs().end()) {
-          continue;
+      NVF_ERROR(
+          upcast_val_to_replace->uses().size() == 1,
+          "Multiple use of replicated upcast tensor found: ",
+          toDelimitedString(upcast_val_to_replace->uses()));
+
+      auto use_of_upcast_val_to_replace = upcast_val_to_replace->uses().at(0);
+
+      auto updated_expr = ir_utils::replaceValInExprInputs(
+          use_of_upcast_val_to_replace,
+          upcast_val_to_replace,
+          upcast_val_to_keep);
+
+      // Replace use_of_upcast_val_to_replace with
+      // updated_expr. use_of_upcast_val_to_replace must be in the
+      // same group of its consumer groups
+      if (!maybe_replace(group, use_of_upcast_val_to_replace, updated_expr)) {
+        for (auto consumer_edge : group->consumer_edges) {
+          if (maybe_replace(
+                  consumer_edge->to,
+                  use_of_upcast_val_to_replace,
+                  updated_expr)) {
+            break;
+          }
         }
-
-        NVF_ERROR(
-            !replaced,
-            "Multiple use of replicated upcast tensor, ",
-            upcast_val_to_replace->toString());
-
-        auto updated_expr = ir_utils::replaceValInExprInputs(
-            expr, *input_it, upcast_val_to_keep);
-        expr = updated_expr;
-        replaced = true;
       }
 
       // Update a consumer edge if its val is
