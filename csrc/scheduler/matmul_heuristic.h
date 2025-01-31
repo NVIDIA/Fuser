@@ -337,8 +337,41 @@ class MatmulParams : public HeuristicParams {
        << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
                                                            : "column-major")
        << "\n"
-       << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
-       << cluster_dims.toString() << "\n"
+       << "Grid swizzle factor: " << grid_swizzle_factor << "\n";
+    ss << "Tiling strategy: ";
+    switch (tiling_strategy) {
+      case TilingStrategy::OneTilePerCTA:
+        ss << "OneTilePerCTA";
+        break;
+      case TilingStrategy::DistributeTilesAcrossSMs:
+        ss << "DistributeTilesAcrossSMs";
+        break;
+      case TilingStrategy::DistributeStagesAcrossSMs:
+        ss << "DistributeStagesAcrossSMs";
+        break;
+    }
+    ss << "\n";
+    ss << "Buffering loop level: ";
+    switch (buffering_loop_level) {
+      case BufferingLoopLevel::CTATiles:
+        ss << "CTATiles";
+        break;
+      case BufferingLoopLevel::WarpTiles:
+        ss << "WarpTiles";
+        break;
+    }
+    ss << "\n";
+    ss << "Circular buffering strategy: ";
+    switch (circular_buffering_strategy) {
+      case CircularBufferingStrategy::Pipelined:
+        ss << "Pipelined";
+        break;
+      case CircularBufferingStrategy::WarpSpecialized:
+        ss << "WarpSpecialized";
+        break;
+    }
+    ss << "\n";
+    ss << cluster_dims.toString() << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
