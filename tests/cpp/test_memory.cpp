@@ -2861,11 +2861,7 @@ void testTMemAddKernel(bool same_region) {
       EXPECT_EQ(num_allocs, same_region ? 1 : 2);
       int64_t num_deallocs =
           std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
-            auto asm_ = dynamic_cast<kir::Asm*>(expr);
-            if (asm_ == nullptr) {
-              return false;
-            }
-            return asm_->code().find("tcgen05.dealloc") != std::string::npos;
+            return expr->toString().find("tcgen05.dealloc") != std::string::npos;
           });
       EXPECT_EQ(num_deallocs, same_region ? 1 : 2);
       return exprs;
