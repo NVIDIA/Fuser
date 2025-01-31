@@ -279,13 +279,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& kernel_name,
       std::optional<int64_t> num_threads_per_cta) {
     code_ << "__global__ void ";
-    PolymorphicValue num_threads =
-        kernel_->summary()
-            .parallel_dimension_map.getNumThreadsEachBlock()
-            ->evaluate();
-    if (num_threads.hasValue()) {
-      code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads.as<int64_t>() << ") ";
+    {
+      // Avoid a const_cast that would be required to use kernel_ by picking the
+      // fusion of the first kernel output
+      FusionGuard fg(kernel_->outputs().front()->fusion());
+      Val* num_threads =
+          kernel_->summary().parallel_dimension_map.getNumThreadsEachBlock();
+      if (num_threads->isConstInt()) {
+        code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
+              << num_threads->evaluate().as<int64_t>() << ") ";
+      }
     }
     if (kernel_->hasManaged("enable_register_sharing") &&
         kernel_->getManaged<bool>("enable_register_sharing")) {
