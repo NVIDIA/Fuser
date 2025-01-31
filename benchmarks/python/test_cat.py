@@ -369,36 +369,42 @@ def test_cat_qwen2_fwd_11(benchmark, ex: str):
     ]
 
     if ex == "torchcompile":
-      def benchmark_fn(inputs):
-        return to_be_compiled(*inputs)
-      benchmark_fn = with_executor(ex, benchmark_fn)
+
+        def benchmark_fn(inputs):
+            return to_be_compiled(*inputs)
+
+        benchmark_fn = with_executor(ex, benchmark_fn)
 
     elif ex == "thunder":
-      with FusionDefinition() as fd:
-          nvfuser_fusion_id4(fd)
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id4(fd)
 
-      inputs = [
-          torch.testing.make_tensor((2048, 512), dtype=torch.bfloat16, device="cuda:0"),
-          torch.testing.make_tensor(
-              (1, 2048, 512), dtype=torch.bfloat16, device="cuda:0"
-          ),
-          torch.randn(262144, dtype=torch.bfloat16, device="cuda:0").as_strided(
-              (1, 2048, 128), (262144, 1, 2048)
-          ),
-          torch.randn(262144, dtype=torch.bfloat16, device="cuda:0").as_strided(
-              (1, 2048, 128), (262144, 1, 2048)
-          ),
-          torch.randn(7340032, dtype=torch.bfloat16, device="cuda:0").as_strided(
-              (1, 28, 2048, 128), (7340032, 128, 3584, 1)
-          ),
-          torch.randn(1048576, dtype=torch.bfloat16, device="cuda:0").as_strided(
-              (1, 4, 2048, 128), (1048576, 128, 512, 1)
-          ),
-      ]
-      def benchmark_fn(inputs):
-        return fd.execute(inputs)
+        inputs = [
+            torch.testing.make_tensor(
+                (2048, 512), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 2048, 512), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.randn(262144, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 2048, 128), (262144, 1, 2048)
+            ),
+            torch.randn(262144, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 2048, 128), (262144, 1, 2048)
+            ),
+            torch.randn(7340032, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 28, 2048, 128), (7340032, 128, 3584, 1)
+            ),
+            torch.randn(1048576, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 4, 2048, 128), (1048576, 128, 512, 1)
+            ),
+        ]
+
+        def benchmark_fn(inputs):
+            return fd.execute(inputs)
+
     else:
-      raise NotImplementedError(f"unknown executor '{ex}'")
+        raise NotImplementedError(f"unknown executor '{ex}'")
 
     run_benchmark(benchmark, benchmark_fn, inputs)
 
@@ -435,7 +441,8 @@ def test_cat_phi3_1(benchmark, ex: str):
     ]
 
     def benchmark_fn(inputs):
-      return to_be_compiled(*inputs)
+        return to_be_compiled(*inputs)
+
     benchmark_fn = with_executor(ex, benchmark_fn)
 
     run_benchmark(benchmark, benchmark_fn, inputs)
@@ -481,7 +488,8 @@ def test_cat_nanogpt_bwd_6(benchmark, ex: str):
     ]
 
     def benchmark_fn(inputs):
-      return nanogpt_bwd_fusion_6_torch(*inputs)
+        return nanogpt_bwd_fusion_6_torch(*inputs)
+
     benchmark_fn = with_executor(ex, benchmark_fn)
 
     run_benchmark(benchmark, benchmark_fn, inputs)
