@@ -4216,6 +4216,14 @@ void SegmentCandidateFinder::privatizeUpcast() {
 
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
 
+  // This is a WAR for #3781. It seems this transformation triggers a
+  // bug with the inner normalization scheduler.
+  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+        return expr->isA<WelfordOp>();
+      })) {
+    return;
+  }
+
   for (auto expr : exprs) {
     if (!ir_utils::isTvOp(expr)) {
       continue;
