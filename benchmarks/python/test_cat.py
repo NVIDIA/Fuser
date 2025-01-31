@@ -12,7 +12,7 @@ from .core import run_benchmark, with_executor
 # fusion below appears repeatedly in both networks.
 #
 # The numbers are arbitrary; this was the 11th fusion in the forward pass.
-@pytest.mark.parametrize("ex", ["thunder", "torchcompile"])
+@pytest.mark.parametrize("executor", ["thunder", "torchcompile"])
 def test_cat_qwen2_fwd_11(benchmark, ex: str):
     def to_be_compiled(t17353, t17351, cos_2, sin_2, query_states_1, key_states_1):
         # t17353: "cuda:0 bf16[2048, 512]"
