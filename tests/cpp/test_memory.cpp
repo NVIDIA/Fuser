@@ -2846,6 +2846,24 @@ void testTMemAddKernel(bool same_region) {
   inlineMost();
 
   KernelExecutor ke;
+
+  // check number of tcgen05.alloc calls
+  ke.registerLoweringHook([same_region](GpuLower* lower) {
+    auto check_pass = [same_region](const std::vector<Expr*>& exprs) {
+      int64_t num_allocs = std::count_if(
+          exprs.begin(), exprs.end(), [](Expr* expr) {
+            auto asm_ = dynamic_cast<kir::Asm*>(expr);
+            if (asm_ == nullptr) {
+              return false;
+            }
+            return asm_->code().find("tcgen05.alloc") != std::string::npos;
+          });
+      EXPECT_EQ(num_allocs, same_region ? 1 : 2);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
   ke.compile(&fusion);
   auto t0 = at::randn(
       {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
