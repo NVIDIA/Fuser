@@ -234,25 +234,25 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
       logical_reorder_map_entry.get();
 
-  auto ref_root = largest_out->getLoopDomain();
+  std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
   if (!logical_reorder_map.empty()) {
-    ref_root = TensorDomain::orderedAs(ref_root, logical_reorder_map);
+    ref_loop = TensorDomain::orderedAs(ref_loop, logical_reorder_map);
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_root = TensorDomain::noDevices(TensorDomain::noReductions(ref_root));
+  ref_loop = TensorDomain::noDevices(TensorDomain::noReductions(ref_loop));
 
-  std::vector<int64_t> elem_counts(ref_root.size(), 1);
+  std::vector<int64_t> elem_counts(ref_loop.size(), 1);
   int64_t n_elems = 1;
-  for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
+  for (size_t ref_i = 0; ref_i < ref_loop.size(); ref_i++) {
     auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(ref_root[ref_i]->extent());
+        runtime_info.expressionEvaluator().evaluate(ref_loop[ref_i]->extent());
     NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
-        ref_root[ref_i]->extent()->toInlineString());
+        ref_loop[ref_i]->extent()->toInlineString());
     elem_counts[ref_i] = inferred_val.as<int64_t>();
     n_elems *= elem_counts[ref_i];
   }
@@ -352,7 +352,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-  NVF_ERROR(broadcast_byte_multiples.size() == ref_root.size());
+  NVF_ERROR(broadcast_byte_multiples.size() == ref_loop.size());
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
@@ -370,7 +370,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // How much would this transfer cost if it was done as a 1-D schedule
     int64_t transfer_size_1d = 1;
 
-    for (const auto i : c10::irange(ref_root.size())) {
+    for (const auto i : c10::irange(ref_loop.size())) {
       transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
     }
 
@@ -381,7 +381,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange((int64_t)ref_root.size())) {
+      for (const auto break_point_i : c10::irange((int64_t)ref_loop.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
                 view_disjoint_sets, break_point_i)) {
@@ -391,7 +391,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         // Number of elements in the right side of reference tv with
         // break_point_i
         int64_t cur_right_elem_count = 1;
-        for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
+        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
           cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
         }
 
@@ -414,7 +414,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
               cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
         }
 
-        for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
+        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
           right_transfer_size =
               right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
         }
@@ -651,7 +651,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
-  std::vector<IterDomain*> orig_loop = reference_tv->getLoopDomain();
+  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
 
   NVF_ERROR(
       reference_tv != nullptr,
@@ -683,7 +683,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {orig_loop.begin(), orig_loop.begin() + device_aware_break_point},
+        {ref_orig_loop.begin(),
+         ref_orig_loop.begin() + device_aware_break_point},
         {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
@@ -691,7 +692,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {orig_loop.begin() + device_aware_break_point, orig_loop.end()},
+        {ref_orig_loop.begin() + device_aware_break_point, ref_orig_loop.end()},
         {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
