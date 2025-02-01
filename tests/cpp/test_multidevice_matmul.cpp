@@ -436,4 +436,65 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
       __FILE__);
 }
 
+// linear([M, K], [N, K]) -> [M, N]
+//
+// K, the row dimension of the weight, is sharded on DIDx. Note that LinearOp's
+// weight is of shape [column, row]. This LinearOp is decomposed into a local
+// LinearOp followed by an Allreduce.
+TEST_F(DistributedMatmulTest, RowParallelLinear) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* w = makeContigTensor(2);
+  TensorView* y = linear(x, w);
+  fusion->addInput(x);
+  fusion->addInput(w);
+  fusion->addOutput(y);
+
+  const auto d = communicator_->size();
+  x->split(-1, d, /*inner_split=*/false);
+  x->axis(-2)->parallelize(ParallelType::DIDx);
+
+  w->split(-1, d, /*inner_split=*/false);
+  w->axis(-2)->parallelize(ParallelType::DIDx);
+
+  y->split(-1, d, /*inner_split=*/false);
+  TensorView* local_y = y->rFactor({-1});
+
+  local_y->axis(-2)->parallelize(ParallelType::DIDx);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto tv : {x, w, y, local_y}) {
+    tv->setDeviceMesh(mesh);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  constexpr int64_t b = 1, s = 4, e = 12;
+  if (e % d != 0) {
+    GTEST_SKIP() << "The test requires e (" << e << ") to be divisible by d ("
+                 << d << ").";
+  }
+
+  // Use randint instead of randn to avoid floating point accumulation errors.
+  auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options);
+  auto w_tensor = at::randint(/*high=*/5, {e, e}, tensor_options);
+  auto sharded_x = shardTensor(x_tensor, x);
+  auto sharded_w = shardTensor(w_tensor, w);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  std::vector<c10::IValue> in_tensors({sharded_x, sharded_w});
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs(in_tensors);
+
+  at::Tensor expected_y_tensor = at::linear(x_tensor, w_tensor);
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      in_tensors,
+      {expected_y_tensor},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
