@@ -12,6 +12,7 @@
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
@@ -1407,8 +1408,52 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   auto t2 = at::randn({input_shape[1]}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
+  // This logic size of the persistent buffer in this fusion is 80 * 1024 * 2
+  // bytes. Inner persistent scheduler allows 32 * 1024 * 2 bytes for register
+  // persistent, so it should use shared memory persistent buffer if there are
+  // enough shared memory. Otherwise, it will be segmented.
+  SchedulerRuntimeInfo runtime_info(&fusion, inputs);
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  auto persistent_buffer_size =
+      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size = 80 * 1024 * dataTypeSize(DataType::Half);
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
+      logic_buffer_size);
+
+  bool is_segmented = false;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  // If total shared memory on device is less than logic buffer size, should
+  // segment. Otherwise, futher calculate avilable shared memory size by
+  // removing overhead due to reduction broadcast workspace and non-divisible
+  // split.
+  if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+    is_segmented = true;
+  } else {
+    int64_t available_buffer_size = normalization_scheduler_utils::
+        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            &fusion,
+            runtime_info,
+            scheduler_utils::getReductionTvs(&fusion),
+            persistent_buffer_info,
+            /*can_use_smem_persistent*/ true,
+            /*project_to_inputs*/ true);
+    is_segmented = logic_buffer_size >= available_buffer_size;
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  // check segmentation, if not segmented, further check shared memory
+  // persistence
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_EQ(is_segmented, runtime->isSegmented());
+  if (!is_segmented) {
+    auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
+    ASSERT_TRUE(params->isA<ReductionParams>());
+    ASSERT_TRUE(
+        params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+  }
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
