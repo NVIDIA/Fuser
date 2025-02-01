@@ -601,6 +601,10 @@ TEST_F(ExprEvalTest, ReshapePermuteReshape) {
   eee.compile(&fusion);
   auto args = KernelArgumentHolder::createKernelArgumentHolder({in_tensor});
   auto outs = eee.run(args);
+  for (auto i : c10::irange(99)) {
+    (void)i;
+    eee.run(args);
+  }
   EXPECT_EQ(in_tensor.data_ptr(), outs[0].data_ptr());
   EXPECT_THAT(outs[0].sizes(), ElementsAre(6, 9));
   EXPECT_THAT(outs[0].strides(), ElementsAre(1, 8));

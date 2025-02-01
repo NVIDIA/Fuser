@@ -33,13 +33,13 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
       "ExprEvalExecutor does not support the Fusion provided.");
   fusion_ = std::make_unique<Fusion>(*fusion);
   exprs_ = fusion_->exprs();
-  for (auto expr : exprs_) {
-    if (expr->isA<ViewOp>()) {
-      compile(expr->as<ViewOp>());
-    } else if (expr->isA<LoadStoreOp>()) {
-      compile(expr->as<LoadStoreOp>());
-    }
-  }
+  // for (auto expr : exprs_) {
+  //   if (expr->isA<ViewOp>()) {
+  //     compile(expr->as<ViewOp>());
+  //   } else if (expr->isA<LoadStoreOp>()) {
+  //     compile(expr->as<LoadStoreOp>());
+  //   }
+  // }
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
   }
@@ -74,32 +74,35 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
   NVF_ERROR(fusion_, "Need to compile before you can run.");
   // Bind fusion inputs
   ExpressionEvaluator expr_eval;
-
   {
     FUSER_PERF_SCOPE("ExprEvalExecutor::bindInputs");
-    expr_eval = executor_utils::bindInputs(args, fusion_.get());
+    // expr_eval = executor_utils::bindInputs(args, fusion_.get());
+    NVF_ERROR(
+      fusion_->inputs().size() <= args.size(),
+      "KernelArgumentHolder contains less argument than fusion's input.");
+    for(auto inp_i : c10::irange(fusion_->inputs().size())){
+      expr_eval.unsafeBind(fusion_->inputs()[inp_i], *args[inp_i]);
+    }
   }
   {
     FUSER_PERF_SCOPE("ExprEvalExecutor::Eval");
-
-    for (auto expr : exprs_) {
-      if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
-        auto output_tensor =
-            run(view, expr_eval.evaluate(view->in()).as<at::Tensor>());
-        expr_eval.bind(view->out(), output_tensor);
-        continue;
-      } else if (LoadStoreOp* ld_st_op = dynamic_cast<LoadStoreOp*>(expr)) {
-        auto output_tensor =
-            run(ld_st_op, expr_eval.evaluate(ld_st_op->in()).as<at::Tensor>());
-        expr_eval.bind(ld_st_op->out(), output_tensor);
-        continue;
-      }
-      expr_eval.evaluate(expr->outputs()[0]);
-    }
+    // for (auto expr : exprs_) {
+    //   if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
+    //     auto output_tensor =
+    //         run(view, expr_eval.evaluate(view->in()).as<at::Tensor>());
+    //     expr_eval.bind(view->out(), output_tensor);
+    //     continue;
+    //   } else if (LoadStoreOp* ld_st_op = dynamic_cast<LoadStoreOp*>(expr)) {
+    //     auto output_tensor =
+    //         run(ld_st_op, expr_eval.evaluate(ld_st_op->in()).as<at::Tensor>());
+    //     expr_eval.bind(ld_st_op->out(), output_tensor);
+    //     continue;
+    //   }
+    //   expr_eval.evaluate(expr->outputs()[0]);
+    // }
 
     for (const auto& out_val : fusion_->outputs()) {
       auto out_tensor = expr_eval.evaluate(out_val).as<at::Tensor>();
-      // expr_eval.bind(out_val, out_tensor);
       outputs.emplace_back(out_tensor);
     }
   }

@@ -22,6 +22,7 @@
 namespace nvfuser {
 
 class PrecomputedValues;
+class ExprEvalExecutor;
 
 //! Calculate Fusion IR expressions
 class ExpressionEvaluator {
@@ -90,6 +91,12 @@ class ExpressionEvaluator {
       ExactLogicalDomainMap* exact_map = nullptr);
 
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
+
+ protected:
+  friend ExprEvalExecutor;
+  // Direct access to adding values to known_values_ without going through bind_
+  // which does validation and will also bind all tensor domain information.
+  void unsafeBind(const Val* value, PolymorphicValue concrete_value);
 
  private:
   void bind_(
