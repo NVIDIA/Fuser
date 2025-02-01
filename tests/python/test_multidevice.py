@@ -230,17 +230,15 @@ def test_matmul_allreduce(multidevice_test):
 @pytest.mark.mpi
 def test_matmul_loop_split(multidevice_test):
     class Model(FusionDefinition):
-        def __init__(self, num_devices, batch, sequence, hidden):
+        def __init__(self, num_devices, hidden):
             super().__init__()
             self._num_devices = num_devices
-            self._batch = batch
-            self._sequence = sequence
             self._hidden = hidden
 
         def definition(self):
-            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
-            self.inp = self.define_tensor([b, s, e])
-            self.weight = self.define_tensor([e, d * e])
+            d, e = self._num_devices, self._hidden
+            self.inp = self.define_tensor([-1, -1, e])
+            self.weight = self.define_tensor([-1, d * e])
             self.out = self.ops.matmul(self.inp, self.weight)
             self.add_output(self.out)
 
@@ -272,7 +270,7 @@ def test_matmul_loop_split(multidevice_test):
         unsharded_weight_tensor, -1, mesh
     )
 
-    fd = Model(d, b, s, e)
+    fd = Model(d, e)
     (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor])
 
     # [b, s, d*e]
