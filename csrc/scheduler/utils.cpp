@@ -2150,7 +2150,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return old2new;
 }
 
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> ret;
   if (!tv->hasAllocation()) {
