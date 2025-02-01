@@ -362,7 +362,7 @@ def test_cat_qwen2_fwd_11_nvf_benchmark(
 # We don't use a "thunder" executor here because thunder cannot accept the
 # torch.as_strided call yet.
 @pytest.mark.parametrize("executor", ["torchcompile"])
-def test_cat_qwen2_fwd_11(
+def test_cat_qwen2_fwd_11_baseline_benchmark(
   benchmark,
   executor: str,
   disable_validation: bool,
