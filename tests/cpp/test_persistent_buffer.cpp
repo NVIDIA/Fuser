@@ -1408,8 +1408,8 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   auto t2 = at::randn({input_shape[1]}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
-  // This logic size of the persistent buffer in this fusion is 80 * 1024 * 2
-  // bytes. Inner persistent scheduler allows 32 * 1024 * 2 bytes for register
+  // The logic size of the persistent buffer in this fusion is 80 * 1024 * 2
+  // bytes. Inner persistent scheduler allows 32 * 1024 * 4 bytes for register
   // persistent, so it should use shared memory persistent buffer if there are
   // enough shared memory. Otherwise, it will be segmented.
   SchedulerRuntimeInfo runtime_info(&fusion, inputs);
@@ -1421,12 +1421,12 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
       persistent_buffer_size.projected_persistent_buffer_size,
       logic_buffer_size);
 
-  bool is_segmented = false;
-  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // If total shared memory on device is less than logic buffer size, should
-  // segment. Otherwise, futher calculate avilable shared memory size by
+  // segment. Otherwise, further calculate available shared memory size by
   // removing overhead due to reduction broadcast workspace and non-divisible
   // split.
+  bool is_segmented = false;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
     is_segmented = true;
   } else {
