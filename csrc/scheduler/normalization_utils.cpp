@@ -1443,19 +1443,22 @@ void schedulePersistentKernel(
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
-  // reduction_scheduler_utils::multiReductionInliner(
-  //     fusion,
-  //     reduction_tvs[0],
-  //     reference_tv,
-  //     unroll,
-  //     vectorize,
-  //     is_outer_grid_persistence,
-  //     rparams->unroll_factor_inner_reduction,
-  //     reduction_tvs,
-  //     cached_inputs,
-  //     cached_outputs,
-  //     smem_consumers,
-  //     dummy_outputs);
+  // if (!rparams->use_tma) {
+  //   reduction_scheduler_utils::multiReductionInliner(
+  //       fusion,
+  //       reduction_tvs[0],
+  //       reference_tv,
+  //       unroll,
+  //       vectorize,
+  //       is_outer_grid_persistence,
+  //       rparams->unroll_factor_inner_reduction,
+  //       reduction_tvs,
+  //       cached_inputs,
+  //       cached_outputs,
+  //       smem_consumers,
+  //       dummy_outputs);
+  // }
+
   // Propagate transformations before we rfactor the other reductions
   std::unordered_set<TensorView*> smem_tvs;
   if (rparams->use_tma) {
@@ -1498,19 +1501,20 @@ void schedulePersistentKernel(
     reduction_scheduler_utils::sharedMemoryConsumerVectorization(
         smem_consumers, rparams->unroll_factor_inner_reduction);
   }
+
+  auto scheduleTMA1 = [rparams](TensorView* tv) {
+    tv->split(0, rparams->circular_buffer_stages_iter_dim);
+    tv->axis(-1)->parallelize(ParallelType::Bulk);
+  };
+
+  // auto scheduleTMA2 = [rparams](TensorView* tv) {
+  //   tv->split(0, rparams->circular_buffer_stages_iter_dim);
+  //   tv->axis(-1)->parallelize(ParallelType::Bulk);
+  // };
+
   if (rparams->use_tma) {
     for (auto tv : smem_tvs) {
-      tv->split(0, rparams->circular_buffer_stages_iter_dim);
-      // tv->split(-1, 256);
-      // // [I0, I1/256, 256]
-      // tv->split(-2, rparams->batches_per_block_inner_reduction, false);
-      // // [I0, 5, I1/256/5, 256]
-      // tv->split(-2, 1);
-      // // [I0, 5, I1/256/5, 1, 256]
-      // tv->reorder({{-4, -3}, {-3, -4}});
-      // // [I0, I1/256/5, 5, 1, 256]
-      tv->axis(-1)->parallelize(ParallelType::Bulk);
-      // tv->axis(-2)->parallelize(ParallelType::Unswitch);
+      scheduleTMA1(tv);
     }
     for (auto cached_after_smem : smem_consumers) {
       auto smem_tv = ir_utils::getSoleProducerTv(cached_after_smem);
@@ -1527,36 +1531,37 @@ void schedulePersistentKernel(
         smem_consumers.push_back(cached_tv_replicate);
       }
     }
+  }
 
-    // Remove dummy outputs as they can inadvertently affect CA positions
-    for (auto output : dummy_outputs) {
-      fusion->removeOutput(output);
-    }
-    std::cout
-        << "======= Fusion after propagateTransformation, parallel, smem vect ======= "
-        << std::endl;
-    //  Inline the schedule
-    inlineMost();
-    if (rparams->compute_persistent_buffer_with_first_consumer) {
-      NVF_ERROR(
-          rparams->persistent_kernel,
-          "computeWith should be only used with persistent kernels");
-      for (const auto persistent_buffer : cached_inputs) {
-        persistent_buffer->computeWith(-1, true);
-      }
-    }
-    fusion->printMath();
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+  std::cout
+      << "======= Fusion after propagateTransformation, parallel, smem vect ======= "
+      << std::endl;
+  //  Inline the schedule
+  inlineMost();
 
-    if (rparams->circular_buffer_stages_iter_dim > 1) {
-      int64_t number_of_stages = rparams->circular_buffer_stages_iter_dim;
-      int64_t prefetch_distance = number_of_stages - 1;
-      CircularBufferType circular_buffer_type = Pipelined(false);
-      for (auto cached_after_smem : smem_consumers) {
-        auto smem_tv = ir_utils::getSoleProducerTv(cached_after_smem);
-        std::cout << "smem_tv: " << smem_tv->toString() << std::endl;
-        smem_tv->circularBuffer(
-            number_of_stages, prefetch_distance, circular_buffer_type);
-      }
+  fusion->printMath();
+
+  if (rparams->use_tma && rparams->circular_buffer_stages_iter_dim > 1) {
+    int64_t number_of_stages = rparams->circular_buffer_stages_iter_dim;
+    int64_t prefetch_distance = number_of_stages - 1;
+    CircularBufferType circular_buffer_type = Pipelined(false);
+    for (auto cached_after_smem : smem_consumers) {
+      auto smem_tv = ir_utils::getSoleProducerTv(cached_after_smem);
+      std::cout << "smem_tv: " << smem_tv->toString() << std::endl;
+      smem_tv->circularBuffer(
+          number_of_stages, prefetch_distance, circular_buffer_type);
+    }
+  }
+  if (rparams->compute_persistent_buffer_with_first_consumer) {
+    NVF_ERROR(
+        rparams->persistent_kernel,
+        "computeWith should be only used with persistent kernels");
+    for (const auto persistent_buffer : cached_inputs) {
+      persistent_buffer->computeWith(-1, true);
     }
   }
 
