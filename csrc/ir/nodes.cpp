@@ -4545,19 +4545,14 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   int64_t rfactor_did_idx = -1;
   for (auto idx : c10::irange(static_cast<int64_t>(logical.size()))) {
-    if (!logical.at(idx)->isRFactorProduct()) {
-      continue;
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
     }
-
-    if (!logical.at(idx)->isDeviceDim()) {
-      continue;
-    }
-
-    NVF_ERROR(
-        rfactor_did_idx == -1,
-        "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
-        logical);
-    rfactor_did_idx = idx;
   }
 
   return rfactor_did_idx;
