@@ -1082,6 +1082,7 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
       rparams->smem_persistent_buffers = prop.persistent_buffers;
       if(std::getenv("USE_ASYNC") == nullptr){
         rparams->use_tma = true;
+        rparams->circular_buffer_stages_iter_dim = 2;
       }
       for(auto smem : rparams->smem_persistent_buffers) {
         std::cout << "smem: " << smem->toString() << std::endl;

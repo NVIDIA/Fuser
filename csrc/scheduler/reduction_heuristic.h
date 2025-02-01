@@ -159,6 +159,9 @@ class ReductionParams : public HeuristicParams {
   // use tma
   bool use_tma = false;
 
+  // cirulcar buffer in iter domain
+  int64_t circular_buffer_stages_iter_dim = 1;
+
  public:
   using HeuristicParams::HeuristicParams;
 

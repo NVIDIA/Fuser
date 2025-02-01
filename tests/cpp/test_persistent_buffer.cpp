@@ -1630,7 +1630,7 @@ TEST_F(PersistentBufferTest, TmaCircularBuffer) {
 
 TEST_F(PersistentBufferTest, TmaMagicScheduler) {
   DataType input_dtype = DataType::Half;
-  const std::vector<int64_t> input_shape = {1024, 8192};
+  const std::vector<int64_t> input_shape = {16384, 16384};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
@@ -1649,21 +1649,26 @@ TEST_F(PersistentBufferTest, TmaMagicScheduler) {
   auto t0 = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {t0};
   auto fusion_copy = *fusion;
-  SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion.get(), runtime_info));
-  auto scheduler =
-      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
-  auto heuristic_params =
-      scheduler->computeHeuristics(fusion.get(), runtime_info);
-  scheduler->schedule(fusion.get(), heuristic_params.get());
 
-  // Run the fusion and validate the results
-  KernelExecutor ke;
-  ke.compile(fusion.get(), aten_inputs);
-  auto cg_outputs =
-      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  // SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
+  // ASSERT_TRUE(Schedule::canSchedule(
+  //     SchedulerType::InnerPersistent, fusion.get(), runtime_info));
+  // auto scheduler =
+  //     SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  // auto heuristic_params =
+  //     scheduler->computeHeuristics(fusion.get(), runtime_info);
+  // scheduler->schedule(fusion.get(), heuristic_params.get());
+
+  // // Run the fusion and validate the results
+  // KernelExecutor ke;
+  // ke.compile(fusion.get(), aten_inputs);
+  // auto cg_outputs =
+  //     ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+
+  // testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

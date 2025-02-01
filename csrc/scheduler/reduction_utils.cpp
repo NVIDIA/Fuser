@@ -257,6 +257,13 @@ TensorView* scheduleReductionTV(
   if (has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
+    std::cout << "reduction_tv " << reduction_tv->toString() << std::endl;
+    std::cout << "circular_buffer_stages_iter_dim " << rparams->circular_buffer_stages_iter_dim << std::endl;
+    if(rparams->circular_buffer_stages_iter_dim > 1){
+      reduction_tv->split(
+          iter_axis, rparams->circular_buffer_stages_iter_dim);
+    }
+
     if (rparams->vectorize_iter_dom) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }
@@ -295,7 +302,10 @@ TensorView* scheduleReductionTV(
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
     }
+
   }
+
+  std::cout << "reduction_tv " << reduction_tv->toString() << std::endl;
 
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
 
