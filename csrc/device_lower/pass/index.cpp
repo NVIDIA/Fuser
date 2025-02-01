@@ -2115,13 +2115,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
           out = hardCodedIndexGenerationForStMatrix(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32:
           out = hardCodedIndexGenerationForStMatrixSwizzle(
-              ldst, for_loops_[0], m_tile, n_tile, m, n);
+              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
@@ -2141,13 +2141,47 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
 
     if (!ir_utils::isStMatrixOp(ldst)) {
-      in = lowerSrcIndex(
-          ldst->in(),
-          ldst->out(),
-          {},
-          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-      out =
-          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
+          ldst->opType() == LoadStoreOpType::StTMem;
+      if (is_ldst_tmem) {
+        // TODO: support other types
+        NVF_ERROR(
+            dataTypeSize(ldst->in()->dtype()) == 4,
+            "For now, we only support 32-bit types in tmem");
+        NVF_ERROR(
+            dataTypeSize(ldst->out()->dtype()) == 4,
+            "For now, we only support 32-bit types in tmem");
+        // TODO: hard code size 1 for now.
+        // According to the specification of tcgen05.{ld,st}, the register
+        // operand must be viewed as a vector of 32-bit elements.
+        // See:
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
+        as_type = ArrayType{std::make_shared<DataType>(ldst->in()->dtype()), 1};
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->in());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        // TODO: hard coded index zero for now.
+        auto index = IrBuilder::create<Val>(0, DataType::UInt32);
+        in = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        in = lowerSrcIndex(
+            ldst->in(),
+            ldst->out(),
+            {},
+            ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst),
+            as_type);
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->out());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        // TODO: hard coded index zero for now.
+        auto index = IrBuilder::create<Val>(0, DataType::UInt32);
+        out = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        out = lowerDstIndex(
+            ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      }
     }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())

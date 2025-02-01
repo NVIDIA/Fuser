@@ -45,6 +45,16 @@ __device__ inline uint64_t arriveExpectTX(
                : "r"(smem_barrier_ptr), "r"(tx_count));
   return state;
 }
+
+__device__ inline void arrive(uint32_t smem_barrier_ptr, uint32_t cta_id) {
+  asm volatile(
+      "{.reg .b32 remaddr32;\n"
+      "mapa.shared::cluster.u32  remaddr32, %0, %1;\n"
+      "mbarrier.arrive.shared::cluster.b64  _, [remaddr32];\n"
+      "}"
+      :
+      : "r"(smem_barrier_ptr), "r"(cta_id));
+}
 #endif
 
 __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
