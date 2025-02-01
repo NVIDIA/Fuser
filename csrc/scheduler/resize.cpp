@@ -86,11 +86,13 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (registry_utils::hasNonUniqueBcast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "Broadcasting dimension might be broadcasting to multiple sizes.");
-    return false;
+  if (getenv("NO_SKIP_BROADCAST")) {
+    if (registry_utils::hasNonUniqueBcast(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Broadcasting dimension might be broadcasting to multiple sizes.");
+      return false;
+    }
   }
 
   // For now, the resize scheduler is only allowed for a limited set

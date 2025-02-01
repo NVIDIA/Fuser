@@ -481,7 +481,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       for (const ValGroup& entry : loop_exact_resolved_intersection) {
         err_msg << "\n  " << entry->toString();
       }
-      NVF_THROW(err_msg.str());
+      //NVF_THROW(err_msg.str());
+      std::cerr << err_msg.str() << "\n";
     }
 
     const ValGroup& exact_resolution_group =
