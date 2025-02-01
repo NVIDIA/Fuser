@@ -360,9 +360,16 @@ class Allocate final : public Expr {
     return dynamic_cast<const Allocate*>(attribute(4));
   }
 
-  // Set the address of a shared memory allocation within the dynamic shared
-  // memory array. The addr argument should be a scalar expression describing an
-  // aligned address in bytes.
+  // This function can only be used for shared memory or tensor memory.
+  //
+  // For shared memory, this function sets the address of a shared memory
+  // allocation within the dynamic shared memory array. The addr argument should
+  // be a scalar expression describing an aligned address in bytes.
+  //
+  // For tensor memory, this function sets the address of a tensor memory
+  // TensorView in the tensor memory. This address must be a uint32 scalar,
+  // as described in the PTX documentation:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-addressing
   void setAddress(Val* addr) {
     NVF_CHECK(
         memoryType() == MemoryType::Shared ||
