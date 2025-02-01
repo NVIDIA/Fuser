@@ -367,8 +367,12 @@ class Allocate final : public Expr {
   // be a scalar expression describing an aligned address in bytes.
   //
   // For tensor memory, this function sets the address of a tensor memory
-  // TensorView in the tensor memory. This address must be a uint32 scalar,
-  // as described in the PTX documentation:
+  // "region" in the tensor memory. Each tensor memory "region" is a piece of
+  // tensor memory allocated by a single tcgen05.alloc, see note [Tensor Memory
+  // Allocation] for detailed description. Note that this address may not be the
+  // address of a TensorView, because each region may contain multiple
+  // TensorViews. This address must be a uint32 scalar, as described in the PTX
+  // documentation:
   // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-addressing
   void setAddress(Val* addr) {
     NVF_CHECK(
@@ -383,6 +387,8 @@ class Allocate final : public Expr {
     attributes_[5] = addr;
   }
 
+  // Set the lane offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
   void setLaneOffset(Val* lane_offset) {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
@@ -395,6 +401,8 @@ class Allocate final : public Expr {
     attributes_[6] = lane_offset;
   }
 
+  // Set the column offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
   void setColOffset(Val* col_offset) {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
