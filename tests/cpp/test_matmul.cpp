@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <iostream>
 #include "c10/core/ScalarType.h"
+#include "scheduler/matmul_heuristic.h"
 
 namespace nvfuser {
 
@@ -4244,7 +4245,28 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
-TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
+struct MLPBenchmarkTestParams {
+  bool warp_specialization;
+  bool persistent_kernel;
+};
+
+class MLPBenchmarkTest
+    : public HopperBase,
+      public ::testing::WithParamInterface<MLPBenchmarkTestParams> {
+ protected:
+  MLPBenchmarkTestParams test_params;
+  void SetUp() override {
+    HopperBase::SetUp();
+
+    test_params = GetParam();
+
+    if (test_params.persistent_kernel) {
+      GTEST_SKIP() << "persistent kernel tests are currently disabled";
+    }
+  }
+};
+
+TEST_P(MLPBenchmarkTest, FwdGEMM) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4275,6 +4297,12 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
   mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
@@ -4300,7 +4328,7 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdGEMM) {
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
-TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
+TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4345,6 +4373,12 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
   gemm_tile.warp_tile = GemmTile(64, 64, 16);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
@@ -4372,7 +4406,7 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdEpilogueFusion) {
   EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
 }
 
-TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
+TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
 
@@ -4426,6 +4460,12 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   gemm_tile.warp_tile = GemmTile(64, 64, 16);
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
@@ -4455,5 +4495,25 @@ TEST_F(HopperMatmulTest, MLPBenchmarkFwdHorizontalFusion) {
   EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
   // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MLPBenchmarkTest,
+    ::testing::Values(
+        MLPBenchmarkTestParams{
+            .warp_specialization = false,
+            .persistent_kernel = false},
+        MLPBenchmarkTestParams{
+            .warp_specialization = true,
+            .persistent_kernel = false},
+        MLPBenchmarkTestParams{
+            .warp_specialization = true,
+            .persistent_kernel = true}),
+    [](const testing::TestParamInfo<MLPBenchmarkTestParams>& info) {
+      std::stringstream ss;
+      ss << (info.param.persistent_kernel ? "persistent" : "data_parallel");
+      ss << (info.param.warp_specialization ? "_warpspec" : "_non_warpspec");
+      return ss.str();
+    });
 
 } // namespace nvfuser
