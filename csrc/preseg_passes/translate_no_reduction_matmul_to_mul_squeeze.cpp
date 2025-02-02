@@ -62,9 +62,15 @@ class NoReductionMatmulToMulSqueezeTranslator {
 
       IterDomain* k_id_a = domain_a.back();
 
-      if (!k_id_a->isBroadcast()) {
+      if (!k_id_a->isBroadcast() || k_id_a->hasExpandedExtent()) {
         continue;
       }
+
+      // There should be no case where this extent is not one.
+      NVF_ERROR(
+          k_id_a->extent()->isOneInt(),
+          "Unexpected broadcast dimension: ",
+          k_id_a->toString());
 
       std::cerr << "No-reduction matmul detected: " << matmul->toString();
       no_reduction_matmul_.push_back(matmul);
