@@ -88,8 +88,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
     FUSER_PERF_SCOPE("ExprEvalExecutor::Eval");
     for (auto expr : exprs_) {
       if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
-        auto output_tensor =
-            run(view, expr_eval.evaluate(view->in()).as<at::Tensor>());
+        auto output_tensor = run(view, expr_eval);
         expr_eval.unsafeBind(view->out(), output_tensor);
         continue;
       } else if (LoadStoreOp* ld_st_op = dynamic_cast<LoadStoreOp*>(expr)) {
@@ -140,41 +139,62 @@ bool isContiguous(TensorView* tv) {
 
 void ExprEvalExecutor::compile(ViewOp* view_op) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::compile(ViewOp* view_op");
-  std::vector<int64_t> sizes;
-  bool neg_1_found = false;
+  std::vector<Val*> sizes;
+
   for (auto id : view_op->out()->getLogicalDomain()) {
     // Ignore sharded dimensions
     if (id->isDeviceDim()) {
-      sizes.push_back(1);
+      sizes.push_back(FusionGuard::getCurFusion()->oneVal());
       continue;
     }
 
     // Constant reshape specified dimensions
     auto id_size = id->getMaybeExpandedExtent();
-    if (id_size->isConstInt()) {
-      sizes.push_back(id_size->evaluate().as<int64_t>());
+    if (id_size->isConstInt() && id_size->definition() != nullptr) {
+      sizes.push_back(
+          IrBuilder::create<Val>(id_size->evaluate().as<int64_t>()));
       continue;
     }
 
-    NVF_ERROR(
-        !neg_1_found,
-        "Invalid reshape op found, more than one unknown dimensions size specified.");
-
-    // Only one free variable allowed
-    sizes.push_back(-1);
-    neg_1_found = true;
+    sizes.push_back(id_size);
   }
-  output_view_sizes[view_op] = sizes;
 
-  use_view[view_op] = isContiguous(view_op->in());
+  int missing_vals = std::count_if(sizes.begin(), sizes.end(), [](Val* size) {
+    return !size->isConstScalar();
+  });
+
+  ViewInfo view_info = {sizes, missing_vals <= 1, isContiguous(view_op->in())};
+
+  view_infos[view_op] = view_info;
 }
 
-at::Tensor ExprEvalExecutor::run(ViewOp* view_op, at::Tensor input) {
+at::Tensor ExprEvalExecutor::run(
+    ViewOp* view_op,
+    ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run(ViewOp* view_op");
-  if (use_view[view_op]) {
-    return input.view(output_view_sizes[view_op]);
+  auto view_info_it = view_infos.find(view_op);
+  NVF_ERROR(
+      view_info_it != view_infos.end(),
+      "Error running ViewOp, it wasn't compiled.");
+  ViewInfo& view_info = view_info_it->second;
+
+  std::vector<int64_t> sizes;
+  for (auto size : view_info.output_view_sizes) {
+    if (size->isConstInt()) {
+      sizes.push_back(size->value().as<int64_t>());
+    } else if (view_info.use_neg_1) {
+      sizes.push_back(-1);
+    } else {
+      expr_eval.evaluate(size).as<int64_t>();
+    }
   }
-  return input.reshape(output_view_sizes[view_op]);
+
+  auto input = expr_eval.evaluate(view_op->in()).as<at::Tensor>();
+
+  if (view_info.use_at_view) {
+    return input.view(sizes);
+  }
+  return input.reshape(sizes);
 }
 
 void ExprEvalExecutor::compile(LoadStoreOp* ld_st_op) {

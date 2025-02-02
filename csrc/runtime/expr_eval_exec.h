@@ -42,18 +42,30 @@ class ExprEvalExecutor : public ExecutorAbstract {
   // Expressions to evaluate
   std::vector<Expr*> exprs_;
 
-  // Sizes of the output of view ops, only one value can be unknown at it gets
-  // processed in aten as a -1 size, every other dim is a constant positive
-  // integer value.
-  std::unordered_map<ViewOp*, std::vector<int64_t>> output_view_sizes;
-  // Indicates if it's safe to use at::view instead of at::reshape
-  std::unordered_map<ViewOp*, bool> use_view;
+  struct ViewInfo {
+    // Sizes of the output of view ops, only one value can be unknown at it gets
+    // processed in aten as a -1 size, every other dim is a constant positive
+    // integer value.
+    std::vector<Val*> output_view_sizes;
+    // PyTorch's API defines all output shapes as a constant known size except
+    // upto 1 which can be easily inferred based on the input numel and the rest
+    // of the ouput sizes. nvFuser can have dynamic reshape operations where the
+    // output sizes are inferred through split and merge operations on IDs. If
+    // use_neg_1 is true then all values except up to one are constant values.
+    bool use_neg_1 = false;
+    // at::view can be used on contiguous tensors and is faster than
+    // at::reshape. Since we know at compile time if the tensor is contiguous
+    // then we can route evaluation to view.
+    bool use_at_view = false;
+  };
+
+  std::unordered_map<ViewOp*, ViewInfo> view_infos;
 
   // Permute map, stores permutation axes if a LoadStoreOp requires them.
   std::unordered_map<LoadStoreOp*, std::vector<int64_t>> permutation_orders;
 
   void compile(ViewOp* view_op);
-  at::Tensor run(ViewOp* view_op, at::Tensor input);
+  at::Tensor run(ViewOp* view_op, ExpressionEvaluator& expr_eval);
 
   void compile(LoadStoreOp* ld_st_op);
   at::Tensor run(LoadStoreOp* ld_st_op, at::Tensor input);

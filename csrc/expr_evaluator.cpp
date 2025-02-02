@@ -286,11 +286,12 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
       maybe_concrete_value = getValue(value, known_values);
     }
   }
-  NVF_ERROR(
-      maybe_concrete_value.get().hasValue(),
-      "Error evaluating a value in expression evaluator. Likely ",
-      value->toString(),
-      " needs to be bound to a value.");
+  // TODO: Evaluate if an error like below could work
+  // NVF_ERROR(
+  //     maybe_concrete_value.get().hasValue(),
+  //     "Error evaluating a value in expression evaluator. Likely ",
+  //     value->toString(),
+  //     " needs to be bound to a value.");
   return maybe_concrete_value;
 }
 
