@@ -286,9 +286,7 @@ void schedulePersistentKernel(
 // Get max register or shared memory size for persistent buffer
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
     const std::vector<TensorView*>& reduction_tvs,
-    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const bool can_use_smem_persistent,
     const bool project_to_inputs);
 
@@ -333,7 +331,6 @@ enum class BufferProjectionStrategy {
 // smaller than the original persistent buffers, this function returns true.
 BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
     const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
@@ -381,5 +378,38 @@ std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
 
 // Return empirical maximum persistent batch size for inner persistent scheduler
 int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio);
+
+// Decide where to store persistent buffers.
+// By default, they reside in registers.
+// If register space runs low but there's ample shared memory,
+// move one or more buffers to shared memory until the register space is
+// sufficient.
+struct PersistentBufferStorageParams {
+  // representing buffers that are stored in shared memory, other buffers are
+  // stored in registers.
+  std::vector<TensorView*> smem_persistent_buffers;
+
+  // Total number of bytes occupied by all persistent buffers stored in shared
+  // memory.
+  int64_t smem_buffer_size = -1;
+
+  // Total number of bytes occupied by all persistent buffers stored in
+  // registers.
+  int64_t regs_buffer_size = -1;
+
+  // Additional shared memory usage per block that is not associated with
+  // persistent buffers. This includes memory for driver overhead and workspace
+  // for reductions.
+  int64_t smem_overhead = -1;
+
+  // Flag indicating whether there are sufficient registers and shared memory
+  // available to accommodate all persistent buffers as required for efficient
+  // execution.
+  bool has_enough_regs_and_smem = false;
+
+  // Flag indicating whether the persistent buffers are recomputed using inputs.
+  bool project_to_input = false;
+};
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

@@ -18,6 +18,8 @@
 #include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
+using PersistentBufferStorageParams =
+    normalization_scheduler_utils::PersistentBufferStorageParams;
 namespace {
 
 // The roundup is due to the fact that the shared memory buffer is allocated
@@ -119,38 +121,6 @@ int64_t partialOuterReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
-// Decide where to store persistent buffers.
-// By default, they reside in registers.
-// If register space runs low but there's ample shared memory,
-// move one or more buffers to shared memory until the register space is
-// sufficient.
-struct PersistentBufferStorageParams {
-  // representing buffers that are stored in shared memory, other buffers are
-  // stored in registers.
-  std::vector<TensorView*> smem_persistent_buffers;
-
-  // Total number of bytes occupied by all persistent buffers stored in shared
-  // memory.
-  int64_t smem_buffer_size = -1;
-
-  // Total number of bytes occupied by all persistent buffers stored in
-  // registers.
-  int64_t regs_buffer_size = -1;
-
-  // Additional shared memory usage per block that is not associated with
-  // persistent buffers. This includes memory for driver overhead and workspace
-  // for reductions.
-  int64_t smem_overhead = -1;
-
-  // Flag indicating whether there are sufficient registers and shared memory
-  // available to accommodate all persistent buffers as required for efficient
-  // execution.
-  bool has_enough_regs_and_smem = false;
-
-  // Flag indicating whether the persistent buffers are recomputed using inputs.
-  bool project_to_input = false;
-};
-
 // Prioritize keeping buffers used by outer broadcast tensors to shared memory
 // because:
 // (1) They are reused in every iteration of the outer loop, has lower IO.
@@ -217,7 +187,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
-          runtime_info,
           reduction_tvs,
           persistent_buffer_info,
           persistent_buffer_size_info,

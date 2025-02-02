@@ -19,15 +19,86 @@
 namespace nvfuser {
 using PersistentKernelProperties =
     normalization_scheduler_utils::PersistentKernelProperties;
-
+using PersistentBufferStorageParams =
+    normalization_scheduler_utils::PersistentBufferStorageParams;
 namespace {
+// For inner persistent kernel, shared memory is allocated as:
+// ceilDiv(N/vect, batch) * vect * batch. The required shared memory size is
+// larger than buffer size when split is not divisible. The difference is
+// counted as roundup overhead. This function estimates the maximum possible
+// shared memory size due to this round up by iterating over different batch
+// sizes.
+int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
+  int64_t max_batches_per_block =
+      normalization_scheduler_utils::getInnerPersistentMaxBatchSize(
+          scheduler_utils::isHighBandwidthFlopsRatio());
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  int64_t max_smem = 0;
+  int64_t max_vectorize_factor =
+      SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
+  int64_t dim_size = tv_buffer_size / data_type_size;
+  // Check all possible combinations of vectorization factor, batch size and
+  // threads per block
+  for (int64_t vectorize_factor = 1; vectorize_factor <= max_vectorize_factor;
+       vectorize_factor *= 2) {
+    // heuristic only uses divisible vectorization factor
+    if (dim_size % vectorize_factor != 0) {
+      continue;
+    }
+    int64_t after_vect = dim_size / vectorize_factor;
+    for (int64_t pbs = 1; pbs <= max_batches_per_block; pbs += 1) {
+      int64_t threads = ceilDiv(after_vect, pbs);
+      // skip non-valid combinations
+      if (threads > max_threads_per_block) {
+        continue;
+      }
+      max_smem =
+          std::max(max_smem, pbs * vectorize_factor * threads * data_type_size);
+    }
+  }
+  return max_smem;
+}
+int64_t getRequiredSharedMemorySize(
+    SchedulerRuntimeInfo& runtime_info,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool project_to_inputs) {
+  auto buffers = project_to_inputs
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
 
-std::pair<int64_t, int64_t> getPersistentBufferSize(
+  // Add buffers that are inputs to the fusion. They are not included in
+  // projectable_buffer_inputs since they are not projectable.
+  if (project_to_inputs) {
+    for (auto tv : persistent_buffer_info.persistent_buffers) {
+      if (tv->isFusionInput()) {
+        buffers.push_back(tv);
+      }
+    }
+  }
+
+  int64_t required_smem_size = 0;
+  for (auto buffer : buffers) {
+    // Buffer size derived from shape and dtype of the persistent tensor
+    int64_t logical_buffer_size =
+        scheduler_utils::getPersistentBufferSizeOfTensor(
+            buffer, runtime_info, persistent_buffer_info);
+    // Required shared memory size if store that tensor in shared memory
+    required_smem_size += roundUpSharedMemory(
+        logical_buffer_size, dataTypeSize(buffer->getDataType().value()));
+  }
+  return required_smem_size;
+}
+
+// Similar to the one in normalization_inner_outer.cpp, but this version
+// only allows register persistent or shared memory persistent, not both.
+PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     const bool can_use_smem_persistent) {
+  PersistentBufferStorageParams buffer_params;
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -43,7 +114,6 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
-          runtime_info,
           reduction_tvs,
           persistent_buffer_info,
           persistent_buffer_size_info,
@@ -57,16 +127,33 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
 
-  int64_t available_persistent_buffer_size = normalization_scheduler_utils::
-      getMaxRegOrSharedMemorySizeForPersistentBuffer(
-          fusion,
-          runtime_info,
-          reduction_tvs,
-          persistent_buffer_info,
-          can_use_smem_persistent,
-          project_persistent_buffers);
-  return std::make_pair(
-      persistent_buffer_size, available_persistent_buffer_size);
+  // try register persistent
+  if (persistent_buffer_size <= scheduler_utils::register_file_size) {
+    buffer_params.has_enough_regs_and_smem = true;
+    buffer_params.regs_buffer_size = persistent_buffer_size;
+    buffer_params.smem_buffer_size = 0;
+    return buffer_params;
+  }
+
+  // try smem persistent
+  if (can_use_smem_persistent) {
+    int64_t required_smem_size = getRequiredSharedMemorySize(
+        runtime_info, persistent_buffer_info, project_persistent_buffers);
+    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    int64_t smem_overhead =
+        scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+    int64_t avilable_smem_size =
+        (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+    buffer_params.has_enough_regs_and_smem =
+        required_smem_size <= avilable_smem_size;
+    buffer_params.regs_buffer_size = 0;
+    buffer_params.smem_buffer_size = required_smem_size;
+    return buffer_params;
+  }
+
+  // doesn't have enough register or shared memory
+  buffer_params.has_enough_regs_and_smem = false;
+  return buffer_params;
 }
 
 // Return the maximum register count each thread can use and achieved occupancy.
@@ -1130,17 +1217,9 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   // reduction
   bool can_use_smem_persistent =
       properties.total_reduction_numel == properties.inner_most_dimension_numel;
-
-  // pair of persistent_buffer_size and available_persistent_buffer_size
-  const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
+  auto buffer_params = getPersistentBufferStorageParams(
       fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
-  const int64_t persistent_buffer_size = buffer_size.first;
-  const int64_t available_persistent_buffer_size = buffer_size.second;
-
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-
-  if (persistent_buffer_size > available_persistent_buffer_size) {
+  if (!buffer_params.has_enough_regs_and_smem) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         can_use_smem_persistent
@@ -1149,20 +1228,23 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
     return false;
   }
 
+  const int64_t device_multiprocessor_count =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)at::cuda::getCurrentDeviceProperties()
           ->maxThreadsPerMultiProcessor;
 
-  const int64_t required_sm_per_norm =
-      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
-
-  // If the persistence requires over half the device don't do grid
-  // persistence as we can't overlap the grid comms.
-  if (required_sm_per_norm >
-      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "requires over half GPU persistence.");
-    return false;
+  if (buffer_params.regs_buffer_size > 0) {
+    const int64_t required_sm_per_norm = ceilDiv(
+        buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
+    // If the persistence requires over half the device don't do grid
+    // persistence as we can't overlap the grid comms.
+    if (required_sm_per_norm >
+        scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "requires over half GPU persistence.");
+      return false;
+    }
   }
 
   // Don't go persistent if we can't use a small fraction of the
