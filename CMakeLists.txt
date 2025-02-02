@@ -286,6 +286,12 @@ if(BUILD_PYTHON)
   )
 endif()
 
+if(BUILD_CPP_PYTHON_BINDINGS)
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_ROOT}/python/src/fusion_definition.cpp
+  )
+endif()
+
 # We create both static and shared libraries.
 #
 # Shared libraries are what ships, but a large advantage of static libraries is

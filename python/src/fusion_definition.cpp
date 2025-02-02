@@ -25,7 +25,7 @@
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;
 
-namespace nvfuser::python_frontend {
+namespace nvfuser::python {
 
 const char* dtypeToPyString(PrimDataType t) {
   switch (t) {
@@ -766,4 +766,4 @@ void FusionDefinition::finalizeSegmentation() {
   segmentation_state_.reset();
 }
 
-} // namespace nvfuser::python_frontend
+} // namespace nvfuser::python
