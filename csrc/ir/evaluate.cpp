@@ -670,12 +670,26 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   const std::vector<IterDomain*>& out_logical = out()->getLogicalDomain();
   std::vector<int64_t> out_shape;
   out_shape.reserve(out_logical.size());
+
+  int missing_vals =
+      std::count_if(out_logical.begin(), out_logical.end(), [](IterDomain* id) {
+        return !id->isDeviceDim() &&
+            !id->getMaybeExpandedExtent()->isConstScalar();
+      });
+
   for (IterDomain* id : out_logical) {
     if (id->isDeviceDim()) {
       out_shape.push_back(1);
-    } else {
+    } else if (id->getMaybeExpandedExtent()->isConstScalar()) {
       out_shape.push_back(
-          ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+          id->getMaybeExpandedExtent()->evaluate().as<int64_t>());
+    } else {
+      if (missing_vals == 1) {
+        out_shape.push_back(-1);
+      } else {
+        out_shape.push_back(
+            ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+      }
     }
   }
 
