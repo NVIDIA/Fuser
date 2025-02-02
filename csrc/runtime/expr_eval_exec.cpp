@@ -8,8 +8,10 @@
 
 #include <runtime/expr_eval_exec.h>
 
+#include <device_lower/pass/replace_size.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
+#include <ir/utils.h>
 
 #include <cuda_profiler_api.h>
 
@@ -32,6 +34,10 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
       supported(fusion),
       "ExprEvalExecutor does not support the Fusion provided.");
   fusion_ = std::make_unique<Fusion>(*fusion);
+
+  auto extent_simplification_map = getSimplificationMap(fusion_.get());
+  auto mutation_map = ir_utils::replaceValue(fusion_.get(), extent_simplification_map);
+
   exprs_ = fusion_->exprs();
   for (auto expr : exprs_) {
     if (expr->isA<ViewOp>()) {
@@ -39,6 +45,7 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
     } else if (expr->isA<LoadStoreOp>()) {
       compile(expr->as<LoadStoreOp>());
     }
+    //TODO: support RepeatOp and other ops that require ee.evaluate in evaluate.cpp
   }
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
