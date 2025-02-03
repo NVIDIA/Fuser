@@ -69,15 +69,14 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
  public:
   HopperMultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : MultipleMatmulScheduler(fusion, params) {
-    const auto device_prop = at::cuda::getCurrentDeviceProperties();
-    const int cc = device_prop->major * 10 + device_prop->minor;
-    NVF_ERROR(
-        cc >= 90 && cc < 100, "This matmul scheduler is restricted to Hopper.");
+    validate();
   }
 
   void run() final;
 
  private:
+  void validate() const;
+
   void cacheInputsAndOutputs();
 
   // Including current tensor naming convention for reference,
