@@ -286,12 +286,6 @@ if(BUILD_PYTHON)
   )
 endif()
 
-if(BUILD_CPP_PYTHON_BINDINGS)
-  list(APPEND NVFUSER_SRCS
-    ${NVFUSER_ROOT}/python/src/fusion_definition.cpp
-  )
-endif()
-
 # We create both static and shared libraries.
 #
 # Shared libraries are what ships, but a large advantage of static libraries is
@@ -540,6 +534,81 @@ if(BUILD_PYTHON)
     Python::Module
   )
   install(TARGETS nvfuser DESTINATION lib)
+endif()
+
+# -----------------------------
+# build new nvfuser python library
+# -----------------------------
+if(BUILD_NEW_PYTHON_BINDINGS)
+  # nvfuser python API sources
+  set(NVFUSER_PY_SRCS)
+  set(NVFUSER_PY_DIR "${NVFUSER_ROOT}/python/src")
+  list(APPEND NVFUSER_PY_SRCS
+    ${NVFUSER_PY_DIR}/fusion_definition.cpp
+  )
+
+  add_library(nvf_pybind OBJECT ${NVFUSER_PY_SRCS})
+  target_include_directories(nvf_pybind PUBLIC
+    ${NVFUSER_SRCS_DIR}
+    ${NVFUSER_PY_DIR}
+  )
+
+  target_compile_definitions(nvf_pybind PRIVATE
+    "-DTORCH_CUDA_BUILD_MAIN_LIB"
+    "-DC10_BUILD_MAIN_LIB=1"
+    EXTENSION_NAME=_C
+  )
+
+  add_library(nvfuser_pybind MODULE $<TARGET_OBJECTS:nvf_pybind>)
+  target_compile_definitions(nvfuser_pybind PRIVATE
+    "-DTORCH_CUDA_BUILD_MAIN_LIB"
+    "-DC10_BUILD_MAIN_LIB=1"
+    EXTENSION_NAME=_C
+  )
+  if(NOT MSVC)
+    target_compile_options(nvf_pybind PRIVATE -Wall -Wno-unused-function)
+    target_compile_options(nvf_pybind PRIVATE -Werror)
+    set(NVF_LIB_SUFFIX ".so")
+  else()
+    set(NVF_LIB_SUFFIX ".pyd")
+  endif()
+  set_target_properties(nvfuser_pybind PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    SUFFIX ${NVF_LIB_SUFFIX}
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
+  set_target_properties(nvf_pybind PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
+
+  target_link_libraries(nvf_pybind PRIVATE
+    codegen_internal
+    ${LIBNVTOOLSEXT}
+    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+    pybind11::pybind11 pybind11::headers
+  )
+
+  target_link_libraries(nvfuser_pybind PRIVATE
+    nvf_py_internal
+    codegen_internal
+    Python::Module
+  )
+  install(TARGETS nvfuser_pybind DESTINATION lib)
 endif()
 
 set(JIT_TEST_SRCS)
