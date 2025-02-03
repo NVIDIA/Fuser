@@ -207,8 +207,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   NVF_ERROR(largest_out != nullptr);
 
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const auto device_multiprocessor_count = static_cast<int64_t>(
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
 
   // TODO: Set to 1?
   int64_t max_input_dtype_size = 2;
@@ -219,40 +219,39 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
   }
 
-  auto logical_reorder_map_entry =
+  auto reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
           data_cache, [&fusion, &largest_out]() {
-            // NOTE: logical_reorder_map is only applied for fusion without view
+            // NOTE: reorder_map is only applied for fusion without view
             // op yet.
             if (!ir_utils::getViewOps(fusion).empty()) {
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeLogicalReorderAsAllocationMap(
-                    largest_out));
+                scheduler_utils::maybeReorderAsAllocationMap(largest_out));
           });
-  const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
-      logical_reorder_map_entry.get();
+  const std::unordered_map<int64_t, int64_t>& reorder_map =
+      reorder_map_entry.get();
 
-  auto ref_root = largest_out->getLogicalDomain();
+  std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
-  if (!logical_reorder_map.empty()) {
-    ref_root = TensorDomain::orderedAs(ref_root, logical_reorder_map);
+  if (!reorder_map.empty()) {
+    ref_loop = TensorDomain::orderedAs(ref_loop, reorder_map);
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_root = TensorDomain::noDevices(TensorDomain::noReductions(ref_root));
+  ref_loop = TensorDomain::noDevices(TensorDomain::noReductions(ref_loop));
 
-  std::vector<int64_t> elem_counts(ref_root.size(), 1);
+  std::vector<int64_t> elem_counts(ref_loop.size(), 1);
   int64_t n_elems = 1;
-  for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
+  for (size_t ref_i = 0; ref_i < ref_loop.size(); ref_i++) {
     auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(ref_root[ref_i]->extent());
+        runtime_info.expressionEvaluator().evaluate(ref_loop[ref_i]->extent());
     NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
-        ref_root[ref_i]->extent()->toInlineString());
+        ref_loop[ref_i]->extent()->toInlineString());
     elem_counts[ref_i] = inferred_val.as<int64_t>();
     n_elems *= elem_counts[ref_i];
   }
@@ -352,7 +351,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-  NVF_ERROR(broadcast_byte_multiples.size() == ref_root.size());
+  NVF_ERROR(broadcast_byte_multiples.size() == ref_loop.size());
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
@@ -370,7 +369,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // How much would this transfer cost if it was done as a 1-D schedule
     int64_t transfer_size_1d = 1;
 
-    for (const auto i : c10::irange(ref_root.size())) {
+    for (const auto i : c10::irange(ref_loop.size())) {
       transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
     }
 
@@ -381,7 +380,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange((int64_t)ref_root.size())) {
+      for (const auto break_point_i : c10::irange((int64_t)ref_loop.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
                 view_disjoint_sets, break_point_i)) {
@@ -391,7 +390,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         // Number of elements in the right side of reference tv with
         // break_point_i
         int64_t cur_right_elem_count = 1;
-        for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
+        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
           cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
         }
 
@@ -414,7 +413,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
               cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
         }
 
-        for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
+        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
           right_transfer_size =
               right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
         }
@@ -474,11 +473,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->vectorization_factor = std::min(
       max_vect_factor,
       vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          largest_out,
-          data_cache,
-          break_point,
-          logical_reorder_map));
+          runtime_info, largest_out, data_cache, break_point, reorder_map));
 
   // get unroll factor:
 
@@ -530,8 +525,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << std::endl
             << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
-            << "logical_reorder_map: ";
-    for (auto [i, j] : logical_reorder_map) {
+            << "reorder_map: ";
+    for (auto [i, j] : reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
@@ -651,6 +646,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
+  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
 
   NVF_ERROR(
       reference_tv != nullptr,
@@ -682,8 +678,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getLogicalDomain().begin(),
-         reference_tv->getLogicalDomain().begin() + device_aware_break_point},
+        {ref_orig_loop.begin() + num_device_dims,
+         ref_orig_loop.begin() + device_aware_break_point},
         {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
@@ -691,8 +687,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getLogicalDomain().begin() + device_aware_break_point,
-         reference_tv->getLogicalDomain().end()},
+        {ref_orig_loop.begin() + device_aware_break_point, ref_orig_loop.end()},
         {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
@@ -723,10 +718,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // Merge rhs, then lhs.
     IterDomain* rhs_id = nullptr;
     IterDomain* lhs_id = nullptr;
-    auto ndims = reference_tv->nDims();
-    for (auto i : c10::irange(ndims)) {
+    for (int64_t pos = reference_tv->nDims() - 1; pos >= 0; pos--) {
       // Merge from right to left
-      auto pos = ndims - 1 - i;
       auto id = reference_tv->axis(pos);
       if (lhs_all_vals_set.count(id) > 0) {
         if (lhs_id == nullptr) {
@@ -757,10 +750,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    std::unordered_map<int64_t, int64_t> logical_reorder_map =
-        scheduler_utils::maybeLogicalReorderAsAllocationMap(reference_tv);
-    if (!logical_reorder_map.empty()) {
-      reference_tv->reorder(logical_reorder_map);
+    std::unordered_map<int64_t, int64_t> reorder_map =
+        scheduler_utils::maybeReorderAsAllocationMap(reference_tv);
+    if (!reorder_map.empty()) {
+      reference_tv->reorder(reorder_map);
     }
     reorderDIDToFront(reference_tv);
 
