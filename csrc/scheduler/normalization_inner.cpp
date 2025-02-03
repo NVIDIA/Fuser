@@ -1078,24 +1078,22 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic2D(prop, rparams.get());
-    if(std::getenv("USE_MAIN") == nullptr) {
-      rparams->smem_persistent_buffers = prop.persistent_buffers;
-      if(std::getenv("USE_ASYNC") == nullptr){
-        rparams->use_tma = true;
-        int64_t circular_buffer_stages = 2;
-        if(std::getenv("STAGES") != nullptr) {
-          circular_buffer_stages = std::stoi(std::getenv("STAGES"));
-          std::cout << "circular_buffer_stages: " << circular_buffer_stages << std::endl;
-        }
-        rparams->circular_buffer_stages_iter_dim = circular_buffer_stages;
-      }
-      for(auto smem : rparams->smem_persistent_buffers) {
-        std::cout << "smem: " << smem->toString() << std::endl;
-      }
-    }
   } else {
     rparams->tag = "3D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic3D(prop, rparams.get());
+  }
+
+  if(std::getenv("USE_MAIN") == nullptr) {
+    rparams->use_tma   = true;
+    rparams->circular_buffer_stages_iter_dim = 2;
+    if(std::getenv("STAGES") != nullptr){
+      rparams->circular_buffer_stages_iter_dim = std::atoi(std::getenv("STAGES"));
+    }
+    if(std::getenv("BATCHES") != nullptr){
+      rparams->batches_per_block_inner_reduction = std::atoi(std::getenv("BATCHES"));
+    }
+    std::cout << "circular_buffer_stages_iter_dim: " << rparams->circular_buffer_stages_iter_dim << std::endl;
+    std::cout << "batches_per_block_inner_reduction: " << rparams->batches_per_block_inner_reduction << std::endl;
   }
 
   // debug print
