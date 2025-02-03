@@ -93,6 +93,34 @@ MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
   return it->second;
 }
 
+void HopperMultipleMatmulScheduler::validate() const {
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int cc = device_prop->major * 10 + device_prop->minor;
+  NVF_ERROR(
+      cc >= 90 && cc < 100, "This matmul scheduler is restricted to Hopper.");
+
+  if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
+    NVF_CHECK(
+        params_->splitk_factor == 1,
+        "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
+  }
+
+  NVF_CHECK(
+      params_->tiling_strategy !=
+          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
+      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
+
+  NVF_CHECK(
+      params_->tiling_strategy !=
+          MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
+      "Hopper matmul scheduler does not support distributing stages across SMs a la stream-K");
+
+  NVF_CHECK(
+      params_->buffering_loop_level ==
+          MatmulParams::BufferingLoopLevel::CTATiles,
+      "Hopper matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+}
+
 void HopperMultipleMatmulScheduler::run() {
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs
@@ -462,6 +490,35 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     }
 
     transformLikeMmaOutputWithK(mma_result);
+    // Original: [..., Mo, No, Mi, Ni, Ki]
+    mma_result->split(-3, getM(params_->mma_macro));
+    mma_result->split(-2, getN(params_->mma_macro));
+
+    // Split k dimension of warp tile only if it is larger than k dimension of
+    // mma macro. Inlining can be at incorrect position for circular buffering
+    // if a reduction iterDomain has iterDomain 1.
+    if (params_->tile_sizes.warp_tile.k > getK(params_->mma_macro)) {
+      mma_result->split(-1, getK(params_->mma_macro));
+      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii, Kio, Kii]
+      mma_result->reorder({{-5, -4}});
+      // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii, Kio, Kii]
+      mma_result->reorder({{-2, -4}});
+      // After Reorder: [..., Mo, No, Mio, Nio, Kio, Mii, Nii, Kii]
+      mma_result->merge(-6);
+      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+      mma_result->axis(-5)->parallelize(ParallelType::TIDy);
+      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+    } else {
+      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+      mma_result->reorder({{-4, -3}});
+      // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+      mma_result->merge(-5);
+      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+      mma_result->axis(-4)->parallelize(ParallelType::TIDy);
+      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+    }
+
+>>>>>>> origin/main
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -677,13 +734,22 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         " but is expected to be positive and not greater than number of stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
+    CircularBufferType cb_type;
+    switch (params_->circular_buffering_strategy) {
+      case MatmulParams::CircularBufferingStrategy::Pipelined:
+        cb_type = (CircularBufferType)Pipelined(false);
+        break;
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
+        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+    }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap);
+                  .smem_circular_buffer_prefetch_gap,
+          /*type=*/cb_type);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
@@ -691,7 +757,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap);
+                  .smem_circular_buffer_prefetch_gap,
+          /*type=*/cb_type);
     }
   }
 

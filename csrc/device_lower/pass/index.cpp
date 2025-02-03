@@ -2141,13 +2141,51 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
 
     if (!ir_utils::isStMatrixOp(ldst)) {
-      in = lowerSrcIndex(
-          ldst->in(),
-          ldst->out(),
-          {},
-          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-      out =
-          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
+          ldst->opType() == LoadStoreOpType::StTMem;
+      if (is_ldst_tmem) {
+        // TODO: support other types
+        NVF_ERROR(
+            dataTypeSize(ldst->in()->dtype()) == 4,
+            "For now, we only support 32-bit types in tmem");
+        NVF_ERROR(
+            dataTypeSize(ldst->out()->dtype()) == 4,
+            "For now, we only support 32-bit types in tmem");
+        // TODO: hard code size 1 for now.
+        // According to the specification of tcgen05.{ld,st}, the register
+        // operand must be viewed as a vector of 32-bit elements.
+        // See:
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
+        as_type = ArrayType{std::make_shared<DataType>(ldst->in()->dtype()), 1};
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->in());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        // TODO: hard coded index zero for now.
+        auto index = IrBuilder::create<Val>(
+            std::vector<int64_t>{0, 0},
+            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        in = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        in = lowerSrcIndex(
+            ldst->in(),
+            ldst->out(),
+            {},
+            ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst),
+            as_type);
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->out());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        // TODO: hard coded index zero for now.
+        auto index = IrBuilder::create<Val>(
+            std::vector<int64_t>{0, 0},
+            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        out = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        out = lowerDstIndex(
+            ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      }
     }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
@@ -2556,6 +2594,14 @@ void IndexLowering::handle(const kir::Asm* asm_) {
 void IndexLowering::handle(const kir::Allocate* allocate) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::AllocTMem* alloc) {
+  auto address_tv = alloc->address()->as<TensorView>();
+  const auto address = IrBuilder::create<kir::TensorIndex>(
+      address_tv, IrBuilder::baseAddressExpr(address_tv));
+  pushBack(IrBuilder::create<kir::AllocTMem>(address, alloc->numColumns()));
+  GpuLower::current()->propagateExprInfo(alloc, back());
 }
 
 void IndexLowering::handle(const kir::BlockSync* sync) {

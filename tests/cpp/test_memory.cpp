@@ -2761,6 +2761,45 @@ TEST_F(TMADocTest, Figure15e) {
 
 // End TMA tests
 
+// Tensor memory tests
+using TMemTest = BlackwellBase;
+
+TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // register
+  auto tv2 = set(tv1); // tmem
+  auto tv3 = set(tv2); // register
+  auto tv4 = set(tv3); // gmem
+  fusion.addOutput(tv4);
+
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv4->split(0, 32);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
+
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
 
 class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
