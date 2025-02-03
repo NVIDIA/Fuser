@@ -25,6 +25,63 @@ bool ExprEvalExecutor::supported(Fusion* fusion) {
       });
 }
 
+void ExprEvalExecutor::findAndBindInputTVExtentFrom(Val* val) {
+  if (val->isFusionInput()) {
+    return;
+  }
+  if (val->isConstInt()) {
+    return;
+  }
+
+  auto tv_info_it = extent_to_tv_info.find(val);
+  if (tv_info_it != extent_to_tv_info.end()) {
+    tv_sizes_to_bind.push_back(tv_info_it->second);
+    return;
+  }
+
+  auto inputs = InputsOf::output(val);
+  for (auto inp : inputs) {
+    if (inp->isConstInt()) {
+      continue;
+    }
+    tv_info_it = extent_to_tv_info.find(inp);
+    NVF_ERROR(
+        tv_info_it != extent_to_tv_info.end(),
+        "Error deducing how to infer ",
+        val->toInlineString());
+    tv_sizes_to_bind.push_back(tv_info_it->second);
+  }
+}
+
+void ExprEvalExecutor::deduplicateTvSizesToBind() {
+  // Sort by tv pointer, fusion_input_pos (ascending), then logical_dim_pos
+  // (ascending)
+  std::sort(
+      tv_sizes_to_bind.begin(),
+      tv_sizes_to_bind.end(),
+      [](const TVInfo& a, const TVInfo& b) {
+        if (a.tv != b.tv) {
+          return a.tv < b.tv;
+        }
+
+        if (a.fusion_input_pos != b.fusion_input_pos) {
+          return a.fusion_input_pos < b.fusion_input_pos;
+        }
+
+        return a.logical_dim_pos < b.logical_dim_pos;
+      });
+
+  // remove consecutive duplicates
+  auto last = std::unique(
+      tv_sizes_to_bind.begin(),
+      tv_sizes_to_bind.end(),
+      [](const TVInfo& a, const TVInfo& b) {
+        return a.tv == b.tv && a.fusion_input_pos == b.fusion_input_pos &&
+            a.logical_dim_pos == b.logical_dim_pos;
+      });
+  tv_sizes_to_bind.erase(last, tv_sizes_to_bind.end());
+}
+
 void ExprEvalExecutor::compile(Fusion* fusion) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
   if (isProfilerEnabled()) {
@@ -34,9 +91,20 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
       supported(fusion),
       "ExprEvalExecutor does not support the Fusion provided.");
   fusion_ = std::make_unique<Fusion>(*fusion);
-
   auto extent_simplification_map = getSimplificationMap(fusion_.get());
-  auto mutation_map = ir_utils::replaceValue(fusion_.get(), extent_simplification_map);
+  auto mutation_map =
+      ir_utils::replaceValue(fusion_.get(), extent_simplification_map);
+
+  // Build extent to input tv info map
+  for (auto inp_id : c10::irange(fusion_->inputs().size())) {
+    if (TensorView* tv = dynamic_cast<TensorView*>(fusion_->inputs()[inp_id])) {
+      auto domain = TensorDomain::noReductions(tv->getLogicalDomain());
+      for (auto id_i : c10::irange(domain.size())) {
+        auto extent = domain[id_i]->getMaybeExpandedExtent();
+        extent_to_tv_info[extent] = {tv, inp_id, id_i};
+      }
+    }
+  }
 
   exprs_ = fusion_->exprs();
   for (auto expr : exprs_) {
@@ -45,8 +113,17 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
     } else if (expr->isA<LoadStoreOp>()) {
       compile(expr->as<LoadStoreOp>());
     }
-    //TODO: support RepeatOp and other ops that require ee.evaluate in evaluate.cpp
+    // TODO: support RepeatOp and GetMetaData
+
+    for (auto expr_inp : expr->inputs()) {
+      if (expr_inp->isIntegralScalar()) {
+        findAndBindInputTVExtentFrom(expr_inp);
+      }
+    }
   }
+
+  deduplicateTvSizesToBind();
+
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
   }
@@ -90,6 +167,52 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
     for (auto inp_i : c10::irange(fusion_->inputs().size())) {
       expr_eval.unsafeBind(fusion_->inputs()[inp_i], *args[inp_i]);
     }
+
+    for (auto tv_info : tv_sizes_to_bind) {
+      NVF_ERROR(
+          tv_info.fusion_input_pos < fusion_->inputs().size(),
+          "Error processing tv_info, asked for fusion input ",
+          tv_info.fusion_input_pos,
+          " but fusion only has ",
+          fusion_->inputs().size(),
+          " inputs");
+
+      Val* fusion_input = fusion_->inputs()[tv_info.fusion_input_pos];
+
+      NVF_ERROR(
+          fusion_input->isA<TensorView>(),
+          "Expected provided input to be a tensor view but found ",
+          fusion_input->toString());
+
+      auto tv = fusion_input->as<TensorView>();
+
+      NVF_ERROR(
+          tv == tv_info.tv,
+          "Expected fusion input[",
+          tv_info.fusion_input_pos,
+          "] to be ",
+          tv_info.tv->toString(),
+          " but found ",
+          tv->toString());
+
+      auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+
+      NVF_ERROR(
+          tv_info.logical_dim_pos < logical_domain.size(),
+          "Expected tensor view, ",
+          tv->toString(),
+          ", to have a logical domain of size at least ",
+          tv_info.logical_dim_pos,
+          " but only found ",
+          logical_domain.size(),
+          " dimensions.");
+
+      expr_eval.unsafeBind(
+          logical_domain[tv_info.logical_dim_pos]->getMaybeExpandedExtent(),
+          (*args[tv_info.fusion_input_pos])
+              .as<at::Tensor>()
+              .sizes()[tv_info.logical_dim_pos]);
+    }
   }
   {
     FUSER_PERF_SCOPE("ExprEvalExecutor::Eval");
@@ -104,7 +227,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         expr_eval.unsafeBind(ld_st_op->out(), output_tensor);
         continue;
       }
-      expr_eval.evaluate(expr->outputs()[0]);
+      auto infer_val = expr_eval.evaluate(expr->outputs()[0]);
     }
 
     for (const auto& out_val : fusion_->outputs()) {
@@ -169,6 +292,14 @@ void ExprEvalExecutor::compile(ViewOp* view_op) {
   int missing_vals = std::count_if(sizes.begin(), sizes.end(), [](Val* size) {
     return !size->isConstScalar();
   });
+
+  // Record which vals need to be inferred and what input bindings we need to
+  // infer them.
+  if (missing_vals > 1) {
+    for (auto size : sizes) {
+      findAndBindInputTVExtentFrom(size);
+    }
+  }
 
   ViewInfo view_info = {sizes, missing_vals <= 1, isContiguous(view_op->in())};
 

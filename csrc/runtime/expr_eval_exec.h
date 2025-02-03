@@ -64,6 +64,26 @@ class ExprEvalExecutor : public ExecutorAbstract {
   // Permute map, stores permutation axes if a LoadStoreOp requires them.
   std::unordered_map<LoadStoreOp*, std::vector<int64_t>> permutation_orders;
 
+  struct TVInfo {
+    TensorView* tv;
+    uint64_t fusion_input_pos;
+    uint64_t logical_dim_pos;
+  };
+
+  // Expr eval exec only shallowly binds inputs. This means all sizes of each
+  // tensor are not bound. During compilation information about which size
+  // information needs to be pulled and bound are tracked. References entries in
+  // extent_to_tv_info map.
+  std::vector<TVInfo> tv_sizes_to_bind;
+  std::unordered_map<Val*, TVInfo> extent_to_tv_info;
+
+  // Goes to val's inputs and check if it's from a TensorView, if so it fills
+  // tv_sizes_to_bind for those inputs.
+  void findAndBindInputTVExtentFrom(Val* val);
+
+  // deduplicate entries in tv_sizes_to_bind
+  void deduplicateTvSizesToBind();
+
   void compile(ViewOp* view_op);
   at::Tensor run(ViewOp* view_op, ExpressionEvaluator& expr_eval);
 
