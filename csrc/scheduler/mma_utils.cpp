@@ -1857,13 +1857,13 @@ class MatmulTranslator : public OptInDispatch {
     NVF_ERROR(
         b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
-      bool is_cached = !pattern_.A->isFusionInput();
+      is_cached_ = !pattern_.A->isFusionInput();
       NVF_ERROR(
-          pattern_.B->isFusionInput() == !is_cached,
+          pattern_.B->isFusionInput() == !is_cached_,
           "If one pattern operand is cached, they must both be");
       TensorView* gmem_A = pattern_.A;
       TensorView* gmem_B = pattern_.B;
-      if (is_cached) {
+      if (is_cached_) {
         auto checkOperandCached = [](TensorView* oper) {
           auto* def = dynamic_cast<LoadStoreOp*>(oper->definition());
           NVF_ERROR(
@@ -1882,8 +1882,9 @@ class MatmulTranslator : public OptInDispatch {
       auto cloneWithInsertedBroadcast = [](TensorView* old,
                                            int64_t new_bcast_pos) {
         NVF_ERROR(!old->domain()->hasRoot());
-        std::vector<IterDomain*> new_root = old->getMaybeRootDomain();
+        const std::vector<IterDomain*>& new_root = old->getMaybeRootDomain();
         std::vector<IterDomain*> new_logical = new_root;
+        new_logical.reserve(new_root.size() + 1);
         new_bcast_pos = wrapDim(new_bcast_pos, new_root.size() + 1);
         Fusion* fusion = old->fusion();
         new_logical.insert(
@@ -1899,7 +1900,7 @@ class MatmulTranslator : public OptInDispatch {
         auto* new_td = IrBuilder::create<TensorDomain>(
             new_root,
             new_logical,
-            /*loop_domain=*/std::vector<IterDomain*>{},
+            /*loop_domain=*/new_logical,
             new_contig);
         auto* new_tv = IrBuilder::create<TensorView>(
             new_td, old->dtype(), old->getMemoryType());
@@ -1911,15 +1912,10 @@ class MatmulTranslator : public OptInDispatch {
       FusionGuard::getCurFusion()->replaceInput(gmem_A, new_A);
       FusionGuard::getCurFusion()->replaceInput(gmem_B, new_B);
 
-      if (is_cached) {
-        new_A = new_A->cacheAfter();
-        new_B = new_B->cacheAfter();
-      }
+      fms = fusedMultiplySum(new_A, new_B, {-1});
 
       pattern_.A = new_A;
       pattern_.B = new_B;
-
-      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     } else {
       std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
       bcast_dim[bcast_dim.size() - 2] = true; // N
@@ -2081,12 +2077,18 @@ class MatmulTranslator : public OptInDispatch {
       ir_utils::transferDefinitionToNewOutputs(
           fms->definition(), {pattern_.output});
     }
+
+    if (is_cached_) {
+      new_A = new_A->cacheAfter();
+      new_B = new_B->cacheAfter();
+    }
   }
 
  private:
   MatmulPattern& pattern_;
   bool avoid_intermediates_;
   MmaOp* mma_ = nullptr;
+  bool is_cached_ = false;
 };
 
 } // namespace
