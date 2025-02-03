@@ -234,7 +234,9 @@ class XorFinder : private kir::IrVisitor {
 
 class TMAPredicateChecker : private kir::IrVisitor {
   int64_t num_threads_;
-  TMAPredicateChecker(int64_t num_threads) : num_threads_(num_threads) {}
+  int64_t cta_threads_;
+  TMAPredicateChecker(int64_t num_threads, int64_t cta_threads)
+      : num_threads_(num_threads), cta_threads_(cta_threads) {}
 
   kir::Predicate* pred_ = nullptr;
 
@@ -269,7 +271,29 @@ class TMAPredicateChecker : private kir::IrVisitor {
     ASSERT_NE(cond, nullptr);
     if (num_threads_ == 0) {
       EXPECT_TRUE(cond->isTrue());
-    } else if (num_threads_ == 1) {
+    } else if (num_threads_ == 1 && cta_threads_ > 32) {
+      auto def = dynamic_cast<BinaryOp*>(cond->definition());
+      ASSERT_TRUE(def != nullptr);
+      EXPECT_TRUE(def->getBinaryOpType() == BinaryOpType::LogicalAnd);
+      auto lhs = def->lhs();
+      auto rhs = def->rhs();
+      ASSERT_TRUE(lhs != nullptr);
+      auto lhs_def = dynamic_cast<UnaryOp*>(lhs->definition());
+      EXPECT_TRUE(lhs_def->getUnaryOpType() == UnaryOpType::ElectSync);
+      ASSERT_TRUE(rhs != nullptr);
+      auto rhs_def = dynamic_cast<BinaryOp*>(rhs->definition());
+      EXPECT_TRUE(rhs_def->getBinaryOpType() == BinaryOpType::LT);
+      auto lhs_rhs = dynamic_cast<NamedScalar*>(rhs_def->lhs());
+      auto rhs_rhs = rhs_def->rhs();
+      ASSERT_TRUE(lhs_rhs != nullptr);
+      ASSERT_TRUE(rhs_rhs != nullptr);
+      EXPECT_TRUE(lhs_rhs->isThreadIdx());
+      EXPECT_TRUE(rhs_rhs->isConstInt());
+      EXPECT_EQ(rhs_rhs->value(), 32);
+    } else if (num_threads_ == 1 && cta_threads_ == 32) {
+      auto def = dynamic_cast<UnaryOp*>(cond->definition());
+      EXPECT_TRUE(def->getUnaryOpType() == UnaryOpType::ElectSync);
+    } else if (num_threads_ == 1 && cta_threads_ < 32) {
       auto def = dynamic_cast<BinaryOp*>(cond->definition());
       ASSERT_TRUE(def != nullptr);
       EXPECT_TRUE(def->getBinaryOpType() == BinaryOpType::Eq);
@@ -296,8 +320,11 @@ class TMAPredicateChecker : private kir::IrVisitor {
  public:
   // Check that TMA is predicated with things like "tidx < num_threads".
   // num_threads == 0 is reserved for no predication.
-  static void checkPredicate(kir::Kernel* kernel, int64_t num_threads) {
-    TMAPredicateChecker checker(num_threads);
+  static void checkPredicate(
+      kir::Kernel* kernel,
+      int64_t num_threads,
+      int64_t cta_threads = -1) {
+    TMAPredicateChecker checker(num_threads, cta_threads);
     checker.handle(kernel->topLevelExprs());
   }
 };
@@ -583,14 +610,15 @@ TEST_P(TMASimpleLdstTest, Store) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), dim);
-  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
+  TMAPredicateChecker::checkPredicate(
+      ke.compiledKernel()->kernel(), 1, ke.lastLaunchParams().nThreads());
   ASSERT_EQ(
       XorFinder::findXor(ke.compiledKernel()->kernel()),
       (swizzle != MmaInputSmemSwizzle::None));
-
-  auto cg_outputs = ke.run({t0});
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 std::string testNameTMASimpleLdstTest(
