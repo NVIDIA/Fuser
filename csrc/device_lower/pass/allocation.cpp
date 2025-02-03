@@ -880,7 +880,20 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
 
 std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::insertAllocations");
+  // If the fusion uses tensor memory, insert the following things to the
+  // fusion:
+  // - A tcgen05.alloc for each tensor memory region
+  // - A kir::Allocate for a shared memory TensorView for each tensor memory
+  //   region for storing addresses of these regions. Because tcgen05.alloc
+  //   writes the address of allocated memory to the shared memory, there must
+  //   be shared memory TensorViews to store these addresses. These address
+  //   TensorViews are not part of the fusion math, and not handled by
+  //   AllocationInserter::insert. Note that these address TensorViews are not
+  //   the tensor memory TensorViews in fusion math.
+  // - A tcgen05.relinquish_alloc_permit after all tcgen05.allocs
   auto result = insertTMemRegionAllocsAndDeallocs(exprs);
+  // Insert kir::Allocate for each Val, including the kir::Allocate for tensor
+  // memory TensorViews, in fusion math.
   return AllocationInserter::insert(result);
 }
 
