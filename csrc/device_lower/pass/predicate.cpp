@@ -42,21 +42,10 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  // The ElectSync predicate expects a single thread to run operations within
-  // If-Then-Else.
-  void checkElectSyncCompatibility(Expr* expr) {
-    NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
-    NVF_ERROR(expr->isA<kir::IfThenElse>());
-  }
-
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
-
-      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
-        checkElectSyncCompatibility(expr);
-      }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
