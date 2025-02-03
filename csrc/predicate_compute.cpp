@@ -391,6 +391,18 @@ Val* PredicateCompute::getExprSyncPredicate(
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
 
+  // Short-Circuit: TMA Store Expression
+  if (pred->expr() != nullptr && ir_utils::isCpAsyncBulkStore(pred->expr())) {
+    Val* conditional = SimplifyingIrBuilder::logicalAndExpr(
+        elect_sync_val,
+        IrBuilder::ltExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+    auto parallel_dom_pred =
+        ParallelizedDomainPredicate::getPredicate(pred->expr(), loops);
+    NVF_ERROR(parallel_dom_pred != nullptr);
+    return SimplifyingIrBuilder::logicalAndExpr(conditional, parallel_dom_pred);
+  }
+
   auto load_warp_loop_it =
       std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
         return fl->circularBufferLoopStage() ==
