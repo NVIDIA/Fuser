@@ -43,7 +43,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   // The ElectSync predicate expects a single thread to run operations within
-  // If-Then-Else. 
+  // If-Then-Else.
   void checkElectSyncCompatibility(Expr* expr) {
     NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
     NVF_ERROR(expr->isA<kir::IfThenElse>());
@@ -205,50 +205,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
-        Val* full_mask_val =
-            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-
-        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-        IrBuilder::create<UnaryOp>(
-            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-
-        auto load_warp_loop_it =
-            std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
-              return fl->circularBufferLoopStage() ==
-                  CircularBufferLoopStage::LoadWarp;
-            });
-        ParallelType load_warp_on = ParallelType::Serial;
-        if (load_warp_loop_it != for_loops_.end()) {
-          load_warp_on = std::get<WarpSpecialized>(
-                             GpuLower::current()
-                                 ->circularBufferInfo()
-                                 .getCircularBufferOptionsFor(
-                                     (*load_warp_loop_it)->iter_domain())
-                                 .type)
-                             .on;
-        }
-
-        // If we are in a load warp, then the warp-dispatching IfThenElse
-        // already selects on `load_warp_on`, so we should not generate
-        // predicates for it here.
-        const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-        Val* conditional = load_warp_on == ParallelType::TIDx
-            ? pred->fusion()->trueVal()
-            : SimplifyingIrBuilder::logicalAndExpr(
-                  elect_sync_val,
-                  IrBuilder::ltExpr(
-                      NamedScalar::getParallelIndex(ParallelType::TIDx),
-                      warp_size));
-        for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-          if (pdim_map.has(pt) && load_warp_on != pt) {
-            conditional = SimplifyingIrBuilder::logicalAndExpr(
-                conditional,
-                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-          }
-        }
-        return conditional;
+        return PredicateCompute::getExprSyncPredicate(pred, for_loops_);
       }
       default:
         break;

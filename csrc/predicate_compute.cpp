@@ -375,6 +375,58 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
+Val* PredicateCompute::getExprSyncPredicate(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& loops) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
+  NVF_ERROR(
+      pred->expr() == nullptr || ir_utils::isCpAsyncBulkStore(pred->expr()),
+      "expr should be empty or tma store expression.");
+
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+
+  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+
+  auto load_warp_loop_it =
+      std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
+        return fl->circularBufferLoopStage() ==
+            CircularBufferLoopStage::LoadWarp;
+      });
+  ParallelType load_warp_on = ParallelType::Serial;
+  if (load_warp_loop_it != loops.end()) {
+    load_warp_on =
+        std::get<WarpSpecialized>(GpuLower::current()
+                                      ->circularBufferInfo()
+                                      .getCircularBufferOptionsFor(
+                                          (*load_warp_loop_it)->iter_domain())
+                                      .type)
+            .on;
+  }
+
+  // If we are in a load warp, then the warp-dispatching IfThenElse
+  // already selects on `load_warp_on`, so we should not generate
+  // predicates for it here.
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  Val* conditional = load_warp_on == ParallelType::TIDx
+      ? pred->fusion()->trueVal()
+      : SimplifyingIrBuilder::logicalAndExpr(
+            elect_sync_val,
+            IrBuilder::ltExpr(
+                NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+  for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+    if (pdim_map.has(pt) && load_warp_on != pt) {
+      conditional = SimplifyingIrBuilder::logicalAndExpr(
+          conditional,
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+    }
+  }
+  return conditional;
+}
+
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<ForLoop*>& loops,

@@ -830,10 +830,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // If there is already an if-then-else with electSync() predicate, use it.
   // Otherwise, create a new one.
-  kir::IfThenElse* getElectSyncIfThenElse(Expr* expr) {
+  kir::IfThenElse* getElectSyncIfThenElse() {
     if (elect_sync_if_then_else_ == nullptr) {
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
-          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync, expr));
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
       for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
     }
     return elect_sync_if_then_else_;
@@ -860,7 +860,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // Use the if-then-else with electSync() predicate for the arrive expect
     // and cpAsyncBulk operations.
-    kir::IfThenElse* if_expr = getElectSyncIfThenElse(expr);
+    kir::IfThenElse* if_expr = getElectSyncIfThenElse();
 
     // Wait for WAR
     if (usesMBarrierForWAR()) {
