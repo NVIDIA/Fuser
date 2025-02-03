@@ -6,6 +6,7 @@ import torch
 from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark, with_executor
 
+
 def cat_qwen2_fwd_11(t17353, t17351, cos_2, sin_2, query_states_1, key_states_1):
     # t17353: "cuda:0 bf16[2048, 512]"
     # t17351: "cuda:0 bf16[1, 2048, 512]"
@@ -14,9 +15,7 @@ def cat_qwen2_fwd_11(t17353, t17351, cos_2, sin_2, query_states_1, key_states_1)
     # query_states_1: "cuda:0 bf16[1, 28, 2048, 128]"
     # key_states_1: "cuda:0 bf16[1, 4, 2048, 128]"
     t0 = torch.reshape(t17353, (1, 2048, 512))  # t0: "cuda:0 bf16[1, 2048, 512]"
-    t1 = torch.Tensor.to(
-        t0, torch.float32, copy=True
-    )  # t1: "cuda:0 f32[1, 2048, 512]"
+    t1 = torch.Tensor.to(t0, torch.float32, copy=True)  # t1: "cuda:0 f32[1, 2048, 512]"
     # t1 = prims.convert_element_type(t0, dtypes.float32)  # t1: "cuda:0 f32[1, 2048, 512]"
     t2 = torch.mul(t1, 2.0)  # t2: "cuda:0 f32[1, 2048, 512]"
     t3 = torch.Tensor.to(
@@ -144,9 +143,7 @@ def cat_qwen2_fwd_11(t17353, t17351, cos_2, sin_2, query_states_1, key_states_1)
         t45, (1, 4, 7, 2048, 128)
     )  # t46: "cuda:0 bf16[1, 4, 7, 2048, 128]"
     # t46 = prims.broadcast_in_dim(t45, (1, 4, 7, 2048, 128), (0, 1, 2, 3, 4))  # t46: "cuda:0 bf16[1, 4, 7, 2048, 128]"
-    t47 = torch.reshape(
-        t46, (1, 28, 2048, 128)
-    )  # t47: "cuda:0 bf16[1, 28, 2048, 128]"
+    t47 = torch.reshape(t46, (1, 28, 2048, 128))  # t47: "cuda:0 bf16[1, 28, 2048, 128]"
     t48 = torch.unsqueeze(t7, 2)  # t48: "cuda:0 bf16[1, 4, 1, 2048, 128]"
     # t48 = prims.broadcast_in_dim(t7, [1, 4, 1, 2048, 128], [0, 1, 3, 4])  # t48: "cuda:0 bf16[1, 4, 1, 2048, 128]"
     t49 = torch.Tensor.expand(
@@ -157,9 +154,7 @@ def cat_qwen2_fwd_11(t17353, t17351, cos_2, sin_2, query_states_1, key_states_1)
         t49, (1, 4, 7, 2048, 128)
     )  # t50: "cuda:0 bf16[1, 4, 7, 2048, 128]"
     # t50 = prims.broadcast_in_dim(t49, (1, 4, 7, 2048, 128), (0, 1, 2, 3, 4))  # t50: "cuda:0 bf16[1, 4, 7, 2048, 128]"
-    t51 = torch.reshape(
-        t50, (1, 28, 2048, 128)
-    )  # t51: "cuda:0 bf16[1, 28, 2048, 128]"
+    t51 = torch.reshape(t50, (1, 28, 2048, 128))  # t51: "cuda:0 bf16[1, 28, 2048, 128]"
     # t52 = torch_stride_order_prim_impl(t27, (3, 2, 1, 0))  # t52: "cuda:0 bf16[1, 28, 2048, 128]"
     # t53 = torch_stride_order_prim_impl(t47, (3, 2, 1, 0))  # t53: "cuda:0 bf16[1, 28, 2048, 128]"
     # t54 = torch_stride_order_prim_impl(t51, (3, 2, 1, 0))  # t54: "cuda:0 bf16[1, 28, 2048, 128]"
@@ -223,12 +218,8 @@ def cat_qwen2_fwd_11_fusion(fd: FusionDefinition) -> None:
     T16 = fd.ops.cast(T15, dtype=DataType.BFloat16)
     T22 = fd.ops.reshape(T16, new_shape=[1, 2048, 4, 128])
     T23 = fd.ops.permute(T22, dims=[0, 2, 1, 3])
-    T29 = fd.ops.broadcast_in_dim(
-        T2, shape=[1, 1, 2048, 128], broadcast_dims=[0, 2, 3]
-    )
-    T35 = fd.ops.broadcast_in_dim(
-        T3, shape=[1, 1, 2048, 128], broadcast_dims=[0, 2, 3]
-    )
+    T29 = fd.ops.broadcast_in_dim(T2, shape=[1, 1, 2048, 128], broadcast_dims=[0, 2, 3])
+    T35 = fd.ops.broadcast_in_dim(T3, shape=[1, 1, 2048, 128], broadcast_dims=[0, 2, 3])
     T41 = fd.ops.broadcast_in_dim(
         T29, shape=[1, 28, 2048, 128], broadcast_dims=[0, 1, 2, 3]
     )
@@ -318,17 +309,13 @@ def cat_qwen2_fwd_11_fusion(fd: FusionDefinition) -> None:
 
 
 def test_cat_qwen2_fwd_11_nvf_benchmark(
-  benchmark,
-  disable_validation: bool,
-  disable_benchmarking: bool
+    benchmark, disable_validation: bool, disable_benchmarking: bool
 ):
     with FusionDefinition() as fd:
         cat_qwen2_fwd_11_fusion(fd)
 
     inputs = [
-        torch.testing.make_tensor(
-            (2048, 512), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((2048, 512), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor(
             (1, 2048, 512), dtype=torch.bfloat16, device="cuda:0"
         ),
@@ -348,10 +335,12 @@ def test_cat_qwen2_fwd_11_nvf_benchmark(
 
     def benchmark_fn(inputs):
         return fd.execute(inputs)
+
     if not disable_validation:
-        pass # no equivalent version, yet.
+        pass  # no equivalent version, yet.
     if not disable_benchmarking:
         run_benchmark(benchmark, benchmark_fn, inputs)
+
 
 # Qwen2 fusion that involves concatenation. Note that there are no Mistral-Nemo
 # benchmarks in this file, because they were all equivalent to this fusion. The
@@ -363,10 +352,7 @@ def test_cat_qwen2_fwd_11_nvf_benchmark(
 # torch.as_strided call yet.
 @pytest.mark.parametrize("executor", ["torchcompile"])
 def test_cat_qwen2_fwd_11_baseline_benchmark(
-  benchmark,
-  executor: str,
-  disable_validation: bool,
-  disable_benchmarking: bool
+    benchmark, executor: str, disable_validation: bool, disable_benchmarking: bool
 ) -> None:
     inputs = [
         torch.randn(
@@ -409,20 +395,18 @@ def test_cat_qwen2_fwd_11_baseline_benchmark(
 
     def benchmark_fn(inputs):
         return cat_qwen2_fwd_11(*inputs)
+
     benchmark_fn = with_executor(executor, benchmark_fn)
 
     if not disable_validation:
-        pass # no fusion definition from torch.compile
+        pass  # no fusion definition from torch.compile
     if not disable_benchmarking:
         run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 @pytest.mark.parametrize("executor", ["thunder", "torchcompile"])
 def test_cat_phi3_1(
-  benchmark,
-  executor: str,
-  disable_validation: bool,
-  disable_benchmarking: bool
+    benchmark, executor: str, disable_validation: bool, disable_benchmarking: bool
 ) -> None:
     def to_be_compiled(t14):
         # t14: "cuda:0 f32[1, 48, 2048]"
@@ -462,16 +446,19 @@ def test_cat_phi3_1(
         # hides thunder from us so we need to manually run things to pull the
         # FusionDefinition ourself.
         import thunder
+
         reference_outputs = to_be_compiled(*inputs)
         from thunder.executors.nvfuserex import nvfuserex
+
         tmp = thunder.jit(to_be_compiled, executors=[nvfuserex])
         tmp(*inputs)
         traces: [thunder.core.trace.TraceCtx] = thunder.last_traces(tmp)
         assert traces is not None
         trace: thunder.core.trace.TraceCtx = traces[-1]
-        assert 'nvFusion1' not in trace.python_ctx(), \
-               "thunder split the fusion, so the validation no longer fits."
-        fusion: FusionDefinition = trace.python_ctx()['nvFusion0'].last_used
+        assert (
+            "nvFusion1" not in trace.python_ctx()
+        ), "thunder split the fusion, so the validation no longer fits."
+        fusion: FusionDefinition = trace.python_ctx()["nvFusion0"].last_used
         fusion.validate(inputs, reference_outputs)
     if not disable_benchmarking:
         run_benchmark(benchmark, benchmark_fn, inputs)
@@ -483,10 +470,7 @@ def test_cat_phi3_1(
 # generated by the network.
 @pytest.mark.parametrize("executor", ["thunder", "torchcompile"])
 def test_cat_nanogpt_bwd_6(
-  benchmark,
-  executor: str,
-  disable_validation: bool,
-  disable_benchmarking: bool
+    benchmark, executor: str, disable_validation: bool, disable_benchmarking: bool
 ) -> None:
     def nanogpt_bwd_fusion_6_torch(bw_t3476: torch.Tensor, bw_t3475, bw_t3474):
         # bw_t3476: "cuda:0 f32[4, 6, 128, 64]"
@@ -531,16 +515,19 @@ def test_cat_nanogpt_bwd_6(
         # hides thunder from us so we need to manually run things to pull the
         # FusionDefinition ourself.
         import thunder
+
         reference_outputs = nanogpt_bwd_fusion_6_torch(*inputs)
         from thunder.executors.nvfuserex import nvfuserex
+
         tmp = thunder.jit(nanogpt_bwd_fusion_6_torch, executors=[nvfuserex])
         tmp(*inputs)
         traces: [thunder.core.trace.TraceCtx] = thunder.last_traces(tmp)
         assert traces is not None
         trace: thunder.core.trace.TraceCtx = traces[-1]
-        assert 'nvFusion1' not in trace.python_ctx(), \
-               "thunder split the fusion, so the validation no longer fits."
-        fusion: FusionDefinition = trace.python_ctx()['nvFusion0'].last_used
+        assert (
+            "nvFusion1" not in trace.python_ctx()
+        ), "thunder split the fusion, so the validation no longer fits."
+        fusion: FusionDefinition = trace.python_ctx()["nvFusion0"].last_used
         fusion.validate(inputs, reference_outputs)
     if not disable_benchmarking:
         run_benchmark(benchmark, benchmark_fn, inputs)
