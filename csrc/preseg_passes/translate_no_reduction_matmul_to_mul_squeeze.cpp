@@ -91,35 +91,40 @@ class NoReductionMatmulToMulSqueezeTranslator {
       auto ndims_b =
           (int64_t)(TensorDomain::noReductions(in_b->getLogicalDomain())
                         .size());
-
       auto batch_ndims_a = std::max(ndims_a - 2, (int64_t)0);
       auto matrix_ndims_a = std::min(ndims_a, (int64_t)2);
       auto batch_ndims_b = std::max(ndims_b - 2, (int64_t)0);
       auto matrix_ndims_b = std::min(ndims_b, (int64_t)2);
 
+      // std::vector<bool> bc_flags_a(ndims_a, false);
+      // std::vector<bool> bc_flags_b(ndims_b, false);
+      std::vector<bool> bc_flags_a;
+      std::vector<bool> bc_flags_b;
+
       // Align the batch dimensions
       auto missing_batch_ndims = std::abs(batch_ndims_a - batch_ndims_b);
       if (missing_batch_ndims) {
         if (batch_ndims_a < batch_ndims_b) {
-          std::vector<bool> bc_flags(ndims_a + missing_batch_ndims, false);
-          for (const auto i : c10::irange(missing_batch_ndims)) {
-            bc_flags.at(i) = true;
+          for ([[maybe_unused]] const auto i :
+               c10::irange(missing_batch_ndims)) {
+            bc_flags_a.push_back(true);
           }
-          in_a = broadcast(in_a, bc_flags);
-          batch_ndims_a += missing_batch_ndims;
-          ndims_a += missing_batch_ndims;
         } else {
-          std::vector<bool> bc_flags(ndims_b + missing_batch_ndims, false);
-          for (const auto i : c10::irange(missing_batch_ndims)) {
-            bc_flags.at(i) = true;
+          for ([[maybe_unused]] const auto i :
+               c10::irange(missing_batch_ndims)) {
+            bc_flags_b.push_back(true);
           }
-          in_b = broadcast(in_b, bc_flags);
-          batch_ndims_b += missing_batch_ndims;
-          ndims_b += missing_batch_ndims;
         }
+      }
 
-        std::cerr << "Batch dims aligned: " << in_a->toString() << ", "
-                  << in_b->toString() << "\n";
+      for ([[maybe_unused]] const auto i :
+           c10::irange(batch_ndims_a + matrix_ndims_a)) {
+        bc_flags_a.push_back(false);
+      }
+
+      for ([[maybe_unused]] const auto i :
+           c10::irange(batch_ndims_b + matrix_ndims_b)) {
+        bc_flags_b.push_back(false);
       }
 
       // If a is 2-dimensional and b is 1-dimensional, the output is a
@@ -127,46 +132,60 @@ class NoReductionMatmulToMulSqueezeTranslator {
       //
       // [M, b1] * [b1] => [M, b1] * [b2, b1] => [M, b1] => [M]
       if (matrix_ndims_a == 2 && matrix_ndims_b == 1) {
-        std::vector<bool> bc_flags(ndims_b + 1, false);
-        *(bc_flags.rbegin() + 1) = true;
-        in_b = broadcast(in_b, bc_flags);
+        if (std::any_of(bc_flags_a.begin(), bc_flags_a.end(), [](bool flag) {
+              return flag;
+            })) {
+          in_a = broadcast(in_a, bc_flags_a);
+        }
+        bc_flags_b.push_back(false);
+        *(bc_flags_b.rbegin() + 1) = true;
+        in_b = broadcast(in_b, bc_flags_b);
         auto out = mul(in_a, in_b);
         std::vector<bool> squeeze_flags(out->nDims(), false);
         squeeze_flags.back() = true;
         IrBuilder::create<SqueezeOp>(matmul->out(), out, squeeze_flags);
-        continue;
-      }
-
-      // a is 1-dimensional and b is 2-dimensional, i.e.:
-      //
-      // [b1] * [b1, N] => [b1, b2] * [b1, N] => [b1, N] => [N]
-      if (matrix_ndims_a == 1 && matrix_ndims_b == 2) {
-        std::vector<bool> bc_flags(ndims_a + 1, false);
-        bc_flags.back() = true;
-        in_a = broadcast(in_a, bc_flags);
+      } else if (matrix_ndims_a == 1 && matrix_ndims_b == 2) {
+        // a is 1-dimensional and b is 2-dimensional, i.e.:
+        //
+        // [b1] * [b1, N] => [b1, b2] * [b1, N] => [b1, N] => [N]
+        bc_flags_a.push_back(true);
+        in_a = broadcast(in_a, bc_flags_a);
+        if (std::any_of(bc_flags_b.begin(), bc_flags_b.end(), [](bool flag) {
+              return flag;
+            })) {
+          in_b = broadcast(in_a, bc_flags_b);
+        }
         auto out = mul(in_a, in_b);
         std::vector<bool> squeeze_flags(out->nDims(), false);
         *(squeeze_flags.rbegin() + 1) = true;
         IrBuilder::create<SqueezeOp>(matmul->out(), out, squeeze_flags);
         continue;
+      } else {
+        // [M, b1] * [b1, N] => [M, b2, b1] * [b3, N, b1] => [M, N,
+        // b1] => [M, N]
+
+        bc_flags_a.push_back(false);
+        *(bc_flags_a.rbegin() + 1) = true;
+        std::cerr << "Broadcasting a: " << in_a->toString() << bc_flags_a
+                  << "\n";
+        auto in_a_bc = broadcast(in_a, bc_flags_a);
+
+        auto in_b_t = transpose(in_b, -2, -1);
+        bc_flags_b.push_back(false);
+        *(bc_flags_b.rbegin() + 2) = true;
+        std::cerr << "Broadcasting b: " << in_b->toString() << bc_flags_b
+                  << "\n";
+        auto in_b_bc = broadcast(in_b_t, bc_flags_b);
+
+        auto out = mul(in_a_bc, in_b_bc);
+        std::vector<bool> to_squeeze(out->nDims(), false);
+        to_squeeze.back() = true;
+        std::cerr << "Squeezing " << out->toString() << " with "
+                  << toDelimitedString(to_squeeze) << "\n";
+        auto squeeze =
+            IrBuilder::create<SqueezeOp>(matmul->out(), out, to_squeeze);
+        std::cerr << "Replaced with: " << squeeze->toString();
       }
-
-      std::vector<bool> bcast_flags_a(ndims_a + 1, false);
-      std::vector<bool> bcast_flags_b(ndims_b + 1, false);
-
-      *(bcast_flags_a.rbegin() + 1) = true;
-      auto in_a_bc = broadcast(in_a, bcast_flags_a);
-
-      auto in_b_t = transpose(in_b, -2, -1);
-      *(bcast_flags_b.rbegin() + 2) = true;
-      auto in_b_bc = broadcast(in_b_t, bcast_flags_b);
-
-      auto out = mul(in_a_bc, in_b_bc);
-      std::vector<bool> to_squeeze(out->nDims(), false);
-      to_squeeze.back() = true;
-      std::cerr << "Squeezing " << out->toString() << " with "
-                << toDelimitedString(to_squeeze) << "\n";
-      IrBuilder::create<SqueezeOp>(matmul->out(), out, to_squeeze);
     }
   }
 
