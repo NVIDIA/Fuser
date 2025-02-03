@@ -8,6 +8,11 @@
 #pragma once
 
 #include <iostream>
+#include <optional>
+#include <vector>
+
+#include <runtime/fusion_executor_cache.h>
+#include <type.h>
 #include <visibility.h>
 
 namespace nvfuser::python {

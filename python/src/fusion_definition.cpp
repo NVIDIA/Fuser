@@ -48,8 +48,7 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
-    : FusionState(),
+FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length) :
       prev_fusion_(nullptr),
       user_sched_(nullptr),
       ops(this),
@@ -64,7 +63,7 @@ void FusionDefinition::exit() {
   FUSER_PERF_SCOPE("FusionDefinition::exit");
 }
 
-std::vector<DistributedTensor> FusionDefinition::execute(
+at::ArrayRef<c10::IValue> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
@@ -73,7 +72,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     std::vector<std::string> _enable_options,
     std::vector<std::string> _disable_options) const {
   // Convert `at::Tensor`s to `DistributedTensor`s.
-  std::vector<DistributedTensor> out_dtensors;
+  at::ArrayRef<c10::IValue> out_dtensors;
   return out_dtensors;
 }
 
