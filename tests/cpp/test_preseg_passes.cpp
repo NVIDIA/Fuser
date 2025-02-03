@@ -1309,6 +1309,7 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param.toString();
     });
 
+// Test the translation of MatmulOp when K=1
 TEST_P(TranslateNoReductionMatmulTest, Test) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
@@ -1324,10 +1325,8 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
   auto tv2 = matmul(tv0, tv1);
   fusion.addOutput(tv2);
 
-  fusion.printMath();
-
   {
-    // Make sure pad and cat no longer exist
+    // Make sure MmaOp no longer exists
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(
         &fusion_copy);

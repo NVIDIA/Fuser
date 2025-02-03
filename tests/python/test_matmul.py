@@ -165,10 +165,10 @@ class TestMatmul(NVFuserTest):
 
         inputs = [
             torch.randn((2 * 32,), dtype=torch.float32, device="cuda:0").as_strided(
-                (2, 32, 1), (32, 1, 0)
+                (2, 32, 1), (32, 1, 32)
             ),
             torch.randn((2 * 16,), dtype=torch.float32, device="cuda:0").as_strided(
-                (2, 1, 16), (16, 0, 1)
+                (2, 1, 16), (16, 16, 1)
             ),
         ]
         self.exec_nvfuser(fusion_func, inputs)
