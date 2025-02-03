@@ -162,7 +162,8 @@ class Communicator {
       auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
       auto offset = tensor.storage_offset();
       auto element_size = tensor.element_size();
-      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^ std::hash<int>()(element_size);
+      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+          std::hash<int>()(element_size);
     }
   };
 
@@ -204,7 +205,8 @@ class Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
-  std::unordered_map<at::Tensor, std::vector<void*>, TensorHash, TensorEqual> remote_ptrs_;
+  std::unordered_map<at::Tensor, std::vector<void*>, TensorHash, TensorEqual>
+      remote_ptrs_;
 };
 
 } // namespace nvfuser

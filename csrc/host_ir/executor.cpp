@@ -435,12 +435,16 @@ void HostIrEvaluator::handle(Communication* communication) {
 
   NVF_ERROR(communication->type() == CommunicationType::Allgather);
 
-  std::vector<at::Tensor> output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  std::vector<at::Tensor> output_tensors =
+      at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
   std::vector<void*> input_ptrs = communicator_->getRemotePtrs(input_tensor);
-  cudaStream_t current_stream = c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream();
+  cudaStream_t current_stream =
+      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream();
   // TODO: use multicast
   for (auto i = 0; i < communicator_->size(); i++) {
-    cudaStream_t stream = c10::cuda::getStreamFromPool(/*isHighPriority=*/false, my_local_device_index_).stream();
+    cudaStream_t stream = c10::cuda::getStreamFromPool(
+                              /*isHighPriority=*/false, my_local_device_index_)
+                              .stream();
     cudaEvent_t event = {};
     NVFUSER_CUDA_RT_SAFE_CALL(
         cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
@@ -450,7 +454,12 @@ void HostIrEvaluator::handle(Communication* communication) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 
     auto output = output_tensors.at(i);
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output.data_ptr(), input_ptrs.at(i), output.numel() * output.element_size(), cudaMemcpyDeviceToDevice, stream));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+        output.data_ptr(),
+        input_ptrs.at(i),
+        output.numel() * output.element_size(),
+        cudaMemcpyDeviceToDevice,
+        stream));
 
     // sync
     NVFUSER_CUDA_RT_SAFE_CALL(
@@ -460,7 +469,6 @@ void HostIrEvaluator::handle(Communication* communication) {
         cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
   }
-
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -474,7 +482,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   CommunicatorBackend backend_type = communication->backend();
 
   if (backend_type != CommunicatorBackend::kCuda) {
-
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),

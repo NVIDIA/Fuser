@@ -29,8 +29,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   std::unique_ptr<hir::HostIrContainer> hic =
       lower.lower(std::move(fusion), comm.deviceId());
   // Create the HostIrEvaluator representing the host program
-  host_ir_executor_ =
-      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params.executor);
+  host_ir_executor_ = std::make_unique<hir::HostIrEvaluator>(
+      std::move(hic), &comm, params.executor);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(

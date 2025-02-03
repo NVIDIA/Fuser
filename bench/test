@@ -88,4 +88,3 @@ CMD="${NSYSCMD} ${MPICMD}"
 sudo /bin/sh -c "echo '1' > /proc/sys/kernel/perf_event_paranoid"
 echo $CMD | tee -a ${LOG_FILE_INFO}
 $CMD | tee -a ${LOG_FILE_INFO}
-

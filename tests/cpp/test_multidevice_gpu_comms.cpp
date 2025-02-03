@@ -37,10 +37,12 @@ TEST_F(GpuCommTest, IpcMemHandle) {
   auto store = communicator_->getTcpStore();
   store->set("ipc_handle_" + std::to_string(rank), toBytes(ipc_handle));
   communicator_->barrier();
-  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get("ipc_handle_" + std::to_string((rank + 1) % num_devices)));
+  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(
+      store->get("ipc_handle_" + std::to_string((rank + 1) % num_devices)));
 
   void* peer_d_ptr;
-  CUDA_CALL(cudaIpcOpenMemHandle(&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+  CUDA_CALL(cudaIpcOpenMemHandle(
+      &peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
 
   int64_t peer_value;
   CUDA_CALL(cudaMemcpy(&peer_value, peer_d_ptr, size, cudaMemcpyDeviceToHost));
@@ -50,7 +52,6 @@ TEST_F(GpuCommTest, IpcMemHandle) {
   // Clean up
   CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   CUDA_CALL(cudaFree(d_ptr));
-
 }
 
 TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtReceiver) {
@@ -75,13 +76,16 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtReceiver) {
   auto store = communicator_->getTcpStore();
   store->set("ipc_handle_" + std::to_string(rank), toBytes(ipc_handle));
   communicator_->barrier();
-  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get("ipc_handle_" + std::to_string(peer_rank)));
+  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(
+      store->get("ipc_handle_" + std::to_string(peer_rank)));
 
   int64_t* peer_d_ptr;
-  CUDA_CALL(cudaIpcOpenMemHandle((void**)&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+  CUDA_CALL(cudaIpcOpenMemHandle(
+      (void**)&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
 
   int64_t peer_value;
-  CUDA_CALL(cudaMemcpy(&peer_value, peer_d_ptr + 1, size / 2, cudaMemcpyDeviceToHost));
+  CUDA_CALL(cudaMemcpy(
+      &peer_value, peer_d_ptr + 1, size / 2, cudaMemcpyDeviceToHost));
 
   EXPECT_EQ(2 * peer_rank + 1, peer_value);
 
@@ -91,7 +95,8 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtReceiver) {
 }
 
 TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtSender) {
-  // TLDR; We CANNOT do pointer arithmetic on the sender side! The IPC handle points to the beginning of the allocated buffer.
+  // TLDR; We CANNOT do pointer arithmetic on the sender side! The IPC handle
+  // points to the beginning of the allocated buffer.
 
   // Allocate GPU memory
   constexpr size_t size = 2 * sizeof(int64_t);
@@ -112,15 +117,20 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtSender) {
   auto store = communicator_->getTcpStore();
   store->set("ipc_handle_" + std::to_string(rank), toBytes(ipc_handle));
   communicator_->barrier();
-  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(store->get("ipc_handle_" + std::to_string(peer_rank)));
+  auto peer_ipc_handle = fromBytes<cudaIpcMemHandle_t>(
+      store->get("ipc_handle_" + std::to_string(peer_rank)));
 
   int64_t* peer_d_ptr;
-  CUDA_CALL(cudaIpcOpenMemHandle((void**)&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+  CUDA_CALL(cudaIpcOpenMemHandle(
+      (void**)&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
 
   int64_t peer_value;
-  CUDA_CALL(cudaMemcpy(&peer_value, peer_d_ptr, size / 2, cudaMemcpyDeviceToHost));
+  CUDA_CALL(
+      cudaMemcpy(&peer_value, peer_d_ptr, size / 2, cudaMemcpyDeviceToHost));
 
-  EXPECT_EQ(2 * peer_rank, peer_value); // and not 2 * peer_rank + 1 as could be expected!
+  EXPECT_EQ(
+      2 * peer_rank,
+      peer_value); // and not 2 * peer_rank + 1 as could be expected!
 
   // Clean up
   CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
@@ -130,7 +140,8 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtSender) {
 TEST_F(GpuCommTest, Allgather) {
   constexpr int64_t kTensorSize = 1024;
 
-  at::Tensor input = at::full({kTensorSize}, communicator_->deviceId(), tensor_options);
+  at::Tensor input =
+      at::full({kTensorSize}, communicator_->deviceId(), tensor_options);
   auto outputs = std::vector<at::Tensor>(communicator_->size());
   std::generate(outputs.begin(), outputs.end(), [&]() {
     return at::empty({kTensorSize}, tensor_options);

@@ -20,8 +20,8 @@ struct HostIrLowerParams {
 
 class HostIrLower {
  public:
-
-  HostIrLower(HostIrLowerParams params = HostIrLowerParams()) : params_(params) {}
+  HostIrLower(HostIrLowerParams params = HostIrLowerParams())
+      : params_(params) {}
 
   // The flag `ignore_inner_resharding` is useful because the preseg passes
   // `InsertReshardingsPass` and `ReorderShardedAxisPass` want different

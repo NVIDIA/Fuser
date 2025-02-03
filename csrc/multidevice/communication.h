@@ -164,7 +164,6 @@ class P2PCommunication : public Expr {
   CommunicatorBackend& backend() {
     return attribute<CommunicatorBackend>(2);
   }
-
 };
 
 // The method "post" triggers the execution of the communication. This call is

@@ -127,9 +127,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   MultiDeviceExecutorParams params;
   params.executor = host_ir_executor_params;
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::make_unique<Fusion>(*fusion),
-      *communicator_,
-      params);
+      std::make_unique<Fusion>(*fusion), *communicator_, params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;

@@ -10,12 +10,16 @@
 // (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
 // Compiling pytorch with nvcc is not supported either.
 
-#include <tests/cpp/multidevice_kernels.h>
 #include <cuda.h>
+#include <tests/cpp/multidevice_kernels.h>
 
 namespace nvfuser {
 
-#define CUDA_CALL(call) NVF_ERROR((call) == cudaSuccess, "CUDA call failed: ", cudaGetErrorString(cudaGetLastError()))
+#define CUDA_CALL(call)      \
+  NVF_ERROR(                 \
+      (call) == cudaSuccess, \
+      "CUDA call failed: ",  \
+      cudaGetErrorString(cudaGetLastError()))
 
 __global__ void DummyMultiDeviceKernel() {}
 
