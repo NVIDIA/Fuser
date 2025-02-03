@@ -494,6 +494,10 @@ class AllocationInserter : public kir::ExprMutator {
           break;
         }
       }
+      NVF_ERROR(
+          alloc_expr->address() != nullptr,
+          "Could not find region for tensor memory allocation of ",
+          info.buffer);
     }
 
     return alloc_expr;

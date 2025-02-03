@@ -17,7 +17,7 @@ namespace nvfuser {
 TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   TensorMemoryInfo result;
 
-  // Step 1: partition the tensors. Each partition of tensor will become a
+  // Step 1: partition the tensors. Each partition of tensors will become a
   // region, so we use the term partition and region interchangeably. The user
   // may have provided full or partial partitioning information. For the
   // TensorViews that the user has already specified which region they belong
@@ -57,7 +57,8 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   // Step 2: Compute the allocation information for tensor memory. That is, for
   // each partition, we create a Region object and fill in the necessary
   // information.
-  auto& regions = result.allocation.regions;
+  using Region = TMemAlllocationInfo::Region;
+  std::vector<Region>& regions = result.allocation.regions;
   for (const auto& partition : partitions) {
     regions.emplace_back();
     auto& region = regions.back();
