@@ -678,6 +678,24 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .MMAMACROPROP(k, uint16_t)
       .TOSTRINGTOPLEVEL(MmaMacro);
 #undef MMAMACROPROP
+  py::enum_<MatmulParams::TilingStrategy>(nvfuser, "MatmulTilingStrategy")
+      .value("one_tile_per_cta", MatmulParams::TilingStrategy::OneTilePerCTA)
+      .value(
+          "distribute_tiles_across_sms",
+          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs)
+      .value(
+          "distribute_stages_across_sms",
+          MatmulParams::TilingStrategy::DistributeStagesAcrossSMs);
+  py::enum_<MatmulParams::BufferingLoopLevel>(
+      nvfuser, "MatmulBufferingLoopLevel")
+      .value("cta_tiles", MatmulParams::BufferingLoopLevel::CTATiles)
+      .value("warp_tiles", MatmulParams::BufferingLoopLevel::WarpTiles);
+  py::enum_<MatmulParams::CircularBufferingStrategy>(
+      nvfuser, "MatmulCircularBufferingStrategy")
+      .value("pipelined", MatmulParams::CircularBufferingStrategy::Pipelined)
+      .value(
+          "warp_specialized",
+          MatmulParams::CircularBufferingStrategy::WarpSpecialized);
 
   // Base class for scheduler parameters
   DEFINECLASS(HeuristicParams)
@@ -753,6 +771,9 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
+      .PARAM(MatmulParams, tiling_strategy)
+      .PARAM(MatmulParams, buffering_loop_level)
+      .PARAM(MatmulParams, circular_buffering_strategy)
       .PARAM(MatmulParams, cta_order)
       .PARAM(MatmulParams, cluster_dims)
       .PARAM(MatmulParams, mma_macro);
