@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <disjoint_set.h>
 #include <fusion.h>
 #include <runtime/executor_abstract.h>
 
@@ -68,21 +69,46 @@ class ExprEvalExecutor : public ExecutorAbstract {
     TensorView* tv;
     uint64_t fusion_input_pos;
     uint64_t logical_dim_pos;
+
+    bool operator==(const TVInfo& other) const {
+      return tv == other.tv && fusion_input_pos == other.fusion_input_pos &&
+          logical_dim_pos == other.logical_dim_pos;
+    }
+  };
+
+  // For use with VectorOfUniqueEntries
+  struct TVInfoHash {
+    std::size_t operator()(const TVInfo& info) const {
+      std::size_t hash = 0;
+      hash ^= std::hash<TensorView*>()(info.tv);
+      hash ^= std::hash<uint64_t>()(info.fusion_input_pos);
+      hash ^= std::hash<uint64_t>()(info.logical_dim_pos) << 8;
+      return hash;
+    }
   };
 
   // Expr eval exec only shallowly binds inputs. This means all sizes of each
   // tensor are not bound. During compilation information about which size
   // information needs to be pulled and bound are tracked. References entries in
   // extent_to_tv_info map.
-  std::vector<TVInfo> tv_sizes_to_bind;
+  VectorOfUniqueEntries<TVInfo, TVInfoHash> tv_sizes_to_bind;
   std::unordered_map<Val*, TVInfo> extent_to_tv_info;
 
+  // Since input tensor views could be from an intermediate segmentation their
+  // logical domains could be a function of iter domains of a previous fusions.
+  // This means an input tensor could have an iter domain for example:
+  // iS24{( ceilDiv(( i0 * i2 ), 3) )} where i0 and i2 are not "inputs" to
+  // the fusion. This means we want to bind a the size of the input tensor to
+  // the entire scalar, not to i0 and i2. This unordered set will contain all
+  // input scalars and all logical domain scalars of input tensors, to resolve
+  // how to infer all necessary scalars for the fusion.
+  VectorOfUniqueEntries<Val*> all_potential_input_scalars;
+
+  // The scalars that need to be infered during execution.
+  VectorOfUniqueEntries<Val*> needed_integer_scalars;
   // Goes to val's inputs and check if it's from a TensorView, if so it fills
   // tv_sizes_to_bind for those inputs.
-  void findAndBindInputTVExtentFrom(Val* val);
-
-  // deduplicate entries in tv_sizes_to_bind
-  void deduplicateTvSizesToBind();
+  void findAndBindInputTVExtentsFrom(VectorOfUniqueEntries<Val*> vals);
 
   void compile(ViewOp* view_op);
   at::Tensor run(ViewOp* view_op, ExpressionEvaluator& expr_eval);
