@@ -375,6 +375,68 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
+namespace {
+
+Val* createElectSyncPredicate() {
+  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  return SimplifyingIrBuilder::logicalAndExpr(
+      elect_sync_val,
+      IrBuilder::ltExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+}
+
+Val* createElectSyncPredicate(kir::Predicate* pred) {
+  NVF_ERROR(pred != nullptr);
+  if (pred->expr() == nullptr) {
+    return createElectSyncPredicate();
+  }
+
+  TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
+  NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
+
+  bool is_tdx_parallelized = std::any_of(
+      out_tv->domain()->loop().begin(),
+      out_tv->domain()->loop().end(),
+      [](IterDomain* id) {
+        return id->getParallelType() == ParallelType::TIDx;
+      });
+
+  // short-circuit: out_tv uses ParallelType::TIDx
+  if (is_tdx_parallelized) {
+    return pred->fusion()->trueVal();
+  }
+
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  Val* tdx_pt_dim =
+      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+
+  // short-circuit: ParallelType::TIDx is not used in cuda kernel.
+  if (tdx_pt_dim == nullptr) {
+    return pred->fusion()->trueVal();
+  }
+
+  // short-circuit: Expect ParallelType::TIDx to be const scalar for
+  // ElectSync predicate.
+  if (!tdx_pt_dim->isConstScalar()) {
+    return IrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+  }
+
+  // short-circuit: Expect ParallelType::TIDx to have at least one warp.
+  if (tdx_pt_dim->evaluate().as<int64_t>() < 32) {
+    return IrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+  }
+
+  return createElectSyncPredicate();
+}
+
+} // namespace
+
 Val* PredicateCompute::getExprSyncPredicate(
     kir::Predicate* pred,
     const std::vector<ForLoop*>& loops) {
@@ -383,32 +445,38 @@ Val* PredicateCompute::getExprSyncPredicate(
       pred->expr() == nullptr || ir_utils::isCpAsyncBulkStore(pred->expr()),
       "expr should be empty or tma store expression.");
 
-  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
-  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-
-  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-  IrBuilder::create<UnaryOp>(
-      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  // The predicate in the cuda kernel is:
+  // elect-sync(TDX, full_warp_mask) && TDX < 32
+  //
+  // The assumptions are TDX is constant, TDX >= 32, and TDX is not used by
+  // tma expression.
+  Val* conditional = createElectSyncPredicate(pred);
 
   // Short-Circuit: TMA Store Expression
   if (pred->expr() != nullptr && ir_utils::isCpAsyncBulkStore(pred->expr())) {
-    Val* conditional = SimplifyingIrBuilder::logicalAndExpr(
-        elect_sync_val,
-        IrBuilder::ltExpr(
-            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
-    auto parallel_dom_pred =
-        ParallelizedDomainPredicate::getPredicate(pred->expr(), loops);
+    auto pred_map =
+        ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
+    Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
+    for (auto pt : kParallelTypeThreads) {
+      auto pred_info_it = pred_map.find(pt);
+      if (pred_info_it != pred_map.end()) {
+        const auto& pred_info = pred_info_it->second;
+        auto tid_pred = pred_info.getPredicate();
+        parallel_dom_pred =
+            SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+      }
+    }
     NVF_ERROR(parallel_dom_pred != nullptr);
     return SimplifyingIrBuilder::logicalAndExpr(conditional, parallel_dom_pred);
   }
 
+  // Determine if warp specialized tma load expression.
+  ParallelType load_warp_on = ParallelType::Serial;
   auto load_warp_loop_it =
       std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
         return fl->circularBufferLoopStage() ==
             CircularBufferLoopStage::LoadWarp;
       });
-  ParallelType load_warp_on = ParallelType::Serial;
   if (load_warp_loop_it != loops.end()) {
     load_warp_on =
         std::get<WarpSpecialized>(GpuLower::current()
@@ -422,13 +490,11 @@ Val* PredicateCompute::getExprSyncPredicate(
   // If we are in a load warp, then the warp-dispatching IfThenElse
   // already selects on `load_warp_on`, so we should not generate
   // predicates for it here.
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-  Val* conditional = load_warp_on == ParallelType::TIDx
-      ? pred->fusion()->trueVal()
-      : SimplifyingIrBuilder::logicalAndExpr(
-            elect_sync_val,
-            IrBuilder::ltExpr(
-                NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+  if (load_warp_on == ParallelType::TIDx) {
+    conditional = pred->fusion()->trueVal();
+  }
   for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
     if (pdim_map.has(pt) && load_warp_on != pt) {
       conditional = SimplifyingIrBuilder::logicalAndExpr(
