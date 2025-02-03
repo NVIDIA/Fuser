@@ -624,7 +624,7 @@ class AllocationInserter : public kir::ExprMutator {
               // generic-async proxy fence and wgmma fence before each mma
               // instruction. For this case, we need to insert these fences
               // after the initialization of the accumulator, so that the
-              // inilization is visible to the async proxy.
+              // initialization is visible to the async proxy.
               // When all inputs are guarded by mbarrier, we will insert these
               // fences before each mma instruction, so there is no need to
               // insert them after the initialization of the accumulator here.
@@ -888,7 +888,20 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
 
 std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::insertAllocations");
+  // If the fusion uses tensor memory, insert the following things to the
+  // fusion:
+  // - A tcgen05.alloc for each tensor memory region
+  // - A kir::Allocate for a shared memory TensorView for each tensor memory
+  //   region for storing addresses of these regions. Because tcgen05.alloc
+  //   writes the address of allocated memory to the shared memory, there must
+  //   be shared memory TensorViews to store these addresses. These address
+  //   TensorViews are not part of the fusion math, and not handled by
+  //   AllocationInserter::insert. Note that these address TensorViews are not
+  //   the tensor memory TensorViews in fusion math.
+  // - A tcgen05.relinquish_alloc_permit after all tcgen05.allocs
   auto result = insertTMemRegionAllocsAndDeallocs(exprs);
+  // Insert kir::Allocate for each Val, including the kir::Allocate for tensor
+  // memory TensorViews, in fusion math.
   return AllocationInserter::insert(result);
 }
 

@@ -468,6 +468,30 @@ class AllocTMem final : public Expr {
   }
 };
 
+// Allocate tensor memory tcgen05.alloc
+class AllocTMem final : public Expr {
+ public:
+  using Expr::Expr;
+  AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns);
+
+  const char* getOpString() const override {
+    return "AllocTMem";
+  }
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* address() const {
+    return output(0);
+  }
+
+  Val* numColumns() const {
+    return input(0);
+  }
+};
+
 // Sync represents __syncthreads barrier for block level coordination.
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
