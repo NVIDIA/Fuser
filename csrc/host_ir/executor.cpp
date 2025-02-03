@@ -437,11 +437,28 @@ void HostIrEvaluator::handle(Communication* communication) {
 
   std::vector<at::Tensor> output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
   std::vector<void*> input_ptrs = communicator_->getRemotePtrs(input_tensor);
-  cudaStream_t stream = c10::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(communicator_->local_rank())).stream();
+  cudaStream_t current_stream = c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream();
   // TODO: use multicast
   for (auto i = 0; i < communicator_->size(); i++) {
+    cudaStream_t stream = c10::cuda::getStreamFromPool(/*isHighPriority=*/false, my_local_device_index_).stream();
+    cudaEvent_t event = {};
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, current_stream));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaStreamWaitEvent(stream, event, cudaEventWaitDefault));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+
     auto output = output_tensors.at(i);
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output.data_ptr(), input_ptrs.at(i), output.numel() * output.element_size(), cudaMemcpyDeviceToDevice, stream));
+
+    // sync
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
   }
 
 }

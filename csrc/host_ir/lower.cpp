@@ -457,6 +457,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* stream_index = mod(j, number_of_streams);
   auto* stream = IrBuilder::create<hir::Stream>(stream_index);
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
+  auto* initial_sync_stream = IrBuilder::create<hir::Synchronize>(original_stream);
 
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
@@ -496,6 +497,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
   std::vector<Expr*> loop_body = {
       set_stream,
+      initial_sync_stream,
       tva_j->definition(),
       tva_allgathered_j->definition(),
       communication,
