@@ -4480,9 +4480,6 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
-  std::cout << cg_outputs[1][0] << std::endl;
-  std::cout << tv11_ref[0] << std::endl;
-
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
   EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
