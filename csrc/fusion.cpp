@@ -300,6 +300,33 @@ void Fusion::removeOutput(Val* output) {
   invalidateTvsAndUses();
 }
 
+void Fusion::replaceInput(Val* input, Val* replacement) {
+  auto find_input = std::find(inputs_.begin(), inputs_.end(), input);
+  NVF_CHECK(find_input != inputs_.end(), "Unable to find input in Fusion");
+
+  for (const auto& [output, aliased_input] : io_alias_) {
+    NVF_CHECK(
+        aliased_input.aliased_io != input,
+        "Replacing aliased inputs is not supported");
+  }
+
+  std::replace_if(
+      inputs_.begin(),
+      inputs_.end(),
+      [&input](Val* v) { return v == input; },
+      replacement);
+
+  if (replacement->getValType().value() == ValType::TensorView) {
+    replacement->setIsFusionInput(true);
+    replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
+  }
+  if (input->getValType().value() == ValType::TensorView) {
+    input->setIsFusionInput(false);
+  }
+  // Mark uses invalid so that they will be reset next time uses() is called
+  invalidateTvsAndUses();
+}
+
 void Fusion::replaceOutput(Val* output, Val* replacement) {
   auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
   NVF_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");

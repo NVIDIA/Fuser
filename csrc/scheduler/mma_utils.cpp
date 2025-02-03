@@ -1857,40 +1857,69 @@ class MatmulTranslator : public OptInDispatch {
     NVF_ERROR(
         b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
-      MmaOp::AxisMapping axis_mapping;
-      int64_t out_dim = a_dims + 1L;
-      axis_mapping.a_axes.reserve(out_dim);
-      for (int64_t d : c10::irange(out_dim - 2L)) {
-        axis_mapping.a_axes.push_back((int64_t)d);
+      bool is_cached = !pattern_.A->isFusionInput();
+      NVF_ERROR(
+          pattern_.B->isFusionInput() == !is_cached,
+          "If one pattern operand is cached, they must both be");
+      TensorView* gmem_A = pattern_.A;
+      TensorView* gmem_B = pattern_.B;
+      if (is_cached) {
+        auto checkOperandCached = [](TensorView* oper) {
+          auto* def = dynamic_cast<LoadStoreOp*>(oper->definition());
+          NVF_ERROR(
+              def != nullptr,
+              "Definition of ",
+              oper->toString(),
+              " is not LoadStoreOp but it is not a fusion input");
+          auto* gmem_oper = def->input(0)->as<TensorView>();
+          NVF_ERROR(gmem_oper->isFusionInput());
+          return gmem_oper;
+        };
+        gmem_A = checkOperandCached(pattern_.A);
+        gmem_B = checkOperandCached(pattern_.B);
       }
-      axis_mapping.a_axes.push_back(-1); // missing N dimension
-      axis_mapping.a_axes.push_back(a_dims - 1L); // K dimension
+      // Create new A and B with missing broadcasts inserted as root to logical
+      auto cloneWithInsertedBroadcast = [](TensorView* old,
+                                           int64_t new_bcast_pos) {
+        NVF_ERROR(!old->domain()->hasRoot());
+        std::vector<IterDomain*> new_root = old->getMaybeRootDomain();
+        std::vector<IterDomain*> new_logical = new_root;
+        new_bcast_pos = wrapDim(new_bcast_pos, new_root.size() + 1);
+        Fusion* fusion = old->fusion();
+        new_logical.insert(
+            new_logical.begin() + (size_t)new_bcast_pos,
+            IterDomainBuilder(fusion->zeroVal(), fusion->oneVal())
+                .iter_type(IterType::Broadcast)
+                .build());
 
-      axis_mapping.b_axes.reserve(out_dim);
-      axis_mapping.b_axes.resize(out_dim, -1);
-      axis_mapping.b_axes[out_dim - 2] = 0; // N
-      axis_mapping.b_axes[out_dim - 1] = 1; // K
+        std::vector<std::optional<bool>> new_contig = old->getContiguity();
+        new_contig.insert(
+            new_contig.begin() + (size_t)new_bcast_pos, std::nullopt);
 
-      int64_t num_M_dims = 1 + a_dims - b_dims;
+        auto* new_td = IrBuilder::create<TensorDomain>(
+            new_root,
+            new_logical,
+            /*loop_domain=*/std::vector<IterDomain*>{},
+            new_contig);
+        auto* new_tv = IrBuilder::create<TensorView>(
+            new_td, old->dtype(), old->getMemoryType());
+        return new_tv;
+      };
+      TensorView* new_A = cloneWithInsertedBroadcast(gmem_A, -2);
+      TensorView* new_B = cloneWithInsertedBroadcast(gmem_B, -3);
 
-      // Add loop broadcasts to A and B to mimic logical broadcasts for
-      // simpler scheduling
-      // Note that since operands can be shared among multiple patterns, we
-      // should avoid modifying the operand twice. This is why we first check
-      // for loop broadcasts.
-      if (pattern_.A->domain()->additionalIDs().empty()) {
-        pattern_.A->broadcast(-2); // There's always a single N dimension
+      FusionGuard::getCurFusion()->replaceInput(gmem_A, new_A);
+      FusionGuard::getCurFusion()->replaceInput(gmem_B, new_B);
+
+      if (is_cached) {
+        new_A = new_A->cacheAfter();
+        new_B = new_B->cacheAfter();
       }
 
-      if (pattern_.B->domain()->additionalIDs().empty()) {
-        for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-          // Broadcast B for every M dimension in A
-          pattern_.B->broadcast(0);
-        }
-      }
+      pattern_.A = new_A;
+      pattern_.B = new_B;
 
-      fms = fusedMultiplySum(
-          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     } else {
       std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
       bcast_dim[bcast_dim.size() - 2] = true; // N
