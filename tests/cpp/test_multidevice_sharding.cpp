@@ -10,6 +10,8 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -596,6 +598,11 @@ TEST_F(MultiDeviceTest, ViewWithSplit) {
   in->setAllocationDomain(in->getLoopDomain(), true);
   out->setAllocationDomain(out->getLoopDomain(), true);
 
+  // So the View won't be treated as a meta op and will trigger Pointwise, the
+  // purpose of the test.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 15}, tensor_options);
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
@@ -606,6 +613,11 @@ TEST_F(MultiDeviceTest, ViewWithSplit) {
       {in_tensor.view({-1, 3, 5})},
       __LINE__,
       __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 TEST_F(MultiDeviceTest, ViewWithMerge) {
@@ -629,6 +641,11 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
   in->setAllocationDomain(in->getLoopDomain(), true);
   out->setAllocationDomain(out->getLoopDomain(), true);
 
+  // So the View won't be treated as a meta op and will trigger Pointwise, the
+  // purpose of the test.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}, tensor_options);
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
@@ -639,6 +656,11 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
       {in_tensor.view({-1, 15})},
       __LINE__,
       __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser
