@@ -61,6 +61,7 @@
 #include <nvfuser_resources/block_sync_default.h>
 #include <nvfuser_resources/block_welford_outer.h>
 #include <nvfuser_resources/broadcast.h>
+#include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fp8_support.h>
@@ -77,6 +78,7 @@
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
+#include <nvfuser_resources/tensor_memory.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -100,6 +102,7 @@ std::string kernelPreamble() {
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_memory_cu;
   ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
