@@ -429,21 +429,35 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
-    switch (params_->cta_order) {
-      // TODO: Should we instead check the roles of these dimensions to take the
-      // outermost two M or N axes?
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDy);
+    switch (params_->tiling_strategy) {
+      case MatmulParams::TilingStrategy::OneTilePerCTA:
+        // Data-parallel kernels are parallelized BIDx BIDy
+        switch (params_->cta_order) {
+          // TODO: Should we instead check the roles of these dimensions to take
+          // the outermost two M or N axes?
+          case MatmulParams::TileRasterizationOrder::RowMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDy);
+            break;
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDx);
+            break;
+          default:
+            NVF_THROW(
+                "Invalid TileRasterizationOrder passed to Matmul scheduler");
+        }
         break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
+      case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
+        // For persistent kernels, we just parallelize the SM dimension
         tv->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDx);
         break;
-      default:
-        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
     }
   }
 }
