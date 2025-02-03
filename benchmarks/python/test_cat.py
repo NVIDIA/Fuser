@@ -356,41 +356,38 @@ def test_cat_qwen2_fwd_11_baseline_benchmark(
 ) -> None:
     inputs = [
         torch.randn(
-            size=(2048, 512),
-            dtype=torch.bfloat16,
-            device="cuda",
-            requires_grad=False,
-        ),
+            size=(2048, 512), dtype=torch.bfloat16, device="cuda", requires_grad=False
+        ).as_strided((2048, 512), (512, 1)),
         torch.randn(
             size=(1, 2048, 512),
             dtype=torch.bfloat16,
             device="cuda",
             requires_grad=False,
-        ),
+        ).as_strided((1, 2048, 512), (1048576, 512, 1)),
         torch.randn(
             size=(1, 2048, 128),
             dtype=torch.bfloat16,
             device="cuda",
             requires_grad=False,
-        ),
+        ).as_strided((1, 2048, 128), (262144, 1, 2048)),
         torch.randn(
             size=(1, 2048, 128),
             dtype=torch.bfloat16,
             device="cuda",
             requires_grad=False,
-        ),
+        ).as_strided((1, 2048, 128), (262144, 1, 2048)),
         torch.randn(
             size=(1, 28, 2048, 128),
             dtype=torch.bfloat16,
             device="cuda",
             requires_grad=False,
-        ),
+        ).as_strided((1, 28, 2048, 128), (7340032, 128, 3584, 1)),
         torch.randn(
             size=(1, 4, 2048, 128),
             dtype=torch.bfloat16,
             device="cuda",
             requires_grad=False,
-        ),
+        ).as_strided((1, 4, 2048, 128), (1048576, 128, 512, 1)),
     ]
 
     def benchmark_fn(inputs):
