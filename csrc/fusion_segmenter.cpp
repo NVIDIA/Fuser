@@ -4208,9 +4208,6 @@ void SegmentCandidateFinder::findSegments() {
 }
 
 void SegmentCandidateFinder::privatizeUpcast() {
-  if (getenv("DISABLE_PRIVATIZE")) {
-    return;
-  }
   // Insert castOp to complete_fusion_
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
 

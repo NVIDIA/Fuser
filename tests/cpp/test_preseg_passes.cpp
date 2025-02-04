@@ -1330,7 +1330,6 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(
         &fusion_copy);
-    fusion_copy.printMath();
     auto new_exprs = fusion_copy.exprs();
     EXPECT_EQ(
         std::find_if(
