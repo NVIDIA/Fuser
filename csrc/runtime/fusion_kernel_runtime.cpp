@@ -432,7 +432,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       if (hic->hasKernelExecutor(run_order_id)) {
         auto heuristic_params = schedulers().at(run_order_id).get();
         auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
-            run_order_id, std::vector<Val*>{in_clone}, std::vector<Val*>{out_clone}, heuristic_params->lparams, heuristic_params->cparams);
+            run_order_id, heuristic_params->lparams, heuristic_params->cparams, std::vector<Val*>{in_clone}, std::vector<Val*>{out_clone});
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
         // push back segment's exprs into the container as top level expressions
