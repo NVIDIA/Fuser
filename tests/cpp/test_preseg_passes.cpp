@@ -1326,7 +1326,7 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
   fusion.addOutput(tv2);
 
   {
-    // Make sure MmaOp no longer exists
+    // Make sure MatmulOp no longer exists
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(
         &fusion_copy);
