@@ -208,20 +208,19 @@ TEST_F(ShardingTest, MultiDimDeviceMesh) {
   EXPECT_EQ(mesh.getIndices(8), local_indices_8);
   EXPECT_EQ(mesh.getIndices(1), local_indices_1);
 
-  std::vector<DeviceIdxType> team_axis1_group0 = {3, 4, 1};
-  std::vector<DeviceIdxType> team_axis0_group2 = {1, 2};
-  std::vector<DeviceIdxType> team_2_0 = {1, 2};
-  EXPECT_EQ(mesh.getTeam(1, 1), team_axis1_group0);
-  EXPECT_EQ(mesh.getTeam(1, 0), team_axis0_group2);
-  EXPECT_EQ(mesh.getTeam(2, 0), team_axis0_group2);
+  std::vector<DeviceIdxType> slice_didx_034 = {3, 4, 1};
+  std::vector<DeviceIdxType> slice_didy_12 = {1, 2};
+  EXPECT_EQ(mesh.getSlice(1, ParallelType::DIDx), slice_didx_034);
+  EXPECT_EQ(mesh.getSlice(1, ParallelType::DIDy), slice_didy_12);
+  EXPECT_EQ(mesh.getSlice(2, ParallelType::DIDy), slice_didy_12);
 
   DeviceMesh mesh3d = DeviceMesh::createForShape({2, 3, 4});
-  std::vector<DeviceIdxType> team_axis0_group1 = {6, 18};
-  std::vector<DeviceIdxType> team_axis1_group1 = {14, 18, 22};
-  std::vector<DeviceIdxType> team_axis2_group2 = {16, 17, 18, 19};
-  EXPECT_EQ(mesh3d.getTeam(18, 0), team_axis0_group1);
-  EXPECT_EQ(mesh3d.getTeam(18, 1), team_axis1_group1);
-  EXPECT_EQ(mesh3d.getTeam(18, 2), team_axis2_group2);
+  std::vector<DeviceIdxType> slice_didz = {6, 18};
+  std::vector<DeviceIdxType> slice_didy = {14, 18, 22};
+  std::vector<DeviceIdxType> slice_didx = {16, 17, 18, 19};
+  EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDz), slice_didz);
+  EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDy), slice_didx);
+  EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDx), slice_didx);
 }
 
 INSTANTIATE_TEST_SUITE_P(

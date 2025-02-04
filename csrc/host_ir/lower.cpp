@@ -50,6 +50,12 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
   }
 }
 
+// Temporary helper function to check we have a 1D mesh while
+// multidimensional support is being built up.
+bool is1DMesh(const DeviceMesh& mesh) {
+  return mesh.shape().size() == 1;
+}
+
 // Adds one or zero Scatter communication to the vector 'comms'
 void lowerToScatter(
     TensorView* input_tv,
@@ -57,6 +63,7 @@ void lowerToScatter(
     std::vector<Expr*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
+  NVF_ERROR(is1DMesh(receiver_mesh), "Gather only supported on a 1D mesh. Given ", receiver_mesh);
   auto root = input_tv->getDeviceMesh().at(0);
   Team team = receiver_mesh.vector();
   if (!receiver_mesh.has(root)) {
@@ -70,7 +77,7 @@ void lowerToScatter(
 Adds zero or multiple Gather communications to the vector 'comms'
 
 Note that since the root of a Gather collective is a destination, we possibly
-need multiple Gather if the tensor is replicated in the receiver mesh.
+need multiple Gathers if the tensor is replicated in the receiver mesh.
 */
 void lowerToGather(
     TensorView* input_tv,
@@ -78,6 +85,7 @@ void lowerToGather(
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
+  NVF_ERROR(is1DMesh(sender_mesh), "Currently only lower Gather on a 1D mesh. Given ", sender_mesh);
   for (auto root : output_tv->getDeviceMesh().vector()) {
     Team team = sender_mesh.vector();
     if (!sender_mesh.has(root)) {
@@ -92,10 +100,11 @@ void lowerToGather(
 void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
-    std::vector<Expr*>& comms) {
-  const DeviceMesh& mesh = input_tv->getDeviceMesh();
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
+  Team team = input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Allgather, output_tv, input_tv, mesh.vector()));
+      CommunicationType::Allgather, output_tv, input_tv, team));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -105,6 +114,7 @@ void lowerToBroadcast(
     DeviceIdxType root,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
+  NVF_ERROR(is1DMesh(mesh), "Broadcast on supported a 1D mesh. Given ", mesh);
   Team team = mesh.vector();
   if (!mesh.has(root)) {
     team.push_back(root);
@@ -123,6 +133,8 @@ void lowerToBroadcastOrSendRecv(
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
+  NVF_ERROR(is1DMesh(sender_mesh), "Broadcast on supported a 1D mesh. Given ", sender_mesh);
+  NVF_ERROR(is1DMesh(receiver_mesh), "Broadcast on supported a 1D mesh. Given ", receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
@@ -164,6 +176,8 @@ void lowerToReduce(
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
+  NVF_ERROR(is1DMesh(sender_mesh), "Broadcast on supported a 1D mesh. Given ", sender_mesh);
+  NVF_ERROR(is1DMesh(receiver_mesh), "Broadcast on supported a 1D mesh. Given ", receiver_mesh);
   const auto reduce_op_type = getC10dReduceOpType(op_type);
   // we create as many Reduces as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
@@ -185,13 +199,14 @@ void lowerToAllreduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Expr*>& comms) {
-  const DeviceMesh& mesh = input_tv->getDeviceMesh();
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
+  Team team = input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allreduce,
       output_tv,
       input_tv,
-      mesh.vector(),
+      team,
       /*root=*/-1,
       getC10dReduceOpType(op_type)));
 }
@@ -200,8 +215,9 @@ void lowerToReduceScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    std::vector<Expr*>& comms) {
-  const DeviceMesh& mesh = input_tv->getDeviceMesh();
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
+  Team team = input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
   // The output tensor is sharded on scattered_axis and needs to be mapped
@@ -216,7 +232,7 @@ void lowerToReduceScatter(
       CommunicationType::ReduceScatter,
       output_tv,
       input_tv,
-      /*team=*/mesh.vector(),
+      /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
       scattered_axis));
@@ -233,7 +249,7 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<Expr*> HostIrLower::lower(Expr* c) {
+std::vector<Expr*> HostIrLower::lower(Expr* c, DeviceIdxType my_device_idx) {
   FusionGuard fg(c->fusion());
 
   if (c->isOneOf<MatmulOp, LinearOp>()) {
@@ -256,7 +272,7 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const bool same_mesh = sender_mesh == receiver_mesh;
 
-  // Stores whether the I/O has its first axis parallelized on Didx
+  // Stores whether the I/O has its first axis parallelized on DIDx
   const bool is_input_sharded = isSharded(input_tv) && sender_mesh.size() > 1;
   const bool is_output_sharded =
       isSharded(output_tv) && receiver_mesh.size() > 1;
@@ -282,11 +298,11 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
       NVF_ERROR(
           same_mesh,
           "ReduceScatter operation must have the same sender and receiver device mesh. "
-          "Insert a Set operation before or after the reduction to reshard ot another device mesh");
-      lowerToReduceScatter(input_tv, output_tv, op_type, comms);
+          "Insert a Set operation before or after the reduction to reshard to another device mesh");
+      lowerToReduceScatter(input_tv, output_tv, op_type, comms, my_device_idx);
     } else {
       if (same_mesh) {
-        lowerToAllreduce(input_tv, output_tv, op_type, comms);
+        lowerToAllreduce(input_tv, output_tv, op_type, comms, my_device_idx);
       } else {
         lowerToReduce(input_tv, output_tv, op_type, comms);
       }
@@ -296,7 +312,7 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
       lowerToScatter(input_tv, output_tv, comms);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, comms);
+        lowerToAllgather(input_tv, output_tv, comms, my_device_idx);
       } else {
         lowerToGather(input_tv, output_tv, comms);
       }
@@ -506,7 +522,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     std::unique_ptr<Fusion> fusion,
-    int64_t my_device_index) {
+    DeviceIdxType my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
   preseg_passes::OptimizationPass<
@@ -565,7 +581,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
       for (auto* expr :
-           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
+           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)), my_device_index)) {
         // Allocate the recv buffers of communications
         if (expr->isA<Communication>()) {
           auto* communication = expr->as<Communication>();

@@ -107,22 +107,21 @@ class DeviceMesh final {
   // Returns the max device id in the DeviceMesh.
   DeviceIdxType maxDeviceId() const;
 
-  // Returns the team
-  // DeviceMesh. The team will be the group of devices involved in a
-  // communication (including device).
+  // Returns a slice of the DeviceMesh accorinding to the device parallel type
+  // that contains the device
   // Ex: [[0 1 2]
   //      [3 4 5]]
-  // getTeam(4, 0) = {3, 4, 5}
-  // getTeam(4, 1) = {1, 4}
-  // TODO: this might be worth caching per TV...
-  Team getTeam(DeviceIdxType device, int64_t axis = 0) const;
+  // getSlice(4, ParallelType::DIDx) = {3, 4, 5}
+  // getSlice(4, ParallelType::DIDy) = {1, 4}
+  // TODO: these might be worth caching per TV
+  std::vector<DeviceIdxType> getSlice(DeviceIdxType device, ParallelType ptype) const;
 
  private:
   void setDevices(std::vector<DeviceIdxType> devices);
 
   // stores the flattened list of device indices
   std::vector<DeviceIdxType> vector_;
-  // shape of the device mesh.
+  // shape of the device mesh
   std::vector<int64_t> shape_;
 };
 

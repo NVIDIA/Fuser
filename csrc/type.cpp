@@ -1550,7 +1550,7 @@ bool isParallelTypeBlockDim(ParallelType ptype) {
 }
 
 bool isParallelTypeDeviceDim(ParallelType ptype) {
-  return ptype == ParallelType::DIDx;
+  return ptype == ParallelType::DIDx || ptype == ParallelType::DIDy || ptype == ParallelType::DIDz;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {

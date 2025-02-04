@@ -25,7 +25,7 @@ DeviceMesh::DeviceMesh(
     shape_ = {(int64_t)devices.size()};
   } else {
     int64_t num_devices = std::accumulate(
-        shape.begin(), shape.end(), 1, std::multiplies<int64_t>());
+        shape.begin(), shape.end(), 1, std::multiplies<>());
     NVF_ERROR(
         (int64_t)devices.size() == num_devices,
         "Specified a list of device with ",
@@ -40,6 +40,7 @@ DeviceMesh::DeviceMesh(
 
 DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
   setDevices(std::vector<DeviceIdxType>(devices));
+  shape_ = {(int64_t) vector_.size()};
 }
 
 void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
@@ -62,7 +63,7 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
 
 /*static*/ DeviceMesh DeviceMesh::createForShape(std::vector<int64_t> shape) {
   int64_t num_devices = std::accumulate(
-      shape.begin(), shape.end(), 1, std::multiplies<int64_t>());
+      shape.begin(), shape.end(), 1, std::multiplies<>());
   std::vector<DeviceIdxType> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   return DeviceMesh(devices, shape);
@@ -75,25 +76,25 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   }
 
   out << "DeviceMesh";
-  size_t nDevices = std::accumulate(
-        mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<size_t>());
-  size_t nDim = mesh.shape().size();
+  size_t ndevices = std::accumulate(
+        mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
+  size_t ndims = mesh.shape().size();
   std::vector<int64_t> strides = mesh.shape();
-  for (int i = nDim - 2; i >= 0; --i) {
+  for (size_t i = ndims - 2; i >= 0; --i) {
       strides[i] *= strides[i + 1];
   }
 
-  for (size_t i = 0; i < nDevices; i++) {
-    for (size_t axis = 0; axis < nDim; axis++) {
+  for (size_t i = 0; i < ndevices; i++) {
+    for (size_t axis = 0; axis < ndims; axis++) {
       if (i % strides[axis] == 0) {
         out << "{";
       }
     }
     out << mesh.vector().at(i);
-    if ((i+1) % strides[nDim-1] != 0) {
+    if ((i+1) % strides[ndims-1] != 0) {
       out << " ";
     }
-    for (size_t axis = 0; axis < nDim; axis++) {
+    for (size_t axis = 0; axis < ndims; axis++) {
       if ((i+1) % strides[axis] == 0) {
         out << "}";
       }
@@ -128,21 +129,26 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
   return *std::max_element(vector_.begin(), vector_.end());
 }
 
-std::vector<DeviceIdxType> DeviceMesh::getTeam(
+std::vector<DeviceIdxType> DeviceMesh::getSlice(
     DeviceIdxType device,
-    int64_t axis) const {
-  NVF_ERROR(
-      axis < (int64_t)shape_.size(),
+    ParallelType ptype) const {
+  NVF_ERROR(isParallelTypeDeviceDim(ptype),
+  "Requires a DID parallel type but received ", ptype);
+  int64_t axis = shape_.size() - 1;
+  if (ptype == ParallelType::DIDy) {
+    axis -= 1;
+  } else if (ptype == ParallelType::DIDz) {
+    axis -= 2;
+  }
+  NVF_ERROR(axis < (int64_t)shape_.size(),
       "DeviceMesh has ",
       shape_.size(),
-      " dimensions, but requesting team for ",
-      axis);
-
+      " dimensions, but requesting slice for ", ptype);
   int64_t offset = 0;
   int64_t stride = 1;
   int64_t accumulated_size = 1;
   auto indices = getIndices(device);
-  NVF_ERROR(!indices.empty(), "Device is not in DeviceMesh");
+  NVF_ERROR(!indices.empty(), "Device ", device, " is not in DeviceMesh ", vector_);
   for (int64_t i = (int64_t)shape_.size() - 1; i >= 0; i--) {
     if (i > axis) {
       stride *= shape_[i];

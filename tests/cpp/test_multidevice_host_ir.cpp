@@ -467,6 +467,8 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
   torch::cuda::synchronize();
   cudaProfilerStop();
 
+  std::cout << out_ref[0][0] << std::endl;
+  std::cout << out_at[0][0] << std::endl;
   EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
 }
 
