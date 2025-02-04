@@ -1906,16 +1906,16 @@ class MatmulTranslator : public OptInDispatch {
             new_td, old->dtype(), old->getMemoryType());
         return new_tv;
       };
-      TensorView* new_A = cloneWithInsertedBroadcast(gmem_A, -2);
-      TensorView* new_B = cloneWithInsertedBroadcast(gmem_B, -3);
+      new_A_ = cloneWithInsertedBroadcast(gmem_A, -2);
+      new_B_ = cloneWithInsertedBroadcast(gmem_B, -3);
 
-      FusionGuard::getCurFusion()->replaceInput(gmem_A, new_A);
-      FusionGuard::getCurFusion()->replaceInput(gmem_B, new_B);
+      FusionGuard::getCurFusion()->replaceInput(gmem_A, new_A_);
+      FusionGuard::getCurFusion()->replaceInput(gmem_B, new_B_);
 
-      fms = fusedMultiplySum(new_A, new_B, {-1});
+      fms = fusedMultiplySum(new_A_, new_B_, {-1});
 
-      pattern_.A = new_A;
-      pattern_.B = new_B;
+      pattern_.A = new_A_;
+      pattern_.B = new_B_;
     } else {
       std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
       bcast_dim[bcast_dim.size() - 2] = true; // N
@@ -2078,9 +2078,12 @@ class MatmulTranslator : public OptInDispatch {
           fms->definition(), {pattern_.output});
     }
 
-    if (is_cached_) {
-      new_A = new_A->cacheAfter();
-      new_B = new_B->cacheAfter();
+    if (is_cached_ && new_A_ && new_B_) {
+      new_A_ = new_A_->cacheAfter();
+      new_B_ = new_B_->cacheAfter();
+      // cacheAfter will remove the MmaOp that new_A_ and new_B_ are previously
+      // used in, so we need to reassign it to the new definition of fms.
+      mma_ = fms->definition()->as<MmaOp>();
     }
   }
 
@@ -2089,6 +2092,8 @@ class MatmulTranslator : public OptInDispatch {
   bool avoid_intermediates_;
   MmaOp* mma_ = nullptr;
   bool is_cached_ = false;
+  TensorView* new_A_;
+  TensorView* new_B_;
 };
 
 } // namespace
