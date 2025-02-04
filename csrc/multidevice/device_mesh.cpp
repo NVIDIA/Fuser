@@ -18,7 +18,23 @@
 
 namespace nvfuser {
 
-DeviceMesh::DeviceMesh(std::vector<DeviceIdxType> devices) {
+DeviceMesh::DeviceMesh(
+    std::vector<DeviceIdxType> devices,
+    std::vector<int64_t> shape) {
+  if (shape.empty()) {
+    shape_ = {(int64_t)devices.size()};
+  } else {
+    int64_t num_devices = std::accumulate(
+        shape.begin(), shape.end(), 1, std::multiplies<int64_t>());
+    NVF_ERROR(
+        (int64_t)devices.size() == num_devices,
+        "Specified a list of device with ",
+        devices.size(),
+        " elements ",
+        " but shape contains ",
+        num_devices);
+    shape_ = std::move(shape);
+  }
   setDevices(std::move(devices));
 }
 
@@ -44,6 +60,14 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
   return DeviceMesh(devices);
 }
 
+/*static*/ DeviceMesh DeviceMesh::createForShape(std::vector<int64_t> shape) {
+  int64_t num_devices = std::accumulate(
+      shape.begin(), shape.end(), 1, std::multiplies<int64_t>());
+  std::vector<DeviceIdxType> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  return DeviceMesh(devices, shape);
+}
+
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   out << "DeviceMesh{" << mesh.vector() << "}";
   return out;
@@ -54,6 +78,56 @@ int64_t DeviceMesh::size(const ParallelType parallel_type) const {
       parallel_type == ParallelType::DIDx,
       "We support only 1-D sharding for now.");
   return size();
+}
+
+std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
+  auto global_idx = idxOf(device);
+  if (global_idx == -1) {
+    return {};
+  }
+  std::vector<int64_t> indices(shape_.size());
+  int64_t accumulated_size = 1;
+  for (int64_t i = (int64_t)shape_.size() - 1; i >= 0; i--) {
+    indices[i] = (global_idx / accumulated_size) % shape_[i];
+    accumulated_size *= shape_[i];
+  }
+  return indices;
+}
+
+DeviceIdxType DeviceMesh::maxDeviceId() const {
+  return *std::max_element(vector_.begin(), vector_.end());
+}
+
+std::vector<DeviceIdxType> DeviceMesh::getTeam(
+    DeviceIdxType device,
+    int64_t axis) const {
+  NVF_ERROR(
+      axis < (int64_t)shape_.size(),
+      "DeviceMesh has ",
+      shape_.size(),
+      " dimensions, but requesting team for ",
+      axis);
+
+  int64_t offset = 0;
+  int64_t stride = 1;
+  int64_t accumulated_size = 1;
+  auto indices = getIndices(device);
+  NVF_ERROR(!indices.empty(), "Device is not in DeviceMesh");
+  for (int64_t i = (int64_t)shape_.size() - 1; i >= 0; i--) {
+    if (i > axis) {
+      stride *= shape_[i];
+    }
+    if (i != axis) {
+      offset += indices[i] * accumulated_size;
+    }
+    accumulated_size *= shape_[i];
+  }
+
+  std::vector<DeviceIdxType> team(shape_[axis]);
+  for (auto i : c10::irange(team.size())) {
+    team.at(i) = vector_.at(i * stride + offset);
+  }
+  return team;
 }
 
 } // namespace nvfuser
