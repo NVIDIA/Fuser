@@ -89,7 +89,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (registry_utils::hasNonUniqueBcast(fusion, true)) {
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
