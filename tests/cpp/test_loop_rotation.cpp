@@ -568,7 +568,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKern
   const unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO;
   float* T4 = reinterpret_cast<float*>(array + smem_offset + 0LL);
-  unsigned i0;
+  uint32_t i0;
   i0 = toSmem(T4);
   float* ptr1;
   ptr1 = T0.data + (4LL * T0.alloc_stride[0LL]);
@@ -576,7 +576,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKern
   for(nvfuser_index_t i2 = 0LL; i2 < 4LL; ++i2) {
     float* ptr3;
     ptr3 = T0.data + (T0.alloc_stride[0LL] * i2);
-    unsigned i4;
+    uint32_t i4;
     i4 = i0 + (12LL * i2);
     bool b5;
     b5 = (i2 + nvfuser_zero) < T0.logical_size[0LL];
@@ -608,7 +608,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKern
     ptr8 = ptr1 + (T0.alloc_stride[0LL] * i7);
     nvfuser_index_t i9;
     i9 = 4LL + i7;
-    unsigned i10;
+    uint32_t i10;
     i10 = i0 + (12LL * (i9 % 5LL));
     nvfuser_index_t i11;
     i11 = 1LL + (3LL * (i7 % 5LL));
