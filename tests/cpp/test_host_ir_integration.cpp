@@ -47,7 +47,7 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   hic->addOutput(hic_out);
 
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
+      0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out}, LaunchParams(), CompileParams());
 
   hic->pushBackTopLevelExprs(launch_kernel);
 

@@ -12,6 +12,7 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <atomic>
+#include <scheduler/heuristic.h>
 
 namespace nvfuser {
 
@@ -123,6 +124,8 @@ class LaunchKernel : public Expr {
       int64_t hic_executor_index, // Index into the HostIrContainer's vector of
                                   // KernelExecutors--i.e., the kernel this IR
                                   // should launch
+      const LaunchParams& launch_constraints,
+      CompileParams compile_params,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs);
 
@@ -142,6 +145,9 @@ class LaunchKernel : public Expr {
   int64_t getIndex() const {
     return attribute<int64_t>(0);
   }
+
+  const LaunchParams& launch_constraints_;
+  CompileParams compile_params_;
 };
 
 class Stream : public Val {

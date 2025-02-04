@@ -122,10 +122,14 @@ bool PostOnStream::sameAs(const Statement* other) const {
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t hic_executor_index,
+    const LaunchParams& launch_constraints,
+    CompileParams compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs)
-    : Expr(passkey, inputs, outputs, {}) {
+    : Expr(passkey, inputs, outputs, {}), launch_constraints_(launch_constraints), compile_params_(compile_params) {
   addDataAttribute(hic_executor_index);
+  //launch_constraints_ = launch_constraints;
+  //compile_params_ = compile_params;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
