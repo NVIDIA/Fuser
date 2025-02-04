@@ -119,7 +119,6 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
   }
-  cudaProfilerStart();
 }
 
 bool ExprEvalExecutor::isCompiled() const {
