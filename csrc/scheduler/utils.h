@@ -617,10 +617,10 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
-// Generates an old to new map to reorder tv's domain as the logical order.
-// This only handles the simple case where allocation is a permutation of
-// logical domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+// Generates an old to new map to reorder tv's loop domain as its allocation
+// order. This only handles the simple case where allocation is a permutation of
+// loop domain, otherwise, the function returns an empty container.
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv);
 
 // Assumes view's are consistent as detected by
