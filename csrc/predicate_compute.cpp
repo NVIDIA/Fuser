@@ -439,25 +439,48 @@ Val* PredicateCompute::getExprSyncPredicate(
       pred->expr() == nullptr || ir_utils::isCpAsyncBulkStore(pred->expr()),
       "expr should be empty or tma store expression.");
 
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+
   // Short-Circuit: Handle TMA Store separately
   if (pred->expr() != nullptr && ir_utils::isCpAsyncBulkStore(pred->expr())) {
     auto pred_map =
         ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
     Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
-    for (auto pt : kParallelTypeThreads) {
+    for (auto pt :
+         {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
       auto pred_info_it = pred_map.find(pt);
       if (pred_info_it != pred_map.end()) {
         const auto& pred_info = pred_info_it->second;
         auto tid_pred = pred_info.getPredicate();
-        parallel_dom_pred =
-            SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+        if (tid_pred != nullptr) {
+          // Case 1: TMA expression uses ParallelDim to launch multiple
+          // operations simultaneously. Use parallel domain predicate if it
+          // exists.
+          parallel_dom_pred =
+              SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+        } else if (pdim_map.has(pt)) {
+          // Case 2: ParallelDim is used by CTA but not the TMA expression.
+          // Select a single thread along ParallelDim.
+          if (pt == ParallelType::TIDx) {
+            // Use createElectSyncPredicate for ParallelDim::TIDx.
+            parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+                parallel_dom_pred, createElectSyncPredicate(pred));
+          } else {
+            // Select first element of dimension for ParallelDim::TIDy and
+            // ParallelDim::TIDz.
+            parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+                parallel_dom_pred,
+                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+          }
+        }
       }
     }
     NVF_ERROR(parallel_dom_pred != nullptr);
-    return SimplifyingIrBuilder::logicalAndExpr(
-        createElectSyncPredicate(pred), parallel_dom_pred);
+    return parallel_dom_pred;
   }
 
+  // Assume tma expressions are in a circular buffer for-loop.
   // Determine if warp specialized tma load expression.
   ParallelType load_warp_on = ParallelType::Serial;
   auto load_warp_loop_it =
@@ -478,8 +501,6 @@ Val* PredicateCompute::getExprSyncPredicate(
   // If we are in a load warp, then the warp-dispatching IfThenElse
   // already selects on `load_warp_on`, so we should not generate
   // predicates for it here.
-  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
   Val* conditional = load_warp_on == ParallelType::TIDx
       ? pred->fusion()->trueVal()
       : createElectSyncPredicate();
