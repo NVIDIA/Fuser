@@ -45,9 +45,6 @@ class LoopDomainSchedulingTest : public NVFuserTest {
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
-
- private:
-  EnableOptionsGuard enable_options_guard_;
 };
 
 TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {

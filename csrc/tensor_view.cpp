@@ -60,6 +60,9 @@ std::string TensorView::toString(int indent_size) const {
     case MemoryType::Local:
       ss << "_l";
       break;
+    case MemoryType::Tensor:
+      ss << "_t";
+      break;
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
@@ -531,8 +534,7 @@ TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   NVF_CHECK(
       this->axis(axis)->getParallelType() == ParallelType::Serial,
       "Splitting an axis of non-Serial parallel type is not supported at this time."
-      " Parallelization strategy must be set after calling split.",
-      ". Tensor: ",
+      " Parallelization strategy must be set after calling split: ",
       toString());
 
   if (factor->dtype() != DataType::Index) {
@@ -800,7 +802,8 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   FusionGuard fg(fusion());
   NVF_CHECK(
       definition() != nullptr &&
-          (definition()->isStrictlyOneOf<ReductionOp, MmaOp>()),
+          (definition()
+               ->isStrictlyOneOf<ReductionOp, MmaOp, MatmulOp, LinearOp>()),
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
@@ -832,38 +835,50 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   setDomain(consumer_domain);
   TensorView* consumer = this;
 
-  if (auto this_reduction = dynamic_cast<ReductionOp*>(definition())) {
+  if (auto reduction = dynamic_cast<ReductionOp*>(definition())) {
     // Setup dependency chain, inserting producer before this op.
     // Expr* producer_definition =
     IrBuilder::create<ReductionOp>(
-        this_reduction->getReductionOpType(),
-        this_reduction->init(),
+        reduction->getReductionOpType(),
+        reduction->init(),
         producer,
-        this_reduction->in());
+        reduction->in());
 
     // Expr* consumer_definition =
     IrBuilder::create<ReductionOp>(
-        this_reduction->getReductionOpType(),
-        this_reduction->init(),
-        consumer,
-        producer);
-  } else if (auto this_mma = dynamic_cast<MmaOp*>(definition())) {
+        reduction->getReductionOpType(), reduction->init(), consumer, producer);
+  } else if (auto mma = dynamic_cast<MmaOp*>(definition())) {
     // Initial reduction that still uses mma to combine
     //  the input.
     IrBuilder::create<MmaOp>(
         producer,
-        this_mma->inA(),
-        this_mma->inB(),
-        this_mma->init(),
-        this_mma->axisMapping(),
-        this_mma->macro());
+        mma->inA(),
+        mma->inB(),
+        mma->init(),
+        mma->axisMapping(),
+        mma->macro());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
     IrBuilder::create<ReductionOp>(
-        BinaryOpType::Add, this_mma->init(), consumer, producer);
+        BinaryOpType::Add, mma->init(), consumer, producer);
+  } else if (auto matmul = dynamic_cast<MatmulOp*>(definition())) {
+    IrBuilder::create<MatmulOp>(producer, matmul->inA(), matmul->inB());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto linear = dynamic_cast<LinearOp*>(definition())) {
+    IrBuilder::create<LinearOp>(
+        producer, linear->inA(), linear->inB(), linear->bias());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
-    NVF_THROW("RFactor: unsupported tensor definition");
+    NVF_THROW("RFactor: unsupported tensor definition: ", definition());
   }
   return producer;
 }

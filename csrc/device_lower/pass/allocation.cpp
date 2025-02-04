@@ -473,12 +473,39 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     // Create the allocation node
-    return IrBuilder::create<kir::Allocate>(
+    auto alloc_expr = IrBuilder::create<kir::Allocate>(
         info.buffer, info.buffer->getMemoryType(), alloc_dims);
+
+    // Fill in the base address, lane offset, and column offset for tensor
+    // memory allocations
+    if (memory_type == MemoryType::Tensor) {
+      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+      for (const auto& region : regions) {
+        auto tv_info_it = std::find_if(
+            region.covered_tensors.begin(),
+            region.covered_tensors.end(),
+            [&](const auto& tv_info) { return tv_info.tensor == info.buffer; });
+        if (tv_info_it != region.covered_tensors.end()) {
+          auto address_ti = IrBuilder::create<kir::TensorIndex>(
+              region.address, region.address->fusion()->zeroVal());
+          alloc_expr->setAddress(address_ti);
+          alloc_expr->setLaneOffset(tv_info_it->lane_offset);
+          alloc_expr->setColOffset(tv_info_it->column_offset);
+          break;
+        }
+      }
+      NVF_ERROR(
+          alloc_expr->address() != nullptr,
+          "Could not find region for tensor memory allocation of ",
+          info.buffer);
+    }
+
+    return alloc_expr;
   }
 
   void dispatch(Expr* expr) override {
-    if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
+    if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
+        expr->isA<kir::AllocTMem>()) {
       ExprMutator::dispatch(expr);
       return;
     }
@@ -601,7 +628,7 @@ class AllocationInserter : public kir::ExprMutator {
               // generic-async proxy fence and wgmma fence before each mma
               // instruction. For this case, we need to insert these fences
               // after the initialization of the accumulator, so that the
-              // inilization is visible to the async proxy.
+              // initialization is visible to the async proxy.
               // When all inputs are guarded by mbarrier, we will insert these
               // fences before each mma instruction, so there is no need to
               // insert them after the initialization of the accumulator here.
@@ -632,7 +659,7 @@ class AllocationInserter : public kir::ExprMutator {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
-                                 .dtype(DataType::UInt)
+                                 .dtype(DataType::UInt64)
                                  .contiguity(true)
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
@@ -697,7 +724,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{num_mbarriers})
-                                 .dtype(DataType::UInt)
+                                 .dtype(DataType::UInt64)
                                  .contiguity(true)
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
@@ -813,11 +840,73 @@ class AllocationInserter : public kir::ExprMutator {
   }
 };
 
+// Insert IR nodes that allocate and deallocate TMem regions.
+// See note [Tensor Memory Allocation] for the overall design.
+// We insert the tcgen05.allocs of each region and the relinquish of the right
+// to allocate at the beginning of the top-level scope of the kernel. We do not
+// tcgen05.dealloc for now. The allocation of each TMem TensorView within each
+// region is inserted by AllocationInserter::insert, therefore not handled here.
+std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
+    const std::vector<Expr*>& exprs) {
+  // Expressions to be inserted at the beginning of the top-level scope.
+  std::list<Expr*> prologue;
+  {
+    const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+    // For each TMem region, allocate its address in shared memory, and insert
+    // the tcgen05.alloc for tensor memory allocation.
+    for (const auto& region : regions) {
+      // kir::Allocate for the address tensor on shared memory
+      auto address_alloc_expr =
+          IrBuilder::create<kir::Allocate>(region.address, MemoryType::Shared);
+      prologue.push_back(address_alloc_expr);
+      // the tcgen05.alloc instruction
+      auto alloc_expr =
+          IrBuilder::create<kir::AllocTMem>(region.address, region.num_columns);
+      prologue.push_back(alloc_expr);
+    }
+
+    if (!regions.empty()) {
+      // Relinquish the right to allocate after all regions have been allocated
+      auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
+          "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+          std::vector<Val*>{},
+          std::vector<Val*>{},
+          kir::Asm::Options{/*volatile=*/true});
+      prologue.push_back(tcgen05_relinquish_expr);
+
+      // Block sync that makes allocation visible to all threads
+      auto block_sync = IrBuilder::create<kir::BlockSync>();
+      prologue.push_back(block_sync);
+    }
+  }
+
+  // Combine prologue and exprs
+  std::vector<Expr*> result;
+  result.reserve(prologue.size() + exprs.size());
+  result.insert(result.end(), prologue.begin(), prologue.end());
+  result.insert(result.end(), exprs.begin(), exprs.end());
+  return result;
+}
+
 } // namespace
 
 std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::insertAllocations");
-  return AllocationInserter::insert(exprs);
+  // If the fusion uses tensor memory, insert the following things to the
+  // fusion:
+  // - A tcgen05.alloc for each tensor memory region
+  // - A kir::Allocate for a shared memory TensorView for each tensor memory
+  //   region for storing addresses of these regions. Because tcgen05.alloc
+  //   writes the address of allocated memory to the shared memory, there must
+  //   be shared memory TensorViews to store these addresses. These address
+  //   TensorViews are not part of the fusion math, and not handled by
+  //   AllocationInserter::insert. Note that these address TensorViews are not
+  //   the tensor memory TensorViews in fusion math.
+  // - A tcgen05.relinquish_alloc_permit after all tcgen05.allocs
+  auto result = insertTMemRegionAllocsAndDeallocs(exprs);
+  // Insert kir::Allocate for each Val, including the kir::Allocate for tensor
+  // memory TensorViews, in fusion math.
+  return AllocationInserter::insert(result);
 }
 
 } // namespace nvfuser
