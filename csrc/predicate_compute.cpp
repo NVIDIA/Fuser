@@ -377,6 +377,8 @@ std::size_t UnswitchPredicateKeyHash::operator()(
 
 namespace {
 
+// Select first warp of threads along TIDx axis and then use ptx::elect_sync
+// TODO If TIDx is known at compile-time, generate custom mask.
 Val* createElectSyncPredicate() {
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
   Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
@@ -396,7 +398,7 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
   TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  bool is_tdx_parallelized = std::any_of(
+  bool is_tv_tidx_parallelized = std::any_of(
       out_tv->domain()->loop().begin(),
       out_tv->domain()->loop().end(),
       [](IterDomain* id) {
@@ -404,22 +406,22 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
       });
 
   // short-circuit: out_tv uses ParallelType::TIDx
-  if (is_tdx_parallelized) {
+  if (is_tv_tidx_parallelized) {
     return pred->fusion()->trueVal();
   }
 
-  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-  Val* tdx_pt_dim =
+  Val* tidx_paralleltype_dim =
       GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
 
   // short-circuit: ParallelType::TIDx is not used in cuda kernel.
-  if (tdx_pt_dim == nullptr) {
+  if (tidx_paralleltype_dim == nullptr) {
     return pred->fusion()->trueVal();
   }
 
   // short-circuit: Expect ParallelType::TIDx to have at least one warp.
-  if (tdx_pt_dim->isConstScalar() &&
-      tdx_pt_dim->evaluate().as<int64_t>() < 32) {
+  if (tidx_paralleltype_dim->isConstScalar() &&
+      tidx_paralleltype_dim->evaluate().as<int64_t>() < 32) {
+    Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
     return IrBuilder::eqExpr(
         NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
   }
