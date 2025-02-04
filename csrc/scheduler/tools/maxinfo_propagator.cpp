@@ -7,6 +7,8 @@
 // clang-format on
 #include <logical_domain_map.h>
 #include <scheduler/tools/maxinfo_propagator.h>
+#include <ir/utils.h>
+
 
 namespace nvfuser {
 
@@ -470,7 +472,10 @@ bool SetSelector::allowP2C(TensorView* from, TensorView* to) {
 }
 
 bool SetSelector::allowSibling(TensorView* from, TensorView* to) {
-  return true;
+  if (ir_utils::hasUniformSiblings(from->definition())){
+    return true;
+  }
+  return false;
 }
 
 } // namespace nvfuser
