@@ -6,6 +6,17 @@ import torch
 from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark, with_executor
 
+# These tests are sourced from automation added into thunder.
+#
+# To recreate:
+#   * Use the tfogal/benchmarking-dumps branch in thunder.
+#   * Pass nv_store_fusion_inputs=True to your thunderfx call
+#   * Disable the torch.compile executor in the thunderfx call, which ensures
+#     that all fusions go to nvFuser.
+#   * After running the network of interest, invoke thunder.tests.dump.traces()
+# This particular file is aimed at concatenation operations, so it is an
+# agglomeration of cases that included `torch.cat` in the fusion.
+
 
 def cat_qwen2_fwd_11(t17353, t17351, cos_2, sin_2, query_states_1, key_states_1):
     # t17353: "cuda:0 bf16[2048, 512]"
@@ -308,52 +319,7 @@ def cat_qwen2_fwd_11_fusion(fd: FusionDefinition) -> None:
     fd.add_output(T190)
 
 
-def test_cat_qwen2_fwd_11_nvf_benchmark(
-    benchmark, disable_validation: bool, disable_benchmarking: bool
-):
-    with FusionDefinition() as fd:
-        cat_qwen2_fwd_11_fusion(fd)
-
-    inputs = [
-        torch.testing.make_tensor((2048, 512), dtype=torch.bfloat16, device="cuda:0"),
-        torch.testing.make_tensor(
-            (1, 2048, 512), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.randn(262144, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 2048, 128), (262144, 1, 2048)
-        ),
-        torch.randn(262144, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 2048, 128), (262144, 1, 2048)
-        ),
-        torch.randn(7340032, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 28, 2048, 128), (7340032, 128, 3584, 1)
-        ),
-        torch.randn(1048576, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 4, 2048, 128), (1048576, 128, 512, 1)
-        ),
-    ]
-
-    def benchmark_fn(inputs):
-        return fd.execute(inputs)
-
-    if not disable_validation:
-        pass  # no equivalent version, yet.
-    if not disable_benchmarking:
-        run_benchmark(benchmark, benchmark_fn, inputs)
-
-
-# Qwen2 fusion that involves concatenation. Note that there are no Mistral-Nemo
-# benchmarks in this file, because they were all equivalent to this fusion. The
-# fusion below appears repeatedly in both networks.
-#
-# The numbers are arbitrary; this was the 11th fusion in the forward pass.
-#
-# We don't use a "thunder" executor here because thunder cannot accept the
-# torch.as_strided call yet.
-@pytest.mark.parametrize("executor", ["torchcompile"])
-def test_cat_qwen2_fwd_11_baseline_benchmark(
-    benchmark, executor: str, disable_validation: bool, disable_benchmarking: bool
-) -> None:
+def get_cat_qwen2_inputs() -> list[torch.Tensor]:
     inputs = [
         torch.randn(
             size=(2048, 512), dtype=torch.bfloat16, device="cuda", requires_grad=False
@@ -389,22 +355,49 @@ def test_cat_qwen2_fwd_11_baseline_benchmark(
             requires_grad=False,
         ).as_strided((1, 4, 2048, 128), (1048576, 128, 512, 1)),
     ]
+    return inputs
+
+
+def test_cat_qwen2_fwd_11_nvf_benchmark(
+    benchmark, disable_validation: bool, disable_benchmarking: bool
+):
+    with FusionDefinition() as fd:
+        cat_qwen2_fwd_11_fusion(fd)
+
+    inputs = get_cat_qwen2_inputs()
+
+    def benchmark_fn(inputs):
+        return fd.execute(inputs)
+
+    if not disable_validation:
+        pass  # no equivalent version, yet.
+    if not disable_benchmarking:
+        run_benchmark(benchmark, benchmark_fn, inputs)
+
+
+# Qwen2 fusion that involves concatenation. Note that there are no Mistral-Nemo
+# benchmarks in this file, because they were all equivalent to this fusion. The
+# fusion below appears repeatedly in both networks.
+#
+# The numbers are arbitrary; this was the 11th fusion in the forward pass.
+#
+# We don't use a "thunder" executor here because thunder cannot accept the
+# torch.as_strided call yet. There's a separate benchmark for thunder for now.
+@pytest.mark.parametrize("executor", ["torchcompile"])
+def test_cat_qwen2_fwd_11_baseline_benchmark(benchmark, executor: str) -> None:
+
+    inputs = get_cat_qwen2_inputs()
 
     def benchmark_fn(inputs):
         return cat_qwen2_fwd_11(*inputs)
 
     benchmark_fn = with_executor(executor, benchmark_fn)
 
-    if not disable_validation:
-        pass  # no fusion definition from torch.compile
-    if not disable_benchmarking:
-        run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 @pytest.mark.parametrize("executor", ["thunder", "torchcompile"])
-def test_cat_phi3_1(
-    benchmark, executor: str, disable_validation: bool, disable_benchmarking: bool
-) -> None:
+def test_cat_phi3_1(benchmark, executor: str, disable_validation: bool) -> None:
     def to_be_compiled(t14):
         # t14: "cuda:0 f32[1, 48, 2048]"
         t0 = torch.permute(t14, (0, 2, 1))  # t0: "cuda:0 f32[1, 2048, 48]"
@@ -457,8 +450,7 @@ def test_cat_phi3_1(
         ), "thunder split the fusion, so the validation no longer fits."
         fusion: FusionDefinition = trace.python_ctx()["nvFusion0"].last_used
         fusion.validate(inputs, reference_outputs)
-    if not disable_benchmarking:
-        run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)
 
 
 # Nanogpt has no concat operations, but because it has split operations concat
@@ -466,8 +458,8 @@ def test_cat_phi3_1(
 # times in the backward pass. The '6' is arbitrary: this is the 6th fusion
 # generated by the network.
 @pytest.mark.parametrize("executor", ["thunder", "torchcompile"])
-def test_cat_nanogpt_bwd_6(
-    benchmark, executor: str, disable_validation: bool, disable_benchmarking: bool
+def test_cat_nanogpt_bwd_6_baseline_benchmark(
+    benchmark, executor: str, disable_validation: bool
 ) -> None:
     def nanogpt_bwd_fusion_6_torch(bw_t3476: torch.Tensor, bw_t3475, bw_t3474):
         # bw_t3476: "cuda:0 f32[4, 6, 128, 64]"
@@ -526,5 +518,4 @@ def test_cat_nanogpt_bwd_6(
         ), "thunder split the fusion, so the validation no longer fits."
         fusion: FusionDefinition = trace.python_ctx()["nvFusion0"].last_used
         fusion.validate(inputs, reference_outputs)
-    if not disable_benchmarking:
-        run_benchmark(benchmark, benchmark_fn, inputs)
+    run_benchmark(benchmark, benchmark_fn, inputs)

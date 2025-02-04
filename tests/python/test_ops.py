@@ -288,7 +288,7 @@ def test_errors(op: OpInfo, dtype: torch.dtype):
             errors_test_fn(op, sample)
 
 
-@pytest.mark.skip("issue 3740")
+@pytest.mark.skip("https://github.com/NVIDIA/Fuser/issues/3740")
 def test_cat_qwen2_v2():
     def qwen2_cat_fusion_2(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
