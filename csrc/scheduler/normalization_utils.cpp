@@ -988,7 +988,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       .has_exp_op = has_exp_op,
       .has_rng_op = has_rng_op,
       .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
-      .persistent_buffers = persistent_buffer_info.persistent_buffers};
+      .persistent_buffers = project_persistent_buffers
+          ? persistent_buffer_info.projectable_buffer_inputs
+          : persistent_buffer_info.persistent_buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {
@@ -1392,6 +1394,22 @@ void schedulePersistentKernel(
       smem_consumers,
       cached_outputs);
 
+  const auto& persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  std::unordered_set<TensorView*> persistent_buffer_set(
+      persistent_buffers.begin(), persistent_buffers.end());
+  for (auto tv : persistent_buffers) {
+    std::cout << "persistent buffer: " << tv->toString() << std::endl;
+  }
+  std::vector<TensorView*> tma_tvs;
+  if (rparams->use_tma) {
+    for (auto tv : cached_inputs) {
+      if (persistent_buffer_set.count(tv)) {
+        tma_tvs.push_back(tv);
+      }
+    }
+  }
+
   TensorView* reference_tv =
       scheduleReductionGeneral(fusion, rparams, reduction_tvs, scheduler_type);
 
@@ -1427,7 +1445,7 @@ void schedulePersistentKernel(
   std::cout << "use_tma " << rparams->use_tma << std::endl;
 
   if (rparams->use_tma) {
-    for (auto tv : cached_inputs) {
+    for (auto tv : tma_tvs) {
       auto cached_tv = tv->cacheAfter();
       smem_consumers.push_back(cached_tv);
       // At this point, if cached_tv has multiple uses,  it becomes the
@@ -1453,11 +1471,9 @@ void schedulePersistentKernel(
     MaxLogicalDomainInfoSpanningTree(reference_tv)
         .traverse(&propagator_circular_buffer);
 
-    fusion->printMath();
-
     TransformPropagator propagator(reference_tv);
-    std::vector<TensorView*> all_tvs_except_cache = ir_utils::allTvsExcept(
-        fusion, {cached_inputs.begin(), cached_inputs.end()});
+    std::vector<TensorView*> all_tvs_except_cache =
+        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
     SetSelector selector(
         {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
     MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
@@ -1503,7 +1519,7 @@ void schedulePersistentKernel(
   // };
 
   if (rparams->use_tma) {
-    for (auto tv : cached_inputs) {
+    for (auto tv : tma_tvs) {
       tv->setMemoryType(MemoryType::Shared);
       tv->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulk);
@@ -1523,7 +1539,7 @@ void schedulePersistentKernel(
     int64_t number_of_stages = rparams->circular_buffer_stages_iter_dim;
     int64_t prefetch_distance = number_of_stages - 1;
     CircularBufferType circular_buffer_type = Pipelined(true);
-    for (auto tv : cached_inputs) {
+    for (auto tv : tma_tvs) {
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(
             number_of_stages, prefetch_distance, circular_buffer_type);

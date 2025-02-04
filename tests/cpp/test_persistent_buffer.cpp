@@ -1671,4 +1671,51 @@ TEST_F(PersistentBufferTest, TmaMagicScheduler) {
 
   // testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+TEST_F(PersistentBufferTest, LayerNormTMA) {
+    const int64_t hidden_size = 16384 * 5;
+    DataType dtype = DataType::Half;
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    const float kEps = 1e-5;
+    Val* eps_ptr = IrBuilder::create<Val>(kEps);
+    constexpr int64_t dim0 = 8192;
+    std::vector<int64_t> input_shape{dim0, hidden_size};
+    std::vector<int64_t> norm_shape{hidden_size};
+    auto input_half = makeContigTensor(2, dtype);
+    auto weight_half = makeContigTensor(1, dtype);
+    auto bias_half = makeContigTensor(1, dtype);
+    fusion.addInput(input_half);
+    fusion.addInput(weight_half);
+    fusion.addInput(bias_half);
+    auto input = castOp(DataType::Float, input_half);
+    auto weight = castOp(DataType::Float, weight_half);
+    auto bias = castOp(DataType::Float, bias_half);
+    auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
+    auto result_output = castOp(dtype, result.output);
+    fusion.addOutput(result_output);
+    fusion.addOutput(result.mean);
+    fusion.addOutput(result.invstd);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    c10::optional<at::Tensor> aten_weight =
+        at::randn({input_shape[1]}, options);
+    c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+    auto fusion_copy = fusion;
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(
+        {aten_input, aten_weight, aten_bias});
+
+    testValidate(
+        &fusion_copy,
+        cg_outputs,
+        {aten_input, aten_weight, aten_bias},
+        __LINE__,
+        __FILE__,
+        "");
+}
 } // namespace nvfuser
