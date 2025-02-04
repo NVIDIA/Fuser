@@ -57,6 +57,11 @@ class KernelIrScanner : private IrVisitor {
   using IrVisitor::dispatch;
   using IrVisitor::handle;
   void dispatch(Expr* expr) final {
+    // Do we have any elect sync predicates?
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
+      summary_.has_elect_sync_predicate = true;
+    }
     IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {
       dispatch(inp);
@@ -224,11 +229,6 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(IfThenElse* ite) final {
-    // Do we have any elect sync predicates for tma loads?
-    if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
-        ite->predicate()->expr() == nullptr) {
-      summary_.has_elect_sync_predicate = true;
-    }
     // Run default handle
     IrVisitor::handle(ite);
   }

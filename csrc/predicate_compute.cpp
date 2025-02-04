@@ -417,15 +417,9 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
     return pred->fusion()->trueVal();
   }
 
-  // short-circuit: Expect ParallelType::TIDx to be const scalar for
-  // ElectSync predicate.
-  if (!tdx_pt_dim->isConstScalar()) {
-    return IrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
-  }
-
   // short-circuit: Expect ParallelType::TIDx to have at least one warp.
-  if (tdx_pt_dim->evaluate().as<int64_t>() < 32) {
+  if (tdx_pt_dim->isConstScalar() &&
+      tdx_pt_dim->evaluate().as<int64_t>() < 32) {
     return IrBuilder::eqExpr(
         NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
   }
