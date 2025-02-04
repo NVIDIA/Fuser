@@ -69,7 +69,37 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
 }
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
-  out << "DeviceMesh{" << mesh.vector() << "}";
+  if (mesh.shape().empty()) {
+    out << "DeviceMesh{" << mesh.vector() << "}";
+    return out;
+  }
+
+  out << "DeviceMesh";
+  size_t nDevices = std::accumulate(
+        mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<size_t>());
+  size_t nDim = mesh.shape().size();
+  std::vector<int64_t> strides = mesh.shape();
+  for (int i = nDim - 2; i >= 0; --i) {
+      strides[i] *= strides[i + 1];
+  }
+
+  for (size_t i = 0; i < nDevices; i++) {
+    for (size_t axis = 0; axis < nDim; axis++) {
+      if (i % strides[axis] == 0) {
+        out << "{";
+      }
+    }
+    out << mesh.vector().at(i);
+    if ((i+1) % strides[nDim-1] != 0) {
+      out << " ";
+    }
+    for (size_t axis = 0; axis < nDim; axis++) {
+      if ((i+1) % strides[axis] == 0) {
+        out << "}";
+      }
+    }
+  }
+
   return out;
 }
 
