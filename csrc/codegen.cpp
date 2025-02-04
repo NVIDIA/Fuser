@@ -1028,7 +1028,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             code_ << "\n";
             indent() << kTab << "= " << lhs;
           } else {
-            indent() << "\n" << kTab << "* " << lhs;
+            code_ << "\n";
+            indent() << kTab << "* " << lhs;
           }
         }
       }
