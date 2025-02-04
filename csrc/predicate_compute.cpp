@@ -391,9 +391,7 @@ Val* createElectSyncPredicate() {
 
 Val* createElectSyncPredicate(kir::Predicate* pred) {
   NVF_ERROR(pred != nullptr);
-  if (pred->expr() == nullptr) {
-    return createElectSyncPredicate();
-  }
+  NVF_ERROR(pred->expr() != nullptr);
 
   TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
@@ -445,14 +443,7 @@ Val* PredicateCompute::getExprSyncPredicate(
       pred->expr() == nullptr || ir_utils::isCpAsyncBulkStore(pred->expr()),
       "expr should be empty or tma store expression.");
 
-  // The predicate in the cuda kernel is:
-  // elect-sync(TDX, full_warp_mask) && TDX < 32
-  //
-  // The assumptions are TDX is constant, TDX >= 32, and TDX is not used by
-  // tma expression.
-  Val* conditional = createElectSyncPredicate(pred);
-
-  // Short-Circuit: TMA Store Expression
+  // Short-Circuit: Handle TMA Store separately
   if (pred->expr() != nullptr && ir_utils::isCpAsyncBulkStore(pred->expr())) {
     auto pred_map =
         ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
@@ -467,7 +458,8 @@ Val* PredicateCompute::getExprSyncPredicate(
       }
     }
     NVF_ERROR(parallel_dom_pred != nullptr);
-    return SimplifyingIrBuilder::logicalAndExpr(conditional, parallel_dom_pred);
+    return SimplifyingIrBuilder::logicalAndExpr(
+        createElectSyncPredicate(pred), parallel_dom_pred);
   }
 
   // Determine if warp specialized tma load expression.
@@ -492,9 +484,9 @@ Val* PredicateCompute::getExprSyncPredicate(
   // predicates for it here.
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-  if (load_warp_on == ParallelType::TIDx) {
-    conditional = pred->fusion()->trueVal();
-  }
+  Val* conditional = load_warp_on == ParallelType::TIDx
+      ? pred->fusion()->trueVal()
+      : createElectSyncPredicate();
   for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
     if (pdim_map.has(pt) && load_warp_on != pt) {
       conditional = SimplifyingIrBuilder::logicalAndExpr(
