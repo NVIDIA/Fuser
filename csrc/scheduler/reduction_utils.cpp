@@ -256,9 +256,6 @@ TensorView* scheduleReductionTV(
   // Iteration domain
   if (has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
-
-    std::cout << "reduction_tv " << reduction_tv->toString() << std::endl;
-    std::cout << "circular_buffer_stages_iter_dim " << rparams->circular_buffer_stages_iter_dim << std::endl;
     if(rparams->circular_buffer_stages_iter_dim > 1){
       reduction_tv->split(
           iter_axis, rparams->circular_buffer_stages_iter_dim);
@@ -290,7 +287,7 @@ TensorView* scheduleReductionTV(
 
     if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {
       if (rparams->split_grid_dim_iter_dom_outer) {
-        if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+        if ((rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) || rparams->static_gdimy) {
           inner_parallel_static(
               iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
         } else {
@@ -303,8 +300,11 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+    std::cout << "reduction_tv " << reduction_tv->toString() << std::endl;
 
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
+
+
 
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
@@ -668,8 +668,18 @@ int idPos(const IterDomain* id) {
   }
   outer_most++;
 
+
+  // Iter and non-constant
+  if (!id->isReduction() && !id->extent()->isConstScalar()) {
+    std::cout << id->toString() << ", non-const " << outer_most << std::endl;
+    return outer_most;
+  }
+  outer_most++;
+
+
   // Iter and block (outer)
   if (!id->isReduction() && id->isBlockDim()) {
+    std::cout << id->toString() << ", isBlockDim " << outer_most << std::endl;
     return outer_most;
   }
   outer_most++;
@@ -679,18 +689,14 @@ int idPos(const IterDomain* id) {
     return outer_most;
   }
   outer_most++;
-
+  
   // Iter and constant
   if (!id->isReduction() && id->extent()->isConstScalar()) {
+    std::cout << id->toString() << ", isConstScalar " << outer_most << std::endl;
     return outer_most;
   }
   outer_most++;
 
-  // Iter and non-constant
-  if (!id->isReduction() && !id->extent()->isConstScalar()) {
-    return outer_most;
-  }
-  outer_most++;
 
   return 0;
 }

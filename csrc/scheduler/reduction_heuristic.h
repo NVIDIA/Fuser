@@ -121,6 +121,7 @@ class ReductionParams : public HeuristicParams {
 
   bool static_bdimx = false;
   bool static_bdimy = false;
+  bool static_gdimy = false;
 
   bool isUnrolled() const {
     return unroll_factor_inner_reduction > 1 || unroll_factor_iter_dom > 1 ||

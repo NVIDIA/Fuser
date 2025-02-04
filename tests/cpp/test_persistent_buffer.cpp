@@ -1630,7 +1630,7 @@ TEST_F(PersistentBufferTest, TmaCircularBuffer) {
 
 TEST_F(PersistentBufferTest, TmaMagicScheduler) {
   DataType input_dtype = DataType::Half;
-  const std::vector<int64_t> input_shape = {16384, 16384};
+  const std::vector<int64_t> input_shape = {148*2*2*27, 16384};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(input_shape.size(), input_dtype);

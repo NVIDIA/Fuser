@@ -511,13 +511,30 @@ void innerPersistentHeuristic2D(
     }
   }
 
-  rparams->lparams = LaunchParams(
-      gdimx,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      best_heuristic.bdimy,
-      LaunchParams::UNINITIALIZED_VAL);
+  if(std::getenv("COOPGRID") != nullptr){
+    int64_t num_blocks = std::atoi(std::getenv("COOPGRID"));
+    rparams->static_gdimy = true;
+    rparams->lparams.bindUnsafe(num_blocks, ParallelType::BIDy);
+    rparams->grid_dim_iter_dom = ParallelType::BIDy;
+    rparams->split_grid_dim_iter_dom_outer = true;
+    rparams->lparams = LaunchParams(
+        gdimx,
+        num_blocks,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        best_heuristic.bdimy,
+        LaunchParams::UNINITIALIZED_VAL);    
+    std::cout << "num_blocks: " << num_blocks << std::endl;
+  } else {
+    rparams->lparams = LaunchParams(
+        gdimx,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        best_heuristic.bdimy,
+        LaunchParams::UNINITIALIZED_VAL);
+  }
+
 }
 
 void innerPersistentHeuristicSharedMemory(
@@ -1092,6 +1109,8 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     if(std::getenv("BATCHES") != nullptr){
       rparams->batches_per_block_inner_reduction = std::atoi(std::getenv("BATCHES"));
     }
+
+
     std::cout << "circular_buffer_stages_iter_dim: " << rparams->circular_buffer_stages_iter_dim << std::endl;
     std::cout << "batches_per_block_inner_reduction: " << rparams->batches_per_block_inner_reduction << std::endl;
   }

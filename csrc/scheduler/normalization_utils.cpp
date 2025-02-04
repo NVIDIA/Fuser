@@ -1522,7 +1522,7 @@ void schedulePersistentKernel(
   if (rparams->use_tma && rparams->circular_buffer_stages_iter_dim > 1) {
     int64_t number_of_stages = rparams->circular_buffer_stages_iter_dim;
     int64_t prefetch_distance = number_of_stages - 1;
-    CircularBufferType circular_buffer_type = Pipelined(false);
+    CircularBufferType circular_buffer_type = Pipelined(true);
     for (auto tv : cached_inputs) {
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(
