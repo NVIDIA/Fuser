@@ -61,7 +61,7 @@ void validateValWithConcreteValue(
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getMaybeRootDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -134,7 +134,7 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto logical_domain = TensorDomain::noReductions(tv->getMaybeRootDomain());
   NVF_ERROR(
       t.dim() == (int64_t)logical_domain.size(),
       "Expected ",

@@ -288,7 +288,7 @@ inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
-  const auto& logical = tv->getLogicalDomain();
+  const auto& logical = tv->getMaybeRootDomain();
   const auto& alloc = tv->getMaybeAllocationDomain();
 
   // active IDs and their shape and stride

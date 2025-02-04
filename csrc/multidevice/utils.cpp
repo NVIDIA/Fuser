@@ -164,8 +164,9 @@ int64_t getShardedLogicalAxis(
     return -1;
   }
 
+  // TODO: rename stuff to reflect this is maybeRoot instead of logical...
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
-      mapIterDomainToTensorAxis(tv->getLogicalDomain());
+      mapIterDomainToTensorAxis(tv->getMaybeRootDomain());
   IterDomain* id = alloc_id;
   while (logical_id_to_axis.count(id) == 0) {
     Expr* def = id->definition();
