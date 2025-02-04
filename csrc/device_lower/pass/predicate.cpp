@@ -194,7 +194,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        return PredicateCompute::getExprSyncPredicate(pred, for_loops_);
+        return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
       default:
         break;

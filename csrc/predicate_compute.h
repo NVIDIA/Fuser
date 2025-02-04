@@ -28,7 +28,7 @@ class PredicateCompute {
       Val* thread_pred,
       PredicateType pred_type);
 
-  static Val* getExprSyncPredicate(
+  static Val* getElectSyncPredicate(
       kir::Predicate* pred,
       const std::vector<ForLoop*>& loops);
 };

@@ -429,58 +429,64 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
   return createElectSyncPredicate();
 }
 
-} // namespace
-
-Val* PredicateCompute::getExprSyncPredicate(
+Val* createSingleExpressionElectSync(
     kir::Predicate* pred,
     const std::vector<ForLoop*>& loops) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
-  NVF_ERROR(
-      pred->expr() == nullptr || ir_utils::isCpAsyncBulkStore(pred->expr()),
-      "expr should be empty or tma store expression.");
+  NVF_ERROR(pred->expr() != nullptr);
+  NVF_ERROR(ir_utils::isCpAsyncBulkStore(pred->expr()), "Limited to TMA Store");
+
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  auto pred_map =
+      ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
+  Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
+  for (auto pt : {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
+    auto pred_info_it = pred_map.find(pt);
+    if (pred_info_it != pred_map.end()) {
+      const auto& pred_info = pred_info_it->second;
+      auto tid_pred = pred_info.getPredicate();
+      if (tid_pred != nullptr) {
+        // Case 1: TMA expression uses ParallelDim to launch multiple
+        // operations simultaneously. Use parallel domain predicate if it
+        // exists.
+        parallel_dom_pred =
+            SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+      } else if (pdim_map.has(pt)) {
+        // Case 2: ParallelDim is used by CTA but not the TMA expression.
+        // Select a single thread along ParallelDim.
+        if (pt == ParallelType::TIDx) {
+          // Use createElectSyncPredicate for ParallelDim::TIDx.
+          parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+              parallel_dom_pred, createElectSyncPredicate(pred));
+        } else {
+          // Select first element of dimension for ParallelDim::TIDy and
+          // ParallelDim::TIDz.
+          parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+              parallel_dom_pred,
+              IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+        }
+      }
+    }
+  }
+  NVF_ERROR(parallel_dom_pred != nullptr);
+  return parallel_dom_pred;
+}
+
+// Multiple expressions exist in a for-loop. The common usage of this function
+// is to initialize mbarriers, invalidate mbarriers, or issue multiple TMA load
+// operations in a circular buffer for-loop.
+//
+// Assumptions required for this elect-sync predicate:
+//  1. ParallelType::TIDx >= 32 threads.
+//  2. TMA expression does not use ParallelType::TIDy or ParallelType::TIDz.
+Val* createMultipleExpressionElectSync(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& loops) {
+  NVF_ERROR(pred->expr() == nullptr);
 
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
 
-  // Short-Circuit: Handle TMA Store separately
-  if (pred->expr() != nullptr && ir_utils::isCpAsyncBulkStore(pred->expr())) {
-    auto pred_map =
-        ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
-    Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
-    for (auto pt :
-         {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
-      auto pred_info_it = pred_map.find(pt);
-      if (pred_info_it != pred_map.end()) {
-        const auto& pred_info = pred_info_it->second;
-        auto tid_pred = pred_info.getPredicate();
-        if (tid_pred != nullptr) {
-          // Case 1: TMA expression uses ParallelDim to launch multiple
-          // operations simultaneously. Use parallel domain predicate if it
-          // exists.
-          parallel_dom_pred =
-              SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
-        } else if (pdim_map.has(pt)) {
-          // Case 2: ParallelDim is used by CTA but not the TMA expression.
-          // Select a single thread along ParallelDim.
-          if (pt == ParallelType::TIDx) {
-            // Use createElectSyncPredicate for ParallelDim::TIDx.
-            parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
-                parallel_dom_pred, createElectSyncPredicate(pred));
-          } else {
-            // Select first element of dimension for ParallelDim::TIDy and
-            // ParallelDim::TIDz.
-            parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
-                parallel_dom_pred,
-                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-          }
-        }
-      }
-    }
-    NVF_ERROR(parallel_dom_pred != nullptr);
-    return parallel_dom_pred;
-  }
-
-  // Assume tma expressions are in a circular buffer for-loop.
   // Determine if warp specialized tma load expression.
   ParallelType load_warp_on = ParallelType::Serial;
   auto load_warp_loop_it =
@@ -512,6 +518,21 @@ Val* PredicateCompute::getExprSyncPredicate(
     }
   }
   return conditional;
+}
+
+} // namespace
+
+Val* PredicateCompute::getElectSyncPredicate(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& loops) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
+
+  // Short-Circuit: A single expression is associated with the predicate.
+  if (pred->expr() != nullptr) {
+    return createSingleExpressionElectSync(pred, loops);
+  }
+
+  return createMultipleExpressionElectSync(pred, loops);
 }
 
 Val* PredicateCompute::getInlinePredicate(
