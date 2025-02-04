@@ -5,10 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <scheduler/tools/maxinfo_propagator.h>
-#include <ir/utils.h>
-
 
 namespace nvfuser {
 
@@ -472,7 +471,9 @@ bool SetSelector::allowP2C(TensorView* from, TensorView* to) {
 }
 
 bool SetSelector::allowSibling(TensorView* from, TensorView* to) {
-  if (ir_utils::hasUniformSiblings(from->definition())){
+  // Allow propagation between siblings if they are uniform to avoid errors in
+  // `computeInfoSibling`. This is not true for SdpaFwdOp and SdpaBwdOp.
+  if (ir_utils::hasUniformSiblings(from->definition())) {
     return true;
   }
   return false;
