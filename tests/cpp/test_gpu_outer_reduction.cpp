@@ -2602,4 +2602,90 @@ TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
+// This fusion is extracted from the Qwen2 RoPE backward.
+/*
+  g{(reduction)
+group id: 7
+inputs:
+  T0_g___bfloat[bS0{1}, iS1{28}, iS2{4096}, iS3{128}] __bfloat
+  T28_g___bfloat[bS116{1}, bS117{1 ex 4}, iS118{4096}, iS119{128}] __bfloat
+outputs:
+  T33_g_float[bS138{1}, iS139{4}, iS140{4096}, iS141{128}] float
+  T42_g___bfloat[bS174{1}, iS175{4}, iS176{4096}, iS177{128}] __bfloat
+
+
+T34_l_float[bS142{1}, bS143{1 ex 4}, iS144{4096}, iS145{128}]
+   = __bfloat2float(T28_g___bfloat[bS116{1}, bS117{1 ex 4}, iS118{4096},
+iS119{128}]); (32) T7_g___bfloat[bS24{1}, iS29{4}rf, iS30{7}rf, iS26{4096},
+iS27{128}] = view( T0_g___bfloat[bS0{1}, iS1{28}, iS2{4096}, iS3{128}] ) (1)
+T8_l_float[bS31{1}, iS32{4}, iS33{7}, iS34{4096}, iS35{128}]
+   = __bfloat2float(T7_g___bfloat[bS24{1}, iS29{4}rf, iS30{7}rf, iS26{4096},
+iS27{128}]); (2) T9_l_float[iS36{4}, iS37{7}, iS38{4096}, iS39{128}] = squeeze(
+T8_l_float[bS31{1}, iS32{4}, iS33{7}, iS34{4096}, iS35{128}] ) (3)
+T10_l_float[iS40{4}, rS41{7}, iS42{4096}, iS43{128}]
+   = reduction( T9_l_float[iS36{4}, iS37{7}, iS38{4096}, iS39{128}], op = add,
+initial value = float(0), allreduce = false ) (4) T11_g___bfloat[iS44{4},
+iS45{4096}, iS46{128}] = __float2bfloat(T10_l_float[iS40{4}, rS41{7},
+iS42{4096}, iS43{128}]); (5) T163_g___bfloat[bS647{1}, iS648{4}, iS649{4096},
+iS650{128}] = broadcast( T11_g___bfloat[iS44{4}, iS45{4096}, iS46{128}], flags =
+{true, false, false, false} ) (224) T33_g_float[bS138{1}, iS139{4}, iS140{4096},
+iS141{128}] = __bfloat2float(T163_g___bfloat[bS647{1}, iS648{4}, iS649{4096},
+iS650{128}]); (225) T38_l_float[bS158{1}, iS159{4}, iS160{4096}, iS161{128}] =
+T34_l_float[bS142{1}, bS143{1 ex 4}, iS144{4096}, iS145{128}]
+   * T33_g_float[bS138{1}, iS139{4}, iS140{4096}, iS141{128}];
+(36)
+T42_g___bfloat[bS174{1}, iS175{4}, iS176{4096}, iS177{128}]
+   = __float2bfloat(T38_l_float[bS158{1}, iS159{4}, iS160{4096}, iS161{128}]);
+(40)
+}
+ */
+TEST_F(OuterReductionTest, Qwen2RopePerfRegression) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{1, 28, 4096, 128};
+  std::vector<int64_t> shape2{1, 4, 4096, 128};
+
+  auto T0 = makeContigConcreteTensor(shape1, DataType::BFloat16);
+  fusion.addInput(T0);
+  auto T28 = TensorViewBuilder()
+                 .shape(shape2)
+                 .dtype(DataType::BFloat16)
+                 .contiguity(std::vector<std::optional<bool>>{
+                     std::nullopt, std::nullopt, true, true})
+                 .expanded({false, true, false, false})
+                 .build();
+  fusion.addInput(T28);
+
+  auto T34 = castOp(DataType::Float, T28);
+  auto T7 = reshape(T0, shape1, {1, 4, 7, 4096, 128});
+  auto T8 = castOp(DataType::Float, T7);
+  auto T9 = squeeze(T8, {0});
+  auto T10 = sum(T9, {1});
+  auto T11 = castOp(DataType::BFloat16, T10);
+  auto T163 = broadcast(T11, {true, false, false, false});
+  auto T33 = castOp(DataType::Float, T163);
+  auto T38 = mul(T34, T33);
+  auto T42 = castOp(DataType::BFloat16, T38);
+  if (getenv("SAVE_FP32")) {
+    fusion.addOutput(T33);
+  } else {
+    fusion.addOutput(T163);
+  }
+  fusion.addOutput(T42);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn({1, 1, 4096, 128}, options)
+                .as_strided(shape2, {4096L * 128L, 0L, 128L, 1L});
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
