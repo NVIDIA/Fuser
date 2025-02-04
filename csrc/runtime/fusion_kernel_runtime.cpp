@@ -440,12 +440,14 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           hic->pushBackTopLevelExprs(cloned_expr);
         }
       }
-      for (auto &input : in_clone) {
-        hic->addInput(input); //nick
-      }
-      for (auto &output : out_clone) {
-        hic->addOutput(output);
-      }
+    }
+    auto in_clone = ir_cloner.clone(segmented_fusion_->inputs());
+    auto out_clone = ir_cloner.clone(segmented_fusion_->outputs());
+    for (auto &input : in_clone) {
+      hic->addInput(input); //nick
+    }
+    for (auto &output : out_clone) {
+      hic->addOutput(output);
     }
   }
 
