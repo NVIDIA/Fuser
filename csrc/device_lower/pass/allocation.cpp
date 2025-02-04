@@ -479,11 +479,25 @@ class AllocationInserter : public kir::ExprMutator {
     // Fill in the base address, lane offset, and column offset for tensor
     // memory allocations
     if (memory_type == MemoryType::Tensor) {
-      auto allocation_address =
-          GpuLower::current()->tmemInfo().allocation_address;
-      auto address_ti = IrBuilder::create<kir::TensorIndex>(
-          allocation_address, allocation_address->fusion()->zeroVal());
-      alloc_expr->setAddress(address_ti);
+      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+      for (const auto& region : regions) {
+        auto tv_info_it = std::find_if(
+            region.covered_tensors.begin(),
+            region.covered_tensors.end(),
+            [&](const auto& tv_info) { return tv_info.tensor == info.buffer; });
+        if (tv_info_it != region.covered_tensors.end()) {
+          auto address_ti = IrBuilder::create<kir::TensorIndex>(
+              region.address, region.address->fusion()->zeroVal());
+          alloc_expr->setAddress(address_ti);
+          alloc_expr->setLaneOffset(tv_info_it->lane_offset);
+          alloc_expr->setColOffset(tv_info_it->column_offset);
+          break;
+        }
+      }
+      NVF_ERROR(
+          alloc_expr->address() != nullptr,
+          "Could not find region for tensor memory allocation of ",
+          info.buffer);
     }
 
     return alloc_expr;
@@ -828,33 +842,31 @@ class AllocationInserter : public kir::ExprMutator {
 
 // Insert IR nodes that allocate and deallocate TMem regions.
 // See note [Tensor Memory Allocation] for the overall design.
-// We insert the tcgen05.alloc and the relinquish of the right to allocate at
-// the beginning of the top-level scope of the kernel. We do not tcgen05.dealloc
-// yet. The allocation of each TMem TensorView is inserted by
-// AllocationInserter::insert, therefore not handled here.
+// We insert the tcgen05.allocs of each region and the relinquish of the right
+// to allocate at the beginning of the top-level scope of the kernel. We do not
+// tcgen05.dealloc for now. The allocation of each TMem TensorView within each
+// region is inserted by AllocationInserter::insert, therefore not handled here.
 std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
     const std::vector<Expr*>& exprs) {
   // Expressions to be inserted at the beginning of the top-level scope.
   std::list<Expr*> prologue;
   {
-    if (GpuLower::current()->tmemInfo().allocation_address != nullptr) {
-      // Allocate the address tensor
-      auto allocation_address =
-          GpuLower::current()->tmemInfo().allocation_address;
-      auto address_alloc_expr = IrBuilder::create<kir::Allocate>(
-          allocation_address, MemoryType::Shared);
+    const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+    // For each TMem region, allocate its address in shared memory, and insert
+    // the tcgen05.alloc for tensor memory allocation.
+    for (const auto& region : regions) {
+      // kir::Allocate for the address tensor on shared memory
+      auto address_alloc_expr =
+          IrBuilder::create<kir::Allocate>(region.address, MemoryType::Shared);
       prologue.push_back(address_alloc_expr);
-
-      // the tcgen05.alloc instructions
-      auto alloc_expr = IrBuilder::create<kir::AllocTMem>(
-          allocation_address,
-          IrBuilder::create<Val>(
-              32,
-              DataType::UInt32) // TODO: hard code allocation size to 32 for now
-      );
+      // the tcgen05.alloc instruction
+      auto alloc_expr =
+          IrBuilder::create<kir::AllocTMem>(region.address, region.num_columns);
       prologue.push_back(alloc_expr);
+    }
 
-      // Relinquish the right to allocate after we are done with tcgen05.allocs
+    if (!regions.empty()) {
+      // Relinquish the right to allocate after all regions have been allocated
       auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
           "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
           std::vector<Val*>{},
