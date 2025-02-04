@@ -17,6 +17,7 @@ namespace nvfuser {
 PolymorphicValue Val::evaluate() {
   if (this->value().hasValue()) {
     return this->value();
+    FUSER_PERF_SCOPE("Val::evaluate");
   }
 
   ExpressionEvaluator ee;
@@ -31,6 +32,7 @@ PolymorphicValue Val::evaluate() {
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("Expr::evaluate");
   NVF_THROW(
       "`evaluate` method for expression ",
       getOpString(),
@@ -41,6 +43,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  FUSER_PERF_SCOPE("Expr::evaluate");
   std::vector<PolymorphicValue> expr_inputs;
   expr_inputs.reserve(inputs().size());
   for (auto inp : inputs()) {
@@ -59,6 +62,7 @@ void Expr::addDataAttribute(PolymorphicValue attr) {
 std::vector<PolymorphicValue> FullOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("FullOp::evaluate");
   std::vector<int64_t> shape;
   for (auto i : c10::irange(inputs.size() - 1)) {
     shape.push_back(inputs.at(i).as<int64_t>());
@@ -73,6 +77,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
 std::vector<PolymorphicValue> SelectOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("SelectOp::evaluate");
   const auto& in = inputs.at(0).as<at::Tensor>();
   int64_t dimension = dim();
   int64_t index = (int64_t)inputs.at(1);
@@ -82,6 +87,7 @@ std::vector<PolymorphicValue> SelectOp::evaluate(
 std::vector<PolymorphicValue> IndexSelectOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("IndexSelectOp::evaluate");
   const auto& in = inputs.at(0).as<at::Tensor>();
   int64_t dimension = dim();
   const auto& indices = inputs.at(1).as<at::Tensor>().squeeze();
@@ -91,6 +97,7 @@ std::vector<PolymorphicValue> IndexSelectOp::evaluate(
 std::vector<PolymorphicValue> TorchGatherOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("TorchGatherOp::evaluate");
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
@@ -104,6 +111,7 @@ std::vector<PolymorphicValue> TorchGatherOp::evaluate(
 std::vector<PolymorphicValue> ScatterOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("ScatterOp::evaluate");
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   const auto& src = inputs.at(2).as<at::Tensor>();
@@ -114,6 +122,7 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
 std::vector<PolymorphicValue> IotaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("IotaOp::evaluate");
   const auto options =
       at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
   int64_t length = (int64_t)inputs.at(0);
@@ -139,6 +148,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
 std::vector<PolymorphicValue> EyeOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("EyeOp::evaluate");
   const auto options =
       at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
   int64_t nrows = (int64_t)inputs.at(0);
@@ -153,6 +163,7 @@ std::vector<PolymorphicValue> EyeOp::evaluate(
 std::vector<PolymorphicValue> UnaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("UnaryOp::evaluate");
   using namespace PolymorphicValue_functions;
 
   const auto& in = inputs.at(0);
@@ -280,6 +291,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
 std::vector<PolymorphicValue> BinaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("BinaryOp::evaluate");
   using namespace PolymorphicValue_functions;
   const auto& lhs = inputs.at(0);
   const auto& rhs = inputs.at(1);
@@ -376,6 +388,7 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
 std::vector<PolymorphicValue> TernaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("TernaryOp::evaluate");
   using namespace PolymorphicValue_functions;
   const auto& a = inputs.at(0);
   const auto& b = inputs.at(1);
@@ -408,12 +421,14 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
 std::vector<PolymorphicValue> ArrayConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("ArrayConstruct::evaluate");
   return {PolymorphicValue(inputs)};
 }
 
 std::vector<PolymorphicValue> ReverseArray::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("ReverseArray::evaluate");
   NVF_ERROR(inputs.size() == 1, "ReverseArray expects 1 input");
   PolymorphicValue array = inputs.at(0);
   auto& vec = array.as<std::vector>();
@@ -424,6 +439,7 @@ std::vector<PolymorphicValue> ReverseArray::evaluate(
 std::vector<PolymorphicValue> GetItem::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("GetItem::evaluate");
   NVF_ERROR(inputs.size() == 2, "GetItem expects 2 inputs");
   return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
 }
@@ -431,6 +447,7 @@ std::vector<PolymorphicValue> GetItem::evaluate(
 std::vector<PolymorphicValue> StructConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("StructConstruct::evaluate");
   NVF_ERROR(
       this->inputs().size() == inputs.size(),
       "StructConstruct expects ",
@@ -447,6 +464,7 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
 std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("GetAttr::evaluate");
   NVF_ERROR(inputs.size() == 1, "GetAttr expects 1 input");
   return {inputs.at(0)->*attr()};
 }
@@ -454,6 +472,7 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
 std::vector<PolymorphicValue> TensorConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("TensorConstruct::evaluate");
   NVF_ERROR(inputs.size() == 1, "TensorConstruct expects 1 input");
   using namespace PolymorphicValue_functions;
   return {toTensor(inputs.at(0))};
@@ -462,6 +481,7 @@ std::vector<PolymorphicValue> TensorConstruct::evaluate(
 std::vector<PolymorphicValue> BroadcastOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("BroadcastOp::evaluate");
   NVF_ERROR(
       inputs.size() == 1,
       "BroadcastOp expects exactly 1 input, but received ",
@@ -482,6 +502,7 @@ std::vector<PolymorphicValue> BroadcastOp::evaluate(
 std::vector<PolymorphicValue> SqueezeOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("SqueezeOp::evaluate");
   NVF_ERROR(
       inputs.size() == 1,
       "SqueezeOp expects exactly 1 input, but received ",
@@ -511,6 +532,7 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
 std::vector<PolymorphicValue> ReductionOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("ReductionOp::evaluate");
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto output = out()->as<TensorView>();
 
@@ -548,6 +570,7 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
 std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("GroupedReductionOp::evaluate");
   const auto num_reductions = numHorizontallyGroupedExprs();
   std::vector<PolymorphicValue> grouped_reduction_out;
   grouped_reduction_out.reserve(num_reductions);
@@ -588,6 +611,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
 std::vector<PolymorphicValue> WelfordOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("WelfordOp::evaluate");
   NVF_ERROR(
       !hasInit(),
       "Evaluation for WelfordOp is not implemented for non-empty initial values.");
@@ -614,6 +638,7 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
 std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("ExpandOp::evaluate");
   const auto& in = inputs.at(0).as<at::Tensor>();
   std::vector<int64_t> expanded_size;
   for (auto i : c10::irange(1, inputs.size())) {
@@ -625,6 +650,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
 std::vector<PolymorphicValue> RepeatOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("RepeatOp::evaluate");
   NVF_ERROR(
       inputs.size() == 1,
       "RepeatOp expects exactly 1 input, but received ",
@@ -656,6 +682,7 @@ std::vector<PolymorphicValue> RepeatOp::evaluate(
 std::vector<PolymorphicValue> ViewAsScalar::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("ViewAsScalar::evaluate");
   const at::Tensor& in = inputs.at(0).as<at::Tensor>();
   return {at::view_as_real(in)};
 }
@@ -664,6 +691,7 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   FUSER_PERF_SCOPE("ViewOp::evaluate");
+
   NVF_ERROR(inputs.size() == 1);
   const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
 
@@ -709,6 +737,7 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   FUSER_PERF_SCOPE("LoadStoreOp::evaluate");
+
   if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
     if (out_tv->hasRoot()) {
       std::optional<std::vector<int64_t>> permutation =
@@ -730,6 +759,7 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
 std::vector<PolymorphicValue> PadOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("PadOp::evaluate");
   const auto& in = inputs.at(0).as<at::Tensor>();
 
   std::vector<int64_t> pad_widths;
@@ -760,6 +790,7 @@ std::vector<PolymorphicValue> PadOp::evaluate(
 std::vector<PolymorphicValue> SliceOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("SliceOp::evaluate");
   const auto& in = inputs.at(0).as<at::Tensor>();
   std::vector<at::indexing::TensorIndex> ranges;
   auto ranges_offset = getRangeInputOffset();
@@ -776,6 +807,7 @@ std::vector<PolymorphicValue> SliceOp::evaluate(
 std::vector<PolymorphicValue> CatOp::evaluate(
     const ExpressionEvaluator& ee,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  FUSER_PERF_SCOPE("CatOp::evaluate");
   // CatOp is preceded by a PadOp internally.
   // For ATen evaluation, directly compute the unpadded inputs.
   std::vector<at::Tensor> unpadded_inputs;
@@ -794,6 +826,7 @@ std::vector<PolymorphicValue> CatOp::evaluate(
 std::vector<PolymorphicValue> MatmulOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("MatmulOp::evaluate");
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
 
@@ -839,6 +872,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
 std::vector<PolymorphicValue> LinearOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("LinearOp::evaluate");
   const auto in = inputs.at(0).as<at::Tensor>();
   auto weight = inputs.at(1).as<at::Tensor>();
 
@@ -880,6 +914,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("SdpaFwdOp::evaluate");
   auto query = inputs.at(0).as<at::Tensor>();
   auto key = inputs.at(1).as<at::Tensor>();
   auto value = inputs.at(2).as<at::Tensor>();
@@ -980,6 +1015,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("SdpaBwdOp::evaluate");
   // Backward tensor inputs: grad_input, query, key, value, output,
   // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
@@ -1068,6 +1104,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
 std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  FUSER_PERF_SCOPE("EmbeddingFwdOp::evaluate");
   auto input = inputs.at(0).as<at::Tensor>();
   auto weight = inputs.at(1).as<at::Tensor>();
   auto norm_type = inputs.at(2).as<double>();
