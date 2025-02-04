@@ -57,11 +57,6 @@ class KernelIrScanner : private IrVisitor {
   using IrVisitor::dispatch;
   using IrVisitor::handle;
   void dispatch(Expr* expr) final {
-    // Do we have any elect sync predicates?
-    if (expr->isA<UnaryOp>() &&
-        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
-      summary_.has_elect_sync_predicate = true;
-    }
     IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {
       dispatch(inp);
@@ -70,6 +65,23 @@ class KernelIrScanner : private IrVisitor {
       dispatch(out);
     }
   }
+
+  void handle(UnaryOp* uop) final {
+    // Do we have any elect sync predicates?
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      summary_.has_elect_sync_predicate = true;
+    }
+  }
+
+  void handle(BinaryOp* bop) final {
+    if (bop->lhs()->definition() != nullptr) {
+      dispatch(bop->lhs()->definition());
+    }
+    if (bop->rhs()->definition() != nullptr) {
+      dispatch(bop->rhs()->definition());
+    }
+  }
+
   void handle(BlockSync* sync) final {
     // TODO: Move to a dedicated validation pass
     // which is not on the common execution/compilation path
@@ -229,6 +241,10 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(IfThenElse* ite) final {
+    // Search for ElectSync UnaryOp
+    if (ite->predicate()->value()->definition() != nullptr) {
+      dispatch(ite->predicate()->value()->definition());
+    }
     // Run default handle
     IrVisitor::handle(ite);
   }
