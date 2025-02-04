@@ -370,7 +370,12 @@ def test_cat_qwen2_fwd_11_nvf_benchmark(
         return fd.execute(inputs)
 
     if not disable_validation:
-        pass  # no equivalent version, yet.
+        # torch.compile required; works around an issue in eager mode.
+        tc = torch.compile(cat_qwen2_fwd_11)
+        reference = tc(*inputs)
+        # Temporarily disabled: leads to an illegal memory access.
+        if False:
+            fd.validate(inputs, reference)
     if not disable_benchmarking:
         run_benchmark(benchmark, benchmark_fn, inputs)
 
