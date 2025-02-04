@@ -5040,6 +5040,10 @@ bool ForLoop::isUnrolled() const {
     return false;
   }
 
+  if (hasReduction()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -5183,6 +5187,17 @@ bool ForLoop::isGroup() const {
   return ExprFinder::exists(
       this,
       {typeid(GroupedReductionOp),
+       typeid(kir::GroupedGridReduction),
+       typeid(kir::GroupedGridWelford)});
+}
+
+bool ForLoop::hasReduction() const {
+  return ExprFinder::exists(
+      this,
+      {typeid(ReductionOp),
+       typeid(WelfordOp),
+       typeid(GroupedReductionOp),
+       typeid(kir::GridWelford),
        typeid(kir::GroupedGridReduction),
        typeid(kir::GroupedGridWelford)});
 }
