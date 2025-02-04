@@ -683,6 +683,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
 
+    if (ti->view()->getMemoryType() == MemoryType::Tensor) {
+      // Generate code like:
+      // (uint32_t)(T2 + Array<uint16_t, 2, 1>{0, 0})
+      code_ << "(uint32_t)(" << genVariableName(ti->view()) << " + "
+            << genInline(ti->index()) << ")";
+      return;
+    }
+
     if (ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
@@ -990,32 +998,38 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return false;
     }
 
-    // Only **2 and **3 are considered
-    if (!(exponent == 2 || exponent == 3)) {
+    // Only **1, **2 and **3 are considered
+    if (!(exponent == 1 || exponent == 2 || exponent == 3)) {
       return false;
     }
 
     auto lhs = gen(bop->lhs());
 
     if (print_inline_) {
-      code_ << lhs << " * " << lhs;
-      if (exponent == 3) {
-        code_ << " * " << lhs;
+      for (int i = 0; i < exponent; ++i) {
+        if (i != 0) {
+          code_ << " * ";
+        }
+        code_ << lhs;
       }
     } else {
       indent() << gen(bop->out());
       if (bop->out()->isScalar()) {
-        code_ << " = " << lhs << " * " << lhs;
-        if (exponent == 3) {
-          code_ << " * " << lhs;
+        for (int i = 0; i < exponent; ++i) {
+          if (i == 0) {
+            code_ << " = " << lhs;
+          } else {
+            code_ << " * " << lhs;
+          }
         }
       } else {
-        code_ << "\n";
-        indent() << kTab << "= " << lhs << "\n";
-        indent() << kTab << "* " << lhs;
-        if (exponent == 3) {
-          code_ << "\n";
-          indent() << kTab << "* " << lhs;
+        for (int i = 0; i < exponent; ++i) {
+          if (i == 0) {
+            code_ << "\n";
+            indent() << kTab << "= " << lhs;
+          } else {
+            indent() << "\n" << kTab << "* " << lhs;
+          }
         }
       }
     }
@@ -3183,7 +3197,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (va.find(tv) != va.end()) {
             aligned_array_of_regs_.insert(tv);
           }
-        } break;
+          break;
+        }
+        case MemoryType::Tensor: {
+          // Generate code like:
+          // TMemTensor T2(T5[0], 0, 0);
+          indent() << "TMemTensor " << genVariableName(tv) << "("
+                   << genInline(alloc->address()) << ", "
+                   << genInline(alloc->laneOffset()) << ", "
+                   << genInline(alloc->colOffset()) << ");\n";
+          break;
+        }
         default:
           NVF_THROW("Unexpected memory type");
       }

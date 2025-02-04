@@ -29,24 +29,24 @@
 
 namespace nvfuser {
 
-void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
-    TensorView* tv,
-    bool is_mma_result) {
-  // TODO Add constraints
-
-  auto apply_k_dim_offset = [is_mma_result](int64_t idx) constexpr {
-    return (is_mma_result) ? idx - 1 : idx;
-  };
+void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
+  NVF_ERROR(
+      tv->domain()->loop().size() >= 4,
+      "transformLikeMmaOutput requires at least four iterDomains but ",
+      tv->toString(),
+      " only has ",
+      tv->domain()->loop().size(),
+      ".");
 
   // Original: [..., Mo, No, Mi, Ni]
-  tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
-  tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
+  tv->split(-2, getM(params_->mma_macro));
+  tv->split(-1, getN(params_->mma_macro));
   // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-  tv->reorder({{apply_k_dim_offset(-3), apply_k_dim_offset(-2)}});
+  tv->reorder({{-3, -2}});
   // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-  tv->merge(apply_k_dim_offset(-4));
+  tv->merge(-4);
   // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-  tv->axis(apply_k_dim_offset(-3))->parallelize(ParallelType::TIDy);
+  tv->axis(-3)->parallelize(ParallelType::TIDy);
   // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
 }
 
@@ -55,6 +55,34 @@ MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
   auto it = id_roles_.find(vg);
   NVF_ERROR(it != id_roles_.end());
   return it->second;
+}
+
+void HopperMultipleMatmulScheduler::validate() const {
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int cc = device_prop->major * 10 + device_prop->minor;
+  NVF_ERROR(
+      cc >= 90 && cc < 100, "This matmul scheduler is restricted to Hopper.");
+
+  if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
+    NVF_CHECK(
+        params_->splitk_factor == 1,
+        "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
+  }
+
+  NVF_CHECK(
+      params_->tiling_strategy !=
+          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
+      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
+
+  NVF_CHECK(
+      params_->tiling_strategy !=
+          MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
+      "Hopper matmul scheduler does not support distributing stages across SMs a la stream-K");
+
+  NVF_CHECK(
+      params_->buffering_loop_level ==
+          MatmulParams::BufferingLoopLevel::CTATiles,
+      "Hopper matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
 }
 
 void HopperMultipleMatmulScheduler::run() {
@@ -424,7 +452,34 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       splitk_sums_.push_back(splitk_sum);
     }
 
-    transformLikeMmaOutput(mma_result, /*is_mma_result=*/true);
+    // Original: [..., Mo, No, Mi, Ni, Ki]
+    mma_result->split(-3, getM(params_->mma_macro));
+    mma_result->split(-2, getN(params_->mma_macro));
+
+    // Split k dimension of warp tile only if it is larger than k dimension of
+    // mma macro. Inlining can be at incorrect position for circular buffering
+    // if a reduction iterDomain has iterDomain 1.
+    if (params_->tile_sizes.warp_tile.k > getK(params_->mma_macro)) {
+      mma_result->split(-1, getK(params_->mma_macro));
+      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii, Kio, Kii]
+      mma_result->reorder({{-5, -4}});
+      // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii, Kio, Kii]
+      mma_result->reorder({{-2, -4}});
+      // After Reorder: [..., Mo, No, Mio, Nio, Kio, Mii, Nii, Kii]
+      mma_result->merge(-6);
+      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+      mma_result->axis(-5)->parallelize(ParallelType::TIDy);
+      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+    } else {
+      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
+      mma_result->reorder({{-4, -3}});
+      // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
+      mma_result->merge(-5);
+      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
+      mma_result->axis(-4)->parallelize(ParallelType::TIDy);
+      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+    }
+
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -459,7 +514,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // op.
       blockTileTensors({d});
       parallelizeBlocks({d});
-      transformLikeMmaOutput(d, /*is_mma_result=*/false);
+      transformLikeMmaOutput(d);
 
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           d->getLoopDomain());
@@ -539,7 +594,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       blockTileTensors(tvs_to_schedule);
       parallelizeBlocks(tvs_to_schedule);
       for (auto tv : tvs_to_schedule) {
-        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
+        transformLikeMmaOutput(tv);
       }
 
       // Should not propagate if the dc is a mma output as the mma output has
@@ -590,7 +645,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-    transformLikeMmaOutput(splitk_sum, /*is_mma_result=*/false);
+    transformLikeMmaOutput(splitk_sum);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         splitk_sum->getLoopDomain());
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
@@ -640,13 +695,22 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         " but is expected to be positive and not greater than number of stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
+    CircularBufferType cb_type;
+    switch (params_->circular_buffering_strategy) {
+      case MatmulParams::CircularBufferingStrategy::Pipelined:
+        cb_type = (CircularBufferType)Pipelined(false);
+        break;
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
+        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+    }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap);
+                  .smem_circular_buffer_prefetch_gap,
+          /*type=*/cb_type);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
@@ -654,7 +718,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           /*prefetch_distance=*/
           params_->circular_buffer_options.smem_circular_buffer_stage -
               params_->circular_buffer_options
-                  .smem_circular_buffer_prefetch_gap);
+                  .smem_circular_buffer_prefetch_gap,
+          /*type=*/cb_type);
     }
   }
 

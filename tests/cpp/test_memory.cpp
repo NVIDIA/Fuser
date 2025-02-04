@@ -2761,6 +2761,126 @@ TEST_F(TMADocTest, Figure15e) {
 
 // End TMA tests
 
+// Tensor memory tests
+using TMemTest = BlackwellBase;
+
+TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // register
+  auto tv2 = set(tv1); // tmem
+  auto tv3 = set(tv2); // register
+  auto tv4 = set(tv3); // gmem
+  fusion.addOutput(tv4);
+
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv4->split(0, 32);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
+
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+void testTMemAddKernel(bool same_region) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // register
+  auto tv2 = set(tv1); // tmem
+  auto tv3 = set(tv2); // register
+  auto tv4 = makeSymbolicTensor(1);
+  fusion.addInput(tv4);
+  auto tv5 = set(tv4); // register
+  auto tv6 = set(tv5); // tmem
+  auto tv7 = set(tv6); // register
+  auto tv8 = add(tv3, tv7); // register
+  auto tv9 = set(tv8); // gmem
+  fusion.addOutput(tv9);
+
+  if (same_region) {
+    using Region = std::vector<TensorView*>;
+    Region region1{tv2, tv6};
+    std::vector<Region> regions{region1};
+    fusion.manage("tmem_regions", regions);
+  }
+
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv6->setMemoryType(MemoryType::Tensor);
+  tv6->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv7->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv9->split(0, 32);
+
+  TransformPropagator propagator(tv9);
+  MaxLogicalDomainInfoSpanningTree(tv9).traverse(&propagator);
+
+  tv9->axis(0)->parallelize(ParallelType::BIDx);
+  tv9->axis(1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv9, {tv1, tv2});
+
+  inlineMost();
+
+  KernelExecutor ke;
+
+  // check number of tcgen05.alloc calls
+  ke.registerLoweringHook([same_region](GpuLower* lower) {
+    auto check_pass = [same_region](const std::vector<Expr*>& exprs) {
+      int64_t num_allocs =
+          std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
+            auto asm_ = dynamic_cast<kir::Asm*>(expr);
+            if (asm_ == nullptr) {
+              return false;
+            }
+            return asm_->code().find("tcgen05.alloc") != std::string::npos;
+          });
+      EXPECT_EQ(num_allocs, same_region ? 1 : 2);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto t1 = at::randn(
+      {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, {t0 + t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TMemTest, AddKernelMultipleRegions) {
+  testTMemAddKernel(false);
+}
+
+TEST_F(TMemTest, AddKernelSameRegion) {
+  testTMemAddKernel(true);
+}
+
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
 
 class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
