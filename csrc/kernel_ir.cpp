@@ -119,6 +119,9 @@ std::string TensorIndex::toString(int indent_size) const {
     case MemoryType::Local:
       ss << "_l";
       break;
+    case MemoryType::Tensor:
+      ss << "_t";
+      break;
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
