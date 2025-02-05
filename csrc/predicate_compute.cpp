@@ -435,32 +435,46 @@ Val* createSingleExpressionElectSync(
   NVF_ERROR(pred->expr() != nullptr);
   NVF_ERROR(ir_utils::isCpAsyncBulkStore(pred->expr()), "Limited to TMA Store");
 
+  TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
   auto pred_map =
       ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
   Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
   for (auto pt : {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
+    // short-circuit: parallelDim is not used by CTA
+    if (!pdim_map.has(pt)) {
+      continue;
+    }
+
+    // Case 1: TMA expression uses ParallelDim to launch multiple
+    // operations simultaneously. Use parallel domain predicate if it
+    // exists.
     auto pred_info_it = pred_map.find(pt);
     if (pred_info_it != pred_map.end()) {
       const auto& pred_info = pred_info_it->second;
       auto tid_pred = pred_info.getPredicate();
-      if (tid_pred != nullptr) {
-        // Case 1: TMA expression uses ParallelDim to launch multiple
-        // operations simultaneously. Use parallel domain predicate if it
-        // exists.
-        parallel_dom_pred =
-            SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
-      } else if (pdim_map.has(pt)) {
-        // Case 2: ParallelDim is used by CTA but not the TMA expression.
-        // Select a single thread along ParallelDim.
-        if (pt == ParallelType::TIDx) {
-          // Use createElectSyncPredicate for ParallelDim::TIDx.
-          parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
-              parallel_dom_pred, createElectSyncPredicate(pred));
-        } else {
-          // Select first element of dimension for ParallelDim::TIDy and
-          // ParallelDim::TIDz.
+      parallel_dom_pred =
+          SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+    }
+
+    // Case 2: ParallelDim is used by CTA but not the TMA expression.
+    // Select a single thread along ParallelDim.
+    bool is_tv_tid_parallelized = std::any_of(
+        out_tv->domain()->loop().begin(),
+        out_tv->domain()->loop().end(),
+        [&](IterDomain* id) { return id->getParallelType() == pt; });
+    if (!is_tv_tid_parallelized) {
+      if (pt == ParallelType::TIDx) {
+        // Use createElectSyncPredicate for ParallelDim::TIDx.
+        parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+            parallel_dom_pred, createElectSyncPredicate(pred));
+      } else {
+        // Select first element of dimension for ParallelDim::TIDy and
+        // ParallelDim::TIDz.
+        Val* paralleltype_dim =
+            GpuLower::current()->parallelDimensionMap().get(pt);
+        if (paralleltype_dim == nullptr || !paralleltype_dim->isOneInt()) {
           parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
               parallel_dom_pred,
               IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
