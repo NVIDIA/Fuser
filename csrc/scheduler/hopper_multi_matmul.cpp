@@ -31,6 +31,7 @@ namespace nvfuser {
 
 void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
     TensorView* tv) {
+  NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
   //
@@ -71,6 +72,7 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
       " only has ",
       tv->domain()->loop().size(),
       ".");
+  NVF_ERROR(!tv->axis(-1)->isReduction(), "Inner axis should not be Reduction.");
 
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
