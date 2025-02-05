@@ -337,8 +337,11 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
 
-  if (orig->isFusionOutput() && replacement->isFusionOutput()) {
-    // Refuse to do replacement of one output with another.
+  if (orig->isFusionOutput() && replacement->isFusionOutput() &&
+      FusionGuard::getCurFusion()->getOutputAlias(orig) !=
+          FusionGuard::getCurFusion()->getOutputAlias(replacement)) {
+    // Refuse to do replacement of one output with another unless their aliasing
+    // settings are identical.
     // See https://github.com/NVIDIA/Fuser/issues/3833
     return orig;
   }
