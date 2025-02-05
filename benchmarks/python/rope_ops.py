@@ -408,6 +408,8 @@ def hf_phi3():
         """Multi-headed attention from 'Attention Is All You Need' paper"""
         from transformers.models.phi3 import Phi3Config
 
+        from transformers.models.phi3 import Phi3Config
+
         def __init__(self, config: Phi3Config):
             super().__init__()
             self.config = config
