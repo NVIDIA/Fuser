@@ -130,8 +130,6 @@ LaunchKernel::LaunchKernel(
       launch_constraints_(launch_constraints),
       compile_params_(compile_params) {
   addDataAttribute(hic_executor_index);
-  // launch_constraints_ = launch_constraints;
-  // compile_params_ = compile_params;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
