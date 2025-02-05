@@ -292,7 +292,8 @@ inferAndValidateAllocationSizesAndStrides(
   const auto& alloc = tv->getMaybeAllocationDomain();
 
   // active IDs and their shape and stride
-  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  std::vector<int64_t> logical_sizes(
+      tensor.sizes().begin(), tensor.sizes().end());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
   for (IterDomain* id : TensorDomain::noReductions(logical)) {

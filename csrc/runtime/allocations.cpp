@@ -293,26 +293,32 @@ at::Tensor allocateTensor(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
+      inferAndValidateAllocationSizesAndStrides(alloc_tensor, out_tv, ee);
+      std::cerr << "New: " << alloc_tensor.sizes() << std::endl;
       return alloc_tensor;
     }
-    case AllocationType::ReuseBuffer:
+    case AllocationType::ReuseBuffer: {
       // Unlike for `AllocationType::Evaluate`, don't use
       // ExpressionEvaluator to compute the output tensor. This is because
       // the output tensor may hold different data from the input, e.g., an
       // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
       // would trigger non-trivial host computation.
-      return aliased_io_tensor.value();
+      inferAndValidateAllocationSizesAndStrides(*aliased_io_tensor, out_tv, ee);
+      std::cerr << "ReuseBuffer: " << aliased_io_tensor->sizes() << std::endl;
+      return *aliased_io_tensor;
+    }
     case AllocationType::Evaluate: {
       auto out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
       if (aliased_io_tensor.has_value()) {
         NVF_ERROR(
-            out_tensor.is_alias_of(aliased_io_tensor.value()),
+            out_tensor.is_alias_of(*aliased_io_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
             aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
       }
+      std::cerr << "Evaluate: " << out_tensor.sizes() << std::endl;
       return out_tensor;
     }
     default:
