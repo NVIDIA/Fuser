@@ -93,7 +93,7 @@ def hf_mistral_nemo_cfg():
 
 configs = {
     "llama_2_7b_hf": partial(llama_hf_cfg, config_str="llama_2_7b_hf"),
-    "llama_3_8B_hf": partial(llama_hf_cfg, config_str="llama_3_8B_hf"),
+    "llama_3_8B": partial(llama_hf_cfg, config_str="llama_3_8B"),
     "hf_qwen2": hf_qwen2_cfg,
     "hf_phi3": hf_phi3_cfg,
     "hf_mistral_nemo": hf_mistral_nemo_cfg,
