@@ -539,7 +539,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   // }
 
   const auto current_stream = reinterpret_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-  const std::vector<RemoteBufferInfo>& remote_buffers = communicator_->getRemoteBuffer(buffer, std::to_string(communication->buffer()->name()));
+  const std::vector<RemoteBufferInfo>& remote_buffers = communicator_->getRemoteBuffer(buffer, "");
   const int64_t my_rank = communicator_->deviceId();
   const int64_t peer = expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
   const RemoteBufferInfo& my_buffer = remote_buffers.at(my_rank);
@@ -562,7 +562,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     std::cout << "RANK " << my_rank << " SEND after 1st WAIT" << std::endl;
     // RDMA writes data from sender to receiver
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-        remote_buffers.at(my_rank).ptr(),
+        peer_buffer.ptr(),
         my_buffer.ptr(),
         buffer.numel() * buffer.element_size(),
         cudaMemcpyDeviceToDevice,
