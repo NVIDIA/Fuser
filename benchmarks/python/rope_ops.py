@@ -175,8 +175,9 @@ def hf_qwen2():
         )
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
-    from transformers.models.qwen2 import Qwen2Config
     class Qwen2Rope(nn.Module):
+        from transformers.models.qwen2 import Qwen2Config
+
         def __init__(self, config: Qwen2Config):
             super().__init__()
             self.config = config
@@ -626,6 +627,8 @@ def hf_mistral_nemo():
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
     class MistralNemoRope(nn.Module):
+        from transformers.models.mistral import MistralConfig
+
         def __init__(self, config: MistralConfig):
             super().__init__()
             self.config = config
