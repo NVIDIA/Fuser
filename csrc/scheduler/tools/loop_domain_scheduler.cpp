@@ -99,6 +99,8 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
   const std::vector<IterDomain*>& output_ids_;
 };
 
+// Replay a given IterDomain transform expression on the loop domain
+// of a given tensor using specified loop IDs as its inputs.
 class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
  public:
   static void replayAs(
@@ -541,7 +543,11 @@ void scheduleLoopDomainsBy(
 
     // When the direction is forward, the TensorView transform
     // APIs, e.g., TensorView::split, can be used, which doesn't need
-    // to use TensorView::setLoopDomain.
+    // to use TensorView::setLoopDomain. This is important as
+    // setLoopDomain may result in losing extra IDs added by prior
+    // scheduleLoopDomain calls, which was indeed the case with the
+    // Llama 3 RoPE backward (see also
+    // https://github.com/NVIDIA/Fuser/issues/3571).
     if (replay_dir_tv == Direction::Forward) {
       ReplayForwardTransformOnLoopDomain::replayAs(tv, input_ids, transform);
       continue;
