@@ -2,8 +2,10 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 
+import torch
+
+from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 from .embedding_ops import embedding_setup
 
 
@@ -31,11 +33,11 @@ def test_rope_fwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, gen_inputs, _, _ = embedding_setup[variation]()
+    model, gen_inputs, _, _ = embedding_setup[variation](dtype=torch.bfloat16)
     inputs = gen_inputs()
 
     def fwd_call(inp):
-        return model(*inp)
+        return model(**inp)
 
     # Compile the fwd fn for torchcompile
     benchmark_fn = with_executor(executor, fwd_call, **kwargs)
@@ -65,11 +67,11 @@ def test_rope_bwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, gen_inputs, grad, iobytes = embedding_setup[variation]()
+    model, gen_inputs, grad, iobytes = embedding_setup[variation](dtype=torch.bfloat16)
     fwd_inputs = gen_inputs()
 
     def fwd_call(inp):
-        return model(*inp)
+        return model(**inp)
 
     # execute the compiled fwd fn
     fwd_fn = with_executor(executor, fwd_call, **kwargs)
@@ -83,5 +85,5 @@ def test_rope_bwd_benchmark(
     # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
     # a reference point for torchcompile and eager executor for comparison.
     run_benchmark(
-        benchmark, unary_bwd_torch, [output, grad(), *fwd_inputs], iobytes=iobytes()
+        benchmark, unary_bwd_torch, [output, grad(), *fwd_inputs.values()], iobytes=iobytes()
     )

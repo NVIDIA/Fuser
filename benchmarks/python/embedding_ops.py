@@ -21,7 +21,7 @@ def hf_qwen2(dtype):
             inputs_embeds = self.embed_tokens(input_ids)
             return (inputs_embeds,)
 
-    config = configs["hf_qwen2"]
+    config = configs["hf_qwen2"]()
 
     def inputs(dtype, batch_size=config.batch_size, seq_len=config.seq_len):
         input_ids = torch.randint(0, config.vocab_size, (batch_size, seq_len), device='cuda', requires_grad=False)
