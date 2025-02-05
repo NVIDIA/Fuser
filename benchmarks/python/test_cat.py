@@ -390,7 +390,6 @@ def test_cat_qwen2_fwd_11_nvf_benchmark(
 # torch.as_strided call yet. There's a separate benchmark for thunder for now.
 @pytest.mark.parametrize("executor", ["torchcompile"])
 def test_cat_qwen2_fwd_11_baseline_benchmark(benchmark, executor: str) -> None:
-
     inputs = get_cat_qwen2_inputs()
 
     def benchmark_fn(inputs):
