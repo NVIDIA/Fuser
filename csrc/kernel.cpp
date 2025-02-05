@@ -241,8 +241,10 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(IfThenElse* ite) final {
-    // Search for ElectSync UnaryOp
-    if (ite->predicate()->value()->definition() != nullptr) {
+    // Search for ElectSync UnaryOp in IfThenElse predicate
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
+        ite->predicate()->value() != nullptr &&
+        ite->predicate()->value()->definition() != nullptr) {
       dispatch(ite->predicate()->value()->definition());
     }
     // Run default handle
