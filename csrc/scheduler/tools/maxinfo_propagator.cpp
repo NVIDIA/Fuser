@@ -86,8 +86,9 @@ void MaxInfoSpanningTree::compute_spanning_tree() {
   };
 
   auto allowSibling = [this](TensorView* from, TensorView* to) {
-    // Disable propagation between siblings if they are not uniform to avoid errors in
-    // `computeInfoSibling`. This is required for SdpaFwdOp and SdpaBwdOp.
+    // Disable propagation between siblings if they are not uniform to avoid
+    // errors in `computeInfoSibling`. This is required for SdpaFwdOp and
+    // SdpaBwdOp.
     if (!ir_utils::hasUniformSiblings(from->definition())) {
       return false;
     }
@@ -95,7 +96,7 @@ void MaxInfoSpanningTree::compute_spanning_tree() {
     if (selector_ == nullptr) {
       return true;
     }
-    
+
     return selector_->allowSibling(from, to);
   };
 
