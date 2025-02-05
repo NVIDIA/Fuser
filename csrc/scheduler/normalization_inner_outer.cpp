@@ -722,6 +722,16 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
 
+  bool use_tma = std::getenv("USE_MAIN") == nullptr;
+  if(use_tma){
+      rparams->use_tma = use_tma;
+      rparams->circular_buffer_stages_iter_dim = 2;
+    if(std::getenv("STAGES") != nullptr){
+      rparams->circular_buffer_stages_iter_dim = std::atoi(std::getenv("STAGES"));
+    }
+    std::cout << "circular_buffer_stages_iter_dim: " << rparams->circular_buffer_stages_iter_dim << std::endl;
+  }
+
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       iop.gdimy,
@@ -900,6 +910,14 @@ void scheduleReductionCombinedOuter(
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
+
+    std::vector<int64_t> reduction_axes;
+    reduction_axes.push_back(0);
+    if(rparams->circular_buffer_stages_iter_dim > 1){
+      reduction_axes.push_back(2);
+      outer_reduction_tv->split(0, rparams->circular_buffer_stages_iter_dim);
+    }
+
     if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams->block_dim_iter_dom));
@@ -914,7 +932,7 @@ void scheduleReductionCombinedOuter(
     }
     TensorView* partialResult = rparams->multiple_reds_per_blk
         ? outer_reduction_tv->rFactor({1})
-        : outer_reduction_tv->rFactor({0});
+        : outer_reduction_tv->rFactor(reduction_axes);
     partialResult->cacheBefore();
     partialResult->setMemoryType(MemoryType::Global);
     TensorView* partialResultReload = partialResult->cacheAfter();
@@ -1062,12 +1080,48 @@ void scheduleInnerOuterPersistentKernel(
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
 
+  std::vector<TensorView*> tma_tvs;
+  bool use_tma = std::getenv("USE_MAIN") == nullptr;
+
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.
-  reduction_scheduler_utils::propagateTransformation(
-      inner_reference_tv, boundaryNodesSet);
+  if(use_tma){
+
+    for(auto tv : smem_consumers) {
+      auto smem_tv = ir_utils::getSoleProducerTv(tv);
+      if(std::find(tma_tvs.begin(), tma_tvs.end(), smem_tv) == tma_tvs.end()) {
+        std::cout << "smem_tv: " << smem_tv->toString() << std::endl;
+        tma_tvs.emplace_back(smem_tv);
+        boundaryNodesSet.insert(smem_tv);
+      }
+    }
+
+    std::vector<TensorView*> special_tvs = tma_tvs;
+    for(auto tv : boundaryNodesSet){
+      std::cout << "boundary_tv: " << tv->toString() << std::endl;
+      special_tvs.emplace_back(tv);
+    }
+    TransformPropagator propagator_circular_buffer(inner_reference_tv, 1);
+    MaxLogicalDomainInfoSpanningTree(inner_reference_tv)
+        .traverse(&propagator_circular_buffer);
+
+    TransformPropagator propagator(inner_reference_tv);
+    std::vector<TensorView*> all_tvs_except_cache =
+        ir_utils::allTvsExcept(fusion, {special_tvs.begin(), special_tvs.end()});
+    SetSelector selector(
+        {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+    MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
+        .traverse(&propagator);
+
+  
+  }else{
+    reduction_scheduler_utils::propagateTransformation(
+        inner_reference_tv, boundaryNodesSet);
+  }
+
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
+
 
   // Don't allow parallelization propagation goes through boundaryNodesSet
   const auto& selected_tvs_inner =
@@ -1083,6 +1137,13 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+
+  if(use_tma){
+    for(auto tv : tma_tvs) {
+      tv->axis(-1)->parallelize(ParallelType::Bulk);
+    }
+  }
+  fusion->printMath();
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
@@ -1158,6 +1219,23 @@ void scheduleInnerOuterPersistentKernel(
     fusion->removeOutput(output);
   }
   inlineMost();
+
+
+  if (use_tma && rparams->circular_buffer_stages_iter_dim > 1) {
+    int64_t number_of_stages = rparams->circular_buffer_stages_iter_dim;
+    int64_t prefetch_distance = number_of_stages - 1;
+    bool use_warp_specialization = false;
+    if(std::getenv("WARP") != nullptr){
+      use_warp_specialization = true;
+    }
+    CircularBufferType circular_buffer_type = Pipelined(true);
+    for (auto tv : tma_tvs) {
+      if (tv->getComputeAtPosition() > 0) {
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      }
+    }
+  }  
 }
 
 } // namespace

@@ -1308,11 +1308,16 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
-        tv->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::CpAsync);
-        tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+      if (std::getenv("USE_MAIN") == nullptr && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+      }else{
+        if (supportCpAsync(tv) && is_cached_input) {
+          tv->definition()->as<LoadStoreOp>()->setOpType(
+              LoadStoreOpType::CpAsync);
+          tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+        }
       }
+
       // do a register cache for all the uses of this smem tv.
       // The load from smem to register cache will then be vectorized to avoid
       // bank conflicts. The determination of bank conflicts is made per
