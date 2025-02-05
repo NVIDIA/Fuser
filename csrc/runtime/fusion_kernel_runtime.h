@@ -108,9 +108,6 @@ class FusionKernelRuntime {
   }
 
   //! Internal knob for profiling shape inference
-  void disableLaunchParamCache();
-
-  //! Internal knob for profiling shape inference
   void disableKernelLaunch();
 
   //! Returns if this runtime is segmented

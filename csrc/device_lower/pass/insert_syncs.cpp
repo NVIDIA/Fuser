@@ -792,7 +792,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 };
 
-// Insert wait expressions for WAR harzard for async operations such as wgmma
+// Insert wait expressions for WAR hazard for async operations such as wgmma
 // and tma store. To do so, we find the structure like the following example:
 //   for 1
 //     for 2
@@ -969,7 +969,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   // that consumes the circular buffered tensor, the "pending_ops" can be larger
   // than 0, depending on the prefetch distance and the stage depth of the
   // circular buffer loop. When the prefetch distance is smaller than
-  // stage_depth - 1, we have have buffers for eliminating WAR harzards, so we
+  // stage_depth - 1, we have have buffers for eliminating WAR hazards, so we
   // can allow more pending transactions.
   int64_t getPendingOpsFor(Expr* expr, ForLoop* current_loop) {
     auto for_loops_including_current = for_loops_;

@@ -617,10 +617,10 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
-// Generates an old to new map to reorder tv's domain as the logical order.
-// This only handles the simple case where allocation is a permutation of
-// logical domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+// Generates an old to new map to reorder tv's loop domain as its allocation
+// order. This only handles the simple case where allocation is a permutation of
+// loop domain, otherwise, the function returns an empty container.
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv);
 
 // Assumes view's are consistent as detected by
@@ -728,6 +728,24 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
+// Returns a factor represents the computation cost of the given fusion.
+// Estimated using the number of MUFU operations, each weighted with a
+// predefined factor.
+int64_t getComputationCostFactor(Fusion* fusion);
+
+// Returns the required bytes in flight to saturate the memory bandwidth.
+int64_t getRequiredBytesInFlight();
+
+// Returns true if the device has a high bandwidth to compute raito.
+bool isHighBandwidthFlopsRatio();
+
+// Return true if the fusion has computation requires Floating-Point
+// Multi-Function (MUFU) units, e.g. cos, sin, exponent, logarithm, sine,
+// cosine, square root, hyperbolic tangent. Currently, we only tested tanh, exp,
+// and Reciprocal. Note that, if compiled with fast math (not supported yet) or
+// directly lowered with inlined ptx, needs to revise the inner reduction
+// heuristics which uses this function to set the optimal unroll factor.
+bool hasExpensiveMUFUops(Fusion* fusion);
 // Reorder DID parallelized axes to outermost positions. Returns
 // the position of the outermost non-DID axis.
 int64_t reorderDevicesToOuter(TensorView* tv);

@@ -48,10 +48,16 @@ struct MatmulInputs {
 namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator, it also updates fusion
-// output according to the replacement_map
-void replaceValue(
+// output according to the replacement_map. Returns the final
+// replacement map, which includes the given replacement entries as
+// well as those that are the results of the replacement.
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
+
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr);
 
 template <typename FilterType, typename Iterator>
 class FilterIterator {
@@ -707,6 +713,7 @@ inline bool isMemoryPartitionedAcross(
       return isParallelTypeThread(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Shared:
+    case MemoryType::Tensor:
       return isParallelTypeBlockDim(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Global:
@@ -726,7 +733,8 @@ inline bool isMemorySharedAcross(
       // Nothing is shared if it's Local
       return false;
     case MemoryType::Shared:
-      // Only TID parallelized domains are shared if it's Shared
+    case MemoryType::Tensor:
+      // Only TID parallelized domains are shared if it's Shared or Tensor
       return isParallelTypeThreadDim(parallel_type);
     case MemoryType::Global:
       // Only TID and BID parallelized domains are shared if it's Global
@@ -772,24 +780,6 @@ int64_t getOperationCount(Val* val);
 // Create a ForLoop IR node that represents:
 //   for (int i = 0; i < size; i++)
 ForLoop* createRangeLoop(int64_t size);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
-
-// Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
-
-// Returns the first input of Expr that is a TensorView
-TensorView* getTvInput(const Expr*);
 
 // Returns the first output of Expr that is a TensorView
 TensorView* getTvOutput(const Expr*);

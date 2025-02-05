@@ -111,11 +111,13 @@ class Val;
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
+  f(EmbeddingFwdOp);              \
   f(Communication);               \
   f(ForLoop);                     \
   f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
+  f(AllocTMem);                       \
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \

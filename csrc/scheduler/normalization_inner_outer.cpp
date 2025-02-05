@@ -214,15 +214,21 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Note: in current use cases (layer norm bwd and RMS norm bwd), there are
   // outer broadcast tvs and always project to inputs.
   const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
-  buffer_params.project_to_input =
+  normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
           runtime_info,
+          reduction_tvs,
           persistent_buffer_info,
           persistent_buffer_size_info,
           InnerOuterPersistentKernelScheduler::schedulerType(),
           /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
+
+  buffer_params.project_to_input =
+      (project_strategy ==
+       normalization_scheduler_utils::BufferProjectionStrategy::
+           ProjectToInputs);
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
