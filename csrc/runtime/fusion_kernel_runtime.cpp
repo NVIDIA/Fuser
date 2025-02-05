@@ -288,7 +288,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     ArgumentManager args_manager(
         args,
         runtime_workspace_,
-        hie_->inputs()); // nick segmented_fusion_->inputs()
+        hie_->inputs());
     return hie_->runWithInput(args_manager.getTensorMap());
   }
 
@@ -428,8 +428,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      // auto fusion_to_run =
-      // segmented_fusion_->makeFusion(group_to_run).second;
       auto in_clone = ir_cloner.clone(group_to_run->inputs());
       auto out_clone = ir_cloner.clone(group_to_run->outputs());
       if (hic->hasKernelExecutor(run_order_id)) {
@@ -452,7 +450,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     auto in_clone = ir_cloner.clone(segmented_fusion_->inputs());
     auto out_clone = ir_cloner.clone(segmented_fusion_->outputs());
     for (auto& input : in_clone) {
-      hic->addInput(input); // nick
+      hic->addInput(input);
     }
     for (auto& output : out_clone) {
       hic->addOutput(output);
