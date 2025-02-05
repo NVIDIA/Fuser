@@ -175,6 +175,7 @@ def hf_qwen2_rope():
         )
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
+    from transformers.models.qwen2 import Qwen2Config
     class Qwen2Rope(nn.Module):
         def __init__(self, config: Qwen2Config):
             super().__init__()
@@ -404,6 +405,7 @@ def hf_phi3_rope():
 
     class HfPhi3Rope(nn.Module):
         """Multi-headed attention from 'Attention Is All You Need' paper"""
+        from transformers.models.phi3 import Phi3Config
 
         def __init__(self, config: Phi3Config):
             super().__init__()
