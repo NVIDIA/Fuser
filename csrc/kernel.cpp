@@ -74,10 +74,12 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(BinaryOp* bop) final {
-    if (bop->lhs()->definition() != nullptr) {
+    if (bop->lhs()->definition() != nullptr &&
+        bop->lhs()->definition() != bop) {
       dispatch(bop->lhs()->definition());
     }
-    if (bop->rhs()->definition() != nullptr) {
+    if (bop->rhs()->definition() != nullptr &&
+        bop->rhs()->definition() != bop) {
       dispatch(bop->rhs()->definition());
     }
   }
