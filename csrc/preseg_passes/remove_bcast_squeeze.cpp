@@ -337,6 +337,12 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
 
+  if (orig->isFusionOutput() && replacement->isFusionOutput()) {
+    // Refuse to do replacement of one output with another.
+    // See https://github.com/NVIDIA/Fuser/issues/3833
+    return orig;
+  }
+
   std::vector<IterDomain*> old_loop =
       TensorDomain::noReductions(orig->getLoopDomain());
   std::vector<IterDomain*> new_loop =
@@ -378,12 +384,6 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       needs_resharding = true;
       break;
     }
-  }
-
-  if (orig->isFusionOutput() && replacement->isFusionOutput()) {
-    // Refuse to do replacement of one output with another.
-    // See https://github.com/NVIDIA/Fuser/issues/3833
-    return orig;
   }
 
   if (needs_resharding) {
