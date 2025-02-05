@@ -844,6 +844,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //! waiting at the end of loop 1 is sufficient and cheaper.
   std::unordered_set<Val*> async_inputs_in_current_scope_;
 
+  //! Warp Specialization creates an If-Then-Else to separate load and compute
+  //! operations. Therefore, the async_inputs_in_current_scope_ will not contain
+  //! the async inputs for the corresponding async expression. Track async
+  //! inputs separately when we encounter them in load warp.
+  std::unordered_set<Val*> warp_specialized_async_inputs_in_current_scope_;
+
   //! Async expressions that need to be protected by a wait expression, but we
   //! have not inserted the wait expression yet.
   //! Example 1:
@@ -900,6 +906,17 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     if (!ir_utils::isTvOp(expr)) {
       kir::ExprMutator::dispatch(expr);
       return;
+    }
+
+    TensorView* out_tv = ir_utils::getTvOutput(expr);
+    NVF_ERROR(out_tv != nullptr);
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+            out_tv, for_loops_);
+    if (circular_buffer_loop != nullptr &&
+        circular_buffer_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::LoadWarp) {
+      warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
     }
 
     // If the output of the current expression is used by an async op, then we
@@ -990,7 +1007,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     const auto gpu_lower = GpuLower::current();
     int64_t pending_ops = std::numeric_limits<int64_t>::max();
     for (auto inp : expr->inputs()) {
-      if (async_inputs_in_current_scope_.count(inp) == 0) {
+      if (async_inputs_in_current_scope_.count(inp) == 0 &&
+          warp_specialized_async_inputs_in_current_scope_.count(inp) == 0) {
         continue;
       }
       auto tv = dynamic_cast<TensorView*>(inp);
@@ -1008,8 +1026,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       }
       auto stage = circular_buffer_loop->circularBufferLoopStage();
       NVF_ERROR(
-          stage == CircularBufferLoopStage::Main,
-          "Only main circular buffer loop needs WAR async wait, ",
+          stage == CircularBufferLoopStage::Main ||
+              stage == CircularBufferLoopStage::ComputeWarp,
+          "Only main or compute-warp circular buffer loop needs WAR async wait, ",
           "so the code should not reach here. Stage:",
           stage);
 
@@ -1038,15 +1057,19 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       for (auto it = async_exprs_to_protect_.begin();
            it != async_exprs_to_protect_.end();) {
         auto expr = *it;
+
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
         if (std::none_of(
                 expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
-                  return async_inputs_in_current_scope_.count(val);
+                  return async_inputs_in_current_scope_.count(val) ||
+                      warp_specialized_async_inputs_in_current_scope_.count(
+                          val);
                 })) {
           it++;
           continue;
         }
+
         int64_t pending_ops = getPendingOpsFor(expr, for_loop);
         auto type = ir_utils::getAsyncOpType(expr);
         // If there are multiple async ops of the same type to protect, we will
@@ -1060,6 +1083,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           types_and_pending_ops_to_protect.emplace(type, pending_ops);
         }
         it = async_exprs_to_protect_.erase(it);
+        // Async inputs are consumed by an expression in async_exprs_to_protect_.
+        // Remove them here.
+        for (Val* val : expr->inputs()) {
+	  auto val_iter = warp_specialized_async_inputs_in_current_scope_.find(val);
+          if (val_iter != warp_specialized_async_inputs_in_current_scope_.end()) {
+              warp_specialized_async_inputs_in_current_scope_.erase(val_iter);
+	  }
+        }
       }
 
       // Actually insert these wait expressions.
