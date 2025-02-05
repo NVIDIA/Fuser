@@ -58,7 +58,13 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   EXPECT_TRUE(outputs[0].equal(t0));
 }
 
-TEST_F(HostIrIntegrationTest, HostIrCodepathSet) {
+using EnableHostIrCodepath = bool;
+
+class HostIrCodepathSetTest : public NVFuserTest,
+                         public testing::WithParamInterface<EnableHostIrCodepath> {};
+
+TEST_P(HostIrCodepathSetTest, ) {
+  const auto& use_codepath = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
@@ -68,7 +74,9 @@ TEST_F(HostIrIntegrationTest, HostIrCodepathSet) {
   fusion->addOutput(out);
 
   EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  if (use_codepath) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
@@ -79,7 +87,17 @@ TEST_F(HostIrIntegrationTest, HostIrCodepathSet) {
   testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
 }
 
-TEST_F(HostIrIntegrationTest, HostIrCodepathSum) {
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HostIrCodepathSetTest,
+    ::testing::Bool()
+);
+
+class HostIrCodepathSumTest : public NVFuserTest,
+                         public testing::WithParamInterface<EnableHostIrCodepath> {};
+
+TEST_P(HostIrCodepathSumTest, ) {
+  const auto& use_codepath = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
@@ -89,7 +107,9 @@ TEST_F(HostIrIntegrationTest, HostIrCodepathSum) {
   fusion->addOutput(out);
 
   EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  if (use_codepath) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
@@ -100,44 +120,11 @@ TEST_F(HostIrIntegrationTest, HostIrCodepathSum) {
   testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
 }
 
-TEST_F(HostIrIntegrationTest, NonHostIrCodepathSum) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  TensorView* in = makeSymbolicTensor(2);
-  fusion->addInput(in);
-
-  TensorView* out = sum(in, {0});
-  fusion->addOutput(out);
-
-  EnableOptionsGuard opt_guard;
-  //EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor =
-      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
-
-  testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
-}
-
-TEST_F(HostIrIntegrationTest, NonHostIrCodepath) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  TensorView* in = makeSymbolicTensor(2);
-  fusion->addInput(in);
-
-  TensorView* out = set(in);
-  fusion->addOutput(out);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor =
-      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
-
-  testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
-}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HostIrCodepathSumTest,
+    ::testing::Bool()
+);
 
 } // namespace hir
 
