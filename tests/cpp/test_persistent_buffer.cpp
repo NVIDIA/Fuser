@@ -1491,6 +1491,12 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   at::Tensor aten_input = at::randn(input_shape, options);
   c10::optional<at::Tensor> aten_weight = at::randn({input_shape[1]}, options);
   c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+  std::vector<c10::IValue> aten_inputs = {aten_input, aten_weight, aten_bias};
+
+  // try translate Welford in fusion
+  KernelArgumentHolder runtime_inputs =
+      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   auto fusion_copy = fusion;
 
   // check persistent buffer size
@@ -1524,49 +1530,42 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   }
 
   // check segmentation and smem usage
-  std::vector<c10::IValue> aten_inputs = {aten_input, aten_weight, aten_bias};
-  std::vector<at::Tensor> cg_outputs;
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
   if (has_enough_regs_smem) {
-    ASSERT_TRUE(Schedule::canSchedule(
-        SchedulerType::InnerPersistent, &fusion, runtime_info));
-    auto scheduler =
-        SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
-    auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
-    scheduler->schedule(&fusion, heuristic_params.get());
-    KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs);
-    cg_outputs =
-        ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+    // For dtype float, no op scheduler is also used.
+    const auto& heuristic_param =
+        runtime->schedulerHeuristics()->heuristicsList().back();
+    EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::InnerPersistent);
+    Fusion* scheduled_fusion = runtime->executors()
+                                   .back()
+                                   ->as<KernelExecutor>()
+                                   ->compiledKernel()
+                                   ->kernel();
+
     if (logic_buffer_size > scheduler_utils::register_file_size) {
-      bool has_smem_tv = std::any_of(
-          fusion.allTvs().begin(), fusion.allTvs().end(), [](const auto& tv) {
-            return tv->getMemoryType() == MemoryType::Shared;
-          });
+      bool has_smem_tv = false;
+      for (auto tv : scheduled_fusion->allTvs()) {
+        if (tv->getMemoryType() == MemoryType::Shared) {
+          has_smem_tv = true;
+          break;
+        }
+      }
       EXPECT_TRUE(has_smem_tv);
     }
   } else {
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    cg_outputs = executor_cache.runFusionWithInputs(
-        aten_inputs);
-    auto runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_THAT(
         runtime->fusionSegments()->groups(),
         Contains(HeuristicIs(SchedulerType::Reduction)));
   }
-
-  testValidate(
-      &fusion_copy,
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__,
-      "");
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__, "");
 }
 INSTANTIATE_TEST_SUITE_P(
     PersistentBufferTest,
     LayerNormSharedMemoryTest,
     ::testing::Combine(
-        ::testing::Values(DataType::Half /*, DataType::Half*/),
+        ::testing::Values(DataType::Half, DataType::Float),
         ::testing::Range((int64_t)32768, (int64_t)81921, (int64_t)4096)),
     [](const testing::TestParamInfo<TestParam>& info) {
       std::stringstream ss;
