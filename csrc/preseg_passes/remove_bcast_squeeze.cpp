@@ -380,6 +380,12 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     }
   }
 
+  if (orig->isFusionOutput() && replacement->isFusionOutput()) {
+    // Refuse to do replacement of one output with another.
+    // See https://github.com/NVIDIA/Fuser/issues/3833
+    return orig;
+  }
+
   if (needs_resharding) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);
     return orig;
