@@ -420,7 +420,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       registerInsertBefore(expr, fence_async, scope);
     }
 
-    // Insert sync exprs before async ops. For example, insert
+    // Insert sync exprs after async ops. For example, insert
     //   wgmma.commit_group.sync.aligned
     //   wgmma.wait_group.sync.aligned 0
     // before the use of mma results. Note that cp.async is not handled
@@ -430,13 +430,23 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     for (auto inp : expr->inputs()) {
       auto def = inp->definition();
       auto async_type = ir_utils::getAsyncOpType(def);
+
+      // Only a single wgmma wait_group to flush async mma pipeline
+      if (async_type == AsyncOpType::WgMma && flush_async_mma_pipeline) {
+        continue;
+      }
+
       if (async_type != AsyncOpType::NotAsync &&
           async_type != AsyncOpType::CpAsync) {
         input_async_ops[async_type].insert(def);
+        flush_async_mma_pipeline = true;
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
+      auto sync_exprs = lower_utils::getSyncExprs(
+          async_type,
+          /*keep_stages=*/0,
+          /*requires_commit=*/async_type != AsyncOpType::WgMma);
       for (auto sync_expr : sync_exprs) {
         insertSyncExpr(ops, expr, sync_expr, nullptr);
       }
@@ -759,6 +769,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 
  private:
+  //! Only a single wgmma wait_group to flush async mma pipeline.
+  bool flush_async_mma_pipeline = false;
+
   //! Keep track of expressions that must be followed by syncthreads
   std::deque<std::pair<Expr*, ParallelTypeBitmap>> sync_before_;
 
