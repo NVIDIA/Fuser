@@ -112,8 +112,8 @@ fi
 mkdir -p "$testdir"
 movecudafiles() {
     mkdir -p "$1/cuda" "$1/ptx"
-    find . -maxdepth 1 -name '__tmp_kernel*.cu' -print0 | xargs -0 --no-run-if-empty mv -t "$1/cuda"
-    find . -maxdepth 1 -name '__tmp_kernel*.ptx' -print0 | xargs -0 --no-run-if-empty mv -t "$1/ptx"
+    find . -maxdepth 1 -name '__tmp_*.cu' -print0 | xargs -0 --no-run-if-empty mv -t "$1/cuda"
+    find . -maxdepth 1 -name '__tmp_*.ptx' -print0 | xargs -0 --no-run-if-empty mv -t "$1/ptx"
 }
 removecudafiles() {
     tmpdir="./.nvfuser_run_command_tmp"
@@ -140,8 +140,8 @@ then
 fi
 
 cleanup() {
-    numcu=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
-    numptx=$(find . -maxdepth 1 -name '__tmp_kernel*.ptx' | wc -l)
+    numcu=$(find . -maxdepth 1 -name '__tmp_*.cu' | wc -l)
+    numptx=$(find . -maxdepth 1 -name '__tmp_*.ptx' | wc -l)
     if (( numcu + numptx > 0 ))
     then
         echo "Interrupted. Removing $numcu temporary .cu files and $numptx temporary .ptx files"

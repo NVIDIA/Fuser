@@ -63,7 +63,7 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
-  if (ir_utils::isTvOp(expr)) {
+  if (ir_utils::isTvOp(expr) && !expr->isA<kir::AllocTMem>()) {
     DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);

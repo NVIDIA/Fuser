@@ -2150,26 +2150,26 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return old2new;
 }
 
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> ret;
   if (!tv->hasAllocation()) {
     return ret;
   }
   const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& logical_dom = tv->getLogicalDomain();
-  if (alloc_dom == logical_dom) {
+  const auto& loop_dom = tv->getLoopDomain();
+  if (alloc_dom == loop_dom) {
     return ret;
   }
   if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), logical_dom.begin())) {
+          alloc_dom.begin(), alloc_dom.end(), loop_dom.begin())) {
     return ret;
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
   for (auto i : c10::irange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
-    rfactor_index[logical_dom[i]] = i;
+    rfactor_index[loop_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];

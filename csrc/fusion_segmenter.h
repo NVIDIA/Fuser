@@ -40,6 +40,14 @@ struct SegmentedEdge {
   Val* val;
 
   void print() const;
+
+  bool operator==(const SegmentedEdge& other) const {
+    return from == other.from && to == other.to && val == other.val;
+  }
+
+  bool operator!=(const SegmentedEdge& other) const {
+    return !(*this == other);
+  }
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
@@ -564,7 +572,17 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  // Replicate upcast ops when consumed by multiple expressions. This
+  // promotes segmented fusions to share pre-upcast tensors rather
+  // than post-upcast tensors. Replicated upcast ops will be reverted
+  // when they are grouped into the same segment. See
+  // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
+  void privatizeUpcast();
+
   void findSegments();
+
+  // Revert privatized upcast ops when not necessary
+  void revertPrivatizedUpcast(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -722,6 +740,9 @@ class SegmentCandidateFinder {
   // This is allowed to be null in the multidevice case where the segmenter is
   // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
+
+  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
+      privatized_upcast_ops_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for

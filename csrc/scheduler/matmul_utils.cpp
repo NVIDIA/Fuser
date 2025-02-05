@@ -225,9 +225,10 @@ bool fillDefaultHopperHeuristic(
   // warp tile equal to the macro and increase the CTA tile until we hit
   // a limit. The limits are given by the maximum number of threads per CTA.
 
-  // TODO: it might be advantageous in some cases to issue multiple wgmma
-  // instructions per warp group
-  warp_tile = instruction_tile;
+  // k = 64 yields four wgmma instructions per warp group.
+  constexpr int64_t k_ratio = 4;
+  warp_tile = {
+      instruction_tile.m, instruction_tile.n, instruction_tile.k * k_ratio};
 
   // The MmaOp output is a 32-bit float which requires one register per value
 

@@ -2660,7 +2660,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
 TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -3329,13 +3329,13 @@ class HopperMatmulSchedulerTest
     // TODO cta tile is a multiple of mma macro for hopper.
     // Default cta_tile configuration is 2-CTA.
     gemm_tile.cta_tile =
-        GemmTile(2 * getM(mma_macro), getN(mma_macro), getK(mma_macro));
+        GemmTile(2 * getM(mma_macro), getN(mma_macro), 2 * getK(mma_macro));
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
     gemm_tile.warp_tile =
-        GemmTile(getM(mma_macro), getN(mma_macro), getK(mma_macro));
+        GemmTile(getM(mma_macro), getN(mma_macro), 2 * getK(mma_macro));
 
-    mparams.supported_vec_size = {8, 8, 4};
+    mparams.supported_vec_size = {8, 8, 8};
 
     mparams.mma_macro = mma_macro;
 
@@ -3523,7 +3523,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // b_k_inner
         testing::Values(512), // M
         testing::Values(256), // N
-        testing::Values(64), // K
+        testing::Values(128), // K
         testing::Values(MmaMacro::Hopper_64_128_16), // mma_macros
         testing::Values(1, 2) // SplitK Factor
         ),
