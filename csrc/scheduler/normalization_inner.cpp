@@ -434,6 +434,13 @@ void innerPersistentHeuristic2D(
   int64_t current_max_occupancy = -1;
   std::vector<NormInnerParams> all_heuristics;
 
+  if(std::getenv("BATCHES") != nullptr){
+    int64_t batches = std::atoi(std::getenv("BATCHES"));
+    batches_per_block_inner_reduction_min = batches;
+    batches_per_block_inner_reduction_max = batches;
+  }
+
+
   all_heuristics.reserve(
       batches_per_block_inner_reduction_max -
       batches_per_block_inner_reduction_min + 1);
@@ -1111,9 +1118,6 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     rparams->circular_buffer_stages_iter_dim = 2;
     if(std::getenv("STAGES") != nullptr){
       rparams->circular_buffer_stages_iter_dim = std::atoi(std::getenv("STAGES"));
-    }
-    if(std::getenv("BATCHES") != nullptr){
-      rparams->batches_per_block_inner_reduction = std::atoi(std::getenv("BATCHES"));
     }
 
 

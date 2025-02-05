@@ -869,7 +869,8 @@ BufferProjectionStrategy isProjectBufferToInputs(
   // to compute bound. Here, we use two empirical values derived from tests of
   // softmax on H100 and B100/200. B100/200 are considered as devices with high
   // bandwidth to flops ratio.
-  if (scheduler_type == SchedulerType::InnerPersistent) {
+  bool use_tma = std::getenv("USE_MAIN") == nullptr;
+  if (!use_tma && scheduler_type == SchedulerType::InnerPersistent) {
     bool is_high_bandwidth_flops_ratio =
         scheduler_utils::isHighBandwidthFlopsRatio();
     int64_t buffer_per_block =
