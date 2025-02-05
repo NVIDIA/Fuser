@@ -285,10 +285,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
               << std::endl;
     }
-    ArgumentManager args_manager(
-        args,
-        runtime_workspace_,
-        hie_->inputs());
+    ArgumentManager args_manager(args, runtime_workspace_, hie_->inputs());
     return hie_->runWithInput(args_manager.getTensorMap());
   }
 
@@ -349,7 +346,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::unique_ptr<nvfuser::hir::HostIrContainer> hic;
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     hic = std::make_unique<nvfuser::hir::HostIrContainer>();
-    hic->reserveKernelExecutors(num_groups); // Some indices will be empty
+    hic->resizeKernelExecutors(num_groups); // Some indices will be empty
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};

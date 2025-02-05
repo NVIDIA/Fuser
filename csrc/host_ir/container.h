@@ -43,21 +43,12 @@ class HostIrContainer final : public Fusion {
 
   void pushBackTopLevelExprs(Expr* expr);
 
-  void pushBackKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
-    kernel_executors_.push_back(std::move(ke));
-  }
+  void pushBackKernelExecutor(std::unique_ptr<KernelExecutor> ke);
 
-  void reserveKernelExecutors(
-      std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
-    kernel_executors_.resize(sz);
-    for (auto& ptr : kernel_executors_) {
-      ptr = nullptr;
-    }
-  }
+  void resizeKernelExecutors(
+      std::vector<std::unique_ptr<KernelExecutor>>::size_type sz);
 
-  void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke) {
-    kernel_executors_[index] = std::move(ke);
-  }
+  void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke);
 
   bool hasKernelExecutor(int64_t index) const {
     return kernel_executors_.at(index) != nullptr;

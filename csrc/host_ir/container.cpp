@@ -41,12 +41,26 @@ const std::vector<Expr*>& HostIrContainer::topLevelExprs() const {
 
 void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
   assertInContainer(expr, "Cannot add expr, ");
-  return top_level_exprs_.push_back(expr);
+  top_level_exprs_.push_back(expr);
 }
 
 void HostIrContainer::pushBackKernelExecutor(
     std::unique_ptr<KernelExecutor> ke) {
   return kernel_executors_.push_back(std::move(ke));
+}
+
+void HostIrContainer::setKernelExecutor(
+    int64_t index,
+    std::unique_ptr<KernelExecutor> ke) {
+  kernel_executors_[index] = std::move(ke);
+}
+
+void HostIrContainer::resizeKernelExecutors(
+    std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
+  kernel_executors_.resize(sz);
+  for (auto& ptr : kernel_executors_) {
+    ptr = nullptr;
+  }
 }
 
 KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {
