@@ -42,7 +42,7 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
   tv->split(-2, getN(params_->mma_macro));
   // K dimension is present for mma_result
   // We don't need to split by warp_tile.k, since we always have
-  // cta_tile.k==warp_tile.k
+  // cta_tile.k == warp_tile.k
   tv->split(-1, getK(params_->mma_macro));
   // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Kw, Ki]
   tv->reorder({
@@ -64,7 +64,13 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
 
 void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
     TensorView* tv) {
-  // TODO Add constraints
+    NVF_ERROR(
+      tv->domain()->loop().size() >= 4,
+      "transformLikeMmaOutputWithoutK requires at least four iterDomains but ",
+      tv->toString(),
+      " only has ",
+      tv->domain()->loop().size(),
+      ".");
 
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
