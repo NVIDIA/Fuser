@@ -8,6 +8,7 @@
 
 #include <debug.h>
 #include <instrumentation.h>
+#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -24,6 +25,8 @@
 #include <val_graph_visitor.h>
 
 #include <memory>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -260,6 +263,22 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
+  {
+    std::cout << std::endl;
+    std::cout << "Resize scheduling\n";
+    fusion->print();
+    std::cout << std::endl;
+  }
+
+  {
+    std::stringstream file_name;
+    file_name << "pre_scheduling.dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
+  }
+
   auto ref_tv = getReferenceTensor(fusion);
   NVF_ERROR(ref_tv != nullptr);
 
@@ -292,6 +311,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     ir_utils::replaceValInExprInputs(resize_tensor_op, inp_tv, inp_tv_copy);
   }
 
+  {
+    std::cout << std::endl;
+    std::cout << "After recomputation\n";
+    fusion->print();
+    std::cout << std::endl;
+
+    std::stringstream file_name;
+    file_name << "after_recomputation.dot";
+    IrGraphGenerator::print(
+        fusion,
+        file_name.str().c_str(),
+        IrGraphGenerator::DetailLevel::ComputeOnly);
+  }
+
   TensorView* largest_input = nullptr;
   if (resize_params->largest_input >= 0) {
     largest_input =
@@ -303,10 +336,18 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::cancelReshapeInLoopDomains(largest_input);
   }
 
+  {
+    std::cout << std::endl;
+    std::cout << "After reshape cancel\n";
+    fusion->print();
+    std::cout << std::endl;
+  }
   for (auto expr : fusion->exprs()) {
     if (!expr->isOneOf<SliceOp, PadOp>()) {
       continue;
     }
+
+    std::cerr << "propagateResize: " << expr->toString();
 
     scheduler_tools::propagateResizeToInputs(expr);
   }
@@ -318,8 +359,15 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Detect an ending repeat
   auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
 
+  if (static_repeat_info.has_value()) {
+    std::cerr << "Static repeat: "
+              << static_repeat_info->reshape_repeat_id->toString() << "\n";
+  }
+
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
+
+  std::cerr << "Ref tensor: " << ref_tv->toString() << "\n";
 
   // Reorder tensors to align with the largest input. This is expected
   // to improve the memory read performance, while the write
@@ -424,6 +472,27 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor] or
   // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
+  std::cout << "Before ref prop\n";
+  fusion->print();
+  std::cout << std::endl;
+
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << tv->toString() << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString();
+    }
+    std::cerr << "---\n";
+  }
+
+  {
+    IdModel idg(fusion, false);
+    idg.buildExactGraph();
+    std::ofstream ofs("exact_graph_before_ref_prop.dot", std::ofstream::trunc);
+    auto dot_string = idg.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled to workaround the resize propagation
   // issue. This may not work if there's a tensor that is reshaped
@@ -472,7 +541,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::scheduleLoopDomainsLike(
         fusion->allTvs(),
         ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true);
+        /*update_loop_domain_only=*/true,
+        IdMappingMode::BROADCAST);
   }
 
   if (vec_factor > 1) {
