@@ -23,7 +23,7 @@ namespace {
 // Forward traverse from logical domain to allocation domain, compute frontier
 // sizes and strides, validate that splits are divisible and merges are
 // contiguous, and update active_ids_ correspondingly.
-class ForwardTraverseFromLogicalToAlloc {
+class ForwardSizesStridesTraverse {
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
@@ -102,13 +102,12 @@ class ForwardTraverseFromLogicalToAlloc {
   }
 
  public:
-  ForwardTraverseFromLogicalToAlloc(
+  ForwardSizesStridesTraverse(
       ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
   void run(
-      TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
@@ -119,8 +118,8 @@ class ForwardTraverseFromLogicalToAlloc {
   }
 };
 
-// Similar to ForwardTraverseFromLogicalToAlloc, but in the opposite direction.
-class BackwardTraverseFromLogicalToAlloc {
+// Similar to ForwardSizesStridesTraverse, but in the opposite direction.
+class BackwardSizesStridesTraverse {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
@@ -195,13 +194,12 @@ class BackwardTraverseFromLogicalToAlloc {
   }
 
  public:
-  BackwardTraverseFromLogicalToAlloc(
+  BackwardSizesStridesTraverse(
       ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
   void run(
-      TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
@@ -213,24 +211,26 @@ class BackwardTraverseFromLogicalToAlloc {
   }
 };
 
-void validateAllocationSizesAndStrides(
-    const std::vector<IterDomain*>& alloc_dom,
+} // namespace
+
+void validateContiguity(
+    const std::vector<IterDomain*>& domain,
     const std::vector<std::optional<bool>>& contiguity,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
-  NVF_ERROR(alloc_dom.size() == contiguity.size());
+  NVF_ERROR(domain.size() == contiguity.size());
   checkAllEqual(
-      {TensorDomain::noReductions(alloc_dom).size(),
+      {TensorDomain::noReductions(domain).size(),
        sizes.size(),
        strides.size()});
 
   int64_t expected_stride_if_contiguous = 1;
   auto dim_index = static_cast<int64_t>(sizes.size());
   // Go backwards because it's easier to compute the expected stride this way.
-  for (auto domain_index = static_cast<int64_t>(alloc_dom.size()) - 1;
+  for (auto domain_index = static_cast<int64_t>(domain.size()) - 1;
        domain_index >= 0;
        domain_index--) {
-    IterDomain* alloc_id = alloc_dom[domain_index];
+    IterDomain* alloc_id = domain[domain_index];
     if (alloc_id->isReduction()) {
       continue;
     }
@@ -263,7 +263,7 @@ void validateAllocationSizesAndStrides(
           stride == expected_stride_if_contiguous,
           "Stride mismatch with contiguity info. ",
           " allocation domain: ",
-          ir_utils::toString(alloc_dom),
+          ir_utils::toString(domain),
           ": sizes: ",
           sizes,
           ": strides: ",
@@ -280,8 +280,6 @@ void validateAllocationSizesAndStrides(
     expected_stride_if_contiguous = stride * size;
   }
 }
-
-} // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAndValidateAllocationSizesAndStrides(
@@ -301,8 +299,8 @@ inferAndValidateAllocationSizesAndStrides(
   }
   NVF_ERROR(dim_index == tensor.dim());
 
-  ForwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
-  BackwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
+  ForwardSizesStridesTraverse(ee, active_ids).run(logical, alloc);
+  BackwardSizesStridesTraverse(ee, active_ids).run(logical, alloc);
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
@@ -321,10 +319,53 @@ inferAndValidateAllocationSizesAndStrides(
 
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
-    validateAllocationSizesAndStrides(
+    validateContiguity(
         alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
+}
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection(
+    std::vector<int64_t> from_sizes,
+    std::vector<int64_t> from_strides,
+    std::vector<IterDomain*> from_domain,
+    std::vector<IterDomain*> to_domain,
+    ExpressionEvaluator ee) {
+  from_domain = TensorDomain::noReductions(from_domain);
+  to_domain = TensorDomain::noReductions(to_domain);
+  NVF_ERROR(
+      from_sizes.size() == from_domain.size(),
+      "Error projecting tensor sizes, from domain doesn't match tensor dims: ",
+      from_sizes.size(),
+      " vs ",
+      from_domain.size(),
+      ".");
+  // active IDs and their shape and stride
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
+  for (auto dim_i : c10::irange(from_domain.size())) {
+      active_ids[from_domain[dim_i]] = {from_sizes.at(dim_i), from_strides.at(dim_i)};
+  }
+
+  ForwardSizesStridesTraverse(ee, active_ids).run(from_domain, to_domain);
+  BackwardSizesStridesTraverse(ee, active_ids).run(from_domain, to_domain);
+
+  // Now active_ids should contain the final sizes and strides, unordered. We
+  // need to put them to the correct order.
+  std::vector<int64_t> to_sizes;
+  std::vector<int64_t> to_strides;
+  to_sizes.reserve(to_domain.size());
+  to_strides.reserve(to_domain.size());
+  for (IterDomain* id : TensorDomain::noReductions(to_domain)) {
+    if (id->isDeviceDim()) {
+      to_sizes.push_back(1);
+      to_strides.push_back(0);
+    } else {
+      to_sizes.push_back(active_ids.at(id).first);
+      to_strides.push_back(active_ids.at(id).second);
+    }
+  }
+
+  return {std::move(to_sizes), std::move(to_strides)};
 }
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
