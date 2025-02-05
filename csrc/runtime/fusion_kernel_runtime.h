@@ -10,11 +10,11 @@
 #include <c10/util/ArrayRef.h>
 
 #include <fusion_segmenter.h>
+#include <host_ir/executor.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_cache_utils.h>
-#include <host_ir/executor.h>
 
 #include <mutex>
 #include <vector>
@@ -164,7 +164,10 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg, nvfuser::hir::HostIrContainer* hic);
+  void compileKernel(
+      const KernelArgumentHolder& args,
+      SegmentedGroup* sg,
+      nvfuser::hir::HostIrContainer* hic);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
@@ -239,4 +242,3 @@ class FusionKernelRuntime {
 };
 
 } // namespace nvfuser
-

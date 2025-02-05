@@ -11,8 +11,8 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
-#include <atomic>
 #include <scheduler/heuristic.h>
+#include <atomic>
 
 namespace nvfuser {
 

@@ -332,7 +332,11 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())->run(args, launch_kernel->launch_constraints_, launch_kernel->compile_params_);
+      container_->getKernelExecutor(launch_kernel->getIndex())
+          ->run(
+              args,
+              launch_kernel->launch_constraints_,
+              launch_kernel->compile_params_);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {

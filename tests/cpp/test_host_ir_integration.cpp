@@ -47,7 +47,11 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   hic->addOutput(hic_out);
 
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0, LaunchParams(), CompileParams(), std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{hic_in},
+      std::vector<Val*>{hic_out});
 
   hic->pushBackTopLevelExprs(launch_kernel);
 
@@ -60,8 +64,9 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
 using EnableHostIrCodepath = bool;
 
-class HostIrCodepathSetTest : public NVFuserTest,
-                         public testing::WithParamInterface<EnableHostIrCodepath> {};
+class HostIrCodepathSetTest
+    : public NVFuserTest,
+      public testing::WithParamInterface<EnableHostIrCodepath> {};
 
 TEST_P(HostIrCodepathSetTest, ) {
   const auto& use_codepath = GetParam();
@@ -84,17 +89,20 @@ TEST_P(HostIrCodepathSetTest, ) {
   std::vector<at::Tensor> out_tensors =
       executor_cache.runFusionWithInputs({in_tensor});
 
-  testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    HostIrCodepathSetTest,
-    ::testing::Bool()
-);
+INSTANTIATE_TEST_SUITE_P(, HostIrCodepathSetTest, ::testing::Bool());
 
-class HostIrCodepathSumTest : public NVFuserTest,
-                         public testing::WithParamInterface<EnableHostIrCodepath> {};
+class HostIrCodepathSumTest
+    : public NVFuserTest,
+      public testing::WithParamInterface<EnableHostIrCodepath> {};
 
 TEST_P(HostIrCodepathSumTest, ) {
   const auto& use_codepath = GetParam();
@@ -117,14 +125,16 @@ TEST_P(HostIrCodepathSumTest, ) {
   std::vector<at::Tensor> out_tensors =
       executor_cache.runFusionWithInputs({in_tensor});
 
-  testValidate(executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__, "");
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    HostIrCodepathSumTest,
-    ::testing::Bool()
-);
+INSTANTIATE_TEST_SUITE_P(, HostIrCodepathSumTest, ::testing::Bool());
 
 } // namespace hir
 

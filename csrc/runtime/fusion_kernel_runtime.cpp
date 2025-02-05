@@ -280,13 +280,15 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
-  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
               << std::endl;
     }
     ArgumentManager args_manager(
-        args, runtime_workspace_, hie_->inputs()); //nick segmented_fusion_->inputs()
+        args,
+        runtime_workspace_,
+        hie_->inputs()); // nick segmented_fusion_->inputs()
     return hie_->runWithInput(args_manager.getTensorMap());
   }
 
@@ -345,7 +347,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   // host ir
   std::unique_ptr<nvfuser::hir::HostIrContainer> hic;
-  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
     hic = std::make_unique<nvfuser::hir::HostIrContainer>();
     hic->reserveKernelExecutors(num_groups); // Some indices will be empty
   }
@@ -381,7 +383,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run, hic.get());
     } else {
-      nvfuser::hir::HostIrContainer *hic_p = hic.get();
+      nvfuser::hir::HostIrContainer* hic_p = hic.get();
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
@@ -421,22 +423,27 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   // add all expressions and compiled kernels to the host ir container
-  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
     IrCloner ir_cloner(hic.get());
     FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      //auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      // auto fusion_to_run =
+      // segmented_fusion_->makeFusion(group_to_run).second;
       auto in_clone = ir_cloner.clone(group_to_run->inputs());
       auto out_clone = ir_cloner.clone(group_to_run->outputs());
       if (hic->hasKernelExecutor(run_order_id)) {
         auto heuristic_params = schedulers().at(run_order_id).get();
         auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
-            run_order_id, heuristic_params->lparams, heuristic_params->cparams, std::vector<Val*>{in_clone}, std::vector<Val*>{out_clone});
+            run_order_id,
+            heuristic_params->lparams,
+            heuristic_params->cparams,
+            std::vector<Val*>{in_clone},
+            std::vector<Val*>{out_clone});
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
         // push back segment's exprs into the container as top level expressions
-        for (auto *expr : group_to_run->exprs()) {
+        for (auto* expr : group_to_run->exprs()) {
           auto cloned_expr = ir_cloner.clone(expr);
           hic->pushBackTopLevelExprs(cloned_expr);
         }
@@ -444,10 +451,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     }
     auto in_clone = ir_cloner.clone(segmented_fusion_->inputs());
     auto out_clone = ir_cloner.clone(segmented_fusion_->outputs());
-    for (auto &input : in_clone) {
-      hic->addInput(input); //nick
+    for (auto& input : in_clone) {
+      hic->addInput(input); // nick
     }
-    for (auto &output : out_clone) {
+    for (auto& output : out_clone) {
       hic->addOutput(output);
     }
   }
@@ -463,7 +470,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
 
-  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
     hie_ = std::make_unique<nvfuser::hir::HostIrEvaluator>(std::move(hic));
   }
 
@@ -752,15 +759,21 @@ void FusionKernelRuntime::compileKernel(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
 
-  if(isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
     // if it's a kernel executor, compile the segment and append to hic
     // otherwise, push the segment's exprs directly to the hic
-    if (!HostIrExecutor::supported(fusion_to_run.get()) && !ExprEvalExecutor::supported(fusion_to_run.get())) {
+    if (!HostIrExecutor::supported(fusion_to_run.get()) &&
+        !ExprEvalExecutor::supported(fusion_to_run.get())) {
       NVF_ERROR(
           KernelExecutor::supported(fusion_to_run.get()),
           "Fusion not supported by any executor type");
       auto ke = std::make_unique<KernelExecutor>();
-      ke->compile(fusion_to_run.get(), args, heuristic_params->lparams, heuristic_params->cparams, heuristic_params->scheduler_type);
+      ke->compile(
+          fusion_to_run.get(),
+          args,
+          heuristic_params->lparams,
+          heuristic_params->cparams,
+          heuristic_params->scheduler_type);
       hic->setKernelExecutor(group_id, std::move(ke));
     }
   } else {
@@ -796,4 +809,3 @@ const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::
 }
 
 } // namespace nvfuser
-
