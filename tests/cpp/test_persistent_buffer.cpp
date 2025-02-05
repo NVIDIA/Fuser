@@ -19,6 +19,7 @@
 #include <tests/cpp/validator.h>
 namespace nvfuser {
 
+using testing::Contains;
 using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
@@ -1456,4 +1457,123 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   }
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
+
+using TestParam = std::tuple<DataType, int64_t>;
+using LayerNormSharedMemoryTest = NVFuserFixtureParamTest<TestParam>;
+TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
+  auto [dtype, hidden_size] = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+  constexpr int64_t dim0 = 2048;
+  std::vector<int64_t> input_shape{dim0, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+  auto input_half = makeContigTensor(2, dtype);
+  auto weight_half = makeContigTensor(1, dtype);
+  auto bias_half = makeContigTensor(1, dtype);
+  fusion.addInput(input_half);
+  fusion.addInput(weight_half);
+  fusion.addInput(bias_half);
+  auto input = castOp(DataType::Float, input_half);
+  auto weight = castOp(DataType::Float, weight_half);
+  auto bias = castOp(DataType::Float, bias_half);
+  auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
+  auto result_output = castOp(dtype, result.output);
+  fusion.addOutput(result_output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = at::randn({input_shape[1]}, options);
+  c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+  auto fusion_copy = fusion;
+
+  // check persistent buffer size
+  SchedulerRuntimeInfo runtime_info(
+      &fusion, {aten_input, aten_weight, aten_bias});
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  auto persistent_buffer_size =
+      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size = hidden_size * dataTypeSize(dtype);
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
+      logic_buffer_size);
+
+  // expect segmentation?
+  bool has_enough_regs_smem = true;
+  if (logic_buffer_size > scheduler_utils::register_file_size) {
+    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+      has_enough_regs_smem = false;
+    } else {
+      int64_t available_buffer_size = normalization_scheduler_utils::
+          getMaxRegOrSharedMemorySizeForPersistentBuffer(
+              &fusion,
+              runtime_info,
+              scheduler_utils::getReductionTvs(&fusion),
+              persistent_buffer_info,
+              /*can_use_smem_persistent*/ true,
+              /*project_to_inputs*/ true);
+      has_enough_regs_smem = available_buffer_size >= logic_buffer_size;
+      std::cout << "logic_buffer_size: " << logic_buffer_size
+      << " available_buffer_size: " << available_buffer_size
+                << std::endl;
+    }
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs({aten_input, aten_weight, aten_bias});
+
+  // check segmentation
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  if (has_enough_regs_smem) {
+    // dtype half --> inner persistent
+    // dtype float --> no op + inner persistent
+    for (auto& params : runtime->schedulerHeuristics()->heuristicsList()) {
+      if (!params->isA<ReductionParams>()) {
+        continue;
+      }
+      if (logic_buffer_size > scheduler_utils::register_file_size) {
+        std::cout << "============= smem ============" << std::endl;
+        ASSERT_TRUE(
+            params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+      }
+    }
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        Contains(HeuristicIs(SchedulerType::InnerPersistent)));
+  } else {
+    std::cout << "============= segmented ===========" << std::endl;
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        Contains(HeuristicIs(SchedulerType::Reduction)));
+  }
+
+  testValidate(
+      &fusion_copy,
+      cg_outputs,
+      {aten_input, aten_weight, aten_bias},
+      __LINE__,
+      __FILE__,
+      "");
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentBufferTest,
+    LayerNormSharedMemoryTest,
+    ::testing::Combine(
+        ::testing::Values(DataType::Half /*, DataType::Half*/),
+        ::testing::Range((int64_t)32768, (int64_t)81921, (int64_t)4096)),
+    [](const testing::TestParamInfo<TestParam>& info) {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_hidden_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
+
 } // namespace nvfuser
