@@ -5,6 +5,7 @@ from functools import partial
 
 from transformers import AutoConfig
 
+
 def llama_hf_cfg(config_str):
     class Config:
         def __init__(
@@ -37,6 +38,7 @@ def llama_hf_cfg(config_str):
 
     return configs[config_str]
 
+
 def hf_qwen2_cfg():
     config = AutoConfig.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
     config.batch_size = 1
@@ -44,12 +46,14 @@ def hf_qwen2_cfg():
     config._attn_implementation = "sdpa"
     return config
 
+
 def hf_phi3_cfg():
     config = AutoConfig.from_pretrained("microsoft/Phi-3.5-mini-instruct")
     config.batch_size = 1
     config.seq_len = 8192
     config._attn_implementation = "sdpa"
     return config
+
 
 def hf_mistral_nemo_cfg():
     import json
@@ -90,6 +94,7 @@ def hf_mistral_nemo_cfg():
     cfg._attn_implementation = "sdpa"
 
     return cfg
+
 
 configs = {
     "llama_2_7b_hf": partial(llama_hf_cfg, config_str="llama_2_7b_hf"),
