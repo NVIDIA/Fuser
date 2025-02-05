@@ -18,7 +18,7 @@ def llama_hf_cfg(config_str):
             self.seq_length = seq_length
 
     configs = {}
-    configs["llama_2_7b_hf_rope"] = Config(
+    configs["llama_2_7b_hf"] = Config(
         n_head=32,
         head_size=128,
         n_query_groups=32,
@@ -26,7 +26,7 @@ def llama_hf_cfg(config_str):
         batches=2,
         seq_length=4096,
     )
-    configs["llama_3_8B_rope"] = Config(
+    configs["llama_3_8B"] = Config(
         n_head=32,
         head_size=128,
         n_query_groups=8,
@@ -92,8 +92,8 @@ def hf_mistral_nemo_cfg():
     return cfg
 
 configs = {
-    "llama_2_7b": partial(llama_hf_cfg, config_str="llama_2_7b_hf_rope"),
-    "llama_3_8B": partial(llama_hf_cfg, config_str="llama_3_8B_rope"),
+    "llama_2_7b_hf": partial(llama_hf_cfg, config_str="llama_2_7b_hf"),
+    "llama_3_8B_hf": partial(llama_hf_cfg, config_str="llama_3_8B_hf"),
     "hf_qwen2": hf_qwen2_cfg,
     "hf_phi3": hf_phi3_cfg,
     "hf_mistral_nemo": hf_mistral_nemo_cfg,

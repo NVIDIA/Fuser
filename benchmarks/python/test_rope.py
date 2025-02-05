@@ -11,7 +11,7 @@ from .rope_ops import rope_setup
     "variation",
     [
         "llama_2_7b_hf",
-        "llama_3_8B",
+        "llama_3_8B_hf",
         "hf_qwen2",
         "hf_phi3",
         "hf_mistral_nemo",
@@ -46,7 +46,7 @@ def test_rope_fwd_benchmark(
     "variation",
     [
         "llama_2_7b_hf",
-        "llama_3_8B",
+        "llama_3_8B_hf",
         "hf_qwen2",
         "hf_phi3",
         "hf_mistral_nemo",
