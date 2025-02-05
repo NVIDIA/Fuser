@@ -234,7 +234,9 @@ class XorFinder : private kir::IrVisitor {
 
 class TMAPredicateChecker : private kir::IrVisitor {
   int64_t num_threads_;
-  TMAPredicateChecker(int64_t num_threads) : num_threads_(num_threads) {}
+  int64_t cta_threads_;
+  TMAPredicateChecker(int64_t num_threads, int64_t cta_threads)
+      : num_threads_(num_threads), cta_threads_(cta_threads) {}
 
   kir::Predicate* pred_ = nullptr;
 
@@ -269,7 +271,29 @@ class TMAPredicateChecker : private kir::IrVisitor {
     ASSERT_NE(cond, nullptr);
     if (num_threads_ == 0) {
       EXPECT_TRUE(cond->isTrue());
-    } else if (num_threads_ == 1) {
+    } else if (num_threads_ == 1 && cta_threads_ > 32) {
+      auto def = dynamic_cast<BinaryOp*>(cond->definition());
+      ASSERT_TRUE(def != nullptr);
+      EXPECT_TRUE(def->getBinaryOpType() == BinaryOpType::LogicalAnd);
+      auto lhs = def->lhs();
+      auto rhs = def->rhs();
+      ASSERT_TRUE(lhs != nullptr);
+      auto lhs_def = dynamic_cast<UnaryOp*>(lhs->definition());
+      EXPECT_TRUE(lhs_def->getUnaryOpType() == UnaryOpType::ElectSync);
+      ASSERT_TRUE(rhs != nullptr);
+      auto rhs_def = dynamic_cast<BinaryOp*>(rhs->definition());
+      EXPECT_TRUE(rhs_def->getBinaryOpType() == BinaryOpType::LT);
+      auto lhs_rhs = dynamic_cast<NamedScalar*>(rhs_def->lhs());
+      auto rhs_rhs = rhs_def->rhs();
+      ASSERT_TRUE(lhs_rhs != nullptr);
+      ASSERT_TRUE(rhs_rhs != nullptr);
+      EXPECT_TRUE(lhs_rhs->isThreadIdx());
+      EXPECT_TRUE(rhs_rhs->isConstInt());
+      EXPECT_EQ(rhs_rhs->value(), 32);
+    } else if (num_threads_ == 1 && cta_threads_ == 32) {
+      auto def = dynamic_cast<UnaryOp*>(cond->definition());
+      EXPECT_TRUE(def->getUnaryOpType() == UnaryOpType::ElectSync);
+    } else if (num_threads_ == 1 && cta_threads_ < 32) {
       auto def = dynamic_cast<BinaryOp*>(cond->definition());
       ASSERT_TRUE(def != nullptr);
       EXPECT_TRUE(def->getBinaryOpType() == BinaryOpType::Eq);
@@ -296,8 +320,11 @@ class TMAPredicateChecker : private kir::IrVisitor {
  public:
   // Check that TMA is predicated with things like "tidx < num_threads".
   // num_threads == 0 is reserved for no predication.
-  static void checkPredicate(kir::Kernel* kernel, int64_t num_threads) {
-    TMAPredicateChecker checker(num_threads);
+  static void checkPredicate(
+      kir::Kernel* kernel,
+      int64_t num_threads,
+      int64_t cta_threads = -1) {
+    TMAPredicateChecker checker(num_threads, cta_threads);
     checker.handle(kernel->topLevelExprs());
   }
 };
@@ -583,14 +610,15 @@ TEST_P(TMASimpleLdstTest, Store) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), dim);
-  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
+  TMAPredicateChecker::checkPredicate(
+      ke.compiledKernel()->kernel(), 1, ke.lastLaunchParams().nThreads());
   ASSERT_EQ(
       XorFinder::findXor(ke.compiledKernel()->kernel()),
       (swizzle != MmaInputSmemSwizzle::None));
-
-  auto cg_outputs = ke.run({t0});
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 std::string testNameTMASimpleLdstTest(
@@ -2798,6 +2826,99 @@ TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
       {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+void testTMemAddKernel(bool same_region) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // register
+  auto tv2 = set(tv1); // tmem
+  auto tv3 = set(tv2); // register
+  auto tv4 = makeSymbolicTensor(1);
+  fusion.addInput(tv4);
+  auto tv5 = set(tv4); // register
+  auto tv6 = set(tv5); // tmem
+  auto tv7 = set(tv6); // register
+  auto tv8 = add(tv3, tv7); // register
+  auto tv9 = set(tv8); // gmem
+  fusion.addOutput(tv9);
+
+  if (same_region) {
+    using Region = std::vector<TensorView*>;
+    Region region1{tv2, tv6};
+    std::vector<Region> regions{region1};
+    fusion.manage("tmem_regions", regions);
+  }
+
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv6->setMemoryType(MemoryType::Tensor);
+  tv6->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv7->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv9->split(0, 32);
+
+  TransformPropagator propagator(tv9);
+  MaxLogicalDomainInfoSpanningTree(tv9).traverse(&propagator);
+
+  tv9->axis(0)->parallelize(ParallelType::BIDx);
+  tv9->axis(1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv9, {tv1, tv2});
+
+  inlineMost();
+
+  KernelExecutor ke;
+
+  // check number of tcgen05.alloc calls
+  ke.registerLoweringHook([same_region](GpuLower* lower) {
+    auto check_pass = [same_region](const std::vector<Expr*>& exprs) {
+      int64_t num_allocs =
+          std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
+            auto asm_ = dynamic_cast<kir::Asm*>(expr);
+            if (asm_ == nullptr) {
+              return false;
+            }
+            return asm_->code().find("tcgen05.alloc") != std::string::npos;
+          });
+      EXPECT_EQ(num_allocs, same_region ? 1 : 2);
+      int64_t num_deallocs = 0;
+      for (auto expr : exprs) {
+        std::string str = expr->toString();
+        std::string sub = "tcgen05.dealloc";
+        // count number of sub in str
+        size_t pos = 0;
+        while ((pos = str.find(sub, pos)) != std::string::npos) {
+          ++num_deallocs;
+          pos += sub.length();
+        }
+      }
+      EXPECT_EQ(num_deallocs, same_region ? 1 : 2);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto t1 = at::randn(
+      {12800}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, {t0 + t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TMemTest, AddKernelMultipleRegions) {
+  testTMemAddKernel(false);
+}
+
+TEST_F(TMemTest, AddKernelSameRegion) {
+  testTMemAddKernel(true);
 }
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
