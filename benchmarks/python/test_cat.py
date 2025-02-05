@@ -402,7 +402,9 @@ def test_cat_qwen2_fwd_11_baseline_benchmark(benchmark, executor: str) -> None:
 
 
 @pytest.mark.parametrize("executor", ["thunder", "torchcompile"])
-def test_cat_phi3_1_baseline_benchmark(benchmark, executor: str, disable_validation: bool) -> None:
+def test_cat_phi3_1_baseline_benchmark(
+    benchmark, executor: str, disable_validation: bool
+) -> None:
     def to_be_compiled(t14):
         # t14: "cuda:0 f32[1, 48, 2048]"
         t0 = torch.permute(t14, (0, 2, 1))  # t0: "cuda:0 f32[1, 2048, 48]"
