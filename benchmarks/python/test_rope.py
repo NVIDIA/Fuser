@@ -10,11 +10,11 @@ from .rope_ops import rope_setup
 @pytest.mark.parametrize(
     "variation",
     [
-        "llama_2_7b_hf_rope",
-        "llama_3_8B_rope",
-        "hf_qwen2_rope",
-        "hf_phi3_rope",
-        "hf_mistral_nemo_rope",
+        "llama_2_7b_hf",
+        "llama_3_8B",
+        "hf_qwen2",
+        "hf_phi3",
+        "hf_mistral_nemo",
     ],
 )
 @pytest.mark.parametrize(
@@ -45,11 +45,11 @@ def test_rope_fwd_benchmark(
 @pytest.mark.parametrize(
     "variation",
     [
-        "llama_2_7b_hf_rope",
-        "llama_3_8B_rope",
-        "hf_qwen2_rope",
-        "hf_phi3_rope",
-        "hf_mistral_nemo_rope",
+        "llama_2_7b_hf",
+        "llama_3_8B",
+        "hf_qwen2",
+        "hf_phi3",
+        "hf_mistral_nemo",
     ],
 )
 @pytest.mark.parametrize(
