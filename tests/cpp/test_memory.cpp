@@ -292,6 +292,7 @@ class TMAPredicateChecker : private kir::IrVisitor {
       EXPECT_EQ(rhs_rhs->value(), 32);
     } else if (num_threads_ == 1 && cta_threads_ == 32) {
       auto def = dynamic_cast<UnaryOp*>(cond->definition());
+      ASSERT_TRUE(def != nullptr);
       EXPECT_TRUE(def->getUnaryOpType() == UnaryOpType::ElectSync);
     } else if (num_threads_ == 1 && cta_threads_ < 32) {
       auto def = dynamic_cast<BinaryOp*>(cond->definition());
@@ -1956,13 +1957,18 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, items_of_16_bytes}, {}, matmul_cparams);
-  auto cg_outputs = ke.run({t0, items_of_16_bytes});
-  testValidate(
-      &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
+  EXPECT_THAT(
+      [&]() { ke.run({t0, items_of_16_bytes}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Expected blockDim.x >= 32 but found 4")));
 
+  // The blockDim.x size is determined at runtime, so a kernel with the
+  // elect-sync predicate is generated and a runtime check is used to determine
+  // correctness.
+  constexpr int64_t num_threads = 64;
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 1);
   TMAPredicateChecker::checkPredicate(
-      ke.compiledKernel()->kernel(), 1, ke.lastLaunchParams().nThreads());
+      ke.compiledKernel()->kernel(), 1, num_threads);
 
   EXPECT_THAT(
       [&]() { ke.run({t0, items_of_16_bytes / 2}); },
