@@ -86,9 +86,16 @@ void MaxInfoSpanningTree::compute_spanning_tree() {
   };
 
   auto allowSibling = [this](TensorView* from, TensorView* to) {
+    // Disable propagation between siblings if they are not uniform to avoid errors in
+    // `computeInfoSibling`. This is required for SdpaFwdOp and SdpaBwdOp.
+    if (!ir_utils::hasUniformSiblings(from->definition())) {
+      return false;
+    }
+
     if (selector_ == nullptr) {
       return true;
     }
+    
     return selector_->allowSibling(from, to);
   };
 
@@ -471,12 +478,7 @@ bool SetSelector::allowP2C(TensorView* from, TensorView* to) {
 }
 
 bool SetSelector::allowSibling(TensorView* from, TensorView* to) {
-  // Allow propagation between siblings if they are uniform to avoid errors in
-  // `computeInfoSibling`. This is not true for SdpaFwdOp and SdpaBwdOp.
-  if (ir_utils::hasUniformSiblings(from->definition())) {
-    return true;
-  }
-  return false;
+  return true;
 }
 
 } // namespace nvfuser
