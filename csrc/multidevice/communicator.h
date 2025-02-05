@@ -10,6 +10,11 @@
 #include <ATen/core/TensorBody.h>
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
+// #include <cuda.h>
+#include <driver_api.h>
+#include <cuda_utils.h>
+#include <cuda_runtime.h>
+
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
@@ -35,6 +40,41 @@ template <typename T>
 T fromBytes(std::vector<uint8_t> bytes) {
   return *reinterpret_cast<T*>(bytes.data());
 }
+
+enum class IpcSemaphore : cuuint32_t {
+  kReady,
+  kTransferInProgress
+};
+
+class RemoteBufferInfo {
+ public:
+
+  RemoteBufferInfo(at::Tensor tensor, int64_t size);
+  RemoteBufferInfo(std::vector<uint8_t> data); // means it is imported
+  ~RemoteBufferInfo();
+
+  void* ptr() const {
+    return ptr_;
+  }
+
+  auto semaphores() const {
+    return semaphores_;
+  }
+
+  auto size() const {
+    return size_;
+  }
+
+ private:
+  void* ptr_;
+  int64_t size_;
+  int64_t storage_offset_;
+  int64_t element_size_;
+  bool is_imported_;
+  cudaIpcMemHandle_t ipc_handle_;
+  cudaIpcMemHandle_t semaphores_ipc_handle_;
+  IpcSemaphore* semaphores_;
+};
 
 // This file implements the class Communicator which sets up the inter-process
 // Backend. This class contains inter-process information, such as the rank, the
@@ -154,7 +194,7 @@ class Communicator {
     return store_;
   }
 
-  std::vector<void*> getRemotePtrs(at::Tensor tensor);
+  std::vector<RemoteBufferInfo> getRemoteBuffer(at::Tensor tensor, std::string key);
 
  private:
   struct TensorHash {
@@ -205,8 +245,8 @@ class Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
-  std::unordered_map<at::Tensor, std::vector<void*>, TensorHash, TensorEqual>
-      remote_ptrs_;
+  std::unordered_map<at::Tensor, std::vector<RemoteBufferInfo>, TensorHash, TensorEqual>
+      remote_buffers_;
 };
 
 } // namespace nvfuser

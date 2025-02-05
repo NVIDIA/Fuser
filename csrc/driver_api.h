@@ -32,7 +32,6 @@ namespace nvfuser {
   fn(cuModuleGetFunction);                \
   fn(cuModuleLoadDataEx);                 \
   fn(cuModuleUnload);                     \
-  fn(cuStreamWriteValue32);               \
   fn(cuOccupancyMaxActiveBlocksPerMultiprocessor)
 
 #if (CUDA_VERSION >= 12000)

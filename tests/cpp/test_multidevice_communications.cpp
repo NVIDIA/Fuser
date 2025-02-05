@@ -413,4 +413,59 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
     testing::PrintToStringParamName());
 
+using P2PCommunicationTest = MultiDeviceTest; 
+
+TEST_F(P2PCommunicationTest, CudaComm) {
+  static constexpr int kTensorSize = 8;
+  static constexpr int kNumRepetitions = 8;
+
+  if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+
+  const DeviceIdxType my_rank = communicator_->deviceId();
+  const DeviceIdxType size = communicator_->size();
+  const DeviceIdxType send_peer = (my_rank + 1) % size;
+  const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
+
+  auto container = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(container.get());
+  auto* send_tv = makeContigTensor(1);
+  auto* recv_tv = ops::newValLike(send_tv, send_tv->dtype())->as<TensorView>();
+  container->addInput(send_tv);
+  container->addInput(recv_tv);
+
+  auto* val_recv_peer = IrBuilder::create<Val>(recv_peer, DataType::Int);
+  auto* val_send_peer = IrBuilder::create<Val>(send_peer, DataType::Int);
+
+  auto recv = IrBuilder::create<P2PCommunication>(P2PCommunicationType::RECV, recv_tv, val_recv_peer, CommunicatorBackend::kCuda);
+  auto send = IrBuilder::create<P2PCommunication>(P2PCommunicationType::SEND, send_tv, val_send_peer, CommunicatorBackend::kCuda);
+  auto wait_recv = IrBuilder::create<hir::Wait>(recv);
+  auto wait_send = IrBuilder::create<hir::Wait>(send);
+
+  container->pushBackTopLevelExprs(recv);
+  container->pushBackTopLevelExprs(send);
+  container->pushBackTopLevelExprs(wait_recv);
+  container->pushBackTopLevelExprs(wait_send);
+
+  hir::HostIrEvaluator executor(std::move(container), communicator_);
+
+  at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options);
+
+  std::unordered_map<Val*, c10::IValue> inputs = {{send_tv, send_tensor}, {recv_tv, recv_tensor}};
+
+  for (auto repetition : c10::irange(kNumRepetitions)) {
+    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition * my_rank);
+    std::cout << "RANK " << my_rank << " REPETITION " << repetition << ", send_peer=" << send_peer << ", recv_peer=" << recv_peer << ", send_tensor=" << send_tensor << std::endl;
+
+    executor.runWithInput(inputs);
+
+    torch::cuda::synchronize();
+    std::cout << "RANK " << my_rank << " validation at" << " REPETITION " << repetition << std::endl;
+    auto ref = at::arange(kTensorSize, tensor_options) + repetition * recv_peer;
+    EXPECT_TRUE(torch::allclose(recv_tensor, ref)) << "Rank " << my_rank << " failed at repetition " << repetition << " with recv tensor " << recv_tensor << " and ref " << ref;
+  }
+}
+
 } // namespace nvfuser

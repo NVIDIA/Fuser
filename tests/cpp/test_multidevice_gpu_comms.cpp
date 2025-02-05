@@ -13,6 +13,7 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_kernels.h>
+#include <cuda.h>
 
 namespace nvfuser {
 
@@ -135,6 +136,23 @@ TEST_F(GpuCommTest, IpcMemHandlePtrArithmeticAtSender) {
   // Clean up
   CUDA_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   CUDA_CALL(cudaFree(d_ptr));
+}
+
+class StreamOpTest : public NVFuserTest {};
+
+TEST_F(StreamOpTest, StreamWriteValue32) {
+  cudaStream_t stream;
+  void* buf;
+  int value = 0;
+  constexpr int new_value = 42;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(0));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamCreate(&stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&buf, sizeof(int)));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(buf, &value, sizeof(int), cudaMemcpyHostToDevice, stream));
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(stream, (CUdeviceptr)buf, new_value, CU_STREAM_WRITE_VALUE_DEFAULT));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(&value, buf, sizeof(int), cudaMemcpyDeviceToHost, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+  EXPECT_EQ(value, new_value);
 }
 
 TEST_F(GpuCommTest, Allgather) {

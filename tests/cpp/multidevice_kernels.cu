@@ -10,7 +10,8 @@
 // (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
 // Compiling pytorch with nvcc is not supported either.
 
-#include <cuda.h>
+// #include <cuda.h>
+#include <driver_api.h>
 #include <tests/cpp/multidevice_kernels.h>
 
 namespace nvfuser {

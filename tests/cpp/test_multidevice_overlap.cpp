@@ -9,7 +9,8 @@
 #include <ATen/cuda/CUDAGraph.h>
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
-#include <cuda.h>
+// #include <cuda.h>
+#include <driver_api.h>
 #include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
 #include <fusion.h>

@@ -21,6 +21,7 @@
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <cuda.h>
 
 namespace nvfuser {
 
@@ -435,40 +436,40 @@ void HostIrEvaluator::handle(Communication* communication) {
 
   NVF_ERROR(communication->type() == CommunicationType::Allgather);
 
-  std::vector<at::Tensor> output_tensors =
-      at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
-  std::vector<void*> input_ptrs = communicator_->getRemotePtrs(input_tensor);
-  cudaStream_t current_stream =
-      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream();
-  // TODO: use multicast
-  for (auto i = 0; i < communicator_->size(); i++) {
-    cudaStream_t stream = c10::cuda::getStreamFromPool(
-                              /*isHighPriority=*/false, my_local_device_index_)
-                              .stream();
-    cudaEvent_t event = {};
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, current_stream));
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaStreamWaitEvent(stream, event, cudaEventWaitDefault));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+  // std::vector<at::Tensor> output_tensors =
+  //     at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  // const std::vector<void*>& input_ptrs = communicator_->getRemotePtrs(input_tensor);
+  // cudaStream_t current_stream =
+  //     c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream();
+  // // TODO: use multicast
+  // for (auto i = 0; i < communicator_->size(); i++) {
+  //   cudaStream_t stream = c10::cuda::getStreamFromPool(
+  //                             /*isHighPriority=*/false, my_local_device_index_)
+  //                             .stream();
+  //   cudaEvent_t event = {};
+  //   NVFUSER_CUDA_RT_SAFE_CALL(
+  //       cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, current_stream));
+  //   NVFUSER_CUDA_RT_SAFE_CALL(
+  //       cudaStreamWaitEvent(stream, event, cudaEventWaitDefault));
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 
-    auto output = output_tensors.at(i);
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-        output.data_ptr(),
-        input_ptrs.at(i),
-        output.numel() * output.element_size(),
-        cudaMemcpyDeviceToDevice,
-        stream));
+  //   auto output = output_tensors.at(i);
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+  //       output.data_ptr(),
+  //       input_ptrs.at(i),
+  //       output.numel() * output.element_size(),
+  //       cudaMemcpyDeviceToDevice,
+  //       stream));
 
-    // sync
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream));
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
-  }
+  //   // sync
+  //   NVFUSER_CUDA_RT_SAFE_CALL(
+  //       cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(event, stream));
+  //   NVFUSER_CUDA_RT_SAFE_CALL(
+  //       cudaStreamWaitEvent(current_stream, event, cudaEventWaitDefault));
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+  // }
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -490,20 +491,118 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
         buffer);
     return;
   }
-  NVF_ERROR(false, "CUDA backend not supported yet");
+
+
+
+  // FIST TIME:
+  // sender exports cudaIpc mem handle on input buffer and put it to store
+  // sender signals recv it can open the mem handle. It needs to be CPU blocking
+  // recv opens the handle and gets the pointer.
+  // It copies the data and then signal sender on completion
+
+  // SECOND TIME:
+  // Sender signals recv it can copy
+  // Recv copies the data and signals sender on completion
+
+// each rank must have a bool "recvied" and a "sent" bool per rank. So n+1
+// each rank must have, per rank, a sent_to and a received_from a bool "recvied" and a "sent" bool per rank. So n+1
+
+
+
+  // std::string prefix = "nvfuser_ipc_tensor_info_" + communication->buffer()->name() + "_";
+  // IpcTensorInfo ipc_tensor_info;
+  // NVFUSER_CUDA_RT_SAFE_CALL(
+  //     cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, buffer.data_ptr()));
+  // ipc_tensor_info.storage_offset = buffer.storage_offset();
+  // ipc_tensor_info.element_size = buffer.element_size();
+
+  // auto store = communicator_->getTcpStore();
+  // store->set(prefix + std::to_string(my_rank), toBytes(ipc_tensor_info));
+
+  // Team team = {my_rank, peer};
+  // communicator_->getBackendForTeam(team, CommunicatorBackend::kNccl)->barrier()->wait();
+
+  // for (int64_t rank : c10::irange(size())) {
+  //   if (rank == my_rank) {
+  //     remote_ptrs.at(rank) = tensor.data_ptr();
+  //   } else {
+  //     ipc_tensor_info =
+  //         fromBytes<IpcTensorInfo>(store->get(prefix + std::to_string(rank)));
+  //     void*& ptr = remote_ptrs.at(rank);
+  //     NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
+  //         &ptr, ipc_tensor_info.ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+  //     // TODO: close ipc mem handle at shutdown
+  //     ptr = (void*)((uint8_t*)ptr +
+  //                   ipc_tensor_info.storage_offset *
+  //                       ipc_tensor_info.element_size);
+  //   }
+  // }
+
+  const auto current_stream = reinterpret_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+  const std::vector<RemoteBufferInfo>& remote_buffers = communicator_->getRemoteBuffer(buffer, std::to_string(communication->buffer()->name()));
+  const int64_t my_rank = communicator_->deviceId();
+  const int64_t peer = expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+  const RemoteBufferInfo& my_buffer = remote_buffers.at(my_rank);
+  const RemoteBufferInfo& peer_buffer = remote_buffers.at(peer);
+  const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[peer]);
+  const auto remote_semaphore = reinterpret_cast<CUdeviceptr>(&peer_buffer.semaphores()[my_rank]);
+  static_assert(sizeof(IpcSemaphore) == sizeof(uint32_t), "IpcSemaphore must be 32 bits");
+
+
+  if (communication->type() == P2PCommunicationType::RECV) {
+    std::cout << "RANK " << my_rank << " RECV, local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << std::endl;
+    // signal to self that transfer is in progress
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT));
+    // signal sender that receiver is ready
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, remote_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT)); // passing CU_STREAM_WRITE_VALUE_NO_MEMORY_BARRIER gives an error
+  } else /*sender*/ {
+    std::cout << "RANK " << my_rank << " SEND, local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << std::endl;
+    // wait for sender to be ready
+    // NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WAIT_VALUE_EQ));
+    std::cout << "RANK " << my_rank << " SEND after 1st WAIT" << std::endl;
+    // RDMA writes data from sender to receiver
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+        remote_buffers.at(my_rank).ptr(),
+        my_buffer.ptr(),
+        buffer.numel() * buffer.element_size(),
+        cudaMemcpyDeviceToDevice,
+        current_stream));
+    std::cout << "RANK " << my_rank << " SEND after memcpy" << std::endl;
+    // Signals completion to self
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
+    // Signals completion to receiver
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, remote_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
+  }
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  auto it = works_.find(communication);
-  if (it == works_.end()) {
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  if (p2p_comm && p2p_comm->backend() != CommunicatorBackend::kCuda) {
+    auto it = works_.find(communication);
+    if (it == works_.end()) {
+      return;
+    }
+    auto& work = it->second;
+    if (work != nullptr) {
+      work->wait();
+    }
+    works_.erase(communication);
     return;
   }
-  auto& work = it->second;
-  if (work != nullptr) {
-    work->wait();
+
+  if (p2p_comm->type() == P2PCommunicationType::RECV) {
+    // const auto current_stream = static_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    const std::vector<RemoteBufferInfo>& remote_buffers = communicator_->getRemoteBuffer(getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_), std::to_string(p2p_comm->buffer()->name()));
+    const int64_t my_rank = communicator_->deviceId();
+    const int64_t peer = expr_evaluator_.evaluate(p2p_comm->peer()).as<int64_t>();
+    const RemoteBufferInfo& my_buffer = remote_buffers.at(my_rank);
+    const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[peer]);
+
+    std::cout << "RANK " << my_rank << " WAIT RECV BEFORE cuStreamWaitValue32 on local semaphore " << local_semaphore << std::endl;
+    // NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WAIT_VALUE_EQ));
+    std::cout << "RANK " << my_rank << " FINISHED WAIT RECV AFTER cuStreamWaitValue32 on local semaphore " << local_semaphore << std::endl;
   }
-  works_.erase(communication);
 }
 
 namespace {
