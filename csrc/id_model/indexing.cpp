@@ -748,10 +748,7 @@ TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
-    std::ofstream ofs("indexing_traversal_graph.dot", std::ofstream::trunc);
-    auto dot_string = traversalGraph().toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
+    traversalGraph().dumpGraphvizDotGraph("indexing_traversal_graph.dot");
   }
 }
 

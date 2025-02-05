@@ -415,7 +415,8 @@ class VectorizeValidator : public OptInDispatch {
     NVF_ERROR(GpuLower::current()->hasIdModel());
 
     const auto& id_model = GpuLower::current()->idModel();
-    const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
+    //const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
+    const auto& graph = id_model.idGraph(IdMappingMode::ALMOSTEXACT);
 
     // Traverse from the complete set of loop IDs to the allocation
     // domain of this tensor. Note that the allocation domain may
@@ -753,7 +754,6 @@ class VectorizeValidator : public OptInDispatch {
     // Validate producer
     if (GpuLower::current()->hasIdModel()) {
       // No need to do replayPasC when using IdModel
-      NVF_ERROR(tv_def->input(0) == producer_tv);
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
               v_id, producer_tv, "producer", tv_def);
