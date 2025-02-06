@@ -343,9 +343,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   // host ir
-  std::unique_ptr<nvfuser::hir::HostIrContainer> hic;
+  std::unique_ptr<hir::HostIrContainer> hic;
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    hic = std::make_unique<nvfuser::hir::HostIrContainer>(num_groups); // Some indices will be empty
+    hic = std::make_unique<hir::HostIrContainer>(num_groups); // Some indices will be empty
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
@@ -379,7 +379,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run, hic.get());
     } else {
-      nvfuser::hir::HostIrContainer* hic_p = hic.get();
+      hir::HostIrContainer* hic_p = hic.get();
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
@@ -428,7 +428,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       auto out_clone = ir_cloner.clone(group_to_run->outputs());
       if (hic->hasKernelExecutor(run_order_id)) {
         auto heuristic_params = schedulers().at(run_order_id).get();
-        auto launch_kernel = IrBuilder::create<nvfuser::hir::LaunchKernel>(
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
             run_order_id,
             heuristic_params->lparams,
             heuristic_params->cparams,
@@ -465,7 +465,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    hie_ = std::make_unique<nvfuser::hir::HostIrEvaluator>(std::move(hic));
+    hie_ = std::make_unique<hir::HostIrEvaluator>(std::move(hic));
   }
 
   if (isProfilerEnabled()) {
@@ -719,7 +719,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
     SegmentedGroup* sg,
-    nvfuser::hir::HostIrContainer* hic) {
+    hir::HostIrContainer* hic) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();

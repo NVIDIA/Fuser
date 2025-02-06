@@ -164,7 +164,7 @@ class FusionKernelRuntime {
   void compileKernel(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg,
-      nvfuser::hir::HostIrContainer* hic);
+      hir::HostIrContainer* hic);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
@@ -180,7 +180,7 @@ class FusionKernelRuntime {
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
   //! Host IR Evaluator
-  std::unique_ptr<nvfuser::hir::HostIrEvaluator> hie_;
+  std::unique_ptr<hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion
