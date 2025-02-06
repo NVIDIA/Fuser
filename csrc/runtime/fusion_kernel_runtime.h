@@ -10,6 +10,7 @@
 #include <c10/util/ArrayRef.h>
 
 #include <fusion_segmenter.h>
+#include <host_ir/executor.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -160,7 +161,10 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
+  void compileKernel(
+      const KernelArgumentHolder& args,
+      SegmentedGroup* sg,
+      hir::HostIrContainer* hic);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
@@ -174,6 +178,9 @@ class FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
+
+  //! Host IR Evaluator
+  std::unique_ptr<hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion

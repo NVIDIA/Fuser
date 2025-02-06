@@ -85,8 +85,11 @@ class HostIrEvaluator final : public OptOutDispatch {
       std::unique_ptr<HostIrContainer> container,
       Communicator* communicator = nullptr,
       HostIrEvaluatorParams = HostIrEvaluatorParams());
+
   std::vector<at::Tensor> runWithInput(
       std::unordered_map<Val*, c10::IValue> val_to_IValue);
+  std::vector<at::Tensor> runWithInput(
+      std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue);
 
   const std::vector<Val*>& inputs() {
     return container_->inputs();
