@@ -320,6 +320,16 @@ class LowerToInlinePtx : public kir::ExprMutator {
             std::vector<Val*>{maxnreg->numberOfRegisters()},
             kir::Asm::Options{/*volatile=*/true}));
   }
+
+  void handle(kir::AllocTMem* alloc) final {
+    registerReplace(
+        alloc,
+        IrBuilder::create<kir::Asm>(
+            "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+            std::vector<Val*>{},
+            std::vector<Val*>{alloc->address(), alloc->numColumns()},
+            kir::Asm::Options{/*volatile=*/true}));
+  }
 };
 
 std::vector<Expr*> lowerToInlinePtx(const std::vector<Expr*>& exprs) {

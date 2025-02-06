@@ -2660,7 +2660,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
 TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
