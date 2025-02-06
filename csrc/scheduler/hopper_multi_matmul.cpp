@@ -65,14 +65,15 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
 
 void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
     TensorView* tv) {
-    NVF_ERROR(
+  NVF_ERROR(
       tv->domain()->loop().size() >= 4,
       "transformLikeMmaOutputWithoutK requires at least four iterDomains but ",
       tv->toString(),
       " only has ",
       tv->domain()->loop().size(),
       ".");
-  NVF_ERROR(!tv->axis(-1)->isReduction(), "Inner axis should not be Reduction.");
+  NVF_ERROR(
+      !tv->axis(-1)->isReduction(), "Inner axis should not be Reduction.");
 
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
