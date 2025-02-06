@@ -24,8 +24,8 @@ DeviceMesh::DeviceMesh(
   if (shape.empty()) {
     shape_ = {(int64_t)devices.size()};
   } else {
-    int64_t num_devices = std::accumulate(
-        shape.begin(), shape.end(), 1, std::multiplies<>());
+    int64_t num_devices =
+        std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
     NVF_ERROR(
         (int64_t)devices.size() == num_devices,
         "Specified a list of device with ",
@@ -40,7 +40,7 @@ DeviceMesh::DeviceMesh(
 
 DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
   setDevices(std::vector<DeviceIdxType>(devices));
-  shape_ = {(int64_t) vector_.size()};
+  shape_ = {(int64_t)vector_.size()};
 }
 
 void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
@@ -62,8 +62,8 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
 }
 
 /*static*/ DeviceMesh DeviceMesh::createForShape(std::vector<int64_t> shape) {
-  int64_t num_devices = std::accumulate(
-      shape.begin(), shape.end(), 1, std::multiplies<>());
+  int64_t num_devices =
+      std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
   std::vector<DeviceIdxType> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   return DeviceMesh(devices, shape);
@@ -77,11 +77,11 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
 
   out << "DeviceMesh";
   size_t ndevices = std::accumulate(
-        mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
+      mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
   size_t ndims = mesh.shape().size();
   std::vector<int64_t> strides = mesh.shape();
   for (size_t i = ndims - 2; i >= 0; --i) {
-      strides[i] *= strides[i + 1];
+    strides[i] *= strides[i + 1];
   }
 
   for (size_t i = 0; i < ndevices; i++) {
@@ -91,11 +91,11 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
       }
     }
     out << mesh.vector().at(i);
-    if ((i+1) % strides[ndims-1] != 0) {
+    if ((i + 1) % strides[ndims - 1] != 0) {
       out << " ";
     }
     for (size_t axis = 0; axis < ndims; axis++) {
-      if ((i+1) % strides[axis] == 0) {
+      if ((i + 1) % strides[axis] == 0) {
         out << "}";
       }
     }
@@ -132,24 +132,31 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
 std::vector<DeviceIdxType> DeviceMesh::getSlice(
     DeviceIdxType device,
     ParallelType ptype) const {
-  NVF_ERROR(isParallelTypeDeviceDim(ptype),
-  "Requires a DID parallel type but received ", ptype);
-  int64_t axis = shape_.size() - 1;
-  if (ptype == ParallelType::DIDy) {
-    axis -= 1;
-  } else if (ptype == ParallelType::DIDz) {
-    axis -= 2;
-  }
-  NVF_ERROR(axis < (int64_t)shape_.size(),
+  NVF_ERROR(
+      isParallelTypeDeviceDim(ptype),
+      "Requires a DID parallel type but received ",
+      ptype);
+  size_t axis = 0;
+  // size_t axis = shape_.size() - 1;
+  // if (ptype == ParallelType::DIDy) {
+  //   axis -= 1;
+  // } else if (ptype == ParallelType::DIDz) {
+  //   axis -= 2;
+  // }
+  NVF_ERROR(
+      axis < shape_.size(),
       "DeviceMesh has ",
       shape_.size(),
-      " dimensions, but requesting slice for ", ptype);
-  int64_t offset = 0;
-  int64_t stride = 1;
-  int64_t accumulated_size = 1;
+      " dimensions, but requesting slice for ",
+      ptype);
   auto indices = getIndices(device);
-  NVF_ERROR(!indices.empty(), "Device ", device, " is not in DeviceMesh ", vector_);
-  for (int64_t i = (int64_t)shape_.size() - 1; i >= 0; i--) {
+  NVF_ERROR(
+      !indices.empty(), "Device ", device, " is not in DeviceMesh ", vector_);
+
+  size_t offset = 0;
+  size_t stride = 1;
+  size_t accumulated_size = 1;
+  for (size_t i = shape_.size() - 1; i >= 0; i--) {
     if (i > axis) {
       stride *= shape_[i];
     }
@@ -159,11 +166,11 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
     accumulated_size *= shape_[i];
   }
 
-  std::vector<DeviceIdxType> team(shape_[axis]);
-  for (auto i : c10::irange(team.size())) {
-    team.at(i) = vector_.at(i * stride + offset);
+  std::vector<DeviceIdxType> devices(shape_[axis]);
+  for (auto i : c10::irange(devices.size())) {
+    devices.at(i) = vector_.at(i * stride + offset);
   }
-  return team;
+  return devices;
 }
 
 } // namespace nvfuser
