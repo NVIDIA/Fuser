@@ -20,6 +20,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <kernel_ir_dispatch.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <runtime/allocations.h>
@@ -41,6 +42,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <limits>
 
 namespace nvfuser {
 
@@ -158,6 +160,67 @@ bool hasCpuScalarOutputs(Fusion* _fusion) {
       });
   return has_any_cpu_output;
 }
+
+// This holds inclusive bounds for
+struct BoundedInt {
+  int64_t min = std::numeric_limits<int64_t>::min();
+  int64_t max = std::numeric_limits<int64_t>::max();
+};
+
+class ScalarBoundsCalculator : kir::IrVisitor {
+ public:
+  ScalarBoundsCalculator(Fusion* fusion, const KernelArgumentHolder& args)
+      : fusion_(fusion) {
+    // Bind an ExpressionEvaluator
+  }
+
+  //! Return the bounds, computed over all scalars in the fusion with the given
+  //! data type
+  BoundedInt boundByDataType(DataType dtype = DataType::Index) {
+    BoundedInt ret;
+    bool initialized = false;
+    for (auto& [val, b] : bounds_) {
+      if (val->dtype() != dtype) {
+        continue;
+      }
+      if (initialized) {
+        ret = b;
+      } else {
+        ret.min = std::min(ret.min, b.min);
+        ret.max = std::max(ret.max, b.max);
+      }
+    }
+    return ret;
+  }
+
+ private:
+  using kir::IrVisitor::handle;
+
+  //! Propagate bounds through one expression
+  void processExpr(Expr* e) {
+    handle(e);
+  }
+
+ private:
+  Fusion* fusion_;
+  ExpressionEvaluator expr_eval;
+  std::unordered_map<Val*, BoundedInt> bounds_;
+};
+
+IndexType getSmallestIndexTypeByBoundingExpressions(
+    const Fusion* fusion,
+    const KernelArgumentHolder& args) {
+  // bind args to expression evaluator
+  ScalarBoundsCalculator calc(fusion, args);
+  // Compute the range of all nvfuser_index_t values in the fusion
+  BoundedInt index_bounds = calc.boundByDataType();
+  return (index_bounds.min >= (int64_t)std::numeric_limits<int32_t>::min() &&
+          index_bounds.max <= (int64_t)std::numeric_limits<int32_t>::max())
+      ? DataType::Int32
+      : DataType::Int64;
+}
+}
+
 } // namespace
 
 bool KernelExecutor::supported(Fusion* fusion) {
@@ -207,6 +270,9 @@ void KernelExecutor::compile(
   // make sure the compile param type is valid with the given kernel
   // arguments.
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
+  if (has_cp_async_bulk) {
+    arg_index_type = getSmallestIndexTypeByBoundingExpressions(fusion, args);
+  }
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
     // int64, that's an error
