@@ -114,7 +114,8 @@ class DeviceMesh final {
   // getSlice(4, ParallelType::DIDx) = {3, 4, 5}
   // getSlice(4, ParallelType::DIDy) = {1, 4}
   // TODO: these might be worth caching per TV
-  std::vector<DeviceIdxType> getSlice(DeviceIdxType device, ParallelType ptype) const;
+  std::vector<DeviceIdxType> getSlice(DeviceIdxType device, ParallelType ptype)
+      const;
 
  private:
   void setDevices(std::vector<DeviceIdxType> devices);

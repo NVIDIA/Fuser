@@ -73,7 +73,7 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   out << "DeviceMesh";
   int64_t ndevices = std::accumulate(
       mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
-  int64_t ndims = mesh.shape().size();
+  int64_t ndims = (int64_t)mesh.shape().size();
   std::vector<int64_t> strides = mesh.shape();
   for (int64_t i = ndims - 2; i >= 0; --i) {
     strides[i] *= strides[i + 1];
@@ -125,21 +125,13 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
 }
 
 namespace {
-int64_t ptypeToAxis(ParallelType ptype, int64_t naxis) {
-  int64_t offset;
-  switch (ptype) {
-    case ParallelType::DIDx:
-      offset = 0;
-      break;
-    case ParallelType::DIDy:
-      offset = 1;
-      break;
-    case ParallelType::DIDz:
-      offset = 2;
-      break;
-    default:
-      NVF_ERROR(false, "Requires a DID parallel type but received ", ptype);
-  }
+size_t ptypeToAxis(ParallelType ptype, size_t naxis) {
+  NVF_ERROR(
+      isParallelTypeDeviceDim(ptype),
+      "Attempting to index into DeviceMesh with a non-device parallel type",
+      ptype);
+  size_t offset =
+      static_cast<size_t>(ptype) - static_cast<size_t>(ParallelType::DIDx);
 
   NVF_ERROR(
       offset < naxis,
@@ -154,7 +146,7 @@ int64_t ptypeToAxis(ParallelType ptype, int64_t naxis) {
 std::vector<DeviceIdxType> DeviceMesh::getSlice(
     DeviceIdxType deviceId,
     ParallelType ptype) const {
-  int64_t axis = ptypeToAxis(ptype, shape_.size());
+  size_t axis = ptypeToAxis(ptype, shape_.size());
   auto indices = getIndices(deviceId);
   NVF_ERROR(
       !indices.empty(), "Device ", deviceId, " is not in DeviceMesh ", vector_);
@@ -162,7 +154,7 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
   int64_t offset = 0;
   int64_t stride = 1;
   int64_t accumulated_size = 1;
-  for (int64_t i = shape_.size() - 1; i >= 0; i--) {
+  for (size_t i = shape_.size() - 1; i >= 0; i--) {
     if (i > axis) {
       stride *= shape_[i];
     }

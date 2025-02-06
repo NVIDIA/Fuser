@@ -70,7 +70,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e), my_device_idx);
+      std::vector<Expr*> communications =
+          HostIrLower::lower(cloner.clone(e), my_device_idx);
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
