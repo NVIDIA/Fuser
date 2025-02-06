@@ -4536,6 +4536,13 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
           .to(at::kBFloat16);
 
+  // Adjust parameters in order to fit smem and register constraints
+  mparams.tile_sizes.cta_tile = GemmTile(128, 128, 64);
+  mparams.tile_sizes.warp_tile = GemmTile(64, 128, 64);
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+  mparams.promote_prologue_smem_reuse = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
+
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
@@ -4602,6 +4609,13 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   auto tv12_ref =
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
           .to(at::kBFloat16);
+
+  // Adjust parameters in order to fit smem and register constraints
+  mparams.tile_sizes.cta_tile = GemmTile(128, 128, 64);
+  mparams.tile_sizes.warp_tile = GemmTile(64, 128, 64);
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+  mparams.promote_prologue_smem_reuse = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
