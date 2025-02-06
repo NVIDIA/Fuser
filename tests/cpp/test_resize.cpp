@@ -5782,6 +5782,27 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2)
+      << "Unexpected segmentation";
+
+  // Make sure two ops are separated into their own segments
+  for (auto segmented_group : runtime->fusionSegments()->groups()) {
+    bool has_resize = false;
+    bool has_index_op = false;
+    for (auto expr : segmented_group->exprs()) {
+      if (scheduler_tools::isResizeBasedOp(expr)) {
+        has_resize = true;
+      } else if (
+          expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+        has_index_op = true;
+      }
+    }
+
+    EXPECT_NE(has_resize, has_index_op);
+  }
 }
 
 } // namespace nvfuser
