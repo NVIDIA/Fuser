@@ -235,6 +235,11 @@ class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
       int64_t loop_pos,
       bool propagate_through_resize);
 
+  // Indicates if propagation through Resize is allowed. This is
+  // historically always true but was found to be necessary to
+  // selectively be disabled. For example, for inlining, since inlinig
+  // is not valid between resized IDs, the propagation should not be
+  // done across Resize ops.
   bool propagate_through_resize_ = true;
 
  public:

@@ -507,6 +507,9 @@ std::unordered_map<TensorView*, int64_t> getPositionsMappedTo(
     TensorView* reference_tv,
     int64_t reference_pos) {
   std::unordered_map<TensorView*, int64_t> mapped_positions;
+  // Spanning tree traversal should not propagate across Resize ops
+  // since inlining should not be done across resized IDs. See
+  // ResizeTest.TraversalForInliningPosition for a concrete example.
   MaxLogicalDomainInfoSpanningTree tree(
       reference_tv,
       reference_pos,
