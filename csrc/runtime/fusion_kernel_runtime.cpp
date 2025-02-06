@@ -742,7 +742,7 @@ void FusionKernelRuntime::compileKernel(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
 
-  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (hic != nullptr) {
     // if it's a kernel executor, compile the segment and append to hic
     // otherwise, push the segment's exprs directly to the hic
     if (!HostIrExecutor::supported(fusion_to_run.get()) &&
