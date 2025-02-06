@@ -63,7 +63,6 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 }
 
 TEST_F(HostIrIntegrationTest, Set) {
-  const auto& use_codepath = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
@@ -116,8 +115,6 @@ TEST_F(HostIrIntegrationTest, Sum) {
       __FILE__,
       "");
 }
-
-INSTANTIATE_TEST_SUITE_P(, HostIrCodepathSumTest, ::testing::Bool());
 
 } // namespace hir
 
