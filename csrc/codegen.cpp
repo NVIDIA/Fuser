@@ -3260,7 +3260,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (!utility_generated) {
         const auto& outputs = asm_->outputs();
         const auto& inputs = asm_->inputs();
-        utilities_ << "void " << utility_name << "(";
+        utilities_ << "__device__ __inline__ void " << utility_name << "(";
         for (auto out_i : c10::irange(outputs.size())) {
           if (out_i > 0) {
             utilities_ << ", ";
