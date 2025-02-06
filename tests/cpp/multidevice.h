@@ -45,4 +45,6 @@ class MultiDeviceTest : public NVFuserTest {
   bool disable_skip;
 };
 
+__global__ void DummyMultiDeviceKernel();
+
 } // namespace nvfuser

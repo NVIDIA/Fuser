@@ -23,13 +23,14 @@ namespace nvfuser {
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    hir::HostIrEvaluatorParams params)
+    MultiDeviceExecutorParams params)
     : comm_(comm) {
+  HostIrLower lower(params.lower);
   std::unique_ptr<hir::HostIrContainer> hic =
-      HostIrLower::lower(std::move(fusion), comm.deviceId());
+      lower.lower(std::move(fusion), comm.deviceId());
   // Create the HostIrEvaluator representing the host program
   host_ir_executor_ =
-      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
+      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params.executor);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
