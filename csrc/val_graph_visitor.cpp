@@ -68,7 +68,7 @@ bool ValGraphVisitor::traverse() {
   // of the merge but since it's already in the visited set, it would
   // not be visited again.
   //
-  // Similarly, when there are five groups as shown belwo:
+  // Similarly, when there are five groups as shown below:
   //
   //   i0 -> i1  ->  i2 -> i3
   //          ^       |
@@ -76,8 +76,8 @@ bool ValGraphVisitor::traverse() {
   //
   //  (Edges: i0->i1, i1->i2, i2->i3, i2->i4, i4->i1)
   //
-  // is_val_ready for i1 would ignore the incoming edge from i4. The
-  // traversal order would look like:
+  // is_val_ready of i1 would become true while ignoring the incoming
+  // edge from i4. The traversal order would look like:
   //
   // i0->i1, i1->i2, i2->i3, i2->i4
   //

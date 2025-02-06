@@ -75,8 +75,8 @@ class LoopPromotionMapBuilder {
   // due to a cyclic dependency, so getTerminatingInputs() may return
   // just nothing.
   //
-  // Instead, we first find input iter domains, which are root iter
-  // domains that have no corresponding producer iter domains as
+  // Instead, we first find input iter domains, which are (maybe) root
+  // iter domains that have no corresponding producer iter domains as
   // defined by PairwiseLogicalDomainMap. Any exact groups that
   // include any of the input iter domains are considered input
   // groups.

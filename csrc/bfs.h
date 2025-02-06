@@ -684,7 +684,8 @@ class BFSWithPermissiveDependence
 };
 
 // Unlike the default BFS behavior, Val is considered ready to
-// visit only if all of definitions or uses are visited
+// visit only if all of definitions or uses are visited. The default
+// BFS only requires one definition is visited.
 template <
     typename ExprT,
     typename ValT,
