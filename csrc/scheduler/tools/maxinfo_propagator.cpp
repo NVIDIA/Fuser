@@ -192,7 +192,11 @@ std::unordered_set<IterDomain*> mapRootToLogical(
       continue;
     }
     for (auto root_id : root_ids) {
-      if (id == root_id || DependencyCheck::isDependencyOf(root_id, id)) {
+      auto exprs = DependencyCheck::getAllExprsBetween({root_id}, {id});
+      if (!exprs.empty() &&
+          std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+            return expr->isA<Resize>();
+          })) {
         mapped_logical_ids.emplace(id);
         break;
       }
@@ -213,7 +217,11 @@ std::unordered_set<IterDomain*> mapLogicalToRoot(
       continue;
     }
     for (auto logical_id : logical_ids) {
-      if (DependencyCheck::isDependencyOf(id, logical_id)) {
+      auto exprs = DependencyCheck::getAllExprsBetween({id}, {logical_id});
+      if (!exprs.empty() &&
+          std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+            return expr->isA<Resize>();
+          })) {
         mapped_root_ids.emplace(id);
         break;
       }
