@@ -1228,6 +1228,7 @@ void scheduleInnerOuterPersistentKernel(
     if(std::getenv("WARP") != nullptr){
       use_warp_specialization = true;
     }
+    std::cout << "use_warp_specialization: " << use_warp_specialization << std::endl;
     CircularBufferType circular_buffer_type = Pipelined(true);
     for (auto tv : tma_tvs) {
       if (tv->getComputeAtPosition() > 0) {

@@ -1628,10 +1628,100 @@ TEST_F(PersistentBufferTest, TmaCircularBuffer) {
   testValidate(
       fusion.get(), cg_outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
+// Inputs:
+//   T0_g___half[iS54{( ceilDiv(i0, 148) )}, iS55{148}, iS1{i2}]
+// Outputs:
+//   T5_g___half[iS66{( ceilDiv(i0, 148) )}, iblockIdx.y67{148}, ithreadIdx.x123{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS120{8}, iUS122{1}, iV119{8}] ca_pos( 5 ) produce_pos( 5 )
+
+// %kernel_math {
+// T8_s___half[iS52{( ceilDiv(i0, 148) )}, iblockIdx.y53{148}, iB19{i2}] ca_pos( 2 )
+//    = CpAsyncBulk( T0_g___half[iS54{( ceilDiv(i0, 148) )}, iS55{148}, iS1{i2}] )
+// T11_l___half[iS56{( ceilDiv(i0, 148) )}, iblockIdx.y57{148}, ithreadIdx.x99{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS96{8}, iUS98{1}, iV95{8}] ca_pos( 5 ) produce_pos( 2 )
+//    = Set( T8_s___half[iS52{( ceilDiv(i0, 148) )}, iblockIdx.y53{148}, iB19{i2}] ca_pos( 2 ), cache_op=Streaming )
+// T6_l_float[iS58{( ceilDiv(i0, 148) )}, iblockIdx.y59{148}, ithreadIdx.x93{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS90{8}, iUS92{1}, iS89{8}] ca_pos( 6 ) produce_pos( 5 )
+//    = __half2float(T11_l___half[iS56{( ceilDiv(i0, 148) )}, iblockIdx.y57{148}, ithreadIdx.x99{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS96{8}, iUS98{1}, iV95{8}] ca_pos( 5 ) produce_pos( 2 ));
+// T12_l___half[iS50{( ceilDiv(i0, 148) )}, iblockIdx.y51{148}, ithreadIdx.x81{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS78{8}, iUS80{1}, iV77{8}] ca_pos( 5 ) produce_pos( 2 )
+//    = Set( T8_s___half[iS52{( ceilDiv(i0, 148) )}, iblockIdx.y53{148}, iB19{i2}] ca_pos( 2 ), cache_op=Streaming )
+// T1_l_float[iS48{( ceilDiv(i0, 148) )}, iblockIdx.y49{148}, ithreadIdx.x75{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS72{8}, iUS74{1}, iS71{8}] ca_pos( 6 ) produce_pos( 5 )
+//    = __half2float(T12_l___half[iS50{( ceilDiv(i0, 148) )}, iblockIdx.y51{148}, ithreadIdx.x81{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS78{8}, iUS80{1}, iV77{8}] ca_pos( 5 ) produce_pos( 2 ));
+// T10_l_float[iS32{( ceilDiv(i0, 148) )}, iblockIdx.y33{148}, ithreadIdx.x39{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}rf_p, rS36{8}rf, rUS38{1}rf, rS35{8}rf] ca_pos( 3 ) produce_pos( 6 )
+//    = reduction( T1_l_float[iS48{( ceilDiv(i0, 148) )}, iblockIdx.y49{148}, ithreadIdx.x75{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS72{8}, iUS74{1}, iS71{8}] ca_pos( 6 ) produce_pos( 5 ), op = add, initial value = float(0), allreduce = false )
+// T2_l_float[iS42{( ceilDiv(i0, 148) )}, iblockIdx.y43{148}, rthreadIdx.x41{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p] ca_pos( 2 ) produce_pos( 3 )
+//    = reduction( T10_l_float[iS32{( ceilDiv(i0, 148) )}, iblockIdx.y33{148}, ithreadIdx.x39{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}rf_p, rS36{8}rf, rUS38{1}rf, rS35{8}rf] ca_pos( 3 ) produce_pos( 6 ), op = add, initial value = float(0), allreduce = false )
+// T3_l_float[iS62{( ceilDiv(i0, 148) )}, iblockIdx.y63{148}, bthreadIdx.x111{1}_p, bS108{8}, bUS110{1}, bS107{8}] ca_pos( 2 ) produce_pos( 2 )
+//    = broadcast( T2_l_float[iS42{( ceilDiv(i0, 148) )}, iblockIdx.y43{148}, rthreadIdx.x41{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p] ca_pos( 2 ) produce_pos( 3 ), flags = {false, true} )
+// T4_l_float[iS60{( ceilDiv(i0, 148) )}, iblockIdx.y61{148}, ithreadIdx.x105{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS102{8}, iUS104{1}, iS101{8}] ca_pos( 6 ) produce_pos( 6 )
+//    = T6_l_float[iS58{( ceilDiv(i0, 148) )}, iblockIdx.y59{148}, ithreadIdx.x93{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS90{8}, iUS92{1}, iS89{8}] ca_pos( 6 ) produce_pos( 5 )
+//    + T3_l_float[iS62{( ceilDiv(i0, 148) )}, iblockIdx.y63{148}, bthreadIdx.x111{1}_p, bS108{8}, bUS110{1}, bS107{8}] ca_pos( 2 ) produce_pos( 2 );
+// T9_l___half[iS64{( ceilDiv(i0, 148) )}, iblockIdx.y65{148}, ithreadIdx.x117{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS114{8}, iUS116{1}, iS113{8}] ca_pos( 5 ) produce_pos( 6 )
+//    = __float2half(T4_l_float[iS60{( ceilDiv(i0, 148) )}, iblockIdx.y61{148}, ithreadIdx.x105{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS102{8}, iUS104{1}, iS101{8}] ca_pos( 6 ) produce_pos( 6 ));
+// T5_g___half[iS66{( ceilDiv(i0, 148) )}, iblockIdx.y67{148}, ithreadIdx.x123{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS120{8}, iUS122{1}, iV119{8}] ca_pos( 5 ) produce_pos( 5 )
+//    = Set( T9_l___half[iS64{( ceilDiv(i0, 148) )}, iblockIdx.y65{148}, ithreadIdx.x117{( ceilDiv(( ceilDiv(i2, 8) ), 8) )}_p, iS114{8}, iUS116{1}, iS113{8}] ca_pos( 5 ) produce_pos( 6 ), cache_op=Streaming )
+// } // %kernel_math 
+
+TEST_F(PersistentBufferTest, CpAsyncBulk1DGridStride) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  // [I0/127, 127, I1]
+  // use a value can't be divided evenly by dim0 to test predicate
+  tv1->split(0, 127);
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(1)->parallelize(ParallelType::BIDy);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  constexpr int dim0 = 256, dim1 = 128;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0 + at_tv0;
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
+
+
+TEST_F(PersistentBufferTest, TmaManualScheduler) {
+  DataType input_dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {16384, 16384};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, std::vector<bool>{false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = castOp(DataType::Half, tv4);
+  fusion->addOutput(tv5);
+
+
+}
 
 TEST_F(PersistentBufferTest, TmaMagicScheduler) {
   DataType input_dtype = DataType::Half;
-  const std::vector<int64_t> input_shape = {148*2*2*27, 16384};
+  const std::vector<int64_t> input_shape = {16384, 16384};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
