@@ -119,6 +119,41 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
               kir::Asm::Options{/*volatile=*/true}));
+    } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
+      // TODO: support other types of ld/st
+      auto ptx = "tcgen05.ld.sync.aligned.32x32b.x1.b32";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ptx,
+              std::vector<Val*>{ldst->out()},
+              std::vector<Val*>{ldst->in()}));
+      auto wait_ptx = "tcgen05.wait::ld.sync.aligned";
+      registerInsertAfter(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              wait_ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
+    } else if (ldst->opType() == LoadStoreOpType::StTMem) {
+      // TODO: support other types of ld/st
+      auto ptx = "tcgen05.st.sync.aligned.32x32b.x1.b32";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{ldst->out(), ldst->in()},
+              kir::Asm::Options{/*volatile=*/true}));
+      auto wait_ptx = "tcgen05.wait::st.sync.aligned";
+      registerInsertAfter(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              wait_ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
     }
   }
 
@@ -283,6 +318,16 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
+            kir::Asm::Options{/*volatile=*/true}));
+  }
+
+  void handle(kir::AllocTMem* alloc) final {
+    registerReplace(
+        alloc,
+        IrBuilder::create<kir::Asm>(
+            "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+            std::vector<Val*>{},
+            std::vector<Val*>{alloc->address(), alloc->numColumns()},
             kir::Asm::Options{/*volatile=*/true}));
   }
 };

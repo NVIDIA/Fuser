@@ -17,6 +17,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
 #include <transform_iter.h>
@@ -4531,6 +4532,33 @@ std::string MatmulOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace {
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
+// the rfactored DID axis to correctly bind with the logical domain. See
+// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(static_cast<int64_t>(logical.size()))) {
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
+    }
+  }
+
+  return rfactor_did_idx;
+}
+} // namespace
+
 std::vector<PolymorphicValue> MatmulOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -4538,11 +4566,19 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto b = inputs.at(1).as<at::Tensor>();
 
   auto matmul_out = at::matmul(a, b);
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
+  }
+
   const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
+
   if (meta_out.is_contiguous()) {
     return {matmul_out};
   }
+
   auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
   strided_matmul_out = strided_matmul_out.copy_(matmul_out);
   return {strided_matmul_out};
@@ -4608,19 +4644,26 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   auto num_device_dims = weight.dim() - 2;
   squeeze_device_dims(weight, num_device_dims);
 
-  at::Tensor out;
+  at::Tensor out_tensor;
   if (has_bias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
     squeeze_device_dims(bias, num_device_dims);
-    out = at::linear(in, weight, bias);
+    out_tensor = at::linear(in, weight, bias);
   } else {
-    out = at::linear(in, weight);
+    out_tensor = at::linear(in, weight);
   }
 
   for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
-    out = out.unsqueeze(0);
+    out_tensor = out_tensor.unsqueeze(0);
   }
-  return {out};
+
+  // Handle rFactor DIDs similar to MatmulOp::evaluate.
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
+  }
+
+  return {out_tensor};
 }
 
 SdpaFwdOp::SdpaFwdOp(

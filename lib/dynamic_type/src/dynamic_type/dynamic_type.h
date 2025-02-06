@@ -249,8 +249,7 @@ struct DynamicType {
   constexpr DynamicType(T&& value) : value(std::forward<T>(value)) {}
 
   template <
-      template <typename...>
-      typename Template,
+      template <typename...> typename Template,
       typename ItemT,
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> &&
@@ -316,16 +315,14 @@ struct DynamicType {
   }
 
   template <
-      template <typename...>
-      typename Template,
+      template <typename...> typename Template,
       typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
   constexpr const Template<DynamicType>& as() const {
     return as<Template<DynamicType>>();
   }
 
   template <
-      template <typename...>
-      typename Template,
+      template <typename...> typename Template,
       typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
   constexpr Template<DynamicType>& as() {
     return as<Template<DynamicType>>();
@@ -344,8 +341,7 @@ struct DynamicType {
   }
 
   template <
-      template <typename...>
-      typename Template,
+      template <typename...> typename Template,
       typename ItemT,
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
@@ -488,7 +484,7 @@ struct DynamicType {
       typename Ret,                                                            \
       typename Class,                                                          \
       typename = std::enable_if_t<is_candidate_type<Class>>>                   \
-  constexpr decltype(auto) operator->*(Ret Class::*member) __const {           \
+  constexpr decltype(auto) operator->*(Ret Class::* member) __const {          \
     /* Use decltype(auto) instead of auto as return type so that references */ \
     /* and qualifiers are preserved*/                                          \
     if constexpr (std::is_function_v<Ret>) {                                   \

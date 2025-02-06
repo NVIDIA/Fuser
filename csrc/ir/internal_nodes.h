@@ -2245,21 +2245,21 @@ class LinearOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* inA() const {
-    return input(0);
+  TensorView* inA() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* inB() const {
-    return input(1);
+  TensorView* inB() const {
+    return input(1)->as<TensorView>();
   }
 
-  Val* bias() const {
+  TensorView* bias() const {
     if (has_bias()) {
-      return input(2);
+      return input(2)->as<TensorView>();
     } else {
       return nullptr;
     }

@@ -15,6 +15,7 @@
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1274,6 +1275,83 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+struct MatmulInputShape {
+  std::vector<int64_t> shape_a;
+  std::vector<int64_t> shape_b;
+  std::string toString() const {
+    std::stringstream ss;
+    ss << toDelimitedString(shape_a, "x") << "_"
+       << toDelimitedString(shape_b, "x");
+    return ss.str();
+  }
+};
+
+using TranslateNoReductionMatmulTest =
+    NVFuserFixtureParamTest<MatmulInputShape>;
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TranslateNoReductionMatmulTest,
+    testing::Values(
+        MatmulInputShape{{8, 1}, {1, 16}},
+        MatmulInputShape{{8, 1}, {1}},
+        MatmulInputShape{{1}, {1, 8}},
+        MatmulInputShape{{2, 3, 1}, {2, 1, 4}},
+        MatmulInputShape{{2, 3, 4, 1}, {2, 3, 1, 5}},
+        MatmulInputShape{{4, 1}, {2, 1, 5}},
+        MatmulInputShape{{4, 1}, {2, 3, 1, 5}},
+        MatmulInputShape{{1}, {2, 3, 1, 5}},
+        MatmulInputShape{{3, 4, 1}, {1}},
+        MatmulInputShape{{2, 3, 4, 1}, {1}}),
+    [](const testing::TestParamInfo<MatmulInputShape>& info) {
+      return info.param.toString();
+    });
+
+// Test the translation of MatmulOp when K=1
+TEST_P(TranslateNoReductionMatmulTest, Test) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  const auto config = GetParam();
+
+  auto tv0 = makeContigConcreteTensor(config.shape_a);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(config.shape_b);
+  fusion.addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  {
+    // Make sure MatmulOp no longer exists
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(
+        &fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isA<MatmulOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(config.shape_a, options);
+  auto t1 = at::randn(config.shape_b, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser::preseg_passes

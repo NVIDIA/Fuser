@@ -498,13 +498,15 @@ SdpfaFwdResult sdpfa_fwd(
       query_domain);
 
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
-      "Expected dropout to be a scalar double.");
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
+      "Expected dropout to be a real-valued scalar.");
   NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
-      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+      !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
+      "Expected scale to be a real-valued scalar.");
 
   // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
   // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
@@ -565,9 +567,11 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
-      scale);
+      scale == nullptr
+          ? scale
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
@@ -618,13 +622,15 @@ SdpfaBwdResult sdpfa_bwd(
       query_domain.size());
 
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
-      "Expected dropout to be a scalar double.");
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
+      "Expected dropout to be a real-valued scalar.");
   NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
-      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+      !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
+      "Expected scale to be a real-valued scalar.");
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -654,11 +660,13 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       philox_seed,
       philox_offset,
-      scale);
+      scale == nullptr
+          ? scale
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {grad_query, grad_key, grad_value};
 }
 

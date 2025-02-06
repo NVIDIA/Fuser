@@ -95,6 +95,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tma.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
@@ -200,6 +201,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
@@ -850,6 +852,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
+  ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
@@ -865,6 +868,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
+  ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
