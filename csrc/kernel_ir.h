@@ -211,6 +211,8 @@ class Asm final : public Expr {
     return attribute<std::string>(0);
   }
 
+  const std::string utility() const;
+
   const Options& options() const {
     return attribute<Options>(1);
   }
