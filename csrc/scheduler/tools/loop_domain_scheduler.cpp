@@ -99,6 +99,75 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
   const std::vector<IterDomain*>& output_ids_;
 };
 
+class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
+ public:
+  static void replayAs(
+      TensorView* tv,
+      const std::vector<IterDomain*>& input_loop_ids,
+      const Expr* transform) {
+    ReplayForwardTransformOnLoopDomain replay(tv, input_loop_ids, transform);
+  }
+
+ private:
+  ReplayForwardTransformOnLoopDomain(
+      TensorView* tv,
+      const std::vector<IterDomain*>& input_loop_ids,
+      const Expr* transform)
+      : tv_(tv), input_loop_ids_(input_loop_ids) {
+    OptOutConstDispatch::dispatch(transform);
+  }
+
+  using OptInConstDispatch::handle;
+
+  int64_t getLoopIdPosition(IterDomain* loop_id) const {
+    auto it = std::find(
+        tv_->getLoopDomain().begin(), tv_->getLoopDomain().end(), loop_id);
+    NVF_ERROR(
+        it != tv_->getLoopDomain().end(),
+        "Loop ID, ",
+        loop_id->toString(),
+        ", not found in ",
+        tv_->toString());
+    return static_cast<int64_t>(
+        std::distance(tv_->getLoopDomain().begin(), it));
+  }
+
+  void handle(const Split* split) final {
+    NVF_ERROR(input_loop_ids_.size() == 1);
+    tv_->split(
+        getLoopIdPosition(input_loop_ids_.at(0)),
+        split->factor(),
+        split->innerSplit());
+  }
+
+  void handle(const Merge* merge) final {
+    NVF_ERROR(input_loop_ids_.size() == 2);
+    tv_->merge(
+        getLoopIdPosition(input_loop_ids_.at(0)),
+        getLoopIdPosition(input_loop_ids_.at(1)));
+  }
+
+  void handle(const Resize* resize) final {
+    NVF_ERROR(input_loop_ids_.size() == 1);
+    tv_->resize(
+        getLoopIdPosition(input_loop_ids_.at(0)),
+        resize->leftExpand(),
+        resize->rightExpand());
+  }
+
+  void handle(const Swizzle2D* swizzle_2d) final {
+    NVF_THROW("Unsupported");
+  }
+
+  void handle(const Swizzle* swizzle) final {
+    NVF_THROW("Unsupported");
+  }
+
+ private:
+  TensorView* tv_ = nullptr;
+  const std::vector<IterDomain*>& input_loop_ids_;
+};
+
 class LoopDomainScheduler {
  public:
   LoopDomainScheduler(
@@ -348,10 +417,20 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
 
   // In the case of the update mode, the path from the reference is
   // assumed to just a backward traversal path.
-  NVF_ERROR(
-      !update_loop_domain_only_,
-      "Trying to update the current loop domain but could not find a valid path from the reference: ",
-      tv->toString());
+  if (update_loop_domain_only_) {
+    std::stringstream ss;
+    ss << "Missing target ID groups: ";
+    for (const auto& tv_target_domain : tv_target_domains) {
+      if (!all_ancestors_of_ref_.has(tv_target_domain)) {
+        ss << nvfuser::toString(tv_target_domain) << " ";
+      }
+    }
+    NVF_THROW(
+        "Trying to update the current loop domain but could not find a valid path from the reference: ",
+        tv->toString(),
+        ". ",
+        ss.str());
+  }
 
   // Find the forward path from the ancestors to the target tensor
   auto forward_path = ValGraphBFS::getExprGroupsBetween(
@@ -460,23 +539,21 @@ void scheduleLoopDomainsBy(
       continue;
     }
 
-    const auto& existing_ids =
-        replay_dir_tv == Direction::Forward ? input_ids : output_ids;
-
-    // Clone inputs or outputs
-    auto& new_ids =
-        replay_dir_tv == Direction::Forward ? output_ids : input_ids;
-    const auto& ref_of_ids_to_generate = replay_dir_tv == Direction::Forward
-        ? transform->outputs()
-        : transform->inputs();
-
-    for (const auto& ref_id : ref_of_ids_to_generate) {
-      auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
-      new_ids.push_back(clone);
+    // When the direction is forward, the TensorView transform
+    // APIs, e.g., TensorView::split, can be used, which doesn't need
+    // to use TensorView::setLoopDomain.
+    if (replay_dir_tv == Direction::Forward) {
+      ReplayForwardTransformOnLoopDomain::replayAs(tv, input_ids, transform);
+      continue;
     }
 
-    // In the case of replaying the transform expr backward,
-    // the definition of the output IDs will be set to the newly
+    NVF_ERROR(input_ids.empty());
+    for (const auto& ref_id : transform->inputs()) {
+      auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
+      input_ids.push_back(clone);
+    }
+
+    // The definition of the output IDs will be set to the newly
     // created expr. This is only allowed when the output IDs have no
     // definition yet.
     LoopDomainSchedulerReplayTransform::replayAs(
@@ -485,16 +562,16 @@ void scheduleLoopDomainsBy(
     // Replace the inputs of the transform with the outputs
     auto new_loop_domain = tv->getLoopDomain();
     auto outermost_pos = (int64_t)tv->getLoopDomain().size();
-    for (const auto& existing_id : existing_ids) {
-      auto it = std::find(
-          new_loop_domain.begin(), new_loop_domain.end(), existing_id);
+    for (const auto& output_id : output_ids) {
+      auto it =
+          std::find(new_loop_domain.begin(), new_loop_domain.end(), output_id);
       NVF_ERROR(it != new_loop_domain.end());
       auto pos = (int64_t)std::distance(new_loop_domain.begin(), it);
       outermost_pos = std::min(outermost_pos, pos);
       new_loop_domain.erase(it);
     }
 
-    for (auto it = new_ids.rbegin(); it != new_ids.rend(); ++it) {
+    for (auto it = input_ids.rbegin(); it != input_ids.rend(); ++it) {
       IterDomain* new_id = *it;
       new_loop_domain.insert(new_loop_domain.begin() + outermost_pos, new_id);
     }

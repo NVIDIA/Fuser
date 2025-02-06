@@ -3682,6 +3682,20 @@ void TensorDomain::swizzle(
   resetDomains();
 }
 
+void TensorDomain::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion) {
+  NVF_ERROR(nDims() > 0, "Tried to do resize on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto resized_id = IterDomain::resize(id, left_expansion, right_expansion);
+  loop_domain_.at(axis) = resized_id;
+  resetDomains();
+}
+
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noReductionDomain;

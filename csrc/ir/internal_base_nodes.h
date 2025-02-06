@@ -689,6 +689,9 @@ class TensorDomain : public Val {
       int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
 
+  // Resize an axis by left_expansion and right_expansion
+  void resize(int64_t axis, Val* left_expansion, Val* right_expansion);
+
   // Transform TensorView according to merge and split transformations
   TensorDomain* view(const AnalyzeViewResult& view_analysis);
 
