@@ -211,6 +211,95 @@ class BackwardSizesStridesTraverse {
   }
 };
 
+struct TensorSizeStrideReturn {
+  std::vector<Val*> sizes;
+  std::vector<Val*> strides;
+  std::vector<Val*> validation;
+  std::vector<Val*> contiguity;
+};
+
+class ID_Dispatch {
+ public:
+  class ForwardDispatch_ : public OptInDispatch {
+    ID_Dispatch* id_dispatch_;
+    ForwardDispatch_(ID_Dispatch* id_dispatch) : id_dispatch_(id_dispatch) {}
+    void handle(Split*) override {}
+    void handle(Merge* merge) override {}
+  };
+
+  class BackwardDispatch_ : public OptInDispatch {
+    ID_Dispatch* id_dispatch_;
+    BackwardDispatch_(ID_Dispatch* id_dispatch) : id_dispatch_(id_dispatch) {}
+    void handle(Split*) override {}
+    void handle(Merge* merge) override {}
+  };
+
+  static TensorSizeStrideReturn transform(
+      std::vector<IterDomain*> from_domain,
+      std::vector<IterDomain*> to_domain,
+      std::vector<Val*> from_strides = {},
+      std::vector<bool> contiguity = {}) {
+    from_domain = TensorDomain::noReductions(from_domain);
+    to_domain = TensorDomain::noReductions(to_domain);
+
+    // Set contiguity to false if missing
+    if (contiguity.empty()) {
+      contiguity = std::vector<bool>(from_domain.size(), false);
+    }
+    NVF_ERROR(from_domain.size() == contiguity.size());
+
+    // Setup symbolic strides based on contiguity if not provided
+    if (from_strides.empty()) {
+      auto stride = FusionGuard::getCurFusion()->oneVal();
+      for (int dim_i = (int)from_domain.size() - 1; dim_i >= 0; dim_i--) {
+        if (contiguity[dim_i]) {
+          from_strides[dim_i] = stride;
+          stride = IrBuilder::mulExpr(
+              from_domain[dim_i]->hasExpandedExtent()
+                  ? from_domain[dim_i]->expandedExtent()
+                  : from_domain[dim_i]->extent(),
+              stride);
+        } else if (from_domain[dim_i]->isBroadcast()) {
+          from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
+        } else {
+          stride = IrBuilder::create<Val>(DataType::Int);
+          from_strides[dim_i] = stride;
+        }
+      }
+    }
+    NVF_ERROR(from_domain.size() == from_strides.size());
+
+    std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids;
+    for (auto dim_i : c10::irange(from_domain.size())) {
+      active_ids[from_domain[dim_i]] = {from_domain[dim_i]->getMaybeExpandedExtent(), from_strides.at(dim_i)};
+    }
+
+    return TensorSizeStrideReturn();
+  }
+
+  public:
+  std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids_;
+
+};
+
+void testing(
+    std::vector<IterDomain*> from_domain,
+    std::vector<IterDomain*> to_domain) {
+  auto path_pair = getExprsBetween<IRBFS>(
+      {from_domain.begin(), from_domain.end()},
+      {to_domain.begin(), to_domain.end()},
+      false);
+  NVF_ERROR(path_pair.second, "Did not path between provided domains.");
+  auto bfs_exprs = path_pair.first;
+  for (auto bfs_expr : bfs_exprs) {
+    auto expr = bfs_expr.first;
+    auto direction = bfs_expr.second;
+    NVF_ERROR(
+        direction != Direction::Undefined, "Error traversing provided domain");
+    std::cout << direction << " : " << expr->toString() << std::endl;
+  }
+}
+
 } // namespace
 
 void validateContiguity(
@@ -333,6 +422,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
     ExpressionEvaluator ee) {
   from_domain = TensorDomain::noReductions(from_domain);
   to_domain = TensorDomain::noReductions(to_domain);
+
+  testing(from_domain, to_domain);
+
   NVF_ERROR(
       from_sizes.size() == from_domain.size(),
       "Error projecting tensor sizes, from domain doesn't match tensor dims: ",
@@ -343,7 +435,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   for (auto dim_i : c10::irange(from_domain.size())) {
-      active_ids[from_domain[dim_i]] = {from_sizes.at(dim_i), from_strides.at(dim_i)};
+    active_ids[from_domain[dim_i]] = {
+        from_sizes.at(dim_i), from_strides.at(dim_i)};
   }
 
   ForwardSizesStridesTraverse(ee, active_ids).run(from_domain, to_domain);
