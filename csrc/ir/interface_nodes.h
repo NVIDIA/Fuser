@@ -785,7 +785,7 @@ class NVF_API TensorView : public Val {
   // Update the max producer position of the current tensor. This is required
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
-  void updateMaxProducerPosition();
+  void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
 
   // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
