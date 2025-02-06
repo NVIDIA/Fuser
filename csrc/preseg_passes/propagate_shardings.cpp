@@ -106,6 +106,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     MaxLogicalDomainInfoSpanningTree(ref_input, &selector)
         .traverse(&propagator);
     shardAllLike(ref_input, outputs_without_mesh);
+
+    for (auto out_tv: outputs_without_mesh) {
+      debug() << out_tv->toString() << std::endl;
+    }
   }
 
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
