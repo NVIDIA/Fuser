@@ -456,7 +456,7 @@ class TensorDomain : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)loop_domain_.size();
+    return static_cast<int64_t>(loop_domain_.size());
   }
 
   bool sameAs(const Statement* other) const override;
