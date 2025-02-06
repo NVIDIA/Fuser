@@ -172,6 +172,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   ScalarBoundsCalculator(Fusion* fusion, const KernelArgumentHolder& args)
       : fusion_(fusion) {
     // Bind an ExpressionEvaluator
+
+    // Process all exprs
+    kir::IrVisitor::handle(fusion->exprs());
   }
 
   //! Return the bounds, computed over all scalars in the fusion with the given
@@ -194,21 +197,49 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   }
 
  private:
+  using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
-  //! Propagate bounds through one expression
-  void processExpr(Expr* e) {
-    handle(e);
+  void dispatch(Expr* expr) {
+    if (!expr->isA<ForLoop>() &&
+        std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* outp) {
+              return !outp->isIntegralScalar();
+            })) {
+      // We don't need to process expressions that do not produce integers.
+      // Note that for loops do "produce" their index variables for our
+      // purposes.
+      std::cout << " Skipping dispatch of expr " << expr->toString()
+                << std::endl;
+      ;
+      return;
+    }
+    std::cout << " Dispatch expr " << expr->toString() << std::endl;;
+    kir::IrVisitor::dispatch(expr);
+  }
+
+  inline int64_t evalInt(Val* val) {
+    return expr_eval_.evaluate(val).as<int64_t>();
+  }
+
+  void handle(ForLoop* loop) {
+    // Set bounds for the loop variable
+    bounds_.emplace(
+        loop->index(), BoundedInt{evalInt(loop->start()), evalInt(loop->stop()) - 1L});
+  }
+
+  void handle(LoadStoreOp* lsop) {
+    bounds_.emplace(lsop->out(), bounds_.at(lsop->in()));
   }
 
  private:
   Fusion* fusion_;
-  ExpressionEvaluator expr_eval;
+  ExpressionEvaluator expr_eval_;
   std::unordered_map<Val*, BoundedInt> bounds_;
 };
 
-IndexType getSmallestIndexTypeByBoundingExpressions(
-    const Fusion* fusion,
+PrimDataType getSmallestIndexTypeByBoundingExpressions(
+    Fusion* fusion,
     const KernelArgumentHolder& args) {
   // bind args to expression evaluator
   ScalarBoundsCalculator calc(fusion, args);
@@ -217,8 +248,7 @@ IndexType getSmallestIndexTypeByBoundingExpressions(
   return (index_bounds.min >= (int64_t)std::numeric_limits<int32_t>::min() &&
           index_bounds.max <= (int64_t)std::numeric_limits<int32_t>::max())
       ? DataType::Int32
-      : DataType::Int64;
-}
+      : DataType::Int;
 }
 
 } // namespace
