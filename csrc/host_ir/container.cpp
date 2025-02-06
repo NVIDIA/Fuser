@@ -20,6 +20,8 @@ namespace nvfuser {
 
 namespace hir {
 
+HostIrContainer::~HostIrContainer() = default;
+
 Stream* HostIrContainer::getDefaultStream() {
   if (!default_stream_) {
     default_stream_ = IrBuilder::createInContainer<Stream>(this);

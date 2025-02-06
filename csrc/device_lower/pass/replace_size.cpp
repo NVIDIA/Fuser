@@ -266,7 +266,29 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  ir_utils::replaceValue(fusion, extent_simplification_map);
+  // Iter domains in the fusion-managed exact mappings may be going to
+  // be replaced by another exact-mapped ID, so it'll be reset and
+  // recreated. Save a copy here before replacement to fix them up later.
+  const auto registered_exact_mappings = fusion->registeredExactMappings();
+
+  auto mutation_map = ir_utils::replaceValue(fusion, extent_simplification_map);
+
+  fusion->resetExactMappings();
+
+  auto get_maybe_mutated = [&mutation_map](IterDomain* id) -> IterDomain* {
+    if (auto mutation_map_it = mutation_map.find(id);
+        mutation_map_it != mutation_map.end()) {
+      id = mutation_map_it->second->as<IterDomain>();
+    }
+    return id;
+  };
+
+  for (const auto& exact_id_group : registered_exact_mappings.disjointSets()) {
+    auto first_id = get_maybe_mutated(exact_id_group->front());
+    for (IterDomain* id : *exact_id_group) {
+      fusion->registerExactMapping(first_id, get_maybe_mutated(id));
+    }
+  }
 }
 
 } // namespace nvfuser

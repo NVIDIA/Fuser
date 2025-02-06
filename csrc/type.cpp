@@ -243,11 +243,11 @@ static std::string data_type2string(DataType t) {
             case DataType::UInt16:
               return "uint16_t";
             case DataType::UInt32:
+            case DataType::SMemAddress:
+            case DataType::TMemAddress:
               return "uint32_t";
             case DataType::UInt64:
               return "uint64_t";
-            case DataType::SMemAddress:
-              return "unsigned";
             case DataType::ComplexFloat:
               return "std::complex<float>";
             case DataType::ComplexDouble:
@@ -776,6 +776,8 @@ static const char* memory_type2string(MemoryType t) {
       return "shared";
     case MemoryType::Global:
       return "global";
+    case MemoryType::Tensor:
+      return "tensor";
     default:
       NVF_THROW("Unexpected MemoryType");
   }
@@ -860,6 +862,10 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "CpAsyncBulk";
     case LoadStoreOpType::CpAsyncBulkTensorTile:
       return "CpAsyncBulkTensorTile";
+    case LoadStoreOpType::LdTMem:
+      return "LdTMem";
+    case LoadStoreOpType::StTMem:
+      return "StTMem";
     default:
       NVF_THROW("Unexpected parallel type");
   }

@@ -48,8 +48,10 @@ struct MatmulInputs {
 namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator, it also updates fusion
-// output according to the replacement_map
-void replaceValue(
+// output according to the replacement_map. Returns the final
+// replacement map, which includes the given replacement entries as
+// well as those that are the results of the replacement.
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
@@ -711,6 +713,7 @@ inline bool isMemoryPartitionedAcross(
       return isParallelTypeThread(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Shared:
+    case MemoryType::Tensor:
       return isParallelTypeBlockDim(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Global:
@@ -730,7 +733,8 @@ inline bool isMemorySharedAcross(
       // Nothing is shared if it's Local
       return false;
     case MemoryType::Shared:
-      // Only TID parallelized domains are shared if it's Shared
+    case MemoryType::Tensor:
+      // Only TID parallelized domains are shared if it's Shared or Tensor
       return isParallelTypeThreadDim(parallel_type);
     case MemoryType::Global:
       // Only TID and BID parallelized domains are shared if it's Global
