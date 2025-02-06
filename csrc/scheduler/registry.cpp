@@ -61,6 +61,12 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  if (registry_utils::SchedulerTopologyChecker::hasResizeAndIndexOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "has resize-based ops and index ops");
+    return false;
+  }
+
   return true;
 }
 

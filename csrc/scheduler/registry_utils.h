@@ -104,6 +104,8 @@ class SchedulerTopologyChecker {
   static bool hasGatherToBroadcastBeforeReduction(
       Fusion* fusion,
       const std::vector<TensorView*>& reduction_tvs);
+
+  static bool hasResizeAndIndexOps(Fusion* fusion);
 };
 
 } // namespace registry_utils

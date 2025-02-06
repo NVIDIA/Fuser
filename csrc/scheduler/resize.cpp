@@ -68,7 +68,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (!ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion)) {
+  if (!scheduler_tools::hasResizeBasedOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No resize op to schedule");
     return false;
