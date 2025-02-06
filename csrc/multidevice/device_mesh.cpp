@@ -70,22 +70,17 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
 }
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
-  if (mesh.shape().empty()) {
-    out << "DeviceMesh{" << mesh.vector() << "}";
-    return out;
-  }
-
   out << "DeviceMesh";
-  size_t ndevices = std::accumulate(
+  int64_t ndevices = std::accumulate(
       mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
-  size_t ndims = mesh.shape().size();
+  int64_t ndims = mesh.shape().size();
   std::vector<int64_t> strides = mesh.shape();
-  for (size_t i = ndims - 2; i >= 0; --i) {
+  for (int64_t i = ndims - 2; i >= 0; --i) {
     strides[i] *= strides[i + 1];
   }
 
-  for (size_t i = 0; i < ndevices; i++) {
-    for (size_t axis = 0; axis < ndims; axis++) {
+  for (auto i = 0; i < ndevices; i++) {
+    for (auto axis = 0; axis < ndims; axis++) {
       if (i % strides[axis] == 0) {
         out << "{";
       }
@@ -94,7 +89,7 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
     if ((i + 1) % strides[ndims - 1] != 0) {
       out << " ";
     }
-    for (size_t axis = 0; axis < ndims; axis++) {
+    for (auto axis = 0; axis < ndims; axis++) {
       if ((i + 1) % strides[axis] == 0) {
         out << "}";
       }
@@ -129,34 +124,45 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
   return *std::max_element(vector_.begin(), vector_.end());
 }
 
-std::vector<DeviceIdxType> DeviceMesh::getSlice(
-    DeviceIdxType device,
-    ParallelType ptype) const {
+namespace {
+int64_t ptypeToAxis(ParallelType ptype, int64_t naxis) {
+  int64_t offset;
+  switch (ptype) {
+    case ParallelType::DIDx:
+      offset = 0;
+      break;
+    case ParallelType::DIDy:
+      offset = 1;
+      break;
+    case ParallelType::DIDz:
+      offset = 2;
+      break;
+    default:
+      NVF_ERROR(false, "Requires a DID parallel type but received ", ptype);
+  }
+
   NVF_ERROR(
-      isParallelTypeDeviceDim(ptype),
-      "Requires a DID parallel type but received ",
-      ptype);
-  size_t axis = 0;
-  // size_t axis = shape_.size() - 1;
-  // if (ptype == ParallelType::DIDy) {
-  //   axis -= 1;
-  // } else if (ptype == ParallelType::DIDz) {
-  //   axis -= 2;
-  // }
-  NVF_ERROR(
-      axis < shape_.size(),
+      offset < naxis,
       "DeviceMesh has ",
-      shape_.size(),
+      naxis,
       " dimensions, but requesting slice for ",
       ptype);
-  auto indices = getIndices(device);
-  NVF_ERROR(
-      !indices.empty(), "Device ", device, " is not in DeviceMesh ", vector_);
+  return naxis - 1 - offset;
+}
+} // namespace
 
-  size_t offset = 0;
-  size_t stride = 1;
-  size_t accumulated_size = 1;
-  for (size_t i = shape_.size() - 1; i >= 0; i--) {
+std::vector<DeviceIdxType> DeviceMesh::getSlice(
+    DeviceIdxType deviceId,
+    ParallelType ptype) const {
+  int64_t axis = ptypeToAxis(ptype, shape_.size());
+  auto indices = getIndices(deviceId);
+  NVF_ERROR(
+      !indices.empty(), "Device ", deviceId, " is not in DeviceMesh ", vector_);
+
+  int64_t offset = 0;
+  int64_t stride = 1;
+  int64_t accumulated_size = 1;
+  for (int64_t i = shape_.size() - 1; i >= 0; i--) {
     if (i > axis) {
       stride *= shape_[i];
     }

@@ -63,7 +63,10 @@ void lowerToScatter(
     std::vector<Expr*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(is1DMesh(receiver_mesh), "Gather only supported on a 1D mesh. Given ", receiver_mesh);
+  NVF_ERROR(
+      is1DMesh(receiver_mesh),
+      "Gather only supported on a 1D mesh. Given ",
+      receiver_mesh);
   auto root = input_tv->getDeviceMesh().at(0);
   Team team = receiver_mesh.vector();
   if (!receiver_mesh.has(root)) {
@@ -85,7 +88,10 @@ void lowerToGather(
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
-  NVF_ERROR(is1DMesh(sender_mesh), "Currently only lower Gather on a 1D mesh. Given ", sender_mesh);
+  NVF_ERROR(
+      is1DMesh(sender_mesh),
+      "Currently only lower Gather on a 1D mesh. Given ",
+      sender_mesh);
   for (auto root : output_tv->getDeviceMesh().vector()) {
     Team team = sender_mesh.vector();
     if (!sender_mesh.has(root)) {
@@ -102,7 +108,8 @@ void lowerToAllgather(
     TensorView* output_tv,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
-  Team team = input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
+  Team team =
+      input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allgather, output_tv, input_tv, team));
 }
@@ -114,7 +121,7 @@ void lowerToBroadcast(
     DeviceIdxType root,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(is1DMesh(mesh), "Broadcast on supported a 1D mesh. Given ", mesh);
+  NVF_ERROR(is1DMesh(mesh), "Broadcast only supported a 1D mesh. Given ", mesh);
   Team team = mesh.vector();
   if (!mesh.has(root)) {
     team.push_back(root);
@@ -133,8 +140,14 @@ void lowerToBroadcastOrSendRecv(
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(is1DMesh(sender_mesh), "Broadcast on supported a 1D mesh. Given ", sender_mesh);
-  NVF_ERROR(is1DMesh(receiver_mesh), "Broadcast on supported a 1D mesh. Given ", receiver_mesh);
+  NVF_ERROR(
+      is1DMesh(sender_mesh),
+      "Broadcast only supported a 1D mesh. Given ",
+      sender_mesh);
+  NVF_ERROR(
+      is1DMesh(receiver_mesh),
+      "Broadcast only supported a 1D mesh. Given ",
+      receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
@@ -176,8 +189,14 @@ void lowerToReduce(
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
-  NVF_ERROR(is1DMesh(sender_mesh), "Broadcast on supported a 1D mesh. Given ", sender_mesh);
-  NVF_ERROR(is1DMesh(receiver_mesh), "Broadcast on supported a 1D mesh. Given ", receiver_mesh);
+  NVF_ERROR(
+      is1DMesh(sender_mesh),
+      "Reduce only supported a 1D mesh. Given ",
+      sender_mesh);
+  NVF_ERROR(
+      is1DMesh(receiver_mesh),
+      "Reduce only supported a 1D mesh. Given ",
+      receiver_mesh);
   const auto reduce_op_type = getC10dReduceOpType(op_type);
   // we create as many Reduces as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
@@ -201,7 +220,8 @@ void lowerToAllreduce(
     BinaryOpType op_type,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
-  Team team = input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
+  Team team =
+      input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allreduce,
       output_tv,
@@ -217,7 +237,8 @@ void lowerToReduceScatter(
     BinaryOpType op_type,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
-  Team team = input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
+  Team team =
+      input_tv->getDeviceMesh().getSlice(my_device_idx, ParallelType::DIDx);
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
   // The output tensor is sharded on scattered_axis and needs to be mapped
@@ -580,8 +601,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");
-      for (auto* expr :
-           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)), my_device_index)) {
+      for (auto* expr : HostIrLower::lower(
+               ir_cloner.clone(group->exprs().at(0)), my_device_index)) {
         // Allocate the recv buffers of communications
         if (expr->isA<Communication>()) {
           auto* communication = expr->as<Communication>();

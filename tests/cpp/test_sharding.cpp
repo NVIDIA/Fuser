@@ -219,7 +219,7 @@ TEST_F(ShardingTest, MultiDimDeviceMesh) {
   std::vector<DeviceIdxType> slice_didy = {14, 18, 22};
   std::vector<DeviceIdxType> slice_didx = {16, 17, 18, 19};
   EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDz), slice_didz);
-  EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDy), slice_didx);
+  EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDy), slice_didy);
   EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDx), slice_didx);
 }
 
