@@ -3219,15 +3219,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Reference:
   // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
+    // If asm_ has a utility name, we will wrap the PTX code in a utility
+    // function with that name. Otherwise, we just generate the PTX code
+    // directly in the kernel.
     std::string utility_name = asm_->utility();
     bool as_utility = !utility_name.empty();
-    bool utility_generated = false;
+    bool utility_generated = false; // Is the same utility function already
+                                    // generated when handling another asm_?
     if (as_utility) {
       if (!generated_utilities_.insert(utility_name).second) {
         utility_generated = true;
       }
     }
+    // The stream to write the PTX code to
     std::stringstream* asm_target = as_utility ? &utilities_ : &code_;
+    // Indentation for the PTX code
     int utility_block_nest_level = 1;
     std::function<std::ostream&()> indent_utility = [&]() -> std::ostream& {
       for (auto _ : c10::irange(utility_block_nest_level)) {
@@ -3241,13 +3247,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     };
     std::function<std::ostream&()> indent =
         (as_utility ? indent_utility : indent_code);
+    // Increase or decrease the indentation level for the PTX code
     auto next_level = [&]() {
       as_utility ? utility_block_nest_level++ : block_nest_level_++;
     };
     auto prev_level = [&]() {
       as_utility ? utility_block_nest_level-- : block_nest_level_--;
     };
-    // Generate the PTX as a utility function
+    // Generate the utility function signature like below:
+    //   void myFunc(float& out1, float in1) {
     if (as_utility) {
       if (!utility_generated) {
         const auto& outputs = asm_->outputs();
@@ -3272,6 +3280,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       this->indent() << utility_name << "(";
     }
+    // Generate the actual PTX code like below:
+    //   asm("bla.bla.bla": "=f"(out1): "f"(in1));
+    // We may either generate it in utilities_ or in code_, depending on
+    // whether we are generating a utility function or not.
     if (!as_utility || !utility_generated) {
       indent() << "asm";
       if (asm_->volatile_()) {
@@ -3381,7 +3393,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     next_line();
                   }
                   (*asm_target)
-                      << "\"" << constraint << "\"("
+                      << "\"" << constraint
+                      << "\"("
+                      // If generating a utility function, we need to generate
+                      // the parameter name like out1, in1, etc. If generating
+                      // directly in the kernel, we need to generate the the
+                      // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
                       << "[" << i << "]"
@@ -3393,6 +3410,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                   (*asm_target) << "(uint32_t)(";
                 }
                 (*asm_target)
+                    // If generating a utility function, we need to generate the
+                    // parameter name like out1, in1, etc. If generating the
+                    // PTX code directly in the kernel, we need to generate the
+                    // the actual argument value like T0[i * 4 + j].
                     << (as_utility ? prefix + std::to_string(counter)
                                    : gen(register_));
                 if (reg_dtype == DataType::Bool) {
@@ -3427,6 +3448,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       (*asm_target) << ");\n";
     }
+    // If the PTX code is wrapped as a utility function, we still need to
+    // generate the function call to the utility function in the kernel code.
+    // Something like:
+    //   myFunc(T1[0], T0[0]);
     if (as_utility) {
       bool first = true;
       for (auto [_, register_] : asm_->constraintsAndOutputs()) {
@@ -3444,6 +3469,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         first = false;
       }
     }
+    // The closing } for the utility function definition, and the ); for the
+    // utility call.
     if (as_utility) {
       if (!utility_generated) {
         utilities_ << "}\n";
@@ -3645,22 +3672,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // wrappers and other definitions derived from kernel IR, and a kernel section
   // that contains the kernel code itself.
   //
-  //   // Utility functions
-  //   void myFunc(float a) {
-  //     float x;
-  //     asm("bla.bla.bla": "=f"(x): "f"(a));
+  //   // Utility section
+  //   void myFunc(float& out1, float in1) {
+  //     asm("bla.bla.bla": "=f"(out1): "f"(in1));
   //   }
-  //   // Kernel
+  //   // Kernel section
   //   __global__ void kernel_name(Tensor T0, Tensor T1, ...) {
   //     ...
-  //     myFunc(T0[0]);
+  //     myFunc(T1[0], T0[0]);
   //     ...
   //   }
-  //
+
   // string for utility section
   std::stringstream utilities_;
   // string kernel section
   std::stringstream code_;
+
   const kir::Kernel* kernel_;
   int block_nest_level_ = 0;
   int block_reduce_name_ = 0;
