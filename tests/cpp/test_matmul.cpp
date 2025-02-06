@@ -4367,8 +4367,7 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  // TODO Incorrect results because incorrect placement of wgmma syncs
-  // EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
@@ -4482,9 +4481,8 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  // TODO Incorrect results because incorrect placement of wgmma syncs
-  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
@@ -4636,7 +4634,7 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   // between tv3 and tv12
   // Relax tolerance for larger sum due to large K
   // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
   // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
 }
 
