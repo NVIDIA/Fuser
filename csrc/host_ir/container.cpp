@@ -20,6 +20,14 @@ namespace nvfuser {
 
 namespace hir {
 
+HostIrContainer::HostIrContainer(
+    std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
+  kernel_executors_.resize(sz);
+  for (auto& ptr : kernel_executors_) {
+    ptr = nullptr;
+  }
+}
+
 HostIrContainer::~HostIrContainer() = default;
 
 Stream* HostIrContainer::getDefaultStream() {
@@ -53,14 +61,6 @@ void HostIrContainer::setKernelExecutor(
     int64_t index,
     std::unique_ptr<KernelExecutor> ke) {
   kernel_executors_[index] = std::move(ke);
-}
-
-void HostIrContainer::resizeKernelExecutors(
-    std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
-  kernel_executors_.resize(sz);
-  for (auto& ptr : kernel_executors_) {
-    ptr = nullptr;
-  }
 }
 
 KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {

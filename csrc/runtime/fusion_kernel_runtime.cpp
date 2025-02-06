@@ -345,8 +345,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   // host ir
   std::unique_ptr<nvfuser::hir::HostIrContainer> hic;
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    hic = std::make_unique<nvfuser::hir::HostIrContainer>();
-    hic->resizeKernelExecutors(num_groups); // Some indices will be empty
+    hic = std::make_unique<nvfuser::hir::HostIrContainer>(num_groups); // Some indices will be empty
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
