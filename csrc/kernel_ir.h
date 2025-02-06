@@ -88,8 +88,7 @@ class Predicate final : public Val {
   const Expr* expr() const {
     NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
-        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual &&
-        ptype_ != PredicateType::ElectSync);
+        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
     return expr_;
   }
 
