@@ -115,4 +115,22 @@ inferAndValidateAllocationSizesAndStrides(
     TensorView* tv,
     ExpressionEvaluator ee);
 
+// Same as the previous function without the sharded support and allowing to
+// swap the domains for projection. from_[sizes,strides] should alway map to the
+// from domain. Mapped sharded dimensions in from and to are set to const int 1.
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection(
+    std::vector<int64_t> from_sizes,
+    std::vector<int64_t> from_strides,
+    std::vector<IterDomain*> from_domain,
+    std::vector<IterDomain*> to_domain,
+    ExpressionEvaluator ee);
+
+// Checks that domain and its associated contiguity information match the
+// provided sizes and strides.
+void validateContiguity(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<std::optional<bool>>& contiguity,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides);
+
 } // namespace nvfuser
