@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 
@@ -85,9 +86,17 @@ void MaxInfoSpanningTree::compute_spanning_tree() {
   };
 
   auto allowSibling = [this](TensorView* from, TensorView* to) {
+    // Disable propagation between siblings if they are not uniform to avoid
+    // errors in `computeInfoSibling`. This is required for SdpaFwdOp and
+    // SdpaBwdOp.
+    if (!ir_utils::hasUniformSiblings(from->definition())) {
+      return false;
+    }
+
     if (selector_ == nullptr) {
       return true;
     }
+
     return selector_->allowSibling(from, to);
   };
 

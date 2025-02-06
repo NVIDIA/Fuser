@@ -88,8 +88,7 @@ class Predicate final : public Val {
   const Expr* expr() const {
     NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
-        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual &&
-        ptype_ != PredicateType::ElectSync);
+        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
     return expr_;
   }
 
@@ -310,8 +309,8 @@ class Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 6);
-    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 8);
+    for (auto i = attributes().begin() + 8; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -360,13 +359,25 @@ class Allocate final : public Expr {
     return dynamic_cast<const Allocate*>(attribute(4));
   }
 
-  // Set the address of a shared memory allocation within the dynamic shared
-  // memory array. The addr argument should be a scalar expression describing an
-  // aligned address in bytes.
+  // This function can only be used for shared memory or tensor memory.
+  //
+  // For shared memory, this function sets the address of a shared memory
+  // allocation within the dynamic shared memory array. The addr argument should
+  // be a scalar expression describing an aligned address in bytes.
+  //
+  // For tensor memory, this function sets the address of a tensor memory
+  // "region" in the tensor memory. Each tensor memory "region" is a piece of
+  // tensor memory allocated by a single tcgen05.alloc, see note [Tensor Memory
+  // Allocation] for detailed description. Note that this address may not be the
+  // address of a TensorView, because each region may contain multiple
+  // TensorViews. This address must be a uint32 scalar, as described in the PTX
+  // documentation:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-addressing
   void setAddress(Val* addr) {
     NVF_CHECK(
-        memoryType() == MemoryType::Shared,
-        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared/tensor memory allocations. Memory type is ",
         memoryType());
     NVF_CHECK(
         address() == nullptr,
@@ -375,11 +386,84 @@ class Allocate final : public Expr {
     attributes_[5] = addr;
   }
 
+  // Set the lane offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
+  void setLaneOffset(Val* lane_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        laneOffset() == nullptr,
+        "Attempted to set lane offset twice for allocation ",
+        toString());
+    attributes_[6] = lane_offset;
+  }
+
+  // Set the column offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
+  void setColOffset(Val* col_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        colOffset() == nullptr,
+        "Attempted to set column offset twice for allocation ",
+        toString());
+    attributes_[7] = col_offset;
+  }
+
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType());
     return attributeVal(5);
+  }
+
+  Val* laneOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(6);
+  }
+
+  Val* colOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(7);
+  }
+};
+
+// Allocate tensor memory tcgen05.alloc
+class AllocTMem final : public Expr {
+ public:
+  using Expr::Expr;
+  AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns);
+
+  const char* getOpString() const override {
+    return "AllocTMem";
+  }
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* address() const {
+    return output(0);
+  }
+
+  Val* numColumns() const {
+    return input(0);
   }
 };
 

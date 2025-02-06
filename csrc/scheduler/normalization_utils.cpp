@@ -717,10 +717,69 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
-int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+namespace {
+// For inner persistent kernel, shared memory is allocated as:
+// ceilDiv(N/vect, batch) * vect * batch. The required shared memory size is
+// larger than buffer size when split is not divisible. The difference is
+// counted as roundup overhead. This function estimates the maximum possible
+// shared memory size due to this round up.
+int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  int64_t max_smem = 0;
+  int64_t max_vectorize_factor =
+      SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
+  int64_t dim_size = tv_buffer_size / data_type_size;
+  // Check all possible combinations of vectorization factor, batch size and
+  // threads per block
+  for (int64_t vectorize_factor = 1; vectorize_factor <= max_vectorize_factor;
+       vectorize_factor *= 2) {
+    // heuristic only uses divisible vectorization factor
+    if (dim_size % vectorize_factor != 0) {
+      continue;
+    }
+    int64_t after_vect = dim_size / vectorize_factor;
+    // For shared memory persistence, heuristic always uses maximum threads
+    // per block
+    int64_t threads_per_block = max_threads_per_block;
+    int64_t persistent_batch = ceilDiv(after_vect, threads_per_block);
+    max_smem = std::max(
+        max_smem,
+        persistent_batch * vectorize_factor * threads_per_block *
+            data_type_size);
+  }
+  return max_smem;
+}
+int64_t sharedMemoryRoundUpOverhead(
     SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers,
-    const bool can_use_smem_persistent) {
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool project_to_inputs) {
+  auto buffers = project_to_inputs
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
+  int64_t total_smem_overhead = 0;
+  for (auto buffer : buffers) {
+    // Buffer size derived from shape and dtype of the persistent tensor
+    int64_t logical_buffer_size =
+        scheduler_utils::getPersistentBufferSizeOfTensor(
+            buffer, runtime_info, persistent_buffer_info);
+    // Required shared memory size if store that tensor in shared memory
+    int64_t buffer_size_smem = roundUpSharedMemory(
+        logical_buffer_size, dataTypeSize(buffer->getDataType().value()));
+    // The difference is counted as roundup overhead
+    total_smem_overhead += (buffer_size_smem - logical_buffer_size);
+  }
+  return total_smem_overhead;
+}
+} // namespace
+
+int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool can_use_smem_persistent,
+    const bool project_to_inputs) {
   // Init to register file size, which is half of the full register file size
   int64_t available_persistent_buffer_size =
       scheduler_utils::register_file_size;
@@ -728,26 +787,16 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   if (!can_use_smem_persistent) {
     return available_persistent_buffer_size;
   }
-  // Check available shared memory
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t max_shared_memory_size =
-      (int64_t)dev_prop->sharedMemPerBlockOptin;
-  // Some shared memories are reserved for kernel launch overhead and
-  // reduction_broadcast_workspace. Estimation is conservative, but should
-  // be good enough. The actual threads per block is set in the heuristics
-  // and it may be smaller than maxThreadsPerBlock.
-  // TODO: More accurate estimation of available shared memory size.
-  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
-  int64_t max_buffer_dtype_size = 1;
-  for (auto tv : persistent_buffers) {
-    max_buffer_dtype_size = std::max(
-        max_buffer_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-  }
-  const int64_t reduction_broadcast_workspace =
-      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-  const int64_t available_shared_memory_size =
-      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
+  int64_t smem_overhead =
+      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+
+  smem_overhead += sharedMemoryRoundUpOverhead(
+      runtime_info, persistent_buffer_info, project_to_inputs);
+
+  int64_t available_shared_memory_size =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+
   available_persistent_buffer_size =
       std::max(available_persistent_buffer_size, available_shared_memory_size);
   return available_persistent_buffer_size;
@@ -761,6 +810,7 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
@@ -791,9 +841,12 @@ BufferProjectionStrategy isProjectBufferToInputs(
   if (scheduler_type != SchedulerType::InnerOuterPersistent) {
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            fusion,
             runtime_info,
-            persistent_buffer_info.persistent_buffers,
-            can_use_smem_persistent);
+            reduction_tvs,
+            persistent_buffer_info,
+            can_use_smem_persistent,
+            false);
     if (max_available_buffer <
         persistent_buffer_size_info.persistent_buffer_size) {
       return BufferProjectionStrategy::ProjectToInputs;
@@ -912,6 +965,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   auto project_strategy = isProjectBufferToInputs(
       fusion,
       runtime_info,
+      reduction_tvs,
       persistent_buffer_info,
       persistent_buffer_size_info,
       scheduler_type,
@@ -1761,6 +1815,10 @@ class PersistentBufferResolution : public IterVisitor {
 
 std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
   return PersistentBufferResolution::getResolutionPointsOf(persistent_buffer);
+}
+
+int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio) {
+  return is_high_bandwidth_flops_ratio ? 12l : 10l;
 }
 
 } // namespace normalization_scheduler_utils

@@ -12,6 +12,7 @@
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -1670,5 +1671,96 @@ TEST_F(PersistentBufferTest, TmaMagicScheduler) {
   //     ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
 
   // testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Half);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1, DataType::Half);
+  fusion.addInput(tv2);
+
+  auto tv3 = castOp(DataType::Float, tv0);
+  auto tvs = Welford(tv3, {1});
+  auto tv6 = tvs.avg;
+  auto tv7 = tvs.var_sum;
+  auto tv9 = broadcast(tv6, {false, true});
+  TensorView* tv10 = nullptr;
+  auto tv21 = castOp(DataType::Float, tv0);
+  tv10 = sub(tv21, tv9);
+  auto tv11 = broadcast(tv7, {false, true});
+  auto tv13 = add(tv11, IrBuilder::create<Val>(0.001));
+  auto tv14 = rsqrt(tv13);
+  auto tv15 = mul(tv10, tv14);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv16 = broadcast(tv4, {true, false});
+  auto tv17 = mul(tv15, tv16);
+  auto tv5 = castOp(DataType::Float, tv2);
+  auto tv18 = broadcast(tv5, {true, false});
+  auto tv19 = add(tv17, tv18);
+  auto tv20 = castOp(DataType::Half, tv19);
+
+  fusion.addOutput(tv20);
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv14);
+
+  std::vector<int64_t> input_shape{2048, 80 * 1024};
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({input_shape[1]}, options);
+  auto t2 = at::randn({input_shape[1]}, options);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  // The logic size of the persistent buffer in this fusion is 80 * 1024 * 2
+  // bytes. Inner persistent scheduler allows 32 * 1024 * 4 bytes for register
+  // persistent, so it should use shared memory persistent buffer if there are
+  // enough shared memory. Otherwise, it will be segmented.
+  SchedulerRuntimeInfo runtime_info(&fusion, inputs);
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  auto persistent_buffer_size =
+      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size = 80 * 1024 * dataTypeSize(DataType::Half);
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
+      logic_buffer_size);
+
+  // If total shared memory on device is less than logic buffer size, should
+  // segment. Otherwise, further calculate available shared memory size by
+  // removing overhead due to reduction broadcast workspace and non-divisible
+  // split.
+  bool is_segmented = false;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+    is_segmented = true;
+  } else {
+    int64_t available_buffer_size = normalization_scheduler_utils::
+        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            &fusion,
+            runtime_info,
+            scheduler_utils::getReductionTvs(&fusion),
+            persistent_buffer_info,
+            /*can_use_smem_persistent*/ true,
+            /*project_to_inputs*/ true);
+    is_segmented = logic_buffer_size >= available_buffer_size;
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  // check segmentation, if not segmented, further check shared memory
+  // persistence
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_EQ(is_segmented, runtime->isSegmented());
+  if (!is_segmented) {
+    auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
+    ASSERT_TRUE(params->isA<ReductionParams>());
+    ASSERT_TRUE(
+        params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+  }
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
