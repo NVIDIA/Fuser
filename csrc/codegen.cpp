@@ -279,13 +279,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& kernel_name,
       std::optional<int64_t> num_threads_per_cta) {
     code_ << "__global__ void ";
+    {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+      FusionGuard fg(const_cast<kir::Kernel*>(kernel_));
+      Val* num_threads =
+          kernel_->summary().parallel_dimension_map.getNumThreadsEachBlock();
+      if (num_threads->isConstInt()) {
+        code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
+              << num_threads->evaluate().as<int64_t>() << ") ";
+      }
+    }
     if (kernel_->hasManaged("enable_register_sharing") &&
         kernel_->getManaged<bool>("enable_register_sharing")) {
       NVF_ERROR(
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
-      code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads_per_cta.value() << ") ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
