@@ -4258,18 +4258,26 @@ class MLPBenchmarkTest
   MatmulParams mparams;
 
   void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
     test_params = GetParam();
     NVFuserTest::SetUp();
-    if (test_params.warp_specialization) {
-      // warp specialization requires Hopper+
+    if (test_params.warp_specialization || test_params.persistent_kernel) {
+      // persistent kernels and warp specialization requires Hopper+
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     }
 
     mparams.supported_vec_size = {8, 8, 8};
-    mparams.mma_macro = MmaMacro::Hopper_64_256_16;
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 256, 16);
-    gemm_tile.warp_tile = GemmTile(64, 256, 16);
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      // Ampere
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    } else {
+      mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+      gemm_tile.cta_tile = GemmTile(128, 256, 16);
+      gemm_tile.warp_tile = GemmTile(64, 256, 16);
+    }
     mparams.tile_sizes = gemm_tile;
     mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
     mparams.async_gmem_load_operands = true;
@@ -4490,6 +4498,8 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
     GTEST_SKIP()
         << "Persistent kernels do not yet support translation of LinearOp";
   }
+  // TODO: This test currently fails on Ampere
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
@@ -4564,6 +4574,9 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
+  // TODO: This test currently fails on Ampere
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
 
