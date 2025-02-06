@@ -214,7 +214,8 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       ;
       return;
     }
-    std::cout << " Dispatch expr " << expr->toString() << std::endl;;
+    std::cout << " Dispatch expr " << expr->toString() << std::endl;
+    ;
     kir::IrVisitor::dispatch(expr);
   }
 
@@ -225,7 +226,8 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   void handle(ForLoop* loop) {
     // Set bounds for the loop variable
     bounds_.emplace(
-        loop->index(), BoundedInt{evalInt(loop->start()), evalInt(loop->stop()) - 1L});
+        loop->index(),
+        BoundedInt{evalInt(loop->start()), evalInt(loop->stop()) - 1L});
   }
 
   void handle(LoadStoreOp* lsop) {
@@ -301,7 +303,10 @@ void KernelExecutor::compile(
   // arguments.
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
   if (has_cp_async_bulk) {
-    arg_index_type = getSmallestIndexTypeByBoundingExpressions(fusion, args);
+    // When using TMA, we will set the index type after lowering so that we can
+    // validate that the actual expressions do not overflow, even if we have
+    // large inputs. For now, assume it is 32-bit
+    compile_params.index_type = DataType::Int32;
   }
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
@@ -310,11 +315,6 @@ void KernelExecutor::compile(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-    NVF_ERROR(
-        !has_cp_async_bulk ||
-            (compile_params.index_type.value() == PrimDataType::Int32),
-        "Compilation with int64 is requested but int32 is required because ",
-        "of TMA operations.");
 
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
@@ -356,6 +356,16 @@ void KernelExecutor::compile(
       group_id_,
       lowering_hooks_,
       post_lowering_hooks_);
+
+  // Now that we have lowered the kernel, we can compute the index type
+  if (has_cp_async_bulk) {
+    compile_params.index_type = getSmallestIndexTypeByBoundingExpressions(
+        compiled_kernel_->lowered().get(), args);
+    NVF_ERROR(
+        compile_params.index_type.value() == PrimDataType::Int32,
+        "Compilation with int64 is requested but int32 is required because ",
+        "of TMA operations.");
+  }
 
   // TODO: pass block_size here;
   std::optional<int64_t> dynamic_smem = std::nullopt;
