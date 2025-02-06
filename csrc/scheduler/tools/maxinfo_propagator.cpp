@@ -183,7 +183,8 @@ namespace {
 // corresponding IDs in the logical domain of `tv`.
 std::unordered_set<IterDomain*> mapRootToLogical(
     TensorView* tv,
-    const std::unordered_set<IterDomain*>& root_ids) {
+    const std::unordered_set<IterDomain*>& root_ids,
+    bool propagate_through_resize) {
   std::unordered_set<IterDomain*> mapped_logical_ids;
   const auto& logical_dom = tv->getLogicalDomain();
   for (auto id : logical_dom) {
@@ -194,9 +195,10 @@ std::unordered_set<IterDomain*> mapRootToLogical(
     for (auto root_id : root_ids) {
       auto exprs = DependencyCheck::getAllExprsBetween({root_id}, {id});
       if (!exprs.empty() &&
-          std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
-            return expr->isA<Resize>();
-          })) {
+          (propagate_through_resize ||
+           std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+             return expr->isA<Resize>();
+           }))) {
         mapped_logical_ids.emplace(id);
         break;
       }
@@ -209,7 +211,8 @@ std::unordered_set<IterDomain*> mapRootToLogical(
 // corresponding IDs in the root domain of `tv`.
 std::unordered_set<IterDomain*> mapLogicalToRoot(
     TensorView* tv,
-    const std::unordered_set<IterDomain*>& logical_ids) {
+    const std::unordered_set<IterDomain*>& logical_ids,
+    bool propagate_through_resize) {
   std::unordered_set<IterDomain*> mapped_root_ids;
   for (auto id : tv->getRootDomain()) {
     if (logical_ids.count(id) > 0) {
@@ -219,9 +222,10 @@ std::unordered_set<IterDomain*> mapLogicalToRoot(
     for (auto logical_id : logical_ids) {
       auto exprs = DependencyCheck::getAllExprsBetween({id}, {logical_id});
       if (!exprs.empty() &&
-          std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
-            return expr->isA<Resize>();
-          })) {
+          (propagate_through_resize ||
+           std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+             return expr->isA<Resize>();
+           }))) {
         mapped_root_ids.emplace(id);
         break;
       }
@@ -264,7 +268,8 @@ MaxLogicalDomainInfoSpanningTree::computeInfoP2C(
     // mapped root ids in producer -> mapped logical ids in producer
     std::unordered_set<IterDomain*> producer_mapped_logical_ids;
     if (producer->hasRoot() && !info.is_logical) {
-      producer_mapped_logical_ids = mapRootToLogical(producer, info.mapped_ids);
+      producer_mapped_logical_ids = mapRootToLogical(
+          producer, info.mapped_ids, propagate_through_resize_);
     } else {
       producer_mapped_logical_ids = info.mapped_ids;
     }
@@ -320,7 +325,8 @@ MaxLogicalDomainInfoSpanningTree::computeInfoC2P(
     // mapped logical ids in consumer -> mapped root ids in consumer
     std::unordered_set<IterDomain*> consumer_mapped_root_ids;
     if (info.is_logical && consumer->hasRoot()) {
-      consumer_mapped_root_ids = mapLogicalToRoot(consumer, info.mapped_ids);
+      consumer_mapped_root_ids = mapLogicalToRoot(
+          consumer, info.mapped_ids, propagate_through_resize_);
     } else {
       consumer_mapped_root_ids = info.mapped_ids;
     }
@@ -378,7 +384,8 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
 std::shared_ptr<MaxLogicalDomainInfoSpanningTree::DomainInfo>
 MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
     TensorView* tv,
-    int64_t loop_pos) {
+    int64_t loop_pos,
+    bool propagate_through_resize) {
   if (loop_pos < 0) {
     loop_pos += int64_t(tv->nDims()) + 1;
   }
@@ -396,7 +403,13 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
       continue;
     }
     for (auto selected_loop_id : selected_loop) {
-      if (DependencyCheck::isDependencyOf(id, selected_loop_id)) {
+      auto exprs =
+          DependencyCheck::getAllExprsBetween({id}, {selected_loop_id});
+      if (!exprs.empty() &&
+          (propagate_through_resize ||
+           std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+             return expr->isA<Resize>();
+           }))) {
         result.info.emplace_back(IDInfo{{id}, true, true});
         break;
       }

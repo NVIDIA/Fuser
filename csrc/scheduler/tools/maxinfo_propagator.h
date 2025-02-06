@@ -232,29 +232,38 @@ class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
   static std::shared_ptr<DomainInfo> getReferenceIDInfo(TensorView* tv);
   static std::shared_ptr<DomainInfo> getReferenceIDInfo(
       TensorView* tv,
-      int64_t loop_pos);
+      int64_t loop_pos,
+      bool propagate_through_resize);
+
+  bool propagate_through_resize_ = true;
 
  public:
   MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       std::shared_ptr<Information> reference_info,
-      Selector* selector = nullptr)
-      : MaxInfoSpanningTree(reference, reference_info, selector) {}
+      Selector* selector = nullptr,
+      bool propagate_through_resize = true)
+      : MaxInfoSpanningTree(reference, reference_info, selector),
+        propagate_through_resize_(propagate_through_resize) {}
   MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
-      Selector* selector = nullptr)
+      Selector* selector = nullptr,
+      bool propagate_through_resize = true)
       : MaxLogicalDomainInfoSpanningTree(
             reference,
             getReferenceIDInfo(reference),
-            selector) {}
+            selector,
+            propagate_through_resize) {}
   MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       int64_t loop_pos,
-      Selector* selector = nullptr)
+      Selector* selector = nullptr,
+      bool propagate_through_resize = true)
       : MaxLogicalDomainInfoSpanningTree(
             reference,
-            getReferenceIDInfo(reference, loop_pos),
-            selector) {}
+            getReferenceIDInfo(reference, loop_pos, propagate_through_resize),
+            selector,
+            propagate_through_resize) {}
 };
 
 class SpanningTreePrinter : public MaxInfoSpanningTree::Propagator {
