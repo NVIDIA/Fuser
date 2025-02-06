@@ -100,6 +100,14 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // Propagate any DID loop splits from inputs to outputs.
     // TODO: Do we need to worry about any other transforms (apart from DID loop
     // split) existing at the presegmentation stage?
+
+    debug() << "Ref input: " << std::endl;
+    debug() << "Root domain:" << ref_input->getRootDomain()  << std::endl;
+    debug() << "Logical domain:" << ref_input->getLogicalDomain() << std::endl;
+    debug() << "Loop domain:" << ref_input->getLogicalDomain() << std::endl;
+
+    debug() << "Expr: " << expr->toString()  << std::endl;
+
     TransformPropagator propagator(ref_input);
     SetSelector selector(
         {outputs_without_mesh.begin(), outputs_without_mesh.end()});
@@ -107,9 +115,13 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         .traverse(&propagator);
     shardAllLike(ref_input, outputs_without_mesh);
 
+    debug() << "Outputs transformed" << std::endl;
     for (auto out_tv: outputs_without_mesh) {
-      debug() << out_tv->toString() << std::endl;
+      debug() << "Root domain:" << out_tv->getRootDomain()  << std::endl;
+      debug() << "Logical domain:" << out_tv->getLogicalDomain() << std::endl;
+      debug() << "Loop domain:" << out_tv->getLogicalDomain() << std::endl;
     }
+    debug() << "--" << std::endl;
   }
 
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
