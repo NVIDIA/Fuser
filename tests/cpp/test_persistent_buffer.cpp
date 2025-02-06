@@ -20,6 +20,7 @@
 namespace nvfuser {
 
 using testing::Contains;
+using testing::UnorderedElementsAre;
 using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
@@ -1500,8 +1501,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto fusion_copy = fusion;
 
   // check persistent buffer size
-  SchedulerRuntimeInfo runtime_info(
-      &fusion, {aten_input, aten_weight, aten_bias});
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
@@ -1535,9 +1535,17 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   if (has_enough_regs_smem) {
     // For dtype float, no op scheduler is also used.
-    const auto& heuristic_param =
-        runtime->schedulerHeuristics()->heuristicsList().back();
-    EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::InnerPersistent);
+    if (dtype == DataType::Float) {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          UnorderedElementsAre(
+              HeuristicIs(SchedulerType::NoOp),
+              HeuristicIs(SchedulerType::InnerPersistent)));
+    } else {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
+    }
     Fusion* scheduled_fusion = runtime->executors()
                                    .back()
                                    ->as<KernelExecutor>()
