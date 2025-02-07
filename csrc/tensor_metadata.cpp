@@ -219,19 +219,33 @@ struct TensorSizeStrideReturn {
 };
 
 class ID_Dispatch {
+  ID_Dispatch() : forward_dispatch_(this), backward_dispatch_(this) {}
+
  public:
   class ForwardDispatch_ : public OptInDispatch {
+   public:
+    using OptInDispatch::dispatch;
     ID_Dispatch* id_dispatch_;
     ForwardDispatch_(ID_Dispatch* id_dispatch) : id_dispatch_(id_dispatch) {}
-    void handle(Split*) override {}
-    void handle(Merge* merge) override {}
+    void handle(Split* split) override {
+      std::cout << "Forward: " << split->toString() << std::endl;
+    }
+    void handle(Merge* merge) override {
+      std::cout << "Forward: " << merge->toString() << std::endl;
+    }
   };
 
   class BackwardDispatch_ : public OptInDispatch {
+   public:
+    using OptInDispatch::dispatch;
     ID_Dispatch* id_dispatch_;
     BackwardDispatch_(ID_Dispatch* id_dispatch) : id_dispatch_(id_dispatch) {}
-    void handle(Split*) override {}
-    void handle(Merge* merge) override {}
+    void handle(Split* split) override {
+      std::cout << "Backward: " << split->toString() << std::endl;
+    }
+    void handle(Merge* merge) override {
+      std::cout << "Backward: " << merge->toString() << std::endl;
+    }
   };
 
   static TensorSizeStrideReturn transform(
@@ -247,9 +261,9 @@ class ID_Dispatch {
       contiguity = std::vector<bool>(from_domain.size(), false);
     }
     NVF_ERROR(from_domain.size() == contiguity.size());
-
     // Setup symbolic strides based on contiguity if not provided
     if (from_strides.empty()) {
+      from_strides = std::vector<Val*>(from_domain.size(), nullptr);
       auto stride = FusionGuard::getCurFusion()->oneVal();
       for (int dim_i = (int)from_domain.size() - 1; dim_i >= 0; dim_i--) {
         if (contiguity[dim_i]) {
@@ -271,34 +285,38 @@ class ID_Dispatch {
 
     std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids;
     for (auto dim_i : c10::irange(from_domain.size())) {
-      active_ids[from_domain[dim_i]] = {from_domain[dim_i]->getMaybeExpandedExtent(), from_strides.at(dim_i)};
+      active_ids[from_domain[dim_i]] = {
+          from_domain[dim_i]->getMaybeExpandedExtent(), from_strides.at(dim_i)};
+    }
+
+    ID_Dispatch dispatch;
+    dispatch.active_ids_ = active_ids;
+    auto path_pair = getExprsBetween<IRBFS>(
+        {from_domain.begin(), from_domain.end()},
+        {to_domain.begin(), to_domain.end()});
+    NVF_ERROR(path_pair.second, "Did not path between provided domains.");
+    auto bfs_exprs = path_pair.first;
+    for (auto bfs_expr : bfs_exprs) {
+      auto expr = bfs_expr.first;
+      auto direction = bfs_expr.second;
+      if (direction == Direction::Forward) {
+        dispatch.forward_dispatch_.dispatch(expr);
+      } else if (direction == Direction::Backward) {
+        dispatch.backward_dispatch_.dispatch(expr);
+      }
+      NVF_ERROR(
+          direction != Direction::Undefined,
+          "Error traversing provided domain");
     }
 
     return TensorSizeStrideReturn();
   }
 
-  public:
+ public:
   std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids_;
-
+  ForwardDispatch_ forward_dispatch_;
+  BackwardDispatch_ backward_dispatch_;
 };
-
-void testing(
-    std::vector<IterDomain*> from_domain,
-    std::vector<IterDomain*> to_domain) {
-  auto path_pair = getExprsBetween<IRBFS>(
-      {from_domain.begin(), from_domain.end()},
-      {to_domain.begin(), to_domain.end()},
-      false);
-  NVF_ERROR(path_pair.second, "Did not path between provided domains.");
-  auto bfs_exprs = path_pair.first;
-  for (auto bfs_expr : bfs_exprs) {
-    auto expr = bfs_expr.first;
-    auto direction = bfs_expr.second;
-    NVF_ERROR(
-        direction != Direction::Undefined, "Error traversing provided domain");
-    std::cout << direction << " : " << expr->toString() << std::endl;
-  }
-}
 
 } // namespace
 
@@ -422,8 +440,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
     ExpressionEvaluator ee) {
   from_domain = TensorDomain::noReductions(from_domain);
   to_domain = TensorDomain::noReductions(to_domain);
-
-  testing(from_domain, to_domain);
+  ID_Dispatch::transform(from_domain, to_domain);
 
   NVF_ERROR(
       from_sizes.size() == from_domain.size(),
