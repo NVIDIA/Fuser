@@ -166,6 +166,75 @@ bool hasCpuScalarOutputs(Fusion* _fusion) {
 struct BoundedInt {
   int64_t min = std::numeric_limits<int64_t>::min();
   int64_t max = std::numeric_limits<int64_t>::max();
+
+  bool canBeZero() const {
+    return min <= 0L && max >= 0L;
+  }
+
+  BoundedInt operator+(const BoundedInt& other) const {
+    return BoundedInt{min + other.min, max + other.max};
+  }
+
+  BoundedInt operator+(const int64_t other) const {
+    return BoundedInt{min + other, max + other};
+  }
+
+  BoundedInt operator-(const BoundedInt& other) const {
+    return BoundedInt{min - other.min, max - other.max};
+  }
+
+  BoundedInt operator-(const int64_t other) const {
+    return BoundedInt{min - other, max - other};
+  }
+
+  BoundedInt operator*(const BoundedInt& other) const {
+    // TODO: How should we handle overflow here?
+    std::vector<int64_t> xs{
+        min * other.min, min * other.max, max * other.min, max * other.max};
+    return BoundedInt{
+        *std::min_element(xs.begin(), xs.end()),
+        *std::max_element(xs.begin(), xs.end())};
+  }
+
+  BoundedInt operator*(const int64_t other) const {
+    if (other < 0L) {
+      return BoundedInt{max * other, min * other};
+    }
+    return BoundedInt{min * other, max * other};
+  }
+
+  BoundedInt recip() const {
+    if (!canBeZero()) {
+      return BoundedInt{1L / max, 1L / min};
+    }
+
+    if (min == 0L) {
+      if (max == 0) {
+        return BoundedInt{};
+      }
+      return BoundedInt{1 / max, std::numeric_limits<int64_t>::max()};
+    } else if (max == 0L) {
+      return BoundedInt{std::numeric_limits<int64_t>::min(), 1L / min};
+    } else {
+      return BoundedInt{};
+    }
+  }
+
+  BoundedInt operator/(const BoundedInt& other) const {
+    if (other.canBeZero()) {
+      // division by zero case. Return unbounded
+      return BoundedInt();
+    }
+    return (*this) * other.recip();
+  }
+
+  BoundedInt operator/(const int64_t other) const {
+    if (other == 0L) {
+      // division by zero case. Return unbounded
+      return BoundedInt();
+    }
+    return BoundedInt{min / other, max / other};
+  }
 };
 
 class ScalarBoundsCalculator : kir::IrVisitor {
@@ -196,6 +265,12 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   }
 
  private:
+  void setBounds(Val* val, const BoundedInt& bounds) {
+    std::cout << "Setting bounds for " << val->toInlineString() << " to ["
+              << bounds.min << ", " << bounds.max << "]" << std::endl;
+    bounds_.emplace(val, bounds);
+  }
+
   using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
@@ -213,6 +288,23 @@ class ScalarBoundsCalculator : kir::IrVisitor {
                 << std::endl;
       return;
     }
+    // Inline scalar expressions might not have their inputs processed yet
+    for (Val* inp : expr->inputs()) {
+      if (bounds_.count(inp) == 0) {
+        if (Expr* def = inp->definition()) {
+          // Recursively dispatch definitions
+          dispatch(def);
+        } else {
+          // We expect this to be a constant value since we process expressions
+          // in topological order. Any non-constant values should have been
+          // bounded by their defining expressions, or for loop indices they
+          // are bounded by the loop's start/stop.
+          int64_t const_val = evalInt(inp);
+          setBounds(inp, BoundedInt{const_val, const_val});
+        }
+      }
+    }
+
     kir::IrVisitor::dispatch(expr);
   }
 
@@ -222,14 +314,14 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 
   void handle(ForLoop* loop) {
     // Set bounds for the loop variable
-    bounds_.emplace(
+    setBounds(
         loop->index(),
         BoundedInt{evalInt(loop->start()), evalInt(loop->stop()) - 1L});
     kir::IrVisitor::handle(loop);
   }
 
   void handle(LoadStoreOp* lsop) {
-    bounds_.emplace(lsop->out(), bounds_.at(lsop->in()));
+    setBounds(lsop->out(), bounds_.at(lsop->in()));
   }
 
   void handle(UnaryOp* uop) {
@@ -237,7 +329,18 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   }
 
   void handle(BinaryOp* bop) {
-    NVF_THROW("Not yet implemented");
+    BoundedInt a = bounds_.at(bop->lhs());
+    BoundedInt b = bounds_.at(bop->rhs());
+    BoundedInt result;
+    switch (bop->getBinaryOpType()) {
+      case BinaryOpType::CeilDiv:
+        // ceilDiv(a, b) = (a + b - 1) / b
+        result = (a + b - 1L) / b;
+        break;
+      default:
+        NVF_THROW("Not yet implemented");
+    }
+    setBounds(bop->out(), result);
   }
 
   void handle(TernaryOp* top) {
