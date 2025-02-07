@@ -487,12 +487,9 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
-  // Transitory testing of IdModel if enabled. No existing
-  // functionality should be affected. New IterDomains may be created,
-  // so it is expected that generated code may use diffrent variable
-  // names
+  // New IterDomains may be created, so it is expected that generated
+  // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
-    // Enable validation in the DEBUG build mode
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
