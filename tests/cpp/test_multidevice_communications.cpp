@@ -435,12 +435,13 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());
   auto* tv = makeContigTensor(1);
+  auto* val_my_rank = IrBuilder::create<Val>(my_rank, DataType::Int);
   container->addInput(tv);
   if (my_rank == 0) {
     const DeviceIdxType send_peer = (my_rank + 1) % size;
 
     auto* val_send_peer = IrBuilder::create<Val>(send_peer, DataType::Int);
-    auto send = IrBuilder::create<P2PCommunication>(P2PCommunicationType::SEND, tv, val_send_peer, CommunicatorBackend::kCuda);
+    auto send = IrBuilder::create<P2PCommunication>(tv, val_send_peer, val_my_rank, CommunicatorBackend::kCuda);
     auto wait_send = IrBuilder::create<hir::Wait>(send);
     container->pushBackTopLevelExprs(send);
     container->pushBackTopLevelExprs(wait_send);
@@ -448,7 +449,7 @@ TEST_F(P2PCommunicationTest, CudaComm) {
     ASSERT_EQ(my_rank, 1);
     const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
     auto* val_recv_peer = IrBuilder::create<Val>(recv_peer, DataType::Int);
-    auto recv = IrBuilder::create<P2PCommunication>(P2PCommunicationType::RECV, tv, val_recv_peer, CommunicatorBackend::kCuda);
+    auto recv = IrBuilder::create<P2PCommunication>(tv, val_my_rank, val_recv_peer, CommunicatorBackend::kCuda);
     auto wait_recv = IrBuilder::create<hir::Wait>(recv);
     container->pushBackTopLevelExprs(recv);
     container->pushBackTopLevelExprs(wait_recv);

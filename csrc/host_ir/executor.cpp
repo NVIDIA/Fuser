@@ -477,16 +477,26 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
+  const int64_t my_rank = communicator_->deviceId();
+  const auto dst = expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
+  const auto src = expr_evaluator_.evaluate(communication->src()).as<int64_t>();
+  const bool is_sender = my_rank == src;
+  const bool is_receiver = my_rank == dst;
+  if (!(is_sender || is_receiver)) {
+    return;
+  }
+
+  CommunicatorBackend backend_type = communication->backend();
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  CommunicatorBackend backend_type = communication->backend();
 
   if (backend_type != CommunicatorBackend::kCuda) {
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        expr_evaluator_.evaluate(communication->dst()).as<int64_t>(),
+        expr_evaluator_.evaluate(communication->src()).as<int64_t>(),
         communicator_->getWorld(),
         buffer);
     return;
@@ -540,8 +550,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 
   const auto current_stream = reinterpret_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
   const std::vector<RemoteBufferInfo>& remote_buffers = communicator_->getRemoteBuffer(buffer, "");
-  const int64_t my_rank = communicator_->deviceId();
-  const int64_t peer = expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+  const int64_t peer = is_sender ? dst : src;
   const RemoteBufferInfo& my_buffer = remote_buffers.at(my_rank);
   const RemoteBufferInfo& peer_buffer = remote_buffers.at(peer);
   const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[peer]);
@@ -549,7 +558,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   static_assert(sizeof(IpcSemaphore) == sizeof(uint32_t), "IpcSemaphore must be 32 bits");
 
 
-  if (communication->type() == P2PCommunicationType::RECV) {
+  if (is_receiver) {
     std::cout << "RANK " << my_rank << " RECV, local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << std::endl;
     // signal to self that transfer is in progress
     NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT));
@@ -591,13 +600,16 @@ void HostIrEvaluator::handle(Wait* wait) {
     return;
   }
 
-  if (p2p_comm->type() == P2PCommunicationType::RECV) {
+
+  const auto dst = expr_evaluator_.evaluate(p2p_comm->dst()).as<int64_t>();
+  const auto src = expr_evaluator_.evaluate(p2p_comm->src()).as<int64_t>();
+  const int64_t my_rank = communicator_->deviceId();
+  const bool is_receiver = my_rank == dst;
+  if (is_receiver) {
     // const auto current_stream = static_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     const std::vector<RemoteBufferInfo>& remote_buffers = communicator_->getRemoteBuffer(getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_), std::to_string(p2p_comm->buffer()->name()));
-    const int64_t my_rank = communicator_->deviceId();
-    const int64_t peer = expr_evaluator_.evaluate(p2p_comm->peer()).as<int64_t>();
     const RemoteBufferInfo& my_buffer = remote_buffers.at(my_rank);
-    const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[peer]);
+    const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[src]);
 
     std::cout << "RANK " << my_rank << " WAIT RECV BEFORE cuStreamWaitValue32 on local semaphore " << local_semaphore << std::endl;
     // NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WAIT_VALUE_EQ));
