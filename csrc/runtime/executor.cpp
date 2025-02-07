@@ -224,6 +224,10 @@ struct BoundedInt {
   }
 
   BoundedInt operator/(const BoundedInt& other) const {
+    if (min >= 0 && other.min > 0) {
+      return {min / other.max, max / other.min};
+    }
+
     if (other.canBeZero()) {
       // division by zero case. Return unbounded
       return BoundedInt();
@@ -238,13 +242,80 @@ struct BoundedInt {
     }
     return BoundedInt{min / other, max / other};
   }
+
+  BoundedInt operator%(const BoundedInt& other) const {
+    if (min >= 0L && other.min > 0L && max < other.min) {
+      return {min, max};
+    } else {
+      return BoundedInt{0L, other.max};
+    }
+  }
+
+  BoundedInt operator%(const int64_t other) const {
+    if (min >= 0L && max < other) {
+      return {min, max};
+    } else {
+      return {0L, other - 1L};
+    }
+  }
+
+  // For bitwise operations, we consider the range of each bit independently.
+  // Consider a number x=0bABCDE. If min(x)=max(x), then each of the bits A, B,
+  // C, D, and E are fixed. However, if there is a range of values possible then
+  // a subset of these bits could take on either 0 or 1. Suppose the range of x
+  // is [0b01010, 0b01100]. Then we know that A=0, B=1, and C, D, and E can have
+  // either value. Generally speaking, for numbers lying between two positive
+  // integers, we know the lower-most K many bits are not fixed, where K is
+  // PRECISION-(number of high bits in common). We can compute the largest K
+  // between this and other, then we know that the XOR between these two values
+  // can have any value for that many lower bits and all the higher bits are
+  // determined by XORing the two min (or max) bounds with one another.
+  //
+  // [Note on twos-complement negative integers]
+  // Since twos-complement negative integers can be envisioned as simply
+  // stacking (without flipping) the negative values at the right side of the
+  // positive values, we can apply the same algorithm regardless of signedness.
+  BoundedInt operator^(const BoundedInt& other) const {
+    // Find how many higher bits are fixed across an interval (includes sign
+    // bit)
+    auto interval_fixed_bits = [](const BoundedInt& b) {
+//#if __cplusplus < 202002L
+#if true
+      // XOR and view result as unsigned, so that right shift will be _logical_
+      // instead of arithmetic.
+      uint64_t different_bits = (*reinterpret_cast<const uint64_t*>(&b.max)) ^
+          (*reinterpret_cast<const uint64_t*>(&b.min));
+      // TODO: add countl_zero to csrc/C++20/ somewhere for C++17 backward
+      // compatibility
+      int64_t fixed_bits = 64L;
+      while (different_bits != 0L) {
+        different_bits >>= 1;
+        fixed_bits--;
+      }
+      return fixed_bits;
+#else
+      int64_t different_bits = b.max ^ b.min;
+      return (int64_t)std::countl_zero(different_bits);
+#endif
+    };
+    // New interval has this many fixed bits
+    int64_t fixed_bits = std::min(
+        interval_fixed_bits(*this), interval_fixed_bits(other));
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
 };
 
 class ScalarBoundsCalculator : kir::IrVisitor {
  public:
-  ScalarBoundsCalculator(kir::Kernel* kernel, ExpressionEvaluator& expr_eval)
-      : expr_eval_(expr_eval),
-        parallel_dim_map_(kernel->summary().parallel_dimension_map) {
+  ScalarBoundsCalculator(
+      kir::Kernel* kernel,
+      ExpressionEvaluator& expr_eval,
+      const LaunchParams& launch_params)
+      : expr_eval_(expr_eval), launch_params_(launch_params) {
     // Process all exprs
     kir::IrVisitor::handle(kernel->topLevelExprs());
   }
@@ -263,6 +334,11 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       } else {
         ret.min = std::min(ret.min, b.min);
         ret.max = std::max(ret.max, b.max);
+      }
+      if (b.min < std::numeric_limits<int32_t>::min() || b.max > std::numeric_limits<int32_t>::max()) {
+        std::cout << "Found value " << val->toInlineString()
+                  << " which has bounds [" << b.min << ", " << b.max << "]"
+                  << std::endl;
       }
     }
     return ret;
@@ -291,16 +367,33 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     if (std::optional<ParallelType> ptype = scalar->getParallelDim();
         ptype.has_value()) {
       // scalar is the extent of a parallel dim, so evaluate it
-      int64_t dim_int = evalInt(scalar);
+      int64_t dim_int = launch_params_.getDim(ptype.value());
       setBounds(scalar, dim_int, dim_int);
     } else if (std::optional<ParallelType> ptype = scalar->getParallelIndex();
                ptype.has_value()) {
       // scalar is the index of a parallel dim, so bound it by [0, dim-1]
-      int64_t dim_int = evalInt(parallel_dim_map_.getRaw(ptype.value()));
+      int64_t dim_int = launch_params_.getDim(ptype.value());
       setBounds(scalar, 0L, dim_int - 1L);
     } else {
       // We do not know how to bound other NamedScalars
       setAsUnbounded(scalar);
+    }
+  }
+
+  // Non-recursive function to look up bounds if they have been recorded
+  // already. For NamedScalars, also look in parallel dimension map. Finally,
+  // try and evaluate. If all this fails, return nullopt.
+  std::optional<BoundedInt> maybeGetBounds(Val* val) {
+    if (auto it = bounds_.find(val); it != bounds_.end()) {
+      return it->second;
+    } else if (auto* scalar = dynamic_cast<NamedScalar*>(val)) {
+      boundNamedScalar(scalar);
+      return bounds_.at(val);
+    } else if (PolymorphicValue pv = expr_eval_.evaluate(val); pv.hasValue()) {
+      setBounds(val, pv.as<int64_t>(), pv.as<int64_t>());
+      return bounds_.at(val);
+    } else {
+      return std::nullopt;
     }
   }
 
@@ -332,36 +425,34 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       return;
     }
     // Inline scalar expressions might not have their inputs processed yet
-    for (Val* inp : expr->inputs()) {
+    // The following loop ensures that all inputs to expr have recorded bounds.
+    std::vector<Val*> immediate_inputs = expr->inputs();
+    if (auto* loop = dynamic_cast<ForLoop*>(expr)) {
+      immediate_inputs.push_back(loop->start());
+      immediate_inputs.push_back(loop->stop());
+      immediate_inputs.push_back(loop->step());
+    }
+    for (Val* inp : immediate_inputs) {
+      if (!inp->isIntegralScalar()) {
+        continue;
+      }
       std::cout << "Processing input " << (void*)inp << ":"
                 << inp->toInlineString() << std::endl;
-      // TODO: Clean up this logic
-      if (bounds_.count(inp) == 0) {
-        // Try and evaluate this value, in case it is already bound
-        PolymorphicValue inp_val = expr_eval_.evaluate(inp);
-        if (inp_val.hasValue()) {
-          setBounds(inp, inp_val.as<int64_t>(), inp_val.as<int64_t>());
+      std::optional<BoundedInt> inp_bounds = maybeGetBounds(inp);
+      if (!inp_bounds.has_value()) {
+        // If inp is not constant, then we can try bounding its inputs, if
+        // they are int scalars. If it has no producers that are int scalars,
+        // and it is unbound, then we cannot provide any bounds for it.
+        if (Expr* def = inp->definition();
+            def &&
+            std::any_of(
+                def->inputs().begin(), def->inputs().end(), [](Val* definp) {
+                  return definp->isIntegralScalar();
+                })) {
+          // Recursively dispatch definitions
+          dispatch(def);
         } else {
-          // If inp is not constant, then we can try bounding its inputs, if
-          // they are int scalars. If it has no producers that are int scalars,
-          // and it is unbound, then we cannot provide any bounds for it.
-          if (Expr* def = inp->definition();
-              def &&
-              std::any_of(
-                  def->inputs().begin(), def->inputs().end(), [](Val* definp) {
-                    return definp->isIntegralScalar();
-                  })) {
-            // Recursively dispatch definitions
-            dispatch(def);
-            PolymorphicValue inp_val = expr_eval_.evaluate(inp);
-            if (inp_val.hasValue()) {
-              setBounds(inp, inp_val.as<int64_t>(), inp_val.as<int64_t>());
-            }
-          } else if (auto* scalar = dynamic_cast<NamedScalar*>(inp)) {
-            boundNamedScalar(scalar);
-          } else {
-            setAsUnbounded(inp);
-          }
+          setAsUnbounded(inp);
         }
       }
     }
@@ -374,9 +465,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 
   void handle(ForLoop* loop) {
     // Set bounds for the loop variable
-    setBounds(
-        loop->index(),
-        BoundedInt{evalInt(loop->start()), evalInt(loop->stop()) - 1L});
+    BoundedInt start = bounds_.at(loop->start());
+    BoundedInt stop = bounds_.at(loop->stop());
+    setBounds(loop->index(), start.min, stop.max - 1L);
     kir::IrVisitor::handle(loop);
   }
 
@@ -385,10 +476,16 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   }
 
   void handle(UnaryOp* uop) {
+    BoundedInt a = bounds_.at(uop->in());
+    BoundedInt result;
     switch (uop->getUnaryOpType()) {
+      case UnaryOpType::Neg:
+        result = {-a.max, -a.min};
+        break;
       default:
         NVF_THROW("Not yet implemented");
     }
+    setBounds(uop->out(), result);
   }
 
   void handle(BinaryOp* bop) {
@@ -396,6 +493,12 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     BoundedInt b = bounds_.at(bop->rhs());
     BoundedInt result;
     switch (bop->getBinaryOpType()) {
+      case BinaryOpType::Add:
+        result = a + b;
+        break;
+      case BinaryOpType::Div:
+        result = a / b;
+        break;
       case BinaryOpType::CeilDiv:
         // ceilDiv(a, b) = (a + b - 1) / b
         //
@@ -408,6 +511,17 @@ class ScalarBoundsCalculator : kir::IrVisitor {
           result = (a + b - 1) / b;
         }
         break;
+      case BinaryOpType::Mod:
+        result = a % b;
+        break;
+      case BinaryOpType::Mul:
+        result = a * b;
+        break;
+      case BinaryOpType::Sub:
+        result = a - b;
+        break;
+      case BinaryOpType::BitwiseXor:
+        result = a ^ b;
       default:
         NVF_THROW("Not yet implemented");
     }
@@ -423,15 +537,16 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 
  private:
   ExpressionEvaluator& expr_eval_;
-  const ParallelDimensionMap& parallel_dim_map_;
+  const LaunchParams& launch_params_;
   std::unordered_map<Val*, BoundedInt> bounds_;
 };
 
 PrimDataType getSmallestIndexTypeByBoundingExpressions(
     kir::Kernel* kernel,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    const LaunchParams& launch_params) {
   // bind args to expression evaluator
-  ScalarBoundsCalculator calc(kernel, expr_eval);
+  ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
   // Compute the range of all nvfuser_index_t values in the fusion
   BoundedInt index_bounds = calc.boundByDataType();
   return (index_bounds.min >= (int64_t)std::numeric_limits<int32_t>::min() &&
@@ -577,8 +692,8 @@ void KernelExecutor::compile(
   if (has_cp_async_bulk) {
     // Bind tensor metadata
     expr_eval.precomputedValues()->bindValues(kernel->inputs(), args);
-    compile_params.index_type =
-        getSmallestIndexTypeByBoundingExpressions(kernel, expr_eval);
+    compile_params.index_type = getSmallestIndexTypeByBoundingExpressions(
+        kernel, expr_eval, launch_params);
     NVF_ERROR(
         compile_params.index_type.value() == PrimDataType::Int32,
         "Compilation with int64 is requested but int32 is required because ",
