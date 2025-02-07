@@ -491,12 +491,15 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  id_model_ = std::make_unique<IdModel>(
-      fusion_,
-      /*build_graphs=*/true,
-      /*allow_self_mapping=*/false,
-      /*validate=*/false);
-  id_model_->validateAndPropagatePType();
+  if (idModelOptions().buildIdModel()) {
+    // Enable validation in the DEBUG build mode
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    id_model_->validateAndPropagatePType();
+  }
 
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
