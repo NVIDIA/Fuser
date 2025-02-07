@@ -16,7 +16,7 @@ namespace nvfuser {
 class IdModelOptions {
  public:
   IdModelOptions()
-      : build_id_model_(isOptionDisabled(EnableOption::IdModel)),
+      : build_id_model_(isOptionDisabled(DisableOption::IdModel)),
         consumer_index_(
             isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex)),
         producer_index_(
