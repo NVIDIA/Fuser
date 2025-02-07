@@ -1139,8 +1139,6 @@ std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-
   return "";
 }
 
