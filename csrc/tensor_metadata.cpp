@@ -219,104 +219,126 @@ struct TensorSizeStrideReturn {
 };
 
 class ID_Dispatch {
-  ID_Dispatch() : forward_dispatch_(this), backward_dispatch_(this) {}
+  ID_Dispatch();
 
  public:
   class ForwardDispatch_ : public OptInDispatch {
    public:
     using OptInDispatch::dispatch;
     ID_Dispatch* id_dispatch_;
-    ForwardDispatch_(ID_Dispatch* id_dispatch) : id_dispatch_(id_dispatch) {}
-    void handle(Split* split) override {
-      std::cout << "Forward: " << split->toString() << std::endl;
-    }
-    void handle(Merge* merge) override {
-      std::cout << "Forward: " << merge->toString() << std::endl;
-    }
+    ForwardDispatch_(ID_Dispatch* id_dispatch);
+    void handle(Split* split);
+    void handle(Merge* merge);
   };
 
   class BackwardDispatch_ : public OptInDispatch {
    public:
     using OptInDispatch::dispatch;
     ID_Dispatch* id_dispatch_;
-    BackwardDispatch_(ID_Dispatch* id_dispatch) : id_dispatch_(id_dispatch) {}
-    void handle(Split* split) override {
-      std::cout << "Backward: " << split->toString() << std::endl;
-    }
-    void handle(Merge* merge) override {
-      std::cout << "Backward: " << merge->toString() << std::endl;
-    }
+    BackwardDispatch_(ID_Dispatch* id_dispatch);
+    void handle(Split* split) override;
+    void handle(Merge* merge) override;
   };
 
   static TensorSizeStrideReturn transform(
       std::vector<IterDomain*> from_domain,
       std::vector<IterDomain*> to_domain,
       std::vector<Val*> from_strides = {},
-      std::vector<bool> contiguity = {}) {
-    from_domain = TensorDomain::noReductions(from_domain);
-    to_domain = TensorDomain::noReductions(to_domain);
-
-    // Set contiguity to false if missing
-    if (contiguity.empty()) {
-      contiguity = std::vector<bool>(from_domain.size(), false);
-    }
-    NVF_ERROR(from_domain.size() == contiguity.size());
-    // Setup symbolic strides based on contiguity if not provided
-    if (from_strides.empty()) {
-      from_strides = std::vector<Val*>(from_domain.size(), nullptr);
-      auto stride = FusionGuard::getCurFusion()->oneVal();
-      for (int dim_i = (int)from_domain.size() - 1; dim_i >= 0; dim_i--) {
-        if (contiguity[dim_i]) {
-          from_strides[dim_i] = stride;
-          stride = IrBuilder::mulExpr(
-              from_domain[dim_i]->hasExpandedExtent()
-                  ? from_domain[dim_i]->expandedExtent()
-                  : from_domain[dim_i]->extent(),
-              stride);
-        } else if (from_domain[dim_i]->isBroadcast()) {
-          from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
-        } else {
-          stride = IrBuilder::create<Val>(DataType::Int);
-          from_strides[dim_i] = stride;
-        }
-      }
-    }
-    NVF_ERROR(from_domain.size() == from_strides.size());
-
-    std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids;
-    for (auto dim_i : c10::irange(from_domain.size())) {
-      active_ids[from_domain[dim_i]] = {
-          from_domain[dim_i]->getMaybeExpandedExtent(), from_strides.at(dim_i)};
-    }
-
-    ID_Dispatch dispatch;
-    dispatch.active_ids_ = active_ids;
-    auto path_pair = getExprsBetween<IRBFS>(
-        {from_domain.begin(), from_domain.end()},
-        {to_domain.begin(), to_domain.end()});
-    NVF_ERROR(path_pair.second, "Did not path between provided domains.");
-    auto bfs_exprs = path_pair.first;
-    for (auto bfs_expr : bfs_exprs) {
-      auto expr = bfs_expr.first;
-      auto direction = bfs_expr.second;
-      if (direction == Direction::Forward) {
-        dispatch.forward_dispatch_.dispatch(expr);
-      } else if (direction == Direction::Backward) {
-        dispatch.backward_dispatch_.dispatch(expr);
-      }
-      NVF_ERROR(
-          direction != Direction::Undefined,
-          "Error traversing provided domain");
-    }
-
-    return TensorSizeStrideReturn();
-  }
+      std::vector<bool> contiguity = {});
 
  public:
   std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids_;
   ForwardDispatch_ forward_dispatch_;
   BackwardDispatch_ backward_dispatch_;
 };
+
+ID_Dispatch::ID_Dispatch()
+    : forward_dispatch_(this), backward_dispatch_(this) {}
+
+ID_Dispatch::ForwardDispatch_::ForwardDispatch_(ID_Dispatch* id_dispatch)
+    : id_dispatch_(id_dispatch) {}
+
+void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
+  std::cout << "Forward: " << split->toString() << std::endl;
+}
+
+void ID_Dispatch::ForwardDispatch_::handle(Merge* merge) {
+  std::cout << "Forward: " << merge->toString() << std::endl;
+}
+
+ID_Dispatch::BackwardDispatch_::BackwardDispatch_(ID_Dispatch* id_dispatch)
+    : id_dispatch_(id_dispatch) {}
+
+void ID_Dispatch::BackwardDispatch_::handle(Split* split) {
+  std::cout << "Backward: " << split->toString() << std::endl;
+}
+
+void ID_Dispatch::BackwardDispatch_::handle(Merge* merge) {
+  std::cout << "Backward: " << merge->toString() << std::endl;
+}
+
+TensorSizeStrideReturn ID_Dispatch::transform(
+    std::vector<IterDomain*> from_domain,
+    std::vector<IterDomain*> to_domain,
+    std::vector<Val*> from_strides,
+    std::vector<bool> contiguity) {
+  from_domain = TensorDomain::noReductions(from_domain);
+  to_domain = TensorDomain::noReductions(to_domain);
+
+  // Set contiguity to false if missing
+  if (contiguity.empty()) {
+    contiguity = std::vector<bool>(from_domain.size(), false);
+  }
+  NVF_ERROR(from_domain.size() == contiguity.size());
+  // Setup symbolic strides based on contiguity if not provided
+  if (from_strides.empty()) {
+    from_strides = std::vector<Val*>(from_domain.size(), nullptr);
+    auto stride = FusionGuard::getCurFusion()->oneVal();
+    for (int dim_i = (int)from_domain.size() - 1; dim_i >= 0; dim_i--) {
+      if (contiguity[dim_i]) {
+        from_strides[dim_i] = stride;
+        stride = IrBuilder::mulExpr(
+            from_domain[dim_i]->hasExpandedExtent()
+                ? from_domain[dim_i]->expandedExtent()
+                : from_domain[dim_i]->extent(),
+            stride);
+      } else if (from_domain[dim_i]->isBroadcast()) {
+        from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
+      } else {
+        stride = IrBuilder::create<Val>(DataType::Int);
+        from_strides[dim_i] = stride;
+      }
+    }
+  }
+  NVF_ERROR(from_domain.size() == from_strides.size());
+
+  std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids;
+  for (auto dim_i : c10::irange(from_domain.size())) {
+    active_ids[from_domain[dim_i]] = {
+        from_domain[dim_i]->getMaybeExpandedExtent(), from_strides.at(dim_i)};
+  }
+
+  ID_Dispatch dispatch;
+  dispatch.active_ids_ = active_ids;
+  auto path_pair = getExprsBetween<IRBFS>(
+      {from_domain.begin(), from_domain.end()},
+      {to_domain.begin(), to_domain.end()});
+  NVF_ERROR(path_pair.second, "Did not path between provided domains.");
+  auto bfs_exprs = path_pair.first;
+  for (auto bfs_expr : bfs_exprs) {
+    auto expr = bfs_expr.first;
+    auto direction = bfs_expr.second;
+    if (direction == Direction::Forward) {
+      dispatch.forward_dispatch_.dispatch(expr);
+    } else if (direction == Direction::Backward) {
+      dispatch.backward_dispatch_.dispatch(expr);
+    }
+    NVF_ERROR(
+        direction != Direction::Undefined, "Error traversing provided domain");
+  }
+
+  return TensorSizeStrideReturn();
+}
 
 } // namespace
 
