@@ -10,6 +10,7 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
@@ -411,6 +412,7 @@ std::vector<GlobalBufferInfo> getBufferInfos(
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
+  std::cout << "Entry" << std::endl;
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
   // Fusion outputs do not come with Allocate and
   // need to be allocated while taking expanded broadcasts into
@@ -418,18 +420,11 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
-
+  auto maybe_alloc_domain =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   // Allocate the allocation domain
-  for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    }
-
-    if (id->isDeviceDim()) {
-      symbolic_sizes.push_back(id->container()->oneVal());
-    } else {
-      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    }
+  for (const auto id : maybe_alloc_domain) {
+    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
     if (id->hasExpandedExtent()) {
       NVF_ERROR(
           id->isBroadcast(),
@@ -443,22 +438,54 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
   auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
   if (!tv->hasAllocation()) {
+    // Purge multi device size/strides.
+    for (auto id_i : c10::irange(maybe_alloc_domain.size())) {
+      if (maybe_alloc_domain[id_i]->isDeviceDim()) {
+        size_stride.first[id_i] = 1;
+        size_stride.second[id_i] = 0;
+      }
+    }
     return size_stride;
+  }
+
+  // Logical could be unsharded or sharded when allocation is sharded, check
+  // which it is.
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  bool logical_multi_device = std::any_of(
+      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
+        return id->isDeviceDim();
+      });
+
+  auto& alloc_domain = maybe_alloc_domain;
+  bool alloc_multi_device =
+      std::any_of(alloc_domain.begin(), alloc_domain.end(), [](IterDomain* id) {
+        return id->isDeviceDim();
+      });
+
+  bool consistent_sharding = logical_multi_device == alloc_multi_device;
+  if (!consistent_sharding) {
+    size_stride.first = unshardedSizes(tv, size_stride.first);
   }
   auto options =
       c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
   auto meta_tensor =
       at::empty_strided(size_stride.first, size_stride.second, options);
-  std::cout << size_stride.first << std::endl;
-  std::cout << size_stride.second << std::endl;
-  std::cout << tv->getMaybeAllocationDomain() << std::endl;
-  std::cout << tv->getLogicalDomain() << std::endl;
-  return inferAndValidateProjection(
+
+  auto alloc_proj = inferAndValidateProjection(
       size_stride.first,
       size_stride.second,
       tv->getMaybeAllocationDomain(),
       tv->getLogicalDomain(),
       expr_eval);
+
+  for (auto id_i : c10::irange(alloc_domain.size())) {
+    if (alloc_domain[id_i]->isDeviceDim()) {
+      alloc_proj.first[id_i] = 1;
+      alloc_proj.second[id_i] = 0;
+    }
+  }
+
+  return alloc_proj;
 }
 
 } // namespace nvfuser

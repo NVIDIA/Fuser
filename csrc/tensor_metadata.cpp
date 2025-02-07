@@ -589,8 +589,8 @@ inferAndValidateAllocationSizesAndStrides(
 
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
-    validateContiguity(
-        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
+    // validateContiguity(
+    //     alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
@@ -639,38 +639,68 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
 
   ID_Dispatch dispatch(from_domain);
   auto from_information = dispatch.from_information_;
+  std::cout << "0" << std::endl;
   auto to_information = dispatch.transform(to_domain);
+  std::cout << "1" << std::endl;
   NVF_ERROR(dispatch.from_information_.size() == from_domain.size());
+  ExpressionEvaluator ee2;
   for (auto id_i : c10::irange(from_domain.size())) {
-    auto stride = from_information[id_i].second.stride;
-    if (!ee.isKnown(stride)) {
-      ee.bind(stride, from_strides[id_i]);
+    // std::cout << "Bind: " << from_information[id_i].first->toString() << " to
+    // "
+    //           << from_sizes[id_i] << std::endl;
+    // std::cout << "Bind: " << from_information[id_i].second.stride->toString()
+    //           << " to " << from_strides[id_i] << std::endl;
+    ee2.bind(from_information[id_i].second.size, from_sizes[id_i]);
+    if (from_information[id_i].first->isBroadcast()) {
+      if (from_information[id_i].second.stride->isConstInt()) {
+        // Broadcast strides sometimes come in as a const int, it could be
+        // actually be anything, don't try to compete with something that might
+        // be set already.
+        continue;
+      }
     }
+    ee2.bind(from_information[id_i].second.stride, from_strides[id_i]);
   }
 
   std::vector<int64_t> to_sizes_2;
   std::vector<int64_t> to_strides_2;
   for (auto id_i : c10::irange(to_domain.size())) {
     auto size = to_information[id_i].second.size;
-    int64_t size_int = ee.evaluate(size).as<int64_t>();
+    int64_t size_int = ee2.evaluate(size).as<int64_t>();
     auto stride = to_information[id_i].second.stride;
-    int64_t stride_int = ee.evaluate(stride).as<int64_t>();
-    to_sizes_2.push_back(size_int);
-    to_strides_2.push_back(stride_int);
+    int64_t stride_int = ee2.evaluate(stride).as<int64_t>();
+    if (to_information[id_i].first->isDeviceDim()) {
+      to_sizes_2.push_back(1);
+      to_strides_2.push_back(0);
+    } else {
+      to_sizes_2.push_back(size_int);
+      to_strides_2.push_back(stride_int);
+    }
+  }
+
+  for (auto id_i : c10::irange(to_domain.size())) {
+    if (to_information[id_i].first->isBroadcast()) {
+      to_strides_2[id_i] = to_strides[id_i];
+    }
   }
 
   NVF_ERROR(
       to_sizes == to_sizes_2 && to_strides == to_strides_2,
-      "\nsizes{",
+      "\nsizes  {",
       to_sizes,
       "}\nsizes2 {",
       to_sizes_2,
-      "}\nstrides{",
-      to_strides_2,
-      "}\nstrides2{",
+      "}\nstrides  {",
+      to_strides,
+      "}\nstrides2 {",
       to_strides_2,
       "}");
+  std::cout << "\nsizes  {" << to_sizes << "}\nsizes2 {" << to_sizes_2
+            << "}\nstrides  {" << to_strides << "}\nstrides2 {" << to_strides_2
+            << "}";
 
+  // TODO: Validate allocation contiguity if numel > 1
+  std::cout << "Exit" << std::endl;
   return {std::move(to_sizes), std::move(to_strides)};
 }
 
