@@ -1472,18 +1472,23 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   constexpr int64_t dim0 = 2048;
   std::vector<int64_t> input_shape{dim0, hidden_size};
   std::vector<int64_t> norm_shape{hidden_size};
-  auto input_half = makeContigTensor(2, dtype);
-  auto weight_half = makeContigTensor(1, dtype);
-  auto bias_half = makeContigTensor(1, dtype);
-  fusion.addInput(input_half);
-  fusion.addInput(weight_half);
-  fusion.addInput(bias_half);
-  auto input = castOp(DataType::Float, input_half);
-  auto weight = castOp(DataType::Float, weight_half);
-  auto bias = castOp(DataType::Float, bias_half);
+
+  auto input = makeContigTensor(2, dtype);
+  auto weight = makeContigTensor(1, dtype);
+  auto bias = makeContigTensor(1, dtype);
+  fusion.addInput(input);
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+  if(dtype == DataType::Half) {
+    input = castOp(DataType::Float, input);
+    weight = castOp(DataType::Float, weight);
+    bias = castOp(DataType::Float, bias);
+  }  
   auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-  auto result_output = castOp(dtype, result.output);
-  fusion.addOutput(result_output);
+  if(dtype == DataType::Half){
+    result.output = castOp(DataType::Half, result.output);
+  }
+  fusion.addOutput(result.output);
   fusion.addOutput(result.mean);
   fusion.addOutput(result.invstd);
 
@@ -1554,13 +1559,23 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
 
     if (logic_buffer_size > scheduler_utils::register_file_size) {
       bool has_smem_tv = false;
+      bool has_tma_load = false;
       for (auto tv : scheduled_fusion->allTvs()) {
         if (tv->getMemoryType() == MemoryType::Shared) {
+          std::cout << "smem tv: " << tv->definition()->toString() << std::endl;
+          if(ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+            has_tma_load = true;
+          }
           has_smem_tv = true;
+        }
+        if(has_tma_load && has_smem_tv) {
           break;
         }
       }
       EXPECT_TRUE(has_smem_tv);
+      if(!cudaArchGuardShouldSkip(9,0)){
+        EXPECT_TRUE(has_tma_load);
+      }
     }
   } else {
     EXPECT_THAT(

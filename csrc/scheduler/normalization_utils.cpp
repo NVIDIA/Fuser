@@ -1044,12 +1044,21 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
   }
 
+  int64_t available_regs_smem_size = getMaxRegOrSharedMemorySizeForPersistentBuffer(
+      fusion,
+      runtime_info,
+      reduction_tvs,
+      persistent_buffer_info,
+      can_use_smem_persistent,
+      project_persistent_buffers);
+
   // Return collected properties to get heuristics.
   return PersistentKernelProperties{
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
       .total_reduction_numel = properties.total_reduction_numel,
       .total_iteration_numel = properties.total_iteration_numel,
       .max_persistent_buffer_size = max_persistent_buffer_size,
+      .available_regs_smem_size = available_regs_smem_size,
       .n_tensor_inputs = n_tensor_inputs,
       .max_dtype_size = max_dtype_size,
       .vectorize_factor = vectorize_factor,

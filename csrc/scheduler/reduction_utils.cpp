@@ -256,6 +256,12 @@ TensorView* scheduleReductionTV(
   if (has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
+    // only used by inner persistent scheduler
+    // [iter]  --> [iter/stages [BIDx], stages [Serial]]
+    if (rparams->circular_buffer_options.isEnable()) {
+      reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
+    }
+
     if (rparams->vectorize_iter_dom) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }
@@ -294,9 +300,14 @@ TensorView* scheduleReductionTV(
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
     }
+
   }
 
+  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
+
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
+
+  std::cout << "reduction_rf_tv: " << reduction_rf_tv->toString() << std::endl;
 
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.

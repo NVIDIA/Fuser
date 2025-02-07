@@ -202,6 +202,7 @@ struct PersistentKernelProperties {
   int64_t total_reduction_numel;
   int64_t total_iteration_numel;
   int64_t max_persistent_buffer_size;
+  int64_t available_regs_smem_size;
   int64_t n_tensor_inputs;
   int64_t max_dtype_size;
   int64_t vectorize_factor;
@@ -218,6 +219,7 @@ struct PersistentKernelProperties {
        << "total_reduction_numel: " << total_reduction_numel << "\n"
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "max_persistent_buffer_size: " << max_persistent_buffer_size << "\n"
+       << "available_regs_smem_size: " << available_regs_smem_size << "\n"
        << "n_tensor_inputs: " << n_tensor_inputs << "\n"
        << "max_input_dtype_size: " << max_dtype_size << "\n"
        << "max allowed vectorize_factor: " << vectorize_factor << "\n"
