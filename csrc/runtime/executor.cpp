@@ -260,6 +260,29 @@ struct BoundedInt {
     }
   }
 
+  //! Returns the number of high bits that must be common among all integers in
+  //! this interval
+  int64_t commonHighBits() const {
+// #if __cplusplus < 202002L
+#if true
+    // XOR and view result as unsigned, so that right shift will be _logical_
+    // instead of arithmetic.
+    uint64_t different_bits = (*reinterpret_cast<const uint64_t*>(&max)) ^
+        (*reinterpret_cast<const uint64_t*>(&min));
+    // TODO: add countl_zero to csrc/C++20/ somewhere for C++17 backward
+    // compatibility
+    int64_t fixed_bits = 64L;
+    while (different_bits != 0L) {
+      different_bits >>= 1;
+      fixed_bits--;
+    }
+    return fixed_bits;
+#else
+    int64_t different_bits = b.max ^ b.min;
+    return (int64_t)std::countl_zero(different_bits);
+#endif
+  }
+
   // For bitwise operations, we consider the range of each bit independently.
   // Consider a number x=0bABCDE. If min(x)=max(x), then each of the bits A, B,
   // C, D, and E are fixed. However, if there is a range of values possible then
@@ -277,36 +300,63 @@ struct BoundedInt {
   // stacking (without flipping) the negative values at the right side of the
   // positive values, we can apply the same algorithm regardless of signedness.
   BoundedInt operator^(const BoundedInt& other) const {
-    // Find how many higher bits are fixed across an interval (includes sign
-    // bit)
-    auto interval_fixed_bits = [](const BoundedInt& b) {
-// #if __cplusplus < 202002L
-#if true
-      // XOR and view result as unsigned, so that right shift will be _logical_
-      // instead of arithmetic.
-      uint64_t different_bits = (*reinterpret_cast<const uint64_t*>(&b.max)) ^
-          (*reinterpret_cast<const uint64_t*>(&b.min));
-      // TODO: add countl_zero to csrc/C++20/ somewhere for C++17 backward
-      // compatibility
-      int64_t fixed_bits = 64L;
-      while (different_bits != 0L) {
-        different_bits >>= 1;
-        fixed_bits--;
-      }
-      return fixed_bits;
-#else
-      int64_t different_bits = b.max ^ b.min;
-      return (int64_t)std::countl_zero(different_bits);
-#endif
-    };
     // New interval has this many fixed bits
-    int64_t fixed_bits =
-        std::min(interval_fixed_bits(*this), interval_fixed_bits(other));
+    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
     // Mask everything below the higher fixed_bits
     int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
     int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
     int64_t new_max = new_min + low_mask; // 0b01111
     return {new_min, new_max};
+  }
+
+  BoundedInt operator&(const BoundedInt& other) const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (min & other.min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator|(const BoundedInt& other) const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (min | other.min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator~() const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = commonHighBits();
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (~min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  // Index types are always signed (always going to be true?). This means that a
+  // right shift is _arithmetic_ right shift, so if the argument is negative,
+  // after the shift it stays negative.
+  BoundedInt operator>>(const BoundedInt& other) const {
+    NVF_ERROR(other.min >= 0, "Shift operator must not have negative shift");
+    // Note: arithmetic right shift makes negative values closer to zero, as it
+    // does for positive values
+    int64_t new_min = (min < 0L) ? (min >> other.min) : (min >> other.max);
+    int64_t new_max = (max < 0L) ? (max >> other.max) : (min >> other.min);
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator<<(const BoundedInt& other) const {
+    NVF_ERROR(
+        min >= 0,
+        "Left shift must not be applied to number that can be negative");
+    NVF_ERROR(other.min >= 0, "Shift operator must not have negative shift");
+    return {min << other.min, max << other.max};
   }
 };
 
@@ -490,6 +540,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     BoundedInt a = bounds_.at(uop->in());
     BoundedInt result;
     switch (uop->getUnaryOpType()) {
+      case UnaryOpType::BitwiseNot:
+        result = ~a;
+        break;
       case UnaryOpType::Neg:
         result = {-a.max, -a.min};
         break;
@@ -507,8 +560,14 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       case BinaryOpType::Add:
         result = a + b;
         break;
-      case BinaryOpType::Div:
-        result = a / b;
+      case BinaryOpType::BitwiseAnd:
+        result = a & b;
+        break;
+      case BinaryOpType::BitwiseOr:
+        result = a | b;
+        break;
+      case BinaryOpType::BitwiseXor:
+        result = a ^ b;
         break;
       case BinaryOpType::CeilDiv:
         // ceilDiv(a, b) = (a + b - 1) / b
@@ -522,17 +581,24 @@ class ScalarBoundsCalculator : kir::IrVisitor {
           result = (a + b - 1) / b;
         }
         break;
+      case BinaryOpType::Div:
+        result = a / b;
+        break;
       case BinaryOpType::Mod:
         result = a % b;
         break;
       case BinaryOpType::Mul:
         result = a * b;
         break;
+      case BinaryOpType::Lshift:
+        result = a << b;
+        break;
+      case BinaryOpType::Rshift:
+        result = a >> b;
+        break;
       case BinaryOpType::Sub:
         result = a - b;
         break;
-      case BinaryOpType::BitwiseXor:
-        result = a ^ b;
       default:
         NVF_THROW("Not yet implemented");
     }
