@@ -493,7 +493,7 @@ class NVF_API TensorView : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)domain()->nDims();
+    return domain()->nDims();
   }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
