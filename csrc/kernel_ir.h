@@ -88,8 +88,7 @@ class Predicate final : public Val {
   const Expr* expr() const {
     NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
-        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual &&
-        ptype_ != PredicateType::ElectSync);
+        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
     return expr_;
   }
 
@@ -210,6 +209,11 @@ class Asm final : public Expr {
   const std::string& code() const {
     return attribute<std::string>(0);
   }
+
+  // The name of the utility function that we want to wrap the inline PTX code
+  // in. If this is empty, then the inline PTX code will be emitted directly
+  // into the kernel.
+  const std::string utility() const;
 
   const Options& options() const {
     return attribute<Options>(1);

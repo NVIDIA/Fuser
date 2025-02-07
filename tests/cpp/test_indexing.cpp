@@ -5666,4 +5666,35 @@ TEST_F(IndexingTest, BroadcastLogicalDomainIndexing) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(IndexingTest, Rng) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  Val* i = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(i);
+
+  auto tv0 = randn(
+      {i},
+      DataType::Float,
+      /*Val* philox_seed=*/fusion.zeroVal(),
+      /*Val* philox_offset=*/fusion.zeroVal());
+
+  fusion.addOutput(tv0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs{1};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  at::manual_seed(0);
+  at::Tensor randn_sample = at::randn({1}, options);
+
+  testValidate(&fusion, outputs, inputs, {randn_sample}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
