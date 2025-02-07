@@ -53,6 +53,27 @@ KernelArgumentHolder copyMetadataArg(const KernelArgumentHolder& src) {
   dst.setDeviceIndex(src.getDeviceIndex());
   return dst;
 }
+
+void setAllocationAsLoopForShardedTv(SegmentedFusion* segmented_fusion) {
+  for (auto segment : segmented_fusion->groups()) {
+    for (auto out_val : segment->outputs()) {
+      if (!out_val->isA<TensorView>()) {
+        continue;
+      }
+      auto* out_tv = out_val->as<TensorView>();
+      auto out_loop = out_tv->getLoopDomain();
+      bool is_loop_sharded = std::any_of(
+          out_loop.begin(), out_loop.end(), [](IterDomain* loop_id) {
+            return loop_id->isDeviceDim();
+          });
+
+      if (!is_loop_sharded) {
+        continue;
+      }
+      out_tv->setAllocationDomain(out_tv->getLoopDomain(), true);
+    }
+  }
+}
 } // namespace
 
 FusionKernelRuntime::FusionKernelRuntime(
@@ -123,6 +144,12 @@ FusionKernelRuntime::FusionKernelRuntime(
     segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
     segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
   }
+
+  // When representing device parallelization using loop split, we require
+  // allocation domain to be same as loop domain due to
+  // https://github.com/NVIDIA/Fuser/issues/3479. We only set this for outputs
+  // at the segment boundaries.
+  setAllocationAsLoopForShardedTv(segmented_fusion_.get());
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.

@@ -127,7 +127,7 @@ def test_linear_loop_split(multidevice_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.bias, self.out]:
+            for t in [self.inp, self.weight, self.bias]:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard N for weight (N, K) and bias (N)
@@ -135,12 +135,6 @@ def test_linear_loop_split(multidevice_test):
                 self.sched.split(t, 0, d, False)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
                 self.sched.set_allocation_as_loop(t)
-
-            # Output of linear: {.., i{M}, i{N}, r{K}}
-            # Shard N -> axis(-2)
-            self.sched.split(self.out, -2, d, False)
-            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -155,7 +149,6 @@ def test_linear_loop_split(multidevice_test):
 
     fd = Model()
     (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor, sharded_bias_tensor])
-
     # [b, s, d*e]
     unsharded_out_tensor = torch.nn.functional.linear(
         inp_tensor.cpu(), unsharded_weight_tensor, unsharded_bias_tensor
@@ -232,7 +225,7 @@ def test_matmul_loop_split(multidevice_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.out]:
+            for t in [self.inp, self.weight]:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard N for weight (K, N)
@@ -240,11 +233,6 @@ def test_matmul_loop_split(multidevice_test):
             self.sched.parallelize(self.weight, -2, nvfuser.ParallelType.mesh_x)
             self.sched.set_allocation_as_loop(self.weight)
 
-            # Output of linear: {.., i{M}, i{N}, r{K}}
-            # Shard N -> axis(-2)
-            self.sched.split(self.out, -2, d, False)
-            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -303,8 +291,6 @@ def test_matmul_allreduce_loop_split(multidevice_test):
             self.local_out = self.sched.rfactor(self.out, dims=[-1])
             # local_out = [i{M}, i{N}, i{d}, r{K//d}]
             # out = [i{M}, i{N}, r{d}]
-            self.sched._set_device_mesh(self.local_out, mesh)
-            self.sched.parallelize(self.local_out, -2, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -511,35 +497,16 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
         def multidevice_schedule(self) -> None:
             input_tvs = [self.q, self.k, self.v, self.out_grad]
-            output_tvs = [
-                self.attn,
-                self.log_sumexp,
-                self.q_grad,
-                self.k_grad,
-                self.v_grad,
-            ]
-
-            for t in input_tvs + output_tvs:
-                self.sched._set_device_mesh(t, mesh)
 
             # Shard input tensorviews
             for t in input_tvs:
+                self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, 1, d, False)
                 self.sched.parallelize(t, 1, nvfuser.ParallelType.mesh_x)
                 if self._qkv_format == QkvFormat.BSHE:
                     # The loop domain is: {i{B}, i{DIDx}, i{H//D}, i{S}, i{E//H}}
                     # Reorder i{S} in the allocation domain for BHSE: {i{DIDx}, i{B}, i{S}, i{H//D}, i{E//H}}
                     self.sched.reorder(t, {2: 3, 3: 2})
-                self.sched.set_allocation_as_loop(t)
-
-            # Propagate sharding to output tvs
-            self.sched.transform_like(self.q, output_tvs)
-            self.sched.parallelize_like(
-                self.q, -1, output_tvs, {nvfuser.ParallelType.mesh_x}
-            )
-
-            # Set allocation as loop for output tvs
-            for t in output_tvs:
                 self.sched.set_allocation_as_loop(t)
 
     torch.cuda.set_device(multidevice_test.local_rank)

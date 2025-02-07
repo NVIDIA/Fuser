@@ -7475,4 +7475,27 @@ TEST_F(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
       ke.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 1);
 }
 
+TEST_F(NVFuserTest, PropagateTransformReshapePermute) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t b = 2, s = 2, h = 4, e = 3;
+  TensorView* inp = makeConcreteTensor({b, s, h*e});
+  TensorView* reshaped_inp = reshape(inp, {b, s, h*e}, {b, s, h, e});
+  TensorView* permuted_out = permute(reshaped_inp, {0, 2, 1, 3});
+  fusion.addInput(inp);
+  fusion.addOutput(permuted_out);
+
+  TransformPropagator propagator(inp);
+  MaxLogicalDomainInfoSpanningTree(inp).traverse(&propagator);
+  
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto inputs = at::randn({b, s, h*e}, options);
+  ke.run({inputs});
+  // const auto& output = outputs.at(0);
+}
+
 } // namespace nvfuser
