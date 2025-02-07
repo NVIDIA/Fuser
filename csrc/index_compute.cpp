@@ -1607,9 +1607,30 @@ Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
-  return sumVals(
-      getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
+      GpuLower::current()->idModelOptions().consumerIndex()) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    auto per_dim_indices = indexer.getIndexFor(
+        consumer_tv->definition(),
+        /*as_consumer=*/true,
+        consumer_tv->getLogicalDomain(),
+        loops);
+    Val* stride = consumer_tv->fusion()->oneVal();
+    for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+      auto per_dim_index = per_dim_indices.at(i);
+      auto logical_id = consumer_tv->getLogicalDomain().at(i);
+      auto per_dim_strided_index =
+          SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
+      per_dim_indices.at(i) = per_dim_strided_index;
+      stride = SimplifyingIrBuilder::mulExpr(stride, logical_id->extent());
+    }
+    return sumVals(per_dim_indices);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
+    return sumVals(
+        getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
+  }
 }
 
 std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
