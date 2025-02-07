@@ -45,6 +45,8 @@
 #include <limits>
 #include "evaluator_common.h"
 #include "expr_evaluator.h"
+#include "parallel_dimension_map.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -241,7 +243,8 @@ struct BoundedInt {
 class ScalarBoundsCalculator : kir::IrVisitor {
  public:
   ScalarBoundsCalculator(kir::Kernel* kernel, ExpressionEvaluator& expr_eval)
-      : expr_eval_(expr_eval) {
+      : expr_eval_(expr_eval),
+        parallel_dim_map_(kernel->summary().parallel_dimension_map) {
     // Process all exprs
     kir::IrVisitor::handle(kernel->topLevelExprs());
   }
@@ -267,13 +270,38 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 
  private:
   void setBounds(Val* val, const BoundedInt& bounds) {
-    std::cout << "Setting bounds for " << val->toInlineString() << " to ["
-              << bounds.min << ", " << bounds.max << "]" << std::endl;
+    std::cout << "Setting bounds for " << (void*)val << ":"
+              << val->toInlineString() << " to [" << bounds.min << ", "
+              << bounds.max << "]" << std::endl;
     bounds_.emplace(val, bounds);
   }
 
   void setBounds(Val* val, int64_t min, int64_t max) {
     setBounds(val, {min, max});
+  }
+
+  void setAsUnbounded(Val* val) {
+    setBounds(
+        val,
+        std::numeric_limits<int64_t>::min(),
+        std::numeric_limits<int64_t>::max());
+  }
+
+  void boundNamedScalar(NamedScalar* scalar) {
+    if (std::optional<ParallelType> ptype = scalar->getParallelDim();
+        ptype.has_value()) {
+      // scalar is the extent of a parallel dim, so evaluate it
+      int64_t dim_int = evalInt(scalar);
+      setBounds(scalar, dim_int, dim_int);
+    } else if (std::optional<ParallelType> ptype = scalar->getParallelIndex();
+               ptype.has_value()) {
+      // scalar is the index of a parallel dim, so bound it by [0, dim-1]
+      int64_t dim_int = evalInt(parallel_dim_map_.getRaw(ptype.value()));
+      setBounds(scalar, 0L, dim_int - 1L);
+    } else {
+      // We do not know how to bound other NamedScalars
+      setAsUnbounded(scalar);
+    }
   }
 
   using kir::IrVisitor::dispatch;
@@ -305,7 +333,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     }
     // Inline scalar expressions might not have their inputs processed yet
     for (Val* inp : expr->inputs()) {
-      std::cout << "Processing input " << inp->toInlineString() << std::endl;
+      std::cout << "Processing input " << (void*)inp << ":"
+                << inp->toInlineString() << std::endl;
+      // TODO: Clean up this logic
       if (bounds_.count(inp) == 0) {
         // Try and evaluate this value, in case it is already bound
         PolymorphicValue inp_val = expr_eval_.evaluate(inp);
@@ -326,13 +356,12 @@ class ScalarBoundsCalculator : kir::IrVisitor {
             PolymorphicValue inp_val = expr_eval_.evaluate(inp);
             if (inp_val.hasValue()) {
               setBounds(inp, inp_val.as<int64_t>(), inp_val.as<int64_t>());
-              continue;
             }
+          } else if (auto* scalar = dynamic_cast<NamedScalar*>(inp)) {
+            boundNamedScalar(scalar);
+          } else {
+            setAsUnbounded(inp);
           }
-          setBounds(
-              inp,
-              std::numeric_limits<int64_t>::min(),
-              std::numeric_limits<int64_t>::max());
         }
       }
     }
@@ -356,7 +385,10 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   }
 
   void handle(UnaryOp* uop) {
-    NVF_THROW("Not yet implemented");
+    switch (uop->getUnaryOpType()) {
+      default:
+        NVF_THROW("Not yet implemented");
+    }
   }
 
   void handle(BinaryOp* bop) {
@@ -383,11 +415,15 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   }
 
   void handle(TernaryOp* top) {
-    NVF_THROW("Not yet implemented");
+    switch (top->getTernaryOpType()) {
+      default:
+        NVF_THROW("Not yet implemented");
+    }
   }
 
  private:
   ExpressionEvaluator& expr_eval_;
+  const ParallelDimensionMap& parallel_dim_map_;
   std::unordered_map<Val*, BoundedInt> bounds_;
 };
 
