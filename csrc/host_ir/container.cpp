@@ -60,7 +60,8 @@ void HostIrContainer::pushBackKernelExecutor(
 void HostIrContainer::setKernelExecutor(
     int64_t index,
     std::unique_ptr<KernelExecutor> ke) {
-  kernel_executors_[index] = std::move(ke);
+  NVF_ERROR(kernel_executors_.at(index) == nullptr);
+  kernel_executors_.at(index) = std::move(ke);
 }
 
 KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {
