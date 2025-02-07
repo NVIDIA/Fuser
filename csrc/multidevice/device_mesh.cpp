@@ -61,7 +61,8 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
   return DeviceMesh(devices);
 }
 
-/*static*/ DeviceMesh DeviceMesh::createForShape(std::vector<int64_t> shape) {
+/*static*/ DeviceMesh DeviceMesh::createForShape(
+    const std::vector<int64_t>& shape) {
   int64_t num_devices =
       std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
   std::vector<DeviceIdxType> devices(num_devices);
@@ -73,9 +74,9 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   out << "DeviceMesh";
   int64_t ndevices = std::accumulate(
       mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
-  int64_t ndims = (int64_t)mesh.shape().size();
+  int64_t ndims = mesh.rank();
   std::vector<int64_t> strides = mesh.shape();
-  for (int64_t i = ndims - 2; i >= 0; --i) {
+  for (auto i = ndims - 2; i >= 0; --i) {
     strides[i] *= strides[i + 1];
   }
 
@@ -125,28 +126,28 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
 }
 
 namespace {
-size_t ptypeToAxis(ParallelType ptype, size_t naxis) {
+int64_t ptypeToAxis(ParallelType ptype, int64_t ndims) {
   NVF_ERROR(
       isParallelTypeDeviceDim(ptype),
       "Attempting to index into DeviceMesh with a non-device parallel type",
       ptype);
-  size_t offset =
-      static_cast<size_t>(ptype) - static_cast<size_t>(ParallelType::DIDx);
+  int64_t offset =
+      static_cast<int64_t>(ptype) - static_cast<int64_t>(ParallelType::DIDx);
 
   NVF_ERROR(
-      offset < naxis,
+      offset < ndims,
       "DeviceMesh has ",
-      naxis,
+      ndims,
       " dimensions, but requesting slice for ",
       ptype);
-  return naxis - 1 - offset;
+  return ndims - 1 - offset;
 }
 } // namespace
 
 std::vector<DeviceIdxType> DeviceMesh::getSlice(
     DeviceIdxType deviceId,
     ParallelType ptype) const {
-  size_t axis = ptypeToAxis(ptype, shape_.size());
+  int64_t axis = ptypeToAxis(ptype, rank());
   auto indices = getIndices(deviceId);
   NVF_ERROR(
       !indices.empty(), "Device ", deviceId, " is not in DeviceMesh ", vector_);
@@ -154,7 +155,7 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
   int64_t offset = 0;
   int64_t stride = 1;
   int64_t accumulated_size = 1;
-  for (size_t i = shape_.size() - 1; i >= 0; i--) {
+  for (auto i = rank() - 1; i >= 0; i--) {
     if (i > axis) {
       stride *= shape_[i];
     }

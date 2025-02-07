@@ -50,12 +50,6 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
   }
 }
 
-// Temporary helper function to check we have a 1D mesh while
-// multidimensional support is being built up.
-bool is1DMesh(const DeviceMesh& mesh) {
-  return mesh.shape().size() == 1;
-}
-
 // Adds one or zero Scatter communication to the vector 'comms'
 void lowerToScatter(
     TensorView* input_tv,
@@ -64,7 +58,7 @@ void lowerToScatter(
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
-      is1DMesh(receiver_mesh),
+      receiver_mesh.rank() == 1,
       "Gather only supported on a 1D mesh. Given ",
       receiver_mesh);
   auto root = input_tv->getDeviceMesh().at(0);
@@ -89,7 +83,7 @@ void lowerToGather(
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   NVF_ERROR(
-      is1DMesh(sender_mesh),
+      sender_mesh.rank() == 1,
       "Currently only lower Gather on a 1D mesh. Given ",
       sender_mesh);
   for (auto root : output_tv->getDeviceMesh().vector()) {
@@ -121,7 +115,8 @@ void lowerToBroadcast(
     DeviceIdxType root,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(is1DMesh(mesh), "Broadcast only supported a 1D mesh. Given ", mesh);
+  NVF_ERROR(
+      mesh.rank() == 1, "Broadcast only supported a 1D mesh. Given ", mesh);
   Team team = mesh.vector();
   if (!mesh.has(root)) {
     team.push_back(root);
@@ -141,11 +136,11 @@ void lowerToBroadcastOrSendRecv(
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
-      is1DMesh(sender_mesh),
+      sender_mesh.rank() == 1,
       "Broadcast only supported a 1D mesh. Given ",
       sender_mesh);
   NVF_ERROR(
-      is1DMesh(receiver_mesh),
+      receiver_mesh.rank() == 1,
       "Broadcast only supported a 1D mesh. Given ",
       receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
@@ -190,11 +185,11 @@ void lowerToReduce(
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   NVF_ERROR(
-      is1DMesh(sender_mesh),
+      sender_mesh.rank() == 1,
       "Reduce only supported a 1D mesh. Given ",
       sender_mesh);
   NVF_ERROR(
-      is1DMesh(receiver_mesh),
+      receiver_mesh.rank() == 1,
       "Reduce only supported a 1D mesh. Given ",
       receiver_mesh);
   const auto reduce_op_type = getC10dReduceOpType(op_type);

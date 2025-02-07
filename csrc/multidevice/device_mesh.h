@@ -48,7 +48,7 @@ class DeviceMesh final {
   static DeviceMesh createForNumDevices(int64_t num_devices);
   // Creates a device mesh with the specified shape with devices numbered
   // [0 ... num_devices-1].
-  static DeviceMesh createForShape(std::vector<int64_t> shape);
+  static DeviceMesh createForShape(const std::vector<int64_t>& shape);
 
   // Returns the number of devices in the mesh
   int64_t size() const {
@@ -94,6 +94,11 @@ class DeviceMesh final {
   // Returns the device at a particular index in the mesh
   DeviceIdxType at(int64_t index) const {
     return vector_.at(index);
+  }
+
+  // Returns the rank (number of dimensions) of the mesh.
+  int64_t rank() const {
+    return static_cast<int64_t>(shape_.size());
   }
 
   bool operator==(const DeviceMesh& other) const {
