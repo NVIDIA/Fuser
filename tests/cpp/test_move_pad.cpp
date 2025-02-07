@@ -116,8 +116,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
-          HeuristicIs(SchedulerType::PointWise)));
+          HeuristicIs(SchedulerType::Resize)));
 
   testValidate(
       executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
