@@ -582,14 +582,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it == replay_CasP.getReplay().end()) {
-      NVF_ERROR(
-          maybe_unmapped_ids.count(p_id),
-          "Could not find axis, ",
-          p_id,
-          ", requested in replaying consumer ",
-          consumer,
-          " as producer ",
-          producer);
+      // NVF_ERROR(
+      //     maybe_unmapped_ids.count(p_id),
+      //     "Could not find axis, ",
+      //     p_id,
+      //     ", requested in replaying consumer ",
+      //     consumer,
+      //     " as producer ",
+      //     producer, "Producer IDs: ", target_producer_ids, " Root: ", producer->getRootDomain(), " Logical: ", producer->getLogicalDomain(), "Loop: ", producer->getLoopDomain());
       continue;
     }
     NVF_ERROR(
@@ -678,11 +678,11 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it == replay_CasP.getReplay().end()) {
-      NVF_ERROR(
-          maybe_unmapped_ids.count(p_id),
-          "Could not find axis, ",
-          p_id,
-          ", requested in replay.");
+      // NVF_ERROR(
+      //     maybe_unmapped_ids.count(p_id),
+      //     "Could not find axis, ",
+      //     p_id,
+      //     ", requested in replay.");
       continue;
     }
     new_IDs.push_back(it->second);
