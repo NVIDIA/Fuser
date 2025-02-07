@@ -45,6 +45,7 @@
 #include <limits>
 #include "evaluator_common.h"
 #include "expr_evaluator.h"
+#include "ir/internal_nodes.h"
 #include "parallel_dimension_map.h"
 #include "type.h"
 
@@ -390,7 +391,8 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     } else if (auto* scalar = dynamic_cast<NamedScalar*>(val)) {
       boundNamedScalar(scalar);
       return bounds_.at(val);
-    } else if (PolymorphicValue pv = expr_eval_.evaluate(val); pv.hasValue()) {
+    } else if (PolymorphicValue pv = expr_eval_.evaluate(val, known_scalars_);
+               pv.hasValue()) {
       setBounds(val, pv.as<int64_t>(), pv.as<int64_t>());
       return bounds_.at(val);
     } else {
@@ -402,6 +404,19 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) {
+    if (auto* uop = dynamic_cast<UnaryOp*>(expr);
+        uop && uop->getUnaryOpType() == UnaryOpType::ToUnsignedSmemAddr) {
+      // This is a workaround for a limitation in being able to evaluate
+      // metadata for tensors with swizzles.
+      // TODO: is there a better workaround?
+      int64_t max_smem_addr =
+          (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock -
+          1L;
+      known_scalars_[uop->out()] = max_smem_addr;
+      setBounds(uop->out(), 0L, max_smem_addr);
+      return;
+    }
+
     if (!expr->isA<ForLoop>() &&
         std::all_of(
             expr->outputs().begin(), expr->outputs().end(), [](Val* outp) {
@@ -414,7 +429,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       // try and compute them here.
       for (Val* outp : expr->outputs()) {
         if (outp->isIntegralScalar()) {
-          PolymorphicValue pv = expr_eval_.evaluate(outp);
+          PolymorphicValue pv = expr_eval_.evaluate(outp, known_scalars_);
           if (pv.hasValue()) {
             setBounds(outp, pv.as<int64_t>(), pv.as<int64_t>());
           }
@@ -534,7 +549,8 @@ class ScalarBoundsCalculator : kir::IrVisitor {
  private:
   ExpressionEvaluator& expr_eval_;
   const LaunchParams& launch_params_;
-  std::unordered_map<Val*, BoundedInt> bounds_;
+  std::unordered_map<const Val*, BoundedInt> bounds_;
+  std::unordered_map<const Val*, PolymorphicValue> known_scalars_;
 };
 
 PrimDataType getSmallestIndexTypeByBoundingExpressions(
