@@ -331,6 +331,23 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
   // (https://github.com/csarofeen/pytorch/issues/1112)
   if (io_alias_.count(output) != 0) {
     auto input = io_alias_[output];
+    if (replacement->isFusionOutput()) {
+      // If we replace output with another output can change aliasing behavior
+      // and even the number of outputs returned, so we prohibit it.
+      // See https://github.com/NVIDIA/Fuser/issues/3833
+      const AliasInfo& current_info = getOutputAlias(output);
+      const AliasInfo& new_info = getOutputAlias(replacement);
+      NVF_ERROR(
+          new_info == current_info,
+          "Replacing one output with another is only allowed if alias info matches. Current output ",
+          output->toString(),
+          " has alias info ",
+          current_info.toString(),
+          " but replacement ",
+          replacement->toString(),
+          " has alias info ",
+          new_info.toString());
+    }
     io_alias_.erase(output);
     io_alias_[replacement] = input;
   }
