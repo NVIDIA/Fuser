@@ -281,6 +281,16 @@ class ID_Dispatch {
         std::make_move_iterator(new_entries.end()));
   }
 
+  void remove(IterDomain* target) {
+    auto it = std::find_if(
+        active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
+          return pair.first == target;
+        });
+
+    NVF_ERROR(it != active_ids_.end());
+    active_ids_.erase(it);
+  }
+
   // This needs to be a std::vector and we need to keep track of placement,
   // because contiguity is relative to the original ordering, permutations of
   // that ordering (ignoring broadcast dims) change contiguity of the
@@ -323,7 +333,18 @@ void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
 }
 
 void ID_Dispatch::ForwardDispatch_::handle(Merge* merge) {
-  std::cout << "Forward: " << merge->toString() << std::endl;
+  auto inner_properties = id_dispatch_->findIdProperties(merge->inner());
+  auto outer_properties = id_dispatch_->findIdProperties(merge->outer());
+  id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
+      IrBuilder::mulExpr(inner_properties.size, inner_properties.stride),
+      outer_properties.stride));
+  id_dispatch_->replaceAndInsert(
+      merge->inner(),
+      {{merge->out(),
+        {IrBuilder::mulExpr(inner_properties.size, outer_properties.size),
+         inner_properties.stride,
+         inner_properties.contiguity}}});
+  id_dispatch_->remove(merge->outer());
 }
 
 ID_Dispatch::BackwardDispatch_::BackwardDispatch_(ID_Dispatch* id_dispatch)
