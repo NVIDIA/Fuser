@@ -1476,24 +1476,45 @@ void schedulePersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams->isUnrolled();
-  const bool vectorize =
+  const bool is_unroll_or_vectorization = rparams->isUnrolled();
+  const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+  const bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
-      reduction_tvs[0],
+
+  // Propagate transformations before we rfactor the other reductions
+  auto reduction_tv = reduction_tvs.at(0);
+  propagateTransformation(reference_tv);
+  // If reduction_tv is rfactored, rfactor all reductions.
+  if (reference_tv != reduction_tv) {
+    propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
+  }
+
+  const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
+      reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  reduction_scheduler_utils::propagateParallelization(
+      reduction_tv,
       reference_tv,
-      unroll,
-      vectorize,
-      is_outer_grid_persistence,
-      rparams->unroll_factor_inner_reduction,
+      is_unroll_or_vectorization,
+      use_grouped_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_consumers,
-      dummy_outputs);
+      unroll_vectorizable_cached_tvs);
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (is_vectorize) {
+    int64_t vectorizatoin_factor = rparams->unroll_factor_inner_reduction;
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, vectorizatoin_factor);
+  }
+
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+
+  // Inline the schedule
+  inlineMost();
 
   if (rparams->compute_persistent_buffer_with_first_consumer) {
     NVF_ERROR(

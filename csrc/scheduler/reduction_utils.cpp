@@ -344,52 +344,6 @@ std::vector<int64_t> addBackBroadcasts(
   return axes;
 }
 
-void multiReductionInliner(
-    Fusion* fusion,
-    TensorView* reduction_tv,
-    TensorView* reference_tv,
-    const bool is_unroll_or_vectorization,
-    const bool vectorize,
-    const bool use_grouped_reduction,
-    const int64_t vectorizatoin_factor,
-    std::vector<TensorView*> reduction_tvs,
-    std::vector<TensorView*> cached_inputs,
-    std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> smem_consumers,
-    std::vector<TensorView*> dummy_outputs) {
-  // Propagate transformations before we rfactor the other reductions
-  propagateTransformation(reference_tv);
-  // If reduction_tv is rfactored, rfactor all reductions.
-  if (reference_tv != reduction_tv) {
-    propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
-  }
-
-  const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, vectorize, cached_inputs, cached_outputs);
-  reduction_scheduler_utils::propagateParallelization(
-      reduction_tv,
-      reference_tv,
-      is_unroll_or_vectorization,
-      use_grouped_reduction,
-      reduction_tvs,
-      unroll_vectorizable_cached_tvs);
-
-  // Needs special handling of vectorized loading from shared memory due to
-  // potential different data types of inputs and shared memory tensor.
-  if (vectorize) {
-    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
-        smem_consumers, vectorizatoin_factor);
-  }
-
-  // Remove dummy outputs as they can inadvertently affect CA positions
-  for (auto output : dummy_outputs) {
-    fusion->removeOutput(output);
-  }
-
-  // Inline the schedule
-  inlineMost();
-}
-
 void propagateTransformation(
     TensorView* reference_tv,
     const std::unordered_set<TensorView*>& boundaryNodesSet) {
