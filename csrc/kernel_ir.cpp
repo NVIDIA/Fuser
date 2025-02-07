@@ -412,6 +412,22 @@ std::string Asm::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Asm op can not be printed inline");
 }
 
+const std::string Asm::utility() const {
+  static const std::unordered_map<std::string, std::string> ptx_to_utility{
+      {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
+      {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
+      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
+      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
+      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
+      {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+       "relinquishTMemAllocPermit"}};
+  auto it = ptx_to_utility.find(code());
+  if (it != ptx_to_utility.end()) {
+    return it->second;
+  }
+  return "";
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
 
 AllocTMem::AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns)
