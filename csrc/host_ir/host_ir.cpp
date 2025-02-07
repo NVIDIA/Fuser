@@ -123,7 +123,7 @@ LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t hic_executor_index,
     const LaunchParams launch_constraints,
-    CompileParams compile_params,
+    const CompileParams compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs)
     : Expr(passkey, inputs, outputs, {}),

@@ -125,7 +125,7 @@ class LaunchKernel : public Expr {
                                   // KernelExecutors--i.e., the kernel this IR
                                   // should launch
       const LaunchParams launch_constraints,
-      CompileParams compile_params,
+      const CompileParams compile_params,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs);
 
