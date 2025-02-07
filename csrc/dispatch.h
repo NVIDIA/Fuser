@@ -146,7 +146,9 @@ class Val;
   f(InitMagicZero);                   \
   f(UpdateMagicZero);                 \
   f(GetRNGSeedAndOffsetFromHost);     \
-  f(EncodeTensorMapTiled);
+  f(EncodeTensorMapTiled);            \
+  f(StringInsert);                    \
+  f(RNGOp);
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \

@@ -62,6 +62,8 @@ class GridBroadcast;
 class GridWelford;
 class GroupedGridWelford;
 class AllocateFusedReduction;
+class RNGOp;
+class StringInsert;
 
 // Expr container
 
@@ -1540,6 +1542,59 @@ class EncodeTensorMapTiled : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class RNGOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  RNGOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* rng_result,
+      Val* rng_component,
+      DataType dtype,
+      RNGOpType rng_type,
+      // range high and low, or avg and std dev
+      std::vector<Val*> parameters = {});
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "RNGOp";
+  }
+
+  RNGOpType getRNGOpType() const {
+    return attribute<RNGOpType>(0);
+  }
+
+  DataType dtype() const {
+    return attribute<DataType>(1);
+  }
+};
+
+class StringInsert : public Expr {
+ public:
+  using Expr::Expr;
+
+  StringInsert(IrBuilderPasskey, std::string instruction);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override {
+    return instruction_ + "\n";
+  };
+  std::string toInlineString(int indent_size = 0) const override {
+    return instruction_;
+  };
+
+  const char* getOpString() const override {
+    return "/*MANUAL_INSTRUCTION*/";
+  }
+  std::string instruction_ = "";
 };
 
 } // namespace kir
