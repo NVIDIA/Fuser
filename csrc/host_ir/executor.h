@@ -88,7 +88,7 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   std::vector<at::Tensor> runWithInput(
       std::unordered_map<Val*, c10::IValue> val_to_IValue);
-  std::vector<at::Tensor> runWithInput(
+  std::vector<at::Tensor> runWithPolymorphicValues(
       std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue);
 
   const std::vector<Val*>& inputs() {

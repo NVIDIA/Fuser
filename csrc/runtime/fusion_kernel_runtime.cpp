@@ -286,7 +286,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
     ArgumentManager args_manager(args, runtime_workspace_, hie_->inputs());
-    return hie_->runWithInput(args_manager.getTensorMap());
+    return hie_->runWithPolymorphicValues(args_manager.getTensorMap());
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {

@@ -481,7 +481,7 @@ TEST_F(StreamTest, HostIrSetStream) {
 
   HostIrEvaluator hie(std::move(hic));
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
-  hie.runWithInput(std::unordered_map<Val*, c10::IValue>());
+  hie.runWithInput({});
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
@@ -501,7 +501,7 @@ TEST_F(StreamTest, HostIrDefaultStream) {
     auto set_stream = IrBuilder::create<SetCurrentStream>(stream);
     hic->pushBackTopLevelExprs(set_stream);
     HostIrEvaluator hie(std::move(hic));
-    hie.runWithInput(std::unordered_map<Val*, c10::IValue>());
+    hie.runWithInput({});
   };
 
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
@@ -528,7 +528,7 @@ TEST_F(StreamTest, HostIrGetCurrentStream) {
   setCurrentCUDAStream(cuda_stream);
 
   HostIrEvaluator hie(std::move(hic));
-  hie.runWithInput(std::unordered_map<Val*, c10::IValue>());
+  hie.runWithInput({});
 
   EXPECT_EQ(cuda_stream, c10::cuda::getCurrentCUDAStream(0));
 }
@@ -553,7 +553,7 @@ TEST_F(StreamTest, ByIndex) {
   hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(stream2));
 
   HostIrEvaluator hie(std::move(hic));
-  hie.runWithInput(std::unordered_map<Val*, c10::IValue>());
+  hie.runWithInput({});
 
   const std::unordered_map<
       std::variant<int64_t, Stream*>,
