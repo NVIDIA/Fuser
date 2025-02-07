@@ -1080,6 +1080,22 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     // all persistent buffers are moved to shared memory
     // TODO: allow only part of the buffers to be moved to shared memory
     rparams->smem_persistent_buffers = prop.persistent_buffers;
+    
+    // check for tma load
+    if(rparams->project_persistent_buffers){
+      int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+      rparams->use_tma_load = hw_major >= 9;
+    }
+
+    // set circular buffer options
+    if(rparams->use_tma_load){
+      CircularBufferOptions circular_buffer_options;
+      circular_buffer_options.stage = 2;
+      circular_buffer_options.prefetch = 1;
+      circular_buffer_options.type = Pipelined(true);
+      rparams->circular_buffer_options = circular_buffer_options;
+    }
+
     innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";

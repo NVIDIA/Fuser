@@ -35,6 +35,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const bool use_tma_load,
     const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,

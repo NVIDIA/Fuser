@@ -351,14 +351,45 @@ void multiReductionInliner(
     const bool is_unroll_or_vectorization,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const bool use_tma_load,
     const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
     std::vector<TensorView*> smem_consumers,
     std::vector<TensorView*> dummy_outputs) {
+
+  std::vector<TensorView*> tma_tvs;
   // Propagate transformations before we rfactor the other reductions
-  propagateTransformation(reference_tv);
+  if(use_tma_load){
+    for (auto tv : smem_consumers) {
+      auto smem_tv = ir_utils::getSoleProducerTv(tv);
+      if (!ir_utils::isCpAsyncBulkLoad(smem_tv->definition())) {
+        continue;
+      }
+      if (std::find(tma_tvs.begin(), tma_tvs.end(), smem_tv) == tma_tvs.end()) {
+        std::cout << "Found TMA load: " << smem_tv->toString() << std::endl;
+        tma_tvs.emplace_back(smem_tv);
+      }
+    }    
+    // propagate iteration domains
+    TransformPropagator propagator_circular_buffer(reference_tv, 1);
+    MaxLogicalDomainInfoSpanningTree(reference_tv)
+        .traverse(&propagator_circular_buffer);
+
+    // propagate reduction domains
+    TransformPropagator propagator(reference_tv);
+    std::vector<TensorView*> all_tvs_except_cache =
+        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+    SetSelector selector(
+        {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+    MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+        .traverse(&propagator);
+  }else{
+    propagateTransformation(reference_tv);
+  }
+
+
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
     propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
@@ -386,8 +417,29 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
 
+  if (use_tma_load) {
+    for (auto tv : tma_tvs) {
+      tv->axis(-1)->parallelize(ParallelType::Bulk);
+    }
+  }
+
   // Inline the schedule
   inlineMost();
+
+  // circular buffer
+
+  if (use_tma_load && rparams->circular_buffer_stages_iter_dim > 1) {
+    int64_t number_of_stages = rparams->circular_buffer_stages_iter_dim;
+    int64_t prefetch_distance = number_of_stages - 1;
+    CircularBufferType circular_buffer_type = Pipelined(true);
+    for (auto tv : tma_tvs) {
+      if (tv->getComputeAtPosition() > 0) {
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      }
+    }
+  }
+
 }
 
 void propagateTransformation(

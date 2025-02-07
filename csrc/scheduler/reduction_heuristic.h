@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <ir/interface_nodes.h>
 #include <scheduler/heuristic.h>
 
 #include <sstream>
@@ -156,6 +157,11 @@ class ReductionParams : public HeuristicParams {
   // when the shared memory is much larger than the register file.
   std::vector<TensorView*> smem_persistent_buffers;
 
+  // use tma load
+  bool use_tma_load = false;
+
+  CircularBufferOptions circular_buffer_options;
+
  public:
   using HeuristicParams::HeuristicParams;
 
@@ -202,7 +208,9 @@ class ReductionParams : public HeuristicParams {
         other->unroll_factor_top_of_vectorization ==
             unroll_factor_top_of_vectorization &&
         other->vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write;
+            vectorization_factor_tmp_gmem_write &&
+        other->use_tma_load == use_tma_load &&
+        other->circular_buffer_options == circular_buffer_options;
 
     if (other->static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();
@@ -219,9 +227,13 @@ class ReductionParams : public HeuristicParams {
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << (fastest_dim ? "Red On Fastest Dim\n" : "Red On Slow Dim\n")
        << (persistent_kernel ? "Persistent Kernel\n" : "")
+       << (use_tma_load ? "TMA load\n" : "")
        << (project_persistent_buffers ? "Project Persistent Buffers\n" : "");
     if (batches_per_block_inner_reduction > 1 || persistent_kernel) {
       ss << "Batches per block: " << batches_per_block_inner_reduction << "\n";
+    }
+    if (circular_buffer_options.isEnable()) {
+      ss << circular_buffer_options;
     }
 
     if (schedule_3D) {
@@ -327,7 +339,8 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(unroll_factor_outer_reduction) << (bits - 22) ^
         static_cast<size_t>(compute_persistent_buffer_with_first_consumer)
             << (bits - 23) ^
-        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24);
+        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24) ^
+        static_cast<size_t>(use_tma_load) << (bits - 25);
     return attr_hash;
   }
 

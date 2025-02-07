@@ -1600,6 +1600,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
       unroll,
       vectorize,
       use_iter_grouped_reduction,
+      rparams->use_tma_load,
       rparams->unroll_factor_inner_reduction,
       reduction_tvs,
       cached_inputs,
