@@ -124,8 +124,8 @@ class LaunchKernel : public Expr {
       int64_t hic_executor_index, // Index into the HostIrContainer's vector of
                                   // KernelExecutors--i.e., the kernel this IR
                                   // should launch
-      const LaunchParams launch_constraints,
-      const CompileParams compile_params,
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs);
 

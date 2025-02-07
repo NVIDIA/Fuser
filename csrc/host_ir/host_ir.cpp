@@ -122,8 +122,8 @@ bool PostOnStream::sameAs(const Statement* other) const {
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t hic_executor_index,
-    const LaunchParams launch_constraints,
-    const CompileParams compile_params,
+    const LaunchParams& launch_constraints,
+    const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs)
     : Expr(passkey, inputs, outputs, {}),
