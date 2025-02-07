@@ -27,22 +27,6 @@ TensorView* scheduleReductionTV(
     TensorView* reduction_tv,
     bool has_iter_axis);
 
-// Inlining function intended for single or multi reduction fusions.
-void multiReductionInliner(
-    Fusion* fusion,
-    TensorView* reduction_tv,
-    TensorView* reference_tv,
-    const bool unroll,
-    const bool vectorize,
-    const bool use_grouped_reduction,
-    const bool use_tma_load,
-    const int64_t vectorizatoin_factor,
-    std::vector<TensorView*> reduction_tvs,
-    std::vector<TensorView*> cached_inputs,
-    std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> smem_persistent_buffer_consumers = {},
-    std::vector<TensorView*> dummy_outputs = {});
-
 // Propagate transformations with internal cutoff boundary at boundaryNodesSet
 // in P2C forward propagate, disable propagation to TensorView in
 // boundaryNodesSet in C2P backward propagate, disable propagation from

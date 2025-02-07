@@ -15,6 +15,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <utils.h>
 #include <val_graph_visitor.h>
 
@@ -1482,25 +1483,95 @@ void schedulePersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams->isUnrolled();
-  const bool vectorize =
+  const bool is_unroll_or_vectorization = rparams->isUnrolled();
+  const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+  const bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
-      reduction_tvs[0],
+
+  // Propagate transformations before we rfactor the other reductions
+  auto reduction_tv = reduction_tvs.at(0);
+  std::vector<TensorView*> tma_tvs;
+  // Propagate transformations before we rfactor the other reductions
+  if(rparams->use_tma_load){
+    for (auto tv : smem_consumers) {
+      auto smem_tv = ir_utils::getSoleProducerTv(tv);
+      if (!ir_utils::isCpAsyncBulkLoad(smem_tv->definition())) {
+        continue;
+      }
+      if (std::find(tma_tvs.begin(), tma_tvs.end(), smem_tv) == tma_tvs.end()) {
+        std::cout << "Found TMA load: " << smem_tv->toString() << std::endl;
+        tma_tvs.emplace_back(smem_tv);
+      }
+    }    
+    // propagate iteration domains
+    TransformPropagator propagator_circular_buffer(reference_tv, 1);
+    MaxLogicalDomainInfoSpanningTree(reference_tv)
+        .traverse(&propagator_circular_buffer);
+
+    // propagate reduction domains
+    TransformPropagator propagator(reference_tv);
+    std::vector<TensorView*> all_tvs_except_cache =
+        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+    SetSelector selector(
+        {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+    MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+        .traverse(&propagator);
+  }else{
+    reduction_scheduler_utils::propagateTransformation(reference_tv);
+  }
+
+
+  // If reduction_tv is rfactored, rfactor all reductions.
+  if (reference_tv != reduction_tv) {
+    reduction_scheduler_utils::propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
+  }
+
+  const auto& unroll_vectorizable_cached_tvs = reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+      reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  reduction_scheduler_utils::propagateParallelization(
+      reduction_tv,
       reference_tv,
-      unroll,
-      vectorize,
-      is_outer_grid_persistence,
-      rparams->use_tma_load,
-      rparams->unroll_factor_inner_reduction,
+      is_unroll_or_vectorization,
+      use_grouped_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_consumers,
-      dummy_outputs);
+      unroll_vectorizable_cached_tvs);
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (is_vectorize) {
+    int64_t vectorization_factor = rparams->unroll_factor_inner_reduction;
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, vectorization_factor);
+  }
+
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+
+  if (rparams->use_tma_load) {
+    for (auto tv : tma_tvs) {
+      tv->axis(-1)->parallelize(ParallelType::Bulk);
+    }
+  }
+
+  // Inline the schedule
+  inlineMost();
+
+  // circular buffer
+
+  if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {
+    int64_t number_of_stages = rparams->circular_buffer_options.stage;
+    int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;
+    CircularBufferType circular_buffer_type = rparams->circular_buffer_options.type;
+    for (auto tv : tma_tvs) {
+      if (tv->getComputeAtPosition() > 0) {
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      }
+    }
+  }
 
   if (rparams->compute_persistent_buffer_with_first_consumer) {
     NVF_ERROR(
