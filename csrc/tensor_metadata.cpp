@@ -303,7 +303,7 @@ void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
 
   id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
       FusionGuard::getCurFusion()->zeroVal(),
-      IrBuilder::modExpr(in_properties.size, split->factor())));
+      IrBuilder::modExpr(in_properties.size, factor)));
 
   auto other = IrBuilder::divExpr(in_properties.size, factor);
 
@@ -319,7 +319,7 @@ void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
 
   id_dispatch_->replaceAndInsert(
       split->in(),
-      {{split->inner(), inner_properties}, {split->outer(), outer_properties}});
+      {{split->outer(), outer_properties}, {split->inner(), inner_properties}});
 }
 
 void ID_Dispatch::ForwardDispatch_::handle(Merge* merge) {
@@ -334,7 +334,27 @@ void ID_Dispatch::BackwardDispatch_::handle(Split* split) {
 }
 
 void ID_Dispatch::BackwardDispatch_::handle(Merge* merge) {
-  std::cout << "Backward: " << merge->toString() << std::endl;
+  auto out_properties = id_dispatch_->findIdProperties(merge->out());
+  // TODO: How should expanded extents be handled here?
+  auto factor = merge->inner()->extent();
+
+  id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
+      FusionGuard::getCurFusion()->zeroVal(),
+      IrBuilder::modExpr(out_properties.size, factor)));
+
+  // This impl should be safe, but could be specialized in case the outer
+  // dimension has a const int
+
+  IDProperties outer_properties = {
+      IrBuilder::divExpr(out_properties.size, factor),
+      IrBuilder::mulExpr(out_properties.size, factor),
+      out_properties.contiguity};
+  IDProperties inner_properties = {
+      factor, out_properties.stride, out_properties.contiguity};
+
+  id_dispatch_->replaceAndInsert(
+      merge->out(),
+      {{merge->outer(), outer_properties}, {merge->inner(), inner_properties}});
 }
 
 TensorSizeStrideReturn ID_Dispatch::transform(
