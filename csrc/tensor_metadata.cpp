@@ -211,11 +211,15 @@ class BackwardSizesStridesTraverse {
   }
 };
 
+struct IDProperties {
+  Val* size;
+  Val* stride;
+  bool contiguity;
+};
+
 struct TensorSizeStrideReturn {
-  std::vector<Val*> sizes;
-  std::vector<Val*> strides;
-  std::vector<Val*> validation;
-  std::vector<Val*> contiguity;
+  std::vector<IDProperties> id_properties;
+  std::vector<Val*> validation_statements;
 };
 
 class ID_Dispatch {
@@ -247,7 +251,42 @@ class ID_Dispatch {
       std::vector<bool> contiguity = {});
 
  public:
-  std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids_;
+  IDProperties findIdProperties(IterDomain* target) const {
+    auto it = std::find_if(
+        active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
+          return pair.first == target;
+        });
+    NVF_ERROR(it != active_ids_.end());
+    return it->second;
+  }
+
+  void replaceAndInsert(
+      IterDomain* target,
+      std::vector<std::pair<IterDomain*, IDProperties>> new_entries) {
+    auto it = std::find_if(
+        active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
+          return pair.first == target;
+        });
+
+    NVF_ERROR(it != active_ids_.end());
+    NVF_ERROR(!new_entries.empty());
+
+    const size_t pos = std::distance(active_ids_.begin(), it);
+    active_ids_.erase(it);
+
+    // Move-insert new entries at original position
+    active_ids_.insert(
+        active_ids_.begin() + pos,
+        std::make_move_iterator(new_entries.begin()),
+        std::make_move_iterator(new_entries.end()));
+  }
+
+  // This needs to be a std::vector and we need to keep track of placement,
+  // because contiguity is relative to the original ordering, permutations of
+  // that ordering (ignoring broadcast dims) change contiguity of the
+  // projection.
+  std::vector<std::pair<IterDomain*, IDProperties>> active_ids_;
+  std::vector<Val*> validation_stmts_;
   ForwardDispatch_ forward_dispatch_;
   BackwardDispatch_ backward_dispatch_;
 };
@@ -259,7 +298,28 @@ ID_Dispatch::ForwardDispatch_::ForwardDispatch_(ID_Dispatch* id_dispatch)
     : id_dispatch_(id_dispatch) {}
 
 void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
-  std::cout << "Forward: " << split->toString() << std::endl;
+  auto in_properties = id_dispatch_->findIdProperties(split->in());
+  auto factor = split->factor();
+
+  id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
+      FusionGuard::getCurFusion()->zeroVal(),
+      IrBuilder::modExpr(in_properties.size, split->factor())));
+
+  auto other = IrBuilder::divExpr(in_properties.size, factor);
+
+  Val* inner_size = split->innerSplit() ? factor : other;
+  Val* outer_size = split->innerSplit() ? other : factor;
+
+  IDProperties inner_properties = {
+      inner_size, in_properties.stride, in_properties.contiguity};
+  IDProperties outer_properties = {
+      outer_size,
+      IrBuilder::mulExpr(in_properties.stride, inner_size),
+      in_properties.contiguity};
+
+  id_dispatch_->replaceAndInsert(
+      split->in(),
+      {{split->inner(), inner_properties}, {split->outer(), outer_properties}});
 }
 
 void ID_Dispatch::ForwardDispatch_::handle(Merge* merge) {
@@ -312,10 +372,15 @@ TensorSizeStrideReturn ID_Dispatch::transform(
   }
   NVF_ERROR(from_domain.size() == from_strides.size());
 
-  std::unordered_map<IterDomain*, std::pair<Val*, Val*>> active_ids;
+  std::vector<std::pair<IterDomain*, IDProperties>> active_ids;
+  active_ids.reserve(from_domain.size());
   for (auto dim_i : c10::irange(from_domain.size())) {
-    active_ids[from_domain[dim_i]] = {
-        from_domain[dim_i]->getMaybeExpandedExtent(), from_strides.at(dim_i)};
+    active_ids.push_back(
+        {from_domain[dim_i],
+         IDProperties{
+             from_domain[dim_i]->getMaybeExpandedExtent(),
+             from_strides.at(dim_i),
+             contiguity.at(dim_i)}});
   }
 
   ID_Dispatch dispatch;
