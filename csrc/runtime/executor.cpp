@@ -43,6 +43,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include "evaluator_common.h"
 #include "expr_evaluator.h"
 
 namespace nvfuser {
@@ -271,6 +272,10 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     bounds_.emplace(val, bounds);
   }
 
+  void setBounds(Val* val, int64_t min, int64_t max) {
+    setBounds(val, {min, max});
+  }
+
   using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
@@ -286,25 +291,51 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       // purposes.
       std::cout << " Skipping dispatch of expr " << expr->toString()
                 << std::endl;
+      // It is possible that the expression outputs are constant scalars, so
+      // try and compute them here.
+      for (Val* outp : expr->outputs()) {
+        if (outp->isIntegralScalar()) {
+          PolymorphicValue pv = expr_eval_.evaluate(outp);
+          if (pv.hasValue()) {
+            setBounds(outp, pv.as<int64_t>(), pv.as<int64_t>());
+          }
+        }
+      }
       return;
     }
     // Inline scalar expressions might not have their inputs processed yet
     for (Val* inp : expr->inputs()) {
+      std::cout << "Processing input " << inp->toInlineString() << std::endl;
       if (bounds_.count(inp) == 0) {
-        if (Expr* def = inp->definition()) {
-          // Recursively dispatch definitions
-          dispatch(def);
+        // Try and evaluate this value, in case it is already bound
+        PolymorphicValue inp_val = expr_eval_.evaluate(inp);
+        if (inp_val.hasValue()) {
+          setBounds(inp, inp_val.as<int64_t>(), inp_val.as<int64_t>());
         } else {
-          // We expect this to be a constant value since we process expressions
-          // in topological order. Any non-constant values should have been
-          // bounded by their defining expressions, or for loop indices they
-          // are bounded by the loop's start/stop.
-          int64_t const_val = evalInt(inp);
-          setBounds(inp, BoundedInt{const_val, const_val});
+          // If inp is not constant, then we can try bounding its inputs, if
+          // they are int scalars. If it has no producers that are int scalars,
+          // and it is unbound, then we cannot provide any bounds for it.
+          if (Expr* def = inp->definition();
+              def &&
+              std::any_of(
+                  def->inputs().begin(), def->inputs().end(), [](Val* definp) {
+                    return definp->isIntegralScalar();
+                  })) {
+            // Recursively dispatch definitions
+            dispatch(def);
+            PolymorphicValue inp_val = expr_eval_.evaluate(inp);
+            if (inp_val.hasValue()) {
+              setBounds(inp, inp_val.as<int64_t>(), inp_val.as<int64_t>());
+              continue;
+            }
+          }
+          setBounds(
+              inp,
+              std::numeric_limits<int64_t>::min(),
+              std::numeric_limits<int64_t>::max());
         }
       }
     }
-
     kir::IrVisitor::dispatch(expr);
   }
 
@@ -335,7 +366,15 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     switch (bop->getBinaryOpType()) {
       case BinaryOpType::CeilDiv:
         // ceilDiv(a, b) = (a + b - 1) / b
-        result = (a + b - 1L) / b;
+        //
+        // If a >=0 and b > 0, then the result is at least ceilDiv(a.min, b.max)
+        // and at most ceilDiv(a.max, b.min). This is the most common case
+        if (a.min >= 0L && b.min > 0L) {
+          result = {ceilDiv(a.min, b.max), ceilDiv(a.max, b.min)};
+        } else {
+          // TODO: This doesn't seem quite right
+          result = (a + b - 1) / b;
+        }
         break;
       default:
         NVF_THROW("Not yet implemented");
@@ -355,9 +394,6 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 PrimDataType getSmallestIndexTypeByBoundingExpressions(
     kir::Kernel* kernel,
     ExpressionEvaluator& expr_eval) {
-  for (Expr* exp : kernel->exprs()) {
-    std::cout << exp->toString();
-  }
   // bind args to expression evaluator
   ScalarBoundsCalculator calc(kernel, expr_eval);
   // Compute the range of all nvfuser_index_t values in the fusion
@@ -477,10 +513,12 @@ void KernelExecutor::compile(
   std::optional<int64_t> block_size = std::nullopt;
 
   auto launch_params = launch_constraints;
-  ExpressionEvaluator expr_eval;
+  kir::Kernel* kernel = compiled_kernel_->lowered()->kernel();
+  ExpressionEvaluator expr_eval =
+      executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
+  PrecomputedValues pv(kernel);
+  expr_eval.bindPrecomputedValues(&pv);
   if (!args.empty()) {
-    expr_eval =
-        executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
     NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
         launch_constraints,
@@ -493,9 +531,18 @@ void KernelExecutor::compile(
   }
 
   // Now that we have lowered the kernel, we can compute the index type
+  // properly. If there are no TMA instructions, then we assume that each
+  // element needs to be addressed individually, meaning arg_index_type is
+  // sufficient. However, because TMA can use multi-dimensional indexing, it is
+  // often possible to use much smaller values (but more of them) to address
+  // elements in the global tensors. So when we detect TMA, we inspect all
+  // expressions in the lowered kernel and bound them in order to detect
+  // possible overflow.
   if (has_cp_async_bulk) {
-    compile_params.index_type = getSmallestIndexTypeByBoundingExpressions(
-        compiled_kernel_->lowered()->kernel(), expr_eval);
+    // Bind tensor metadata
+    expr_eval.precomputedValues()->bindValues(kernel->inputs(), args);
+    compile_params.index_type =
+        getSmallestIndexTypeByBoundingExpressions(kernel, expr_eval);
     NVF_ERROR(
         compile_params.index_type.value() == PrimDataType::Int32,
         "Compilation with int64 is requested but int32 is required because ",
