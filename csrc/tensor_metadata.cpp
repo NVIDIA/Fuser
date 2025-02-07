@@ -223,9 +223,12 @@ struct TensorSizeStrideReturn {
 };
 
 class ID_Dispatch {
-  ID_Dispatch();
-
  public:
+  ID_Dispatch(
+      std::vector<IterDomain*> from_domain,
+      std::vector<Val*> from_strides = {},
+      std::vector<bool> contiguity = {});
+
   class ForwardDispatch_ : public OptInDispatch {
    public:
     using OptInDispatch::dispatch;
@@ -244,65 +247,86 @@ class ID_Dispatch {
     void handle(Merge* merge) override;
   };
 
-  static TensorSizeStrideReturn transform(
-      std::vector<IterDomain*> from_domain,
-      std::vector<IterDomain*> to_domain,
-      std::vector<Val*> from_strides = {},
-      std::vector<bool> contiguity = {});
+  std::vector<std::pair<IterDomain*, IDProperties>> transform(
+      std::vector<IterDomain*> to_domain);
 
  public:
-  IDProperties findIdProperties(IterDomain* target) const {
-    auto it = std::find_if(
-        active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
-          return pair.first == target;
-        });
-    NVF_ERROR(it != active_ids_.end());
-    return it->second;
-  }
+  // Grab entry in active_ids_ associated with target, error if not found.
+  IDProperties findIdProperties(IterDomain* target) const;
 
+  // At position in active_ids_ target is found, remove target and add
+  // new_entries in order in that location
   void replaceAndInsert(
       IterDomain* target,
-      std::vector<std::pair<IterDomain*, IDProperties>> new_entries) {
-    auto it = std::find_if(
-        active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
-          return pair.first == target;
-        });
+      std::vector<std::pair<IterDomain*, IDProperties>> new_entries);
 
-    NVF_ERROR(it != active_ids_.end());
-    NVF_ERROR(!new_entries.empty());
+  // Remove the entry in active_ids_ associated with target
+  void remove(IterDomain* target);
 
-    const size_t pos = std::distance(active_ids_.begin(), it);
-    active_ids_.erase(it);
-
-    // Move-insert new entries at original position
-    active_ids_.insert(
-        active_ids_.begin() + pos,
-        std::make_move_iterator(new_entries.begin()),
-        std::make_move_iterator(new_entries.end()));
-  }
-
-  void remove(IterDomain* target) {
-    auto it = std::find_if(
-        active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
-          return pair.first == target;
-        });
-
-    NVF_ERROR(it != active_ids_.end());
-    active_ids_.erase(it);
-  }
+  ForwardDispatch_ forward_dispatch_;
+  BackwardDispatch_ backward_dispatch_;
 
   // This needs to be a std::vector and we need to keep track of placement,
   // because contiguity is relative to the original ordering, permutations of
   // that ordering (ignoring broadcast dims) change contiguity of the
   // projection.
   std::vector<std::pair<IterDomain*, IDProperties>> active_ids_;
+  // The function may create Val* scalars for from_domain_'s strides, so store
+  // it if it needs to be accessed.
+  std::vector<std::pair<IterDomain*, IDProperties>> from_information_;
+  std::vector<IterDomain*> from_domain_;
   std::vector<Val*> validation_stmts_;
-  ForwardDispatch_ forward_dispatch_;
-  BackwardDispatch_ backward_dispatch_;
 };
 
-ID_Dispatch::ID_Dispatch()
-    : forward_dispatch_(this), backward_dispatch_(this) {}
+ID_Dispatch::ID_Dispatch(
+    std::vector<IterDomain*> from_domain,
+    std::vector<Val*> from_strides,
+    std::vector<bool> contiguity)
+    : forward_dispatch_(this),
+      backward_dispatch_(this),
+      from_domain_(from_domain) {
+  NVF_ERROR(!from_domain_.empty());
+  FusionGuard fg(from_domain_[0]->fusion());
+  from_domain_ = TensorDomain::noReductions(from_domain_);
+
+  // Set contiguity to false if missing
+  if (contiguity.empty()) {
+    contiguity = std::vector<bool>(from_domain_.size(), false);
+  }
+  NVF_ERROR(from_domain_.size() == contiguity.size());
+  // Setup symbolic strides based on contiguity if not provided
+  if (from_strides.empty()) {
+    from_strides = std::vector<Val*>(from_domain_.size(), nullptr);
+    auto stride = FusionGuard::getCurFusion()->oneVal();
+    for (int dim_i = (int)from_domain_.size() - 1; dim_i >= 0; dim_i--) {
+      if (contiguity[dim_i]) {
+        from_strides[dim_i] = stride;
+        stride = IrBuilder::mulExpr(
+            from_domain_[dim_i]->hasExpandedExtent()
+                ? from_domain_[dim_i]->expandedExtent()
+                : from_domain_[dim_i]->extent(),
+            stride);
+      } else if (from_domain_[dim_i]->isBroadcast()) {
+        from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
+      } else {
+        stride = IrBuilder::create<Val>(DataType::Int);
+        from_strides[dim_i] = stride;
+      }
+    }
+  }
+  NVF_ERROR(from_domain_.size() == from_strides.size());
+
+  active_ids_.reserve(from_domain_.size());
+  for (auto dim_i : c10::irange(from_domain_.size())) {
+    active_ids_.push_back(
+        {from_domain_[dim_i],
+         IDProperties{
+             from_domain_[dim_i]->getMaybeExpandedExtent(),
+             from_strides.at(dim_i),
+             contiguity.at(dim_i)}});
+  }
+  from_information_ = active_ids_;
+}
 
 ID_Dispatch::ForwardDispatch_::ForwardDispatch_(ID_Dispatch* id_dispatch)
     : id_dispatch_(id_dispatch) {}
@@ -351,7 +375,18 @@ ID_Dispatch::BackwardDispatch_::BackwardDispatch_(ID_Dispatch* id_dispatch)
     : id_dispatch_(id_dispatch) {}
 
 void ID_Dispatch::BackwardDispatch_::handle(Split* split) {
-  std::cout << "Backward: " << split->toString() << std::endl;
+  auto inner_properties = id_dispatch_->findIdProperties(split->inner());
+  auto outer_properties = id_dispatch_->findIdProperties(split->outer());
+  id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
+      IrBuilder::mulExpr(inner_properties.size, inner_properties.stride),
+      outer_properties.stride));
+  id_dispatch_->replaceAndInsert(
+      split->inner(),
+      {{split->in(),
+        {IrBuilder::mulExpr(inner_properties.size, outer_properties.size),
+         inner_properties.stride,
+         inner_properties.contiguity}}});
+  id_dispatch_->remove(split->outer());
 }
 
 void ID_Dispatch::BackwardDispatch_::handle(Merge* merge) {
@@ -378,56 +413,12 @@ void ID_Dispatch::BackwardDispatch_::handle(Merge* merge) {
       {{merge->outer(), outer_properties}, {merge->inner(), inner_properties}});
 }
 
-TensorSizeStrideReturn ID_Dispatch::transform(
-    std::vector<IterDomain*> from_domain,
-    std::vector<IterDomain*> to_domain,
-    std::vector<Val*> from_strides,
-    std::vector<bool> contiguity) {
-  from_domain = TensorDomain::noReductions(from_domain);
+std::vector<std::pair<IterDomain*, IDProperties>> ID_Dispatch::transform(
+    std::vector<IterDomain*> to_domain) {
+  FusionGuard fg(from_domain_[0]->fusion());
   to_domain = TensorDomain::noReductions(to_domain);
-
-  // Set contiguity to false if missing
-  if (contiguity.empty()) {
-    contiguity = std::vector<bool>(from_domain.size(), false);
-  }
-  NVF_ERROR(from_domain.size() == contiguity.size());
-  // Setup symbolic strides based on contiguity if not provided
-  if (from_strides.empty()) {
-    from_strides = std::vector<Val*>(from_domain.size(), nullptr);
-    auto stride = FusionGuard::getCurFusion()->oneVal();
-    for (int dim_i = (int)from_domain.size() - 1; dim_i >= 0; dim_i--) {
-      if (contiguity[dim_i]) {
-        from_strides[dim_i] = stride;
-        stride = IrBuilder::mulExpr(
-            from_domain[dim_i]->hasExpandedExtent()
-                ? from_domain[dim_i]->expandedExtent()
-                : from_domain[dim_i]->extent(),
-            stride);
-      } else if (from_domain[dim_i]->isBroadcast()) {
-        from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
-      } else {
-        stride = IrBuilder::create<Val>(DataType::Int);
-        from_strides[dim_i] = stride;
-      }
-    }
-  }
-  NVF_ERROR(from_domain.size() == from_strides.size());
-
-  std::vector<std::pair<IterDomain*, IDProperties>> active_ids;
-  active_ids.reserve(from_domain.size());
-  for (auto dim_i : c10::irange(from_domain.size())) {
-    active_ids.push_back(
-        {from_domain[dim_i],
-         IDProperties{
-             from_domain[dim_i]->getMaybeExpandedExtent(),
-             from_strides.at(dim_i),
-             contiguity.at(dim_i)}});
-  }
-
-  ID_Dispatch dispatch;
-  dispatch.active_ids_ = active_ids;
   auto path_pair = getExprsBetween<IRBFS>(
-      {from_domain.begin(), from_domain.end()},
+      {from_domain_.begin(), from_domain_.end()},
       {to_domain.begin(), to_domain.end()});
   NVF_ERROR(path_pair.second, "Did not path between provided domains.");
   auto bfs_exprs = path_pair.first;
@@ -435,15 +426,59 @@ TensorSizeStrideReturn ID_Dispatch::transform(
     auto expr = bfs_expr.first;
     auto direction = bfs_expr.second;
     if (direction == Direction::Forward) {
-      dispatch.forward_dispatch_.dispatch(expr);
+      forward_dispatch_.dispatch(expr);
     } else if (direction == Direction::Backward) {
-      dispatch.backward_dispatch_.dispatch(expr);
+      backward_dispatch_.dispatch(expr);
     }
     NVF_ERROR(
         direction != Direction::Undefined, "Error traversing provided domain");
   }
 
-  return TensorSizeStrideReturn();
+  std::vector<std::pair<IterDomain*, IDProperties>> to_information;
+  for (auto to_id : to_domain) {
+    to_information.push_back({to_id, findIdProperties(to_id)});
+  }
+  return to_information;
+}
+
+IDProperties ID_Dispatch::findIdProperties(IterDomain* target) const {
+  auto it = std::find_if(
+      active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
+        return pair.first == target;
+      });
+  NVF_ERROR(it != active_ids_.end());
+  return it->second;
+}
+
+void ID_Dispatch::replaceAndInsert(
+    IterDomain* target,
+    std::vector<std::pair<IterDomain*, IDProperties>> new_entries) {
+  auto it = std::find_if(
+      active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
+        return pair.first == target;
+      });
+
+  NVF_ERROR(it != active_ids_.end());
+  NVF_ERROR(!new_entries.empty());
+
+  const size_t pos = std::distance(active_ids_.begin(), it);
+  active_ids_.erase(it);
+
+  // Move-insert new entries at original position
+  active_ids_.insert(
+      active_ids_.begin() + pos,
+      std::make_move_iterator(new_entries.begin()),
+      std::make_move_iterator(new_entries.end()));
+}
+
+void ID_Dispatch::remove(IterDomain* target) {
+  auto it = std::find_if(
+      active_ids_.begin(), active_ids_.end(), [target](const auto& pair) {
+        return pair.first == target;
+      });
+
+  NVF_ERROR(it != active_ids_.end());
+  active_ids_.erase(it);
 }
 
 } // namespace
@@ -568,7 +603,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
     ExpressionEvaluator ee) {
   from_domain = TensorDomain::noReductions(from_domain);
   to_domain = TensorDomain::noReductions(to_domain);
-  ID_Dispatch::transform(from_domain, to_domain);
 
   NVF_ERROR(
       from_sizes.size() == from_domain.size(),
@@ -602,6 +636,40 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
       to_strides.push_back(active_ids.at(id).second);
     }
   }
+
+  ID_Dispatch dispatch(from_domain);
+  auto from_information = dispatch.from_information_;
+  auto to_information = dispatch.transform(to_domain);
+  NVF_ERROR(dispatch.from_information_.size() == from_domain.size());
+  for (auto id_i : c10::irange(from_domain.size())) {
+    auto stride = from_information[id_i].second.stride;
+    if (!ee.isKnown(stride)) {
+      ee.bind(stride, from_strides[id_i]);
+    }
+  }
+
+  std::vector<int64_t> to_sizes_2;
+  std::vector<int64_t> to_strides_2;
+  for (auto id_i : c10::irange(to_domain.size())) {
+    auto size = to_information[id_i].second.size;
+    int64_t size_int = ee.evaluate(size).as<int64_t>();
+    auto stride = to_information[id_i].second.stride;
+    int64_t stride_int = ee.evaluate(stride).as<int64_t>();
+    to_sizes_2.push_back(size_int);
+    to_strides_2.push_back(stride_int);
+  }
+
+  NVF_ERROR(
+      to_sizes == to_sizes_2 && to_strides == to_strides_2,
+      "\nsizes{",
+      to_sizes,
+      "}\nsizes2 {",
+      to_sizes_2,
+      "}\nstrides{",
+      to_strides_2,
+      "}\nstrides2{",
+      to_strides_2,
+      "}");
 
   return {std::move(to_sizes), std::move(to_strides)};
 }
