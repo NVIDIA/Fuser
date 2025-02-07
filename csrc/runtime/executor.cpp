@@ -279,7 +279,7 @@ struct BoundedInt {
     // Find how many higher bits are fixed across an interval (includes sign
     // bit)
     auto interval_fixed_bits = [](const BoundedInt& b) {
-//#if __cplusplus < 202002L
+// #if __cplusplus < 202002L
 #if true
       // XOR and view result as unsigned, so that right shift will be _logical_
       // instead of arithmetic.
@@ -299,8 +299,8 @@ struct BoundedInt {
 #endif
     };
     // New interval has this many fixed bits
-    int64_t fixed_bits = std::min(
-        interval_fixed_bits(*this), interval_fixed_bits(other));
+    int64_t fixed_bits =
+        std::min(interval_fixed_bits(*this), interval_fixed_bits(other));
     // Mask everything below the higher fixed_bits
     int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
     int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
@@ -329,13 +329,17 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       if (val->dtype() != dtype) {
         continue;
       }
-      if (initialized) {
+      std::cout << "  [" << b.min << ", " << b.max << "]  "
+                << val->toInlineString() << std::endl;
+      if (!initialized) {
         ret = b;
+        initialized = true;
       } else {
         ret.min = std::min(ret.min, b.min);
         ret.max = std::max(ret.max, b.max);
       }
-      if (b.min < std::numeric_limits<int32_t>::min() || b.max > std::numeric_limits<int32_t>::max()) {
+      if (b.min < std::numeric_limits<int32_t>::min() ||
+          b.max > std::numeric_limits<int32_t>::max()) {
         std::cout << "Found value " << val->toInlineString()
                   << " which has bounds [" << b.min << ", " << b.max << "]"
                   << std::endl;
@@ -349,7 +353,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     std::cout << "Setting bounds for " << (void*)val << ":"
               << val->toInlineString() << " to [" << bounds.min << ", "
               << bounds.max << "]" << std::endl;
-    bounds_.emplace(val, bounds);
+    bounds_[val] = bounds;
   }
 
   void setBounds(Val* val, int64_t min, int64_t max) {
@@ -549,10 +553,15 @@ PrimDataType getSmallestIndexTypeByBoundingExpressions(
   ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
   // Compute the range of all nvfuser_index_t values in the fusion
   BoundedInt index_bounds = calc.boundByDataType();
-  return (index_bounds.min >= (int64_t)std::numeric_limits<int32_t>::min() &&
-          index_bounds.max <= (int64_t)std::numeric_limits<int32_t>::max())
-      ? DataType::Int32
-      : DataType::Int;
+  // TODO: while we still have the ScalarBoundsCalculator computed, we should
+  // check the inputs to any TMA expressions to ensure that it is safe to cast
+  // them to Int32. Doing so would allow us to no longer throw an error when
+  // the line below returns Int instead of Int32, e.g. in cases where TMA is
+  // used for loads but not for stores with large problems.
+  return (index_bounds.min < (int64_t)std::numeric_limits<int32_t>::min() ||
+          index_bounds.max > (int64_t)std::numeric_limits<int32_t>::max())
+      ? PrimDataType::Int
+      : PrimDataType::Int32;
 }
 
 } // namespace
