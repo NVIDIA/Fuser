@@ -443,13 +443,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         }
       }
     }
-    auto in_clone = ir_cloner.clone(segmented_fusion_->inputs());
-    auto out_clone = ir_cloner.clone(segmented_fusion_->outputs());
-    for (auto& input : in_clone) {
-      hic->addInput(input);
+    for (const Val* in: segmented_fusion_->inputs()) {
+      hic->addInput(ir_cloner.clone(in));
     }
-    for (auto& output : out_clone) {
-      hic->addOutput(output);
+    for (const Val* out: segmented_fusion_->outputs()) {
+      hic->addOutput(ir_cloner.clone(out));
     }
   }
 
