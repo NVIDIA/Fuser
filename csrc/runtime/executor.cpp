@@ -43,6 +43,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include "expr_evaluator.h"
 
 namespace nvfuser {
 
@@ -169,12 +170,10 @@ struct BoundedInt {
 
 class ScalarBoundsCalculator : kir::IrVisitor {
  public:
-  ScalarBoundsCalculator(Fusion* fusion, const KernelArgumentHolder& args)
-      : fusion_(fusion) {
-    // Bind an ExpressionEvaluator
-
+  ScalarBoundsCalculator(kir::Kernel* kernel, ExpressionEvaluator& expr_eval)
+      : expr_eval_(expr_eval) {
     // Process all exprs
-    kir::IrVisitor::handle(fusion->exprs());
+    kir::IrVisitor::handle(kernel->topLevelExprs());
   }
 
   //! Return the bounds, computed over all scalars in the fusion with the given
@@ -201,6 +200,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) {
+    std::cout << "DISPATCH expr " << expr->toString() << std::endl;
     if (!expr->isA<ForLoop>() &&
         std::all_of(
             expr->outputs().begin(), expr->outputs().end(), [](Val* outp) {
@@ -211,11 +211,8 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       // purposes.
       std::cout << " Skipping dispatch of expr " << expr->toString()
                 << std::endl;
-      ;
       return;
     }
-    std::cout << " Dispatch expr " << expr->toString() << std::endl;
-    ;
     kir::IrVisitor::dispatch(expr);
   }
 
@@ -228,23 +225,38 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     bounds_.emplace(
         loop->index(),
         BoundedInt{evalInt(loop->start()), evalInt(loop->stop()) - 1L});
+    kir::IrVisitor::handle(loop);
   }
 
   void handle(LoadStoreOp* lsop) {
     bounds_.emplace(lsop->out(), bounds_.at(lsop->in()));
   }
 
+  void handle(UnaryOp* uop) {
+    NVF_THROW("Not yet implemented");
+  }
+
+  void handle(BinaryOp* bop) {
+    NVF_THROW("Not yet implemented");
+  }
+
+  void handle(TernaryOp* top) {
+    NVF_THROW("Not yet implemented");
+  }
+
  private:
-  Fusion* fusion_;
-  ExpressionEvaluator expr_eval_;
+  ExpressionEvaluator& expr_eval_;
   std::unordered_map<Val*, BoundedInt> bounds_;
 };
 
 PrimDataType getSmallestIndexTypeByBoundingExpressions(
-    Fusion* fusion,
-    const KernelArgumentHolder& args) {
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval) {
+  for (Expr* exp : kernel->exprs()) {
+    std::cout << exp->toString();
+  }
   // bind args to expression evaluator
-  ScalarBoundsCalculator calc(fusion, args);
+  ScalarBoundsCalculator calc(kernel, expr_eval);
   // Compute the range of all nvfuser_index_t values in the fusion
   BoundedInt index_bounds = calc.boundByDataType();
   return (index_bounds.min >= (int64_t)std::numeric_limits<int32_t>::min() &&
@@ -357,23 +369,14 @@ void KernelExecutor::compile(
       lowering_hooks_,
       post_lowering_hooks_);
 
-  // Now that we have lowered the kernel, we can compute the index type
-  if (has_cp_async_bulk) {
-    compile_params.index_type = getSmallestIndexTypeByBoundingExpressions(
-        compiled_kernel_->lowered().get(), args);
-    NVF_ERROR(
-        compile_params.index_type.value() == PrimDataType::Int32,
-        "Compilation with int64 is requested but int32 is required because ",
-        "of TMA operations.");
-  }
-
   // TODO: pass block_size here;
   std::optional<int64_t> dynamic_smem = std::nullopt;
   std::optional<int64_t> block_size = std::nullopt;
 
   auto launch_params = launch_constraints;
+  ExpressionEvaluator expr_eval;
   if (!args.empty()) {
-    auto expr_eval =
+    expr_eval =
         executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
     NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
@@ -384,6 +387,16 @@ void KernelExecutor::compile(
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
+  }
+
+  // Now that we have lowered the kernel, we can compute the index type
+  if (has_cp_async_bulk) {
+    compile_params.index_type = getSmallestIndexTypeByBoundingExpressions(
+        compiled_kernel_->lowered()->kernel(), expr_eval);
+    NVF_ERROR(
+        compile_params.index_type.value() == PrimDataType::Int32,
+        "Compilation with int64 is requested but int32 is required because ",
+        "of TMA operations.");
   }
 
   // Now that we have launch parameters we can compile the kernel. It's a bit
