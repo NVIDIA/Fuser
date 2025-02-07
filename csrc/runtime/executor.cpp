@@ -350,9 +350,6 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 
  private:
   void setBounds(Val* val, const BoundedInt& bounds) {
-    std::cout << "Setting bounds for " << (void*)val << ":"
-              << val->toInlineString() << " to [" << bounds.min << ", "
-              << bounds.max << "]" << std::endl;
     bounds_[val] = bounds;
   }
 
@@ -405,7 +402,6 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) {
-    std::cout << "DISPATCH expr " << expr->toString() << std::endl;
     if (!expr->isA<ForLoop>() &&
         std::all_of(
             expr->outputs().begin(), expr->outputs().end(), [](Val* outp) {
@@ -414,8 +410,6 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       // We don't need to process expressions that do not produce integers.
       // Note that for loops do "produce" their index variables for our
       // purposes.
-      std::cout << " Skipping dispatch of expr " << expr->toString()
-                << std::endl;
       // It is possible that the expression outputs are constant scalars, so
       // try and compute them here.
       for (Val* outp : expr->outputs()) {
@@ -440,8 +434,6 @@ class ScalarBoundsCalculator : kir::IrVisitor {
       if (!inp->isIntegralScalar()) {
         continue;
       }
-      std::cout << "Processing input " << (void*)inp << ":"
-                << inp->toInlineString() << std::endl;
       std::optional<BoundedInt> inp_bounds = maybeGetBounds(inp);
       if (!inp_bounds.has_value()) {
         // If inp is not constant, then we can try bounding its inputs, if
