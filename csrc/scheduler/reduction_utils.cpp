@@ -13,7 +13,6 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>

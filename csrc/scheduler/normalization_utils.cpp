@@ -15,6 +15,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <utils.h>
 #include <val_graph_visitor.h>
 
@@ -1484,14 +1485,16 @@ void schedulePersistentKernel(
 
   // Propagate transformations before we rfactor the other reductions
   auto reduction_tv = reduction_tvs.at(0);
-  propagateTransformation(reference_tv);
+  reduction_scheduler_utils::propagateTransformation(reference_tv);
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
-    propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
   }
 
-  const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, is_vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -1503,9 +1506,9 @@ void schedulePersistentKernel(
   // Needs special handling of vectorized loading from shared memory due to
   // potential different data types of inputs and shared memory tensor.
   if (is_vectorize) {
-    int64_t vectorizatoin_factor = rparams->unroll_factor_inner_reduction;
+    int64_t vectorization_factor = rparams->unroll_factor_inner_reduction;
     reduction_scheduler_utils::sharedMemoryConsumerVectorization(
-        smem_consumers, vectorizatoin_factor);
+        smem_consumers, vectorization_factor);
   }
 
   // Remove dummy outputs as they can inadvertently affect CA positions

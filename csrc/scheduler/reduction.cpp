@@ -15,6 +15,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -1594,15 +1595,16 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
   // Propagate transformations before we rfactor the other reductions
-  auto reduction_tv = reduction_tvs.at(0);
-  propagateTransformation(reference_tv);
+  reduction_scheduler_utils::propagateTransformation(reference_tv);
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
-    propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
   }
 
-  const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, is_vectorize, cached_inputs, cached_outputs);
 
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
