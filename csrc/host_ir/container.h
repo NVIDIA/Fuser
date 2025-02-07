@@ -28,7 +28,7 @@ programs. Later, we it should support non-linear program having a DAG structure.
 class HostIrContainer final : public Fusion {
  public:
   HostIrContainer() = default;
-  HostIrContainer(std::vector<std::unique_ptr<KernelExecutor>>::size_type sz);
+  HostIrContainer(int64_t sz);
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 

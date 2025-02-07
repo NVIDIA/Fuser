@@ -21,7 +21,7 @@ namespace nvfuser {
 namespace hir {
 
 HostIrContainer::HostIrContainer(
-    std::vector<std::unique_ptr<KernelExecutor>>::size_type sz) {
+    int64_t sz) {
   kernel_executors_.resize(sz);
   for (auto& ptr : kernel_executors_) {
     ptr = nullptr;
