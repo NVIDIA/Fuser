@@ -433,7 +433,8 @@ Val* createSingleExpressionElectSync(
     kir::Predicate* pred,
     const std::vector<ForLoop*>& loops) {
   NVF_ERROR(pred->expr() != nullptr);
-  NVF_ERROR(ir_utils::isCpAsyncBulkStore(pred->expr()), "Limited to TMA Store");
+  NVF_ERROR(
+      ir_utils::isCpAsyncBulk(pred->expr()), "Limited to TMA expressions");
 
   TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
