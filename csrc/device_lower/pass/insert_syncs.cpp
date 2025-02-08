@@ -51,8 +51,31 @@ class SmemAllocMap {
         if (!p.second) {
           p.first->second = alloc;
         }
+
+        int64_t address = alloc->address()->evaluate().as<int64_t>();
+        auto alloc_it = address_to_tv_.find(address);
+        if (alloc_it == address_to_tv_.end()) {
+          address_to_tv_.insert(
+              std::make_pair(address, std::vector<TensorView*>({tv})));
+        } else {
+          address_to_tv_.at(address).push_back(tv);
+        }
       }
     }
+  }
+
+  int64_t getAddress(TensorView* tv) const {
+    auto it = map_.find(tv);
+    NVF_ERROR(it != map_.end(), "Allocation not found for ", tv->toString());
+    const kir::Allocate* alloc = it->second;
+    return alloc->address()->evaluate().as<int64_t>();
+  }
+
+  int64_t getAliasedMemoryPosition(TensorView* tv) const {
+    int64_t address = getAddress(tv);
+    const auto& tvs_at_address = address_to_tv_.at(address);
+    auto order_it = std::find(tvs_at_address.begin(), tvs_at_address.end(), tv);
+    return std::distance(tvs_at_address.begin(), order_it);
   }
 
   //! Run through aliases to get the buffer that is actually allocated for a
@@ -71,6 +94,7 @@ class SmemAllocMap {
 
  private:
   std::unordered_map<TensorView*, kir::Allocate*> map_;
+  std::unordered_map<int64_t, std::vector<TensorView*>> address_to_tv_;
 };
 
 struct WarMemoryInfo {
@@ -939,9 +963,44 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //! insert the wait expression for async_op2 at the end of loop 1.
   std::unordered_set<Expr*> async_exprs_to_protect_;
 
+  //! Allocation map of SMEM buffers. Needed because of SMEM buffer aliasing,
+  //! need to track the root of the alias to properly insert WAR hazard syncs
+  SmemAllocMap alloc_map_;
+
+  // Keep track of the active allocations we need to protect. Key is the
+  // "getRealBuffer", not the raw tv. There can be multiple WarMemoryInfo's
+  // because of aliasing. If the "getRealBuffer" tv has a compute at outside the
+  // alias tv, each aliased tv in a unique ca_loop has to be tracked separately
+  // for WAR insertion.
+  std::unordered_map<int64_t, std::vector<WarMemoryInfo>> smem_allocations_;
+
  private:
   WarAsyncWaitInserter(const std::vector<Expr*>& exprs) {
     kir::ExprMutator::traverseAndInsert(exprs);
+  }
+
+  void handle(kir::Allocate* allocate) final {
+    alloc_map_.insert(allocate);
+  }
+
+  // Create a new WarMemoryInfo entry if required and return a reference to it,
+  // else return the WarMemoryInfo associated with tv
+  WarMemoryInfo& getMemInfo(TensorView* tv) {
+    auto maybe_aliased_tv = alloc_map_.getAddress(tv);
+    auto alloc_it = smem_allocations_.find(maybe_aliased_tv);
+    auto ca_loop =
+        lower_utils::getAllocInformation(tv, for_loops_).init_for_loop;
+    if (alloc_it == smem_allocations_.end()) {
+      WarMemoryInfo mem_info;
+      mem_info.ca_loop = ca_loop;
+      auto entry_it =
+          smem_allocations_
+              .insert(std::make_pair(
+                  maybe_aliased_tv, std::vector<WarMemoryInfo>({mem_info})))
+              .first;
+      return entry_it->second.back();
+    }
+    return alloc_it->second.back();
   }
 
   // Get the async op types of the use expressions of a value.
@@ -975,6 +1034,28 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       auto use_async_ops = getUseAsyncOpTypes(out_tv);
       if (!use_async_ops.empty()) {
         warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
+      }
+    }
+
+    if (ir_utils::isCpAsyncBulkStore(expr)) {
+      // Mark read was hit.
+      auto inp_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+      for (auto inp_tv : inp_tvs) {
+        NVF_ERROR(inp_tv->getMemoryType() == MemoryType::Shared);
+        auto& entry = getMemInfo(inp_tv);
+        entry.read_hit = true;
+      }
+    }
+
+    // Mark write has been hit for all output tvs
+    auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (auto out_tv : out_tvs) {
+      if (out_tv->getMemoryType() != MemoryType::Shared) {
+        continue;
+      }
+      if (alloc_map_.getAliasedMemoryPosition(out_tv) > 0) {
+        auto& entry = getMemInfo(out_tv);
+        entry.write_hit = true;
       }
     }
 
@@ -1114,6 +1195,33 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Process the expressions in the for loop
     kir::ExprMutator::handle(for_loop);
+
+    // std::unordered_map<TensorView*, std::vector<WarMemoryInfo>>
+    // smem_allocations_;
+    if (!smem_allocations_.empty()) {
+      bool has_overlap = false;
+      for (auto& entry : smem_allocations_) {
+        bool overlap =
+            std::any_of(entry.second.begin(), entry.second.end(), [](auto& e) {
+              return e.read_hit && e.write_hit;
+            });
+        has_overlap |= overlap;
+        if (overlap) {
+          auto sync_exprs = lower_utils::getSyncExprs(
+              AsyncOpType::CpAsyncBulk,
+              /*pending_ops=*/0,
+              /*requires_commit=*/false);
+          for (Expr* sync_expr : sync_exprs) {
+            registerInsertBefore(
+                for_loop, sync_expr, &for_loops_.back()->body());
+            sync_exprs.pop_back();
+          }
+        }
+      }
+      if (has_overlap) {
+        smem_allocations_.clear();
+      }
+    }
 
     if (for_loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
