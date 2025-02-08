@@ -109,5 +109,8 @@ void scheduleLoopDomainsBy(
 // but that is not currently supported.
 void cancelReshapeInLoopDomains(TensorView* from_tv);
 
+std::optional<int64_t> getInnermostCancelableReshapePosition(
+    TensorView* from_tv);
+
 } // namespace scheduler_tools
 } // namespace nvfuser

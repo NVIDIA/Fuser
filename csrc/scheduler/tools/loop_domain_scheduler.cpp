@@ -683,12 +683,25 @@ void cancelReshapeInLoopDomains(TensorView* from_tv) {
         {reshape_out->getLogicalDomain().begin(),
          reshape_out->getLogicalDomain().end()});
 
+    auto reshape_exprs_with_innermost_logical_id =
+        DependencyCheck::getAllExprsBetween(
+            {reshape_out->getRootDomain().begin(),
+             reshape_out->getRootDomain().end()},
+            {reshape_out->getLogicalDomain().back()});
+    std::unordered_set<Expr*> reshape_exprs_with_innermost_logical_id_set = {
+        reshape_exprs_with_innermost_logical_id.begin(),
+        reshape_exprs_with_innermost_logical_id.end()};
+
     auto reshape_out_loop_domain = reshape_out->getLoopDomain();
 
     for (auto reshape_exprs_it = reshape_exprs.rbegin();
          reshape_exprs_it != reshape_exprs.rend();
          ++reshape_exprs_it) {
       auto reshape_expr = *reshape_exprs_it;
+
+      if (reshape_exprs_with_innermost_logical_id_set.count(reshape_expr)) {
+        continue;
+      }
 
       // If any of the output IDs of reshape_expr is not found in
       // cancellable_ids, that means the expr cannot be cancelled.

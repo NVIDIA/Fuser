@@ -239,7 +239,7 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   // Before applying the vectorization split, any reshape transform of
   // the largest input will be cancelled whenever possible, so the
   // largest input is used as the reference of vectorization.
-  auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+  auto vec_ref_tv = ref_tv;
 
   // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
@@ -478,9 +478,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   if (vec_factor > 1) {
-    auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+    // auto vec_ref_tv = largest_input != nullptr ? largest_input :
+    // ref_tv;
+    auto vec_ref_tv = ref_tv;
     const auto tvs_to_vectorize =
         scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
+    std::cerr << "TVs to vec: " << toDelimitedString(tvs_to_vectorize) << "\n";
     for (auto tv_to_vectorize : tvs_to_vectorize) {
       if (tv_to_vectorize->isFusionInput()) {
         for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
