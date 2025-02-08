@@ -44,7 +44,13 @@ class ForwardSizesStridesTraverse {
         in_size % factor == 0,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
-        "non-divisible split is not allowed in allocation domain");
+        "non-divisible split is not allowed in allocation domain",
+        split->toString(),
+        " results in ",
+        in_size,
+        " % ",
+        factor,
+        " == 0");
 
     int64_t inner_size = 0;
     int64_t outer_size = 0;
@@ -82,7 +88,14 @@ class ForwardSizesStridesTraverse {
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
         "Merging of discontiguous dimensions is not allowed in allocation "
-        "domain. An allocation IterDomain can't have two different strides.");
+        "domain. An allocation IterDomain can't have two different strides.",
+        merge->toString(),
+        " results in ",
+        inner_stride,
+        " * ",
+        inner_size,
+        " == ",
+        outer_stride);
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
     NVF_ERROR(
@@ -142,7 +155,14 @@ class BackwardSizesStridesTraverse {
         inner_stride * inner_size == outer_stride,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
-        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain",
+        split->toString(),
+        " results in ",
+        inner_stride,
+        " * ",
+        inner_size,
+        " == ",
+        outer_stride);
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
     NVF_ERROR(active_ids_
@@ -169,7 +189,13 @@ class BackwardSizesStridesTraverse {
         out_size % factor == 0,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
-        "the size of the output must divisible by the size of inner dimension");
+        "the size of the output must divisible by the size of inner dimension",
+        merge->toString(),
+        " results in ",
+        out_size,
+        " % ",
+        factor,
+        " == 0");
     NVF_ERROR(active_ids_.erase(out) == 1);
     NVF_ERROR(
         active_ids_
@@ -226,7 +252,6 @@ class ID_Dispatch {
  public:
   ID_Dispatch(
       std::vector<IterDomain*> from_domain,
-      std::vector<Val*> from_strides = {},
       std::vector<bool> contiguity = {});
 
   class ForwardDispatch_ : public OptInDispatch {
@@ -280,7 +305,6 @@ class ID_Dispatch {
 
 ID_Dispatch::ID_Dispatch(
     std::vector<IterDomain*> from_domain,
-    std::vector<Val*> from_strides,
     std::vector<bool> contiguity)
     : forward_dispatch_(this),
       backward_dispatch_(this),
@@ -292,38 +316,44 @@ ID_Dispatch::ID_Dispatch(
   // Set contiguity to false if missing
   if (contiguity.empty()) {
     contiguity = std::vector<bool>(from_domain_.size(), false);
+  } else {
+    NVF_ERROR(from_domain_.size() == contiguity.size());
   }
-  NVF_ERROR(from_domain_.size() == contiguity.size());
-  // Setup symbolic strides based on contiguity if not provided
-  if (from_strides.empty()) {
-    from_strides = std::vector<Val*>(from_domain_.size(), nullptr);
-    auto stride = FusionGuard::getCurFusion()->oneVal();
-    for (int dim_i = (int)from_domain_.size() - 1; dim_i >= 0; dim_i--) {
-      if (contiguity[dim_i]) {
-        from_strides[dim_i] = stride;
-        stride = IrBuilder::mulExpr(
-            from_domain_[dim_i]->hasExpandedExtent()
-                ? from_domain_[dim_i]->expandedExtent()
-                : from_domain_[dim_i]->extent(),
-            stride);
-      } else if (from_domain_[dim_i]->isBroadcast()) {
-        from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
-      } else {
-        stride = IrBuilder::create<Val>(DataType::Int);
-        from_strides[dim_i] = stride;
-      }
+
+  std::vector<Val*> from_sizes(from_domain.size(), nullptr);
+
+  for (auto dim_i : c10::irange(from_domain_.size())) {
+    if (from_domain_[dim_i]->isBroadcast() &&
+        !from_domain_[dim_i]->hasExpandedExtent()) {
+      from_sizes[dim_i] = FusionGuard::getCurFusion()->oneVal();
+    } else {
+      from_sizes[dim_i] = IrBuilder::create<Val>(DataType::Int);
     }
   }
-  NVF_ERROR(from_domain_.size() == from_strides.size());
+
+  std::vector<Val*> from_strides;
+
+  // Setup symbolic strides based on contiguity if not provided
+  from_strides = std::vector<Val*>(from_domain_.size(), nullptr);
+  auto stride = FusionGuard::getCurFusion()->oneVal();
+  for (int dim_i = (int)from_domain_.size() - 1; dim_i >= 0; dim_i--) {
+    if (contiguity[dim_i]) {
+      from_strides[dim_i] = stride;
+      stride = SimplifyingIrBuilder::mulExpr(from_sizes[dim_i], stride);
+    } else if (from_domain_[dim_i]->isBroadcast()) {
+      from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
+    } else {
+      stride = IrBuilder::create<Val>(DataType::Int);
+      from_strides[dim_i] = stride;
+    }
+  }
 
   active_ids_.reserve(from_domain_.size());
   for (auto dim_i : c10::irange(from_domain_.size())) {
     active_ids_.push_back(
         {from_domain_[dim_i],
          IDProperties{
-             from_domain_[dim_i]->getMaybeExpandedExtent(),
-             from_strides.at(dim_i),
-             contiguity.at(dim_i)}});
+             from_sizes[dim_i], from_strides[dim_i], contiguity[dim_i]}});
   }
   from_information_ = active_ids_;
 }
@@ -639,9 +669,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
 
   ID_Dispatch dispatch(from_domain);
   auto from_information = dispatch.from_information_;
-  std::cout << "0" << std::endl;
   auto to_information = dispatch.transform(to_domain);
-  std::cout << "1" << std::endl;
   NVF_ERROR(dispatch.from_information_.size() == from_domain.size());
   ExpressionEvaluator ee2;
   for (auto id_i : c10::irange(from_domain.size())) {
@@ -695,12 +723,12 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
       "}\nstrides2 {",
       to_strides_2,
       "}");
-  std::cout << "\nsizes  {" << to_sizes << "}\nsizes2 {" << to_sizes_2
-            << "}\nstrides  {" << to_strides << "}\nstrides2 {" << to_strides_2
-            << "}";
+  // std::cout << "\nsizes  {" << to_sizes << "}\nsizes2 {" << to_sizes_2
+  //           << "}\nstrides  {" << to_strides << "}\nstrides2 {" <<
+  //           to_strides_2
+  //           << "}";
 
   // TODO: Validate allocation contiguity if numel > 1
-  std::cout << "Exit" << std::endl;
   return {std::move(to_sizes), std::move(to_strides)};
 }
 

@@ -314,7 +314,7 @@ at::Tensor allocateTensor(
             out_tv->toString(),
             " as an alias of ",
             aliased_io->toString());
-        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+        // TODO: Validate output sizes and strides
       }
       return out_tensor;
     }
@@ -390,6 +390,52 @@ GlobalBufferInfo getBufferInfo(
   return info;
 }
 
+// Convert sizes/strides to sharded sizes/strides. Track the sharded strides
+// because all strides greater than or equal to the sharded ones will need be
+// adjusted. Generalize this to multiple sharding dimensions for
+// future-proofing.
+std::pair<std::vector<int64_t>, std::vector<int64_t>> removeSharding(
+    std::vector<IterDomain*> domain,
+    std::vector<int64_t> sizes,
+    std::vector<int64_t> strides) {
+  std::vector<std::pair<int64_t, int64_t>> sharded_infos;
+  for (auto id_i : c10::irange(domain.size())) {
+    if (domain[id_i]->isDeviceDim()) {
+      sharded_infos.push_back({sizes[id_i], strides[id_i]});
+    }
+  }
+
+  std::sort(
+      sharded_infos.begin(),
+      sharded_infos.end(),
+      [](const std::pair<int64_t, int64_t>& lhs,
+         const std::pair<int64_t, int64_t>& rhs) {
+        return (lhs.second < rhs.second);
+      });
+
+  int64_t factor_removed = 1;
+  for (auto sharded_info : sharded_infos) {
+    auto [size, stride] = sharded_info;
+    for (auto id_i : c10::irange(domain.size())) {
+      NVF_ERROR(stride % factor_removed == 0);
+      auto adjusted_stride = stride / factor_removed;
+      if (strides[id_i] > adjusted_stride) {
+        NVF_ERROR(strides[id_i] % size == 0);
+        strides[id_i] /= size;
+      }
+    }
+    factor_removed *= size;
+  }
+
+  for (auto id_i : c10::irange(domain.size())) {
+    if (domain[id_i]->isDeviceDim()) {
+      sizes[id_i] = 1;
+      strides[id_i] = 0;
+    }
+  }
+  return {sizes, strides};
+}
+
 } // namespace
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
@@ -412,80 +458,117 @@ std::vector<GlobalBufferInfo> getBufferInfos(
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  std::cout << "Entry" << std::endl;
+  std::cout << "Processing: " << tv << std::endl;
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
+  // nvFuser treats allocation domain as the underlying memory format, but it
+  // operates on the logical domain. Therefore we need to be able to project
+  // through pure stride manipulations from the two domains. We may extend this
+  // capability in the future to have non-stride manipulations between the two.
+  // This could be used to have nvFuser kernels internally have more complex
+  // layouts. However, when returning a tensor back to the framework or when
+  // using expression evaluator on tensors, the logical domain must
+  // representable exclusively through stride transforms from the allocation
+  // domain.
+  //
+  // For Multi Device scheduling the process can be more complicated than when
+  // only considering single GPU allocations. For early development logical
+  // domains are sharded, and allocation domains are consistently sharded.
+  //
+  // This worked well for experimentation, but it means we're changing the
+  // logical domain which should be semantic. Therefore to use typical parallel
+  // transforms like split, merge, parallelize(DID.), the logical domain will be
+  // unsharded but the allocation domain will be sharded.
+  //
+  // In this scenario logical domain will map to unsharded sizes, we need to
+  // (1) project the unsharded dimensions to the logical domain to infer the
+  // unsharded sizes of the allocation domain. (2) Modify the allocation domain
+  // sizes to change any axis parallelized with DID to size 1 (stride can remain
+  // or be changed as well). (3) Project the unsharded allocation domain back to
+  // the logical domain.
+  //
+  // Since this is a more intensive process, we will detect if it needs to be
+  // done, if it doesn't need to be done all we need to do is step (3).
 
-  std::vector<Val*> symbolic_sizes;
-  std::vector<bool> expand_flags;
-  auto maybe_alloc_domain =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  // Allocate the allocation domain
-  for (const auto id : maybe_alloc_domain) {
-    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    if (id->hasExpandedExtent()) {
-      NVF_ERROR(
-          id->isBroadcast(),
-          "Non-broadcast domain should not have an expanded extent: ",
-          id->toString());
-      expand_flags.push_back(true);
-    } else {
-      expand_flags.push_back(false);
-    }
-  }
+  if (tv->hasAllocation()) {
+    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
 
-  auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-  if (!tv->hasAllocation()) {
-    // Purge multi device size/strides.
-    for (auto id_i : c10::irange(maybe_alloc_domain.size())) {
-      if (maybe_alloc_domain[id_i]->isDeviceDim()) {
-        size_stride.first[id_i] = 1;
-        size_stride.second[id_i] = 0;
+    auto alloc_domain =
+        TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+
+    bool alloc_multi_device = std::any_of(
+        alloc_domain.begin(), alloc_domain.end(), [](IterDomain* id) {
+          return id->isDeviceDim();
+        });
+    bool logical_multi_device = std::any_of(
+        logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
+          return id->isDeviceDim();
+        });
+    // TODO: Once sharding cannot be on logical domain this should always be
+    // false
+    bool consistent_sharding = logical_multi_device == alloc_multi_device;
+
+    // Step (1)
+    std::vector<Val*> symbolic_sizes(logical_domain.size(), nullptr);
+    std::vector<bool> expand_flags(logical_domain.size(), false);
+
+    for (auto id_i : c10::irange(logical_domain.size())) {
+      if (logical_domain[id_i]->isDeviceDim() && consistent_sharding) {
+        symbolic_sizes[id_i] = logical_domain[id_i]->container()->oneVal();
+      } else {
+        symbolic_sizes[id_i] = logical_domain[id_i]->getMaybeExpandedExtent();
+      }
+      if (logical_domain[id_i]->hasExpandedExtent()) {
+        expand_flags[id_i] = true;
       }
     }
-    return size_stride;
+
+    auto logical_size_stride =
+        inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+    std::cout << "Logical: " << logical_size_stride << std::endl;
+    // Project to allocation
+    auto alloc_proj = inferAndValidateProjection(
+        logical_size_stride.first,
+        logical_size_stride.second,
+        logical_domain,
+        alloc_domain,
+        expr_eval);
+    std::cout << "Alloc: " << alloc_proj << std::endl;
+    alloc_proj =
+        removeSharding(alloc_domain, alloc_proj.first, alloc_proj.second);
+    std::cout << "Alloc no sharding: " << alloc_proj << std::endl;
+    auto logical_proj = inferAndValidateProjection(
+        alloc_proj.first,
+        alloc_proj.second,
+        alloc_domain,
+        logical_domain,
+        expr_eval);
+    std::cout << "Final logical proj: " << logical_proj << std::endl;
+    return alloc_proj;
   }
 
-  // Logical could be unsharded or sharded when allocation is sharded, check
-  // which it is.
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  bool logical_multi_device = std::any_of(
-      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
-        return id->isDeviceDim();
-      });
+  auto logical_domain =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  std::vector<Val*> symbolic_sizes(logical_domain.size(), nullptr);
+  std::vector<bool> expand_flags(logical_domain.size(), false);
 
-  auto& alloc_domain = maybe_alloc_domain;
-  bool alloc_multi_device =
-      std::any_of(alloc_domain.begin(), alloc_domain.end(), [](IterDomain* id) {
-        return id->isDeviceDim();
-      });
-
-  bool consistent_sharding = logical_multi_device == alloc_multi_device;
-  if (!consistent_sharding) {
-    size_stride.first = unshardedSizes(tv, size_stride.first);
-  }
-  auto options =
-      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
-  auto meta_tensor =
-      at::empty_strided(size_stride.first, size_stride.second, options);
-
-  auto alloc_proj = inferAndValidateProjection(
-      size_stride.first,
-      size_stride.second,
-      tv->getMaybeAllocationDomain(),
-      tv->getLogicalDomain(),
-      expr_eval);
-
-  for (auto id_i : c10::irange(alloc_domain.size())) {
-    if (alloc_domain[id_i]->isDeviceDim()) {
-      alloc_proj.first[id_i] = 1;
-      alloc_proj.second[id_i] = 0;
+  for (auto id_i : c10::irange(logical_domain.size())) {
+    symbolic_sizes[id_i] = logical_domain[id_i]->getMaybeExpandedExtent();
+    if (logical_domain[id_i]->hasExpandedExtent()) {
+      expand_flags[id_i] = true;
     }
   }
+  auto logical_sizes = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  std::cout << "Logical: " << logical_sizes << std::endl;
+  if (std::any_of(
+          logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
+            return id->isDeviceDim();
+          })) {
+    logical_sizes = removeSharding(
+        logical_domain, logical_sizes.first, logical_sizes.second);
+    std::cout << "Logical no sharding: " << logical_sizes << std::endl;
+  }
 
-  return alloc_proj;
+  return logical_sizes;
 }
 
 } // namespace nvfuser
