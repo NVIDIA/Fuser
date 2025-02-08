@@ -369,7 +369,15 @@ std::vector<at::Tensor> allocateOutputs(
     // 1. duplicated outputs map to the same tensor,
     // 2. an output that aliases another output can be evaluated via
     // ExpressionEvaluator cheaply.
+    // std::cout << "Bind: " << output_info[out_index].tv->toString()
+    //           << "\n  With logical: "
+    //           << TensorDomain::noReductions(
+    //                  output_info[out_index].tv->getLogicalDomain())
+    //           << "\n To sizes: " << out_tensor.sizes()
+    //           << "\n GBI: " << output_info[out_index].sizes << std::endl;
+
     ee.bind(out, out_tensor);
+    // std::cout << "After" << std::endl;
     out_tensors[out_index] = out_tensor;
   }
   return out_tensors;
@@ -458,7 +466,11 @@ std::vector<GlobalBufferInfo> getBufferInfos(
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  std::cout << "Processing: " << tv << std::endl;
+  // std::cout << "Processing: TV" << tv->name() << "\n  logical: "
+  //           << TensorDomain::noReductions(tv->getLogicalDomain())
+  //           << "\n  alloc: "
+  //           << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
+  //           << std::endl;
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
   // nvFuser treats allocation domain as the underlying memory format, but it
   // operates on the logical domain. Therefore we need to be able to project
@@ -524,7 +536,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
     auto logical_size_stride =
         inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-    std::cout << "Logical: " << logical_size_stride << std::endl;
+    // std::cout << "Logical: " << logical_size_stride << std::endl;
     // Project to allocation
     auto alloc_proj = inferAndValidateProjection(
         logical_size_stride.first,
@@ -532,18 +544,18 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
         logical_domain,
         alloc_domain,
         expr_eval);
-    std::cout << "Alloc: " << alloc_proj << std::endl;
+    // std::cout << "Alloc: " << alloc_proj << std::endl;
     alloc_proj =
         removeSharding(alloc_domain, alloc_proj.first, alloc_proj.second);
-    std::cout << "Alloc no sharding: " << alloc_proj << std::endl;
+    // std::cout << "Alloc no sharding: " << alloc_proj << std::endl;
     auto logical_proj = inferAndValidateProjection(
         alloc_proj.first,
         alloc_proj.second,
         alloc_domain,
         logical_domain,
         expr_eval);
-    std::cout << "Final logical proj: " << logical_proj << std::endl;
-    return alloc_proj;
+    // std::cout << "Final logical proj: " << logical_proj << std::endl;
+    return logical_proj;
   }
 
   auto logical_domain =
@@ -558,14 +570,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     }
   }
   auto logical_sizes = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-  std::cout << "Logical: " << logical_sizes << std::endl;
+  // std::cout << "Logical: " << logical_sizes << std::endl;
   if (std::any_of(
           logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
             return id->isDeviceDim();
           })) {
     logical_sizes = removeSharding(
         logical_domain, logical_sizes.first, logical_sizes.second);
-    std::cout << "Logical no sharding: " << logical_sizes << std::endl;
+    // std::cout << "Logical no sharding: " << logical_sizes << std::endl;
   }
 
   return logical_sizes;

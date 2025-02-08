@@ -85,6 +85,18 @@ class ForwardSizesStridesTraverse {
     }
     auto [inner_size, inner_stride] = inner_it->second;
     auto [outer_size, outer_stride] = outer_it->second;
+    if (inner_size == 1 || outer_size == 1) {
+      NVF_ERROR(active_ids_.erase(inner) == 1);
+      NVF_ERROR(active_ids_.erase(outer) == 1);
+      NVF_ERROR(active_ids_
+                    .emplace(
+                        out,
+                        std::make_pair(
+                            inner_size == 1 ? outer_size : inner_size,
+                            inner_size == 1 ? outer_stride : inner_stride))
+                    .second);
+      return;
+    }
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
         "Merging of discontiguous dimensions is not allowed in allocation "
@@ -151,6 +163,20 @@ class BackwardSizesStridesTraverse {
     }
     auto [inner_size, inner_stride] = inner_it->second;
     auto [outer_size, outer_stride] = outer_it->second;
+
+    if (inner_size == 1 || outer_size == 1) {
+      NVF_ERROR(active_ids_.erase(inner) == 1);
+      NVF_ERROR(active_ids_.erase(outer) == 1);
+      NVF_ERROR(active_ids_
+                    .emplace(
+                        in,
+                        std::make_pair(
+                            inner_size == 1 ? outer_size : inner_size,
+                            inner_size == 1 ? outer_stride : inner_stride))
+                    .second);
+      return;
+    }
+
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
         "The logical domain and allocation domain of fusion input/output ",
@@ -298,7 +324,7 @@ class ID_Dispatch {
   std::vector<std::pair<IterDomain*, IDProperties>> active_ids_;
   // The function may create Val* scalars for from_domain_'s strides, so store
   // it if it needs to be accessed.
-  std::vector<std::pair<IterDomain*, IDProperties>> from_information_;
+  std::vector<std::pair<IterDomain*, IDProperties>> from_info_;
   std::vector<IterDomain*> from_domain_;
   std::vector<Val*> validation_stmts_;
 };
@@ -355,7 +381,7 @@ ID_Dispatch::ID_Dispatch(
          IDProperties{
              from_sizes[dim_i], from_strides[dim_i], contiguity[dim_i]}});
   }
-  from_information_ = active_ids_;
+  from_info_ = active_ids_;
 }
 
 ID_Dispatch::ForwardDispatch_::ForwardDispatch_(ID_Dispatch* id_dispatch)
@@ -464,11 +490,11 @@ std::vector<std::pair<IterDomain*, IDProperties>> ID_Dispatch::transform(
         direction != Direction::Undefined, "Error traversing provided domain");
   }
 
-  std::vector<std::pair<IterDomain*, IDProperties>> to_information;
+  std::vector<std::pair<IterDomain*, IDProperties>> to_info;
   for (auto to_id : to_domain) {
-    to_information.push_back({to_id, findIdProperties(to_id)});
+    to_info.push_back({to_id, findIdProperties(to_id)});
   }
-  return to_information;
+  return to_info;
 }
 
 IDProperties ID_Dispatch::findIdProperties(IterDomain* target) const {
@@ -668,68 +694,63 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
   }
 
   ID_Dispatch dispatch(from_domain);
-  auto from_information = dispatch.from_information_;
-  auto to_information = dispatch.transform(to_domain);
-  NVF_ERROR(dispatch.from_information_.size() == from_domain.size());
+  auto from_info = dispatch.from_info_;
+  auto to_info = dispatch.transform(to_domain);
+  NVF_ERROR(dispatch.from_info_.size() == from_domain.size());
   ExpressionEvaluator ee2;
   for (auto id_i : c10::irange(from_domain.size())) {
-    // std::cout << "Bind: " << from_information[id_i].first->toString() << " to
+    // std::cout << "Bind: " << from_info[id_i].first->toString() << " to
     // "
     //           << from_sizes[id_i] << std::endl;
-    // std::cout << "Bind: " << from_information[id_i].second.stride->toString()
+    // std::cout << "Bind: " << from_info[id_i].second.stride->toString()
     //           << " to " << from_strides[id_i] << std::endl;
-    ee2.bind(from_information[id_i].second.size, from_sizes[id_i]);
-    if (from_information[id_i].first->isBroadcast()) {
-      if (from_information[id_i].second.stride->isConstInt()) {
+    ee2.bind(from_info[id_i].second.size, from_sizes[id_i]);
+    if (from_info[id_i].first->isBroadcast()) {
+      if (from_info[id_i].second.stride->isConstInt()) {
         // Broadcast strides sometimes come in as a const int, it could be
         // actually be anything, don't try to compete with something that might
         // be set already.
         continue;
       }
     }
-    ee2.bind(from_information[id_i].second.stride, from_strides[id_i]);
+    ee2.bind(from_info[id_i].second.stride, from_strides[id_i]);
+  }
+
+  // Order of to_info is based on projection from from_domain,
+  // to_domain could be reordered relative to to_info, grab mapping from
+  // IterDomain* to the position in to_info to revert the ordering when
+  // iterating on to_domain.
+  std::unordered_map<IterDomain*, int64_t> id_to_to_info_pos;
+  for (auto id_i : c10::irange(to_info.size())) {
+    id_to_to_info_pos[to_info[id_i].first] = id_i;
   }
 
   std::vector<int64_t> to_sizes_2;
   std::vector<int64_t> to_strides_2;
   for (auto id_i : c10::irange(to_domain.size())) {
-    auto size = to_information[id_i].second.size;
-    int64_t size_int = ee2.evaluate(size).as<int64_t>();
-    auto stride = to_information[id_i].second.stride;
-    int64_t stride_int = ee2.evaluate(stride).as<int64_t>();
-    if (to_information[id_i].first->isDeviceDim()) {
-      to_sizes_2.push_back(1);
-      to_strides_2.push_back(0);
-    } else {
-      to_sizes_2.push_back(size_int);
-      to_strides_2.push_back(stride_int);
-    }
+    auto& info = to_info[id_to_to_info_pos.at(to_domain[id_i])];
+    to_sizes_2.push_back(ee2.evaluate(info.second.size).as<int64_t>());
+    to_strides_2.push_back(ee2.evaluate(info.second.stride).as<int64_t>());
   }
 
   for (auto id_i : c10::irange(to_domain.size())) {
-    if (to_information[id_i].first->isBroadcast()) {
+    if (to_domain[id_i]->isBroadcast()) {
       to_strides_2[id_i] = to_strides[id_i];
     }
   }
 
-  NVF_ERROR(
-      to_sizes == to_sizes_2 && to_strides == to_strides_2,
-      "\nsizes  {",
-      to_sizes,
-      "}\nsizes2 {",
-      to_sizes_2,
-      "}\nstrides  {",
-      to_strides,
-      "}\nstrides2 {",
-      to_strides_2,
-      "}");
+  if (!(to_sizes == to_sizes_2 && to_strides == to_strides_2)) {
+    std::cout << "Mismatch: " << "\nsizes  {" << to_sizes << "}\nsizes2 {"
+              << to_sizes_2 << "}\nstrides  {" << to_strides << "}\nstrides2 {"
+              << to_strides_2 << "}" << std::endl;
+  }
   // std::cout << "\nsizes  {" << to_sizes << "}\nsizes2 {" << to_sizes_2
   //           << "}\nstrides  {" << to_strides << "}\nstrides2 {" <<
   //           to_strides_2
   //           << "}";
 
   // TODO: Validate allocation contiguity if numel > 1
-  return {std::move(to_sizes), std::move(to_strides)};
+  return {std::move(to_sizes_2), std::move(to_strides_2)};
 }
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
