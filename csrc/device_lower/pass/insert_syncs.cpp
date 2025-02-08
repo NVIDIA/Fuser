@@ -1069,7 +1069,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       auto tv = dynamic_cast<TensorView*>(inp);
       if (tv == nullptr) {
         continue;
-      };
+      }
       if (!tv->isCircularBuffered()) {
         return 0;
       }
@@ -1205,11 +1205,28 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
         auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
+        NVF_ERROR(!for_loop->body().exprs().empty());
+
+        // Default position is last expression in for loop
+        size_t num_exprs = for_loop->body().exprs().size();
+        int64_t pos = num_exprs - 1;
+
+        // The sync qualifier in the `wgmma.wait_group` ptx instruction only
+        // guarantees that a warp executes the instruction. The entire warp
+        // group must complete `wgmma` instruction before loading next circular
+        // buffer stage, so place the wgmma sync expressions before the
+        // kir::BlockSync to avoid incorrect results.
+        if (type == AsyncOpType::WgMma &&
+            for_loop->circularBufferLoopStage() ==
+                CircularBufferLoopStage::Main) {
+          NVF_ERROR(num_exprs > 1);
+          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
+          --pos;
+        }
+
+        Expr* expr = for_loop->body().exprs().at(pos);
         while (!sync_exprs.empty()) {
-          registerInsertAfter(
-              for_loop->body().exprs().back(),
-              sync_exprs.back(),
-              &for_loop->body());
+          registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
           sync_exprs.pop_back();
         }
       }
