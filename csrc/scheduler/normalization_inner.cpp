@@ -1081,20 +1081,18 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     // TODO: allow only part of the buffers to be moved to shared memory
     rparams->smem_persistent_buffers = prop.persistent_buffers;
 
-    fusion->printMath();
-    for(auto tv : prop.persistent_buffers) {
+    for (auto tv : prop.persistent_buffers) {
       std::cout << "Persistent buffer: " << tv->toString() << std::endl;
     }
-    
+
     // use tma load if possible
-    if(rparams->project_persistent_buffers){
-      int hw_major = at::cuda::getCurrentDeviceProperties()->major;
-      rparams->use_tma_load = hw_major >= 9;
-    }
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    rparams->use_tma_load = hw_major >= 9;
 
     // set circular buffer options
-    if(rparams->use_tma_load){
-      int64_t smem_limited_stages = prop.available_regs_smem_size / prop.max_persistent_buffer_size;
+    if (rparams->use_tma_load) {
+      int64_t smem_limited_stages =
+          prop.available_regs_smem_size / prop.max_persistent_buffer_size;
       CircularBufferOptions circular_buffer_options;
       circular_buffer_options.stage = std::min((int64_t)2, smem_limited_stages);
       circular_buffer_options.prefetch = 1;

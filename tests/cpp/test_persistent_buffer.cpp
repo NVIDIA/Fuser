@@ -1479,13 +1479,13 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   fusion.addInput(input);
   fusion.addInput(weight);
   fusion.addInput(bias);
-  if(dtype == DataType::Half) {
+  if (dtype == DataType::Half) {
     input = castOp(DataType::Float, input);
     weight = castOp(DataType::Float, weight);
     bias = castOp(DataType::Float, bias);
-  }  
+  }
   auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-  if(dtype == DataType::Half){
+  if (dtype == DataType::Half) {
     result.output = castOp(DataType::Half, result.output);
   }
   fusion.addOutput(result.output);
@@ -1539,18 +1539,9 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   if (has_enough_regs_smem) {
-    // For dtype float, no op scheduler is also used.
-    if (dtype == DataType::Float) {
-      EXPECT_THAT(
-          runtime->fusionSegments()->groups(),
-          UnorderedElementsAre(
-              HeuristicIs(SchedulerType::NoOp),
-              HeuristicIs(SchedulerType::InnerPersistent)));
-    } else {
-      EXPECT_THAT(
-          runtime->fusionSegments()->groups(),
-          UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
-    }
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
     Fusion* scheduled_fusion = runtime->executors()
                                    .back()
                                    ->as<KernelExecutor>()
@@ -1563,17 +1554,17 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
       for (auto tv : scheduled_fusion->allTvs()) {
         if (tv->getMemoryType() == MemoryType::Shared) {
           std::cout << "smem tv: " << tv->definition()->toString() << std::endl;
-          if(ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+          if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
             has_tma_load = true;
           }
           has_smem_tv = true;
         }
-        if(has_tma_load && has_smem_tv) {
+        if (has_tma_load && has_smem_tv) {
           break;
         }
       }
       EXPECT_TRUE(has_smem_tv);
-      if(!cudaArchGuardShouldSkip(9,0)){
+      if (!cudaArchGuardShouldSkip(9, 0)) {
         EXPECT_TRUE(has_tma_load);
       }
     }
@@ -1597,4 +1588,43 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
+TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
+  DataType dtype = GetParam();
+  int64_t dim1 = (dtype == DataType::Half ? 66 * 1024 : 33 * 1024);
+  const std::vector<int64_t> input_shape = {1024, dim1};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  if (dtype == DataType::Half) {
+    tv0 = castOp(DataType::Float, tv0);
+  }
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, std::vector<bool>{false, true});
+  auto tv4 = add(tv0, tv3);
+  if (dtype == DataType::Half) {
+    tv4 = castOp(DataType::Half, tv4);
+  }
+  fusion->addOutput(tv4);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto fusion_copy = *fusion;
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentBufferTest,
+    SimpleNormTmaTest,
+    ::testing::Values(DataType::Half, DataType::Float),
+    [](const testing::TestParamInfo<DataType>& info) {
+      std::stringstream ss;
+      ss << "dtype_" << info.param;
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
