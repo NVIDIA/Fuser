@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <expr_evaluator.h>
 #include <grouped_reduction.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
+#include <ops/arith.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -18,8 +20,6 @@
 #include <scheduler/tools/inlining.h>
 #include <utils.h>
 #include <val_graph_visitor.h>
-
-#include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
 namespace normalization_scheduler_utils {
@@ -1044,13 +1044,14 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
   }
 
-  int64_t available_regs_smem_size = getMaxRegOrSharedMemorySizeForPersistentBuffer(
-      fusion,
-      runtime_info,
-      reduction_tvs,
-      persistent_buffer_info,
-      can_use_smem_persistent,
-      project_persistent_buffers);
+  int64_t available_regs_smem_size =
+      getMaxRegOrSharedMemorySizeForPersistentBuffer(
+          fusion,
+          runtime_info,
+          reduction_tvs,
+          persistent_buffer_info,
+          can_use_smem_persistent,
+          project_persistent_buffers);
 
   // Return collected properties to get heuristics.
   return PersistentKernelProperties{
@@ -1502,7 +1503,7 @@ void schedulePersistentKernel(
   auto reduction_tv = reduction_tvs.at(0);
   std::vector<TensorView*> tma_tvs;
   // Propagate transformations before we rfactor the other reductions
-  if(rparams->use_tma_load){
+  if (rparams->use_tma_load) {
     for (auto tv : smem_consumers) {
       auto smem_tv = ir_utils::getSoleProducerTv(tv);
       if (!ir_utils::isCpAsyncBulkLoad(smem_tv->definition())) {
@@ -1512,11 +1513,44 @@ void schedulePersistentKernel(
         std::cout << "Found TMA load: " << smem_tv->toString() << std::endl;
         tma_tvs.emplace_back(smem_tv);
       }
-    }    
+    }
+
+    // tma tvs are excluded in transform propagation
+    if (!rparams->project_persistent_buffers) {
+      for (auto tv : tma_tvs) {
+        const auto& consumers = ir_utils::consumerTvsOf(tv);
+        // find a pre-reduction consumer
+        TensorView* pre_redu_tv = nullptr;
+        TensorView* post_redu_tv = nullptr;
+        for (auto tv : consumers) {
+          if (DependencyCheck::isDependencyOf(tv, reduction_tv)) {
+            pre_redu_tv = tv;
+            continue;
+          }else{
+            post_redu_tv = tv;
+            continue;
+          }
+          if(pre_redu_tv && post_redu_tv) {
+            break;
+          }
+        }
+        NVF_CHECK(
+            pre_redu_tv && post_redu_tv,
+            "Expect at least one pre- and one post- reduction tv.");
+        TensorView* dummy_output = add(pre_redu_tv, post_redu_tv);
+        dummy_outputs.emplace_back(dummy_output);
+        fusion->addOutput(dummy_output);
+      }
+    }
+
+    fusion->printMath();
+
     // propagate iteration domains
-    TransformPropagator propagator_circular_buffer(reference_tv, 1);
-    MaxLogicalDomainInfoSpanningTree(reference_tv)
-        .traverse(&propagator_circular_buffer);
+    if (rparams->circular_buffer_options.isEnable()) {
+      TransformPropagator propagator_circular_buffer(reference_tv, 1);
+      MaxLogicalDomainInfoSpanningTree(reference_tv)
+          .traverse(&propagator_circular_buffer);
+    }
 
     // propagate reduction domains
     TransformPropagator propagator(reference_tv);
@@ -1526,18 +1560,21 @@ void schedulePersistentKernel(
         {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
     MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
         .traverse(&propagator);
-  }else{
+  } else {
     reduction_scheduler_utils::propagateTransformation(reference_tv);
   }
 
+  fusion->printMath();
 
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
-    reduction_scheduler_utils::propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
   }
 
-  const auto& unroll_vectorizable_cached_tvs = reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-      reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, is_vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -1573,7 +1610,8 @@ void schedulePersistentKernel(
   if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {
     int64_t number_of_stages = rparams->circular_buffer_options.stage;
     int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;
-    CircularBufferType circular_buffer_type = rparams->circular_buffer_options.type;
+    CircularBufferType circular_buffer_type =
+        rparams->circular_buffer_options.type;
     for (auto tv : tma_tvs) {
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(

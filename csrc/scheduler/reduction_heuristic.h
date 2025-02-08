@@ -234,6 +234,8 @@ class ReductionParams : public HeuristicParams {
     }
     if (circular_buffer_options.isEnable()) {
       ss << circular_buffer_options;
+    } else {
+      ss << "Circular buffer: not used\n";
     }
 
     if (schedule_3D) {
