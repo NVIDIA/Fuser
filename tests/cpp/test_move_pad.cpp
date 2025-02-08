@@ -21,7 +21,13 @@ using testing::IsTrue;
 using testing::Property;
 using testing::UnorderedElementsAre;
 
-using MovePadTest = NVFuserTest;
+class MovePadTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
+    NVFuserTest::SetUp();
+  }
+};
 
 TEST_F(MovePadTest, UnaryCat) {
   auto fusion = std::make_unique<Fusion>();
@@ -116,7 +122,8 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::Resize)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
 
   testValidate(
       executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);

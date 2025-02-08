@@ -62,13 +62,10 @@ std::pair<TensorView*, int64_t> getLargestTensor(
 } // namespace
 
 bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
-#if 0
-  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Not enabled");
+  if (isOptionDisabled(DisableOption::ResizeScheduler)) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), "Disabled");
     return false;
   }
-#endif
 
   if (!scheduler_tools::hasResizeBasedOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(

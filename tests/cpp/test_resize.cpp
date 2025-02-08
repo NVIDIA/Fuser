@@ -55,21 +55,9 @@ void checkLoopDomainEquivalence(
 
 } // namespace
 
-class ResizeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using ResizeTest = NVFuserTest;
 
-class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserFixtureParamTest<bool>::SetUp();
-  }
-};
+using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
 using testing::Each;
 using testing::HasSubstr;
@@ -5763,7 +5751,7 @@ TEST_F(ResizeTest, TraversalForInliningPosition) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ResizeScheduler);
 
   auto tv0 = makeContigConcreteTensor({16});
   fusion.addInput(tv0);
@@ -5865,7 +5853,7 @@ TEST_F(ResizeTest, Repro3801) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ResizeScheduler);
 
   auto T13 = makeContigConcreteTensor({1, 16});
   fusion.addInput(T13);
