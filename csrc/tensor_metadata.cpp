@@ -739,11 +739,12 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
     }
   }
 
-  if (!(to_sizes == to_sizes_2 && to_strides == to_strides_2)) {
-    std::cout << "Mismatch: " << "\nsizes  {" << to_sizes << "}\nsizes2 {"
-              << to_sizes_2 << "}\nstrides  {" << to_strides << "}\nstrides2 {"
-              << to_strides_2 << "}" << std::endl;
-  }
+  // if (!(to_sizes == to_sizes_2 && to_strides == to_strides_2)) {
+  //   std::cout << "Mismatch: " << "\nsizes  {" << to_sizes << "}\nsizes2 {"
+  //             << to_sizes_2 << "}\nstrides  {" << to_strides << "}\nstrides2
+  //             {"
+  //             << to_strides_2 << "}" << std::endl;
+  // }
   // std::cout << "\nsizes  {" << to_sizes << "}\nsizes2 {" << to_sizes_2
   //           << "}\nstrides  {" << to_strides << "}\nstrides2 {" <<
   //           to_strides_2

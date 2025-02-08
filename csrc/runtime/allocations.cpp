@@ -409,6 +409,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> removeSharding(
   std::vector<std::pair<int64_t, int64_t>> sharded_infos;
   for (auto id_i : c10::irange(domain.size())) {
     if (domain[id_i]->isDeviceDim()) {
+      if (sizes[id_i] == 1 || strides[id_i] == 0) {
+        continue;
+      }
       sharded_infos.push_back({sizes[id_i], strides[id_i]});
     }
   }
@@ -521,7 +524,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
     // Step (1)
     std::vector<Val*> symbolic_sizes(logical_domain.size(), nullptr);
-    std::vector<bool> expand_flags(logical_domain.size(), false);
+    std::vector<bool> logical_expand_flags(logical_domain.size(), false);
 
     for (auto id_i : c10::irange(logical_domain.size())) {
       if (logical_domain[id_i]->isDeviceDim() && consistent_sharding) {
@@ -530,12 +533,12 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
         symbolic_sizes[id_i] = logical_domain[id_i]->getMaybeExpandedExtent();
       }
       if (logical_domain[id_i]->hasExpandedExtent()) {
-        expand_flags[id_i] = true;
+        logical_expand_flags[id_i] = true;
       }
     }
 
     auto logical_size_stride =
-        inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+        inferShape(tv, symbolic_sizes, logical_expand_flags, expr_eval);
     // std::cout << "Logical: " << logical_size_stride << std::endl;
     // Project to allocation
     auto alloc_proj = inferAndValidateProjection(
@@ -544,6 +547,18 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
         logical_domain,
         alloc_domain,
         expr_eval);
+
+    std::vector<bool> alloc_expand_flags(alloc_domain.size(), false);
+    for (auto id_i : c10::irange(alloc_domain.size())) {
+      if (alloc_domain[id_i]->hasExpandedExtent()) {
+        alloc_expand_flags[id_i] = true;
+      }
+    }
+
+    // Allocation should be contiguous, not logical. Get contiguous allocation
+    // strides.
+    alloc_proj.second =
+        getContiguousStrides(alloc_proj.first, alloc_expand_flags);
     // std::cout << "Alloc: " << alloc_proj << std::endl;
     alloc_proj =
         removeSharding(alloc_domain, alloc_proj.first, alloc_proj.second);
