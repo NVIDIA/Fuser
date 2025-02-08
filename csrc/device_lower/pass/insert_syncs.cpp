@@ -423,6 +423,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       auto scope = scope_.empty() ? nullptr : scope_.back();
       auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
       registerInsertBefore(expr, fence_async, scope);
+      auto commit =
+          IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk);
+      registerInsertAfter(expr, commit, scope);
     }
 
     // Insert sync exprs after async ops. For example, insert
@@ -775,9 +778,18 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // If there are async exprs writing to fusion output that is not
     // being waited yet, we need to insert the wait before exiting the
     // kernel.
+    bool has_cp_async_bulk = false;
     for (auto expr : async_exprs_writing_fusion_output_) {
       auto async_type = ir_utils::getAsyncOpType(expr);
-      auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
+      // A single RAW sync is required for TMA Store when keep_stages is 0.
+      if (async_type == AsyncOpType::CpAsyncBulk) {
+        if (has_cp_async_bulk) {
+          continue;
+        }
+        has_cp_async_bulk = true;
+      }
+      auto sync_exprs = lower_utils::getSyncExprs(
+          async_type, /*keep_stages=*/0, /*requires_commit=*/false);
       exprs_.insert(exprs_.end(), sync_exprs.begin(), sync_exprs.end());
     }
 
