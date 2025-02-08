@@ -1320,8 +1320,12 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   // `expr_eval.evaluate(ti->index()).as<int64_t>();`
   for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
-      // check self
-      EXPECT_TRUE(isVectorized(tv));
+      // use TMA or vectorized cp.async
+      if (!cudaArchGuardShouldSkip(9, 0)) {
+        EXPECT_TRUE(ir_utils::isCpAsyncBulkLoad(tv->definition()));
+      } else {
+        EXPECT_TRUE(isVectorized(tv));
+      }
       // check consumers
       for (auto consumer : ir_utils::consumerTvsOf(tv)) {
         EXPECT_TRUE(isVectorized(consumer));
