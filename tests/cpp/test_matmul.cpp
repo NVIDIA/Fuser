@@ -4029,8 +4029,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 32);
-  gemm_tile.warp_tile = GemmTile(64, 256, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4086,8 +4086,8 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 32);
-  gemm_tile.warp_tile = GemmTile(64, 256, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4149,8 +4149,8 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
       at::matmul(a_ref.squeeze().t(), b_ref.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 32);
-  gemm_tile.warp_tile = GemmTile(64, 256, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4211,8 +4211,8 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 32);
-  gemm_tile.warp_tile = GemmTile(64, 256, 32);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4324,11 +4324,6 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
-  if (!test_params.warp_specialization) {
-    GTEST_SKIP()
-        << "Sync error with pipelined circular buffering causes incorrect results";
-  }
-
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
@@ -4405,11 +4400,6 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   auto cg_outputs = ke.run(inputs);
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-
-  if (!test_params.warp_specialization) {
-    GTEST_SKIP()
-        << "Sync error with pipelined circular buffering causes incorrect results";
-  }
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
@@ -4497,11 +4487,6 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   auto cg_outputs = ke.run(inputs);
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-
-  if (!test_params.warp_specialization) {
-    GTEST_SKIP()
-        << "Sync error with pipelined circular buffering causes incorrect results";
-  }
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
