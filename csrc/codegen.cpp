@@ -360,12 +360,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
 
-    if (kernel_summary.has_philox_op) {
-      indent() << "Array<uint32_t, 4> rng_result;\n";
-      indent() << "nvfuser_index_t rng_subseq = -1;\n";
-      indent() << "nvfuser_index_t rng_offset = -1;\n";
-    }
-
     // Do we have any dynamic shared memory buffers?
     const bool has_dynamic_smem =
         !kernel_summary.dynamic_smem_allocations.empty();
@@ -865,26 +859,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const RNGOp* rop) final {
-    // TODO: NVF_ERROR that the scheduler correctly creates an
-    // innermost ID of size 4 (float) or size 2 (double)?
-    auto index = genInline(rop->getPhiloxIndex());
-    int multiple = rop->getPhiloxMultiple();
-    indent() << "nvfuser_index_t linear_index" << rop->name() << " = " << index
-             << ";\n";
-    indent() << "nvfuser_index_t rng_subseq" << rop->name() << " = linear_index"
-             << rop->name() << " / " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_component" << rop->name()
-             << " = linear_index" << rop->name() << " % " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
-             << genInline(rop->getRNGOffsetVal()) << ";\n";
-    indent() << "if (rng_subseq != rng_subseq" << rop->name()
-             << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  rng_result = philox(" << genInline(rop->getRNGSeedVal())
-             << ", rng_subseq" << rop->name() << ", "
-             << "rng_offset" << rop->name() << ");\n";
-    indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
-    indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
-    indent() << "}\n";
+    NVF_THROW("RNGOp should be lowered to kir::RNGOp");
+  }
+
+  void handle(const kir::RNGOp* rop) final {
     auto op_type = rop->getRNGOpType();
     indent() << gen(rop->output(0)) << " = " << op_type;
     if (needFloatSuffix(op_type)) {
@@ -897,16 +875,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       // Generate other datatypes in double
     }
-    code_ << "(rng_result, rng_component" << rop->name();
-    switch (op_type) {
-      case RNGOpType::UniformRange:
-      case RNGOpType::NormalGeneral: {
-        auto parameters = rop->getParameters();
-        NVF_ERROR(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
-      default:;
+    code_ << "(" << gen(rop->input(0));
+    for (auto inp_i : c10::irange(1, rop->inputs().size())) {
+      code_ << ", " << gen(rop->input(inp_i));
     }
     code_ << ");\n";
   }
