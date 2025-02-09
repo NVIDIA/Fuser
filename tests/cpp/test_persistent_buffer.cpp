@@ -20,7 +20,7 @@
 namespace nvfuser {
 
 using testing::Contains;
-using testing::ElementsAre;
+using testing::UnorderedElementsAre;
 using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
