@@ -12,11 +12,9 @@ from .embedding_ops import embedding_setup
 @pytest.mark.parametrize(
     "variation",
     [
-        #"llama_2_7b_hf",
-        #"llama_3_8B",
         "hf_qwen2",
-        #"hf_phi3",
-        #"hf_mistral_nemo",
+        "hf_phi3",
+        "hf_mistral_nemo",
     ],
 )
 @pytest.mark.parametrize(
@@ -46,11 +44,9 @@ def test_rope_fwd_benchmark(
 @pytest.mark.parametrize(
     "variation",
     [
-        #"llama_2_7b_hf",
-        #"llama_3_8B",
         "hf_qwen2",
-        #"hf_phi3",
-        #"hf_mistral_nemo",
+        "hf_phi3",
+        "hf_mistral_nemo",
     ],
 )
 @pytest.mark.parametrize(
