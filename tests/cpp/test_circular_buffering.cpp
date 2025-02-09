@@ -977,8 +977,13 @@ INSTANTIATE_TEST_SUITE_P(
     StagesAndPrefetches(),
     nonTMAName);
 
-using TmaCircularBufferingParams =
-    std::tuple<int64_t, int64_t, int64_t, int64_t, CircularBufferType, LoadStoreOpType>;
+using TmaCircularBufferingParams = std::tuple<
+    int64_t,
+    int64_t,
+    int64_t,
+    int64_t,
+    CircularBufferType,
+    LoadStoreOpType>;
 
 class TmaCircularBufferingTest
     : public NVFuserFixtureParamTest<TmaCircularBufferingParams> {
@@ -1705,8 +1710,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   fusion->addOutput(x_norm);
 
   // Load input from global to shared memory
-  TensorView* x_cache_smem =
-      x->cacheAfter(tma_load_type);
+  TensorView* x_cache_smem = x->cacheAfter(tma_load_type);
   x_cache_smem->setMemoryType(MemoryType::Shared);
 
   // Load input from shared memory to registers
@@ -2078,9 +2082,19 @@ auto tmaCircularBufferingParams() {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {128, 1024}) {
           values.emplace_back(
-              i, j, m, n, all_types[lcg_parkmiller % all_types.size()], LoadStoreOpType::CpAsyncBulk);
+              i,
+              j,
+              m,
+              n,
+              all_types[lcg_parkmiller % all_types.size()],
+              LoadStoreOpType::CpAsyncBulk);
           values.emplace_back(
-              i, j, m, n, all_types[lcg_parkmiller % all_types.size()], LoadStoreOpType::CpAsyncBulkTensorTile);              
+              i,
+              j,
+              m,
+              n,
+              all_types[lcg_parkmiller % all_types.size()],
+              LoadStoreOpType::CpAsyncBulkTensorTile);
           lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
         }
       }
@@ -2103,8 +2117,7 @@ std::string tmaName(
      << prefetch_distance_str << "_M_"
      << std::to_string(std::get<2>(info.param)) << "_N_"
      << std::to_string(std::get<3>(info.param)) << "_"
-     << std::get<4>(info.param) << "_"
-     << std::get<5>(info.param);
+     << std::get<4>(info.param) << "_" << std::get<5>(info.param);
   return ss.str();
 }
 
