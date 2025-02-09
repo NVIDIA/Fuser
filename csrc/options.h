@@ -123,6 +123,7 @@ enum class DisableOption {
   Fma, //! Disable FMA instructions
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
+  IdModel, //! Disable IdModel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing

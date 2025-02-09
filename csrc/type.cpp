@@ -684,6 +684,8 @@ static const char* ternary_op_type2string(TernaryOpType t) {
       return "threshold";
     case TernaryOpType::Where:
       return "where";
+    case TernaryOpType::Philox:
+      return "philox";
     default:
       NVF_THROW("Unexpected TernaryOpType");
   }
@@ -708,6 +710,10 @@ static const char* parallel_type2string(ParallelType t) {
   switch (t) {
     case ParallelType::DIDx:
       return "deviceIdx.x";
+    case ParallelType::DIDy:
+      return "deviceIdx.y";
+    case ParallelType::DIDz:
+      return "deviceIdx.z";
     case ParallelType::BIDz:
       return "blockIdx.z";
     case ParallelType::BIDy:
@@ -1550,7 +1556,8 @@ bool isParallelTypeBlockDim(ParallelType ptype) {
 }
 
 bool isParallelTypeDeviceDim(ParallelType ptype) {
-  return ptype == ParallelType::DIDx;
+  return ptype == ParallelType::DIDx || ptype == ParallelType::DIDy ||
+      ptype == ParallelType::DIDz;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {
