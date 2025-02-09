@@ -637,4 +637,39 @@ void reorderDIDToFront(TensorView* tv) {
   tv->reorder(order_map);
 }
 
+std::unordered_set<TensorView*> getTvsWithDifferentSharding(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs) {
+  std::unordered_set<TensorView*> ret;
+  const auto& reference_dom = ref->getLoopDomain();
+  FusionGuard fg(ref->fusion());
+  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
+  for (auto id : reference_dom) {
+    auto ca_id =
+        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+    concrete_to_reference_map[ca_id] = id;
+  }
+
+  for (TensorView* tv : tvs) {
+    if (ref->getDeviceMesh().vector() != tv->getDeviceMesh().vector()) {
+      ret.insert(tv);
+      continue;
+    }
+    for (auto id : tv->getLoopDomain()) {
+      auto ca_id =
+          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+      if (concrete_to_reference_map.count(ca_id) > 0) {
+        auto ref_id = concrete_to_reference_map.at(ca_id);
+        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
+            ref_id->getParallelType() != id->getParallelType()) {
+          ret.insert(tv);
+          break;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
 } // namespace nvfuser
