@@ -1541,7 +1541,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   if (has_enough_regs_smem) {
     EXPECT_THAT(
         runtime->fusionSegments()->groups(),
-        ElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
+        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
     Fusion* scheduled_fusion = runtime->executors()
                                    .back()
                                    ->as<KernelExecutor>()
