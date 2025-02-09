@@ -1479,15 +1479,11 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   fusion.addInput(input);
   fusion.addInput(weight);
   fusion.addInput(bias);
-  if (dtype == DataType::Half) {
-    input = castOp(DataType::Float, input);
-    weight = castOp(DataType::Float, weight);
-    bias = castOp(DataType::Float, bias);
-  }
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  bias = maybeCastOp(DataType::Float, bias);
   auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-  if (dtype == DataType::Half) {
-    result.output = castOp(DataType::Half, result.output);
-  }
+  result.output = maybeCastOp(dtype, result.output);
   fusion.addOutput(result.output);
   fusion.addOutput(result.mean);
   fusion.addOutput(result.invstd);
