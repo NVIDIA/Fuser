@@ -1468,7 +1468,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
-  at::Tensor t1 = at::ones({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
@@ -2076,26 +2076,22 @@ auto tmaCircularBufferingParams() {
       WarpSpecialized(ParallelType::TIDy),
       WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 240)),
       WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 240))};
+  const std::vector<LoadStoreOpType> tma_types{
+      LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {128, 1024}) {
-          values.emplace_back(
-              i,
-              j,
-              m,
-              n,
-              all_types[lcg_parkmiller % all_types.size()],
-              LoadStoreOpType::CpAsyncBulk);
-          values.emplace_back(
-              i,
-              j,
-              m,
-              n,
-              all_types[lcg_parkmiller % all_types.size()],
-              LoadStoreOpType::CpAsyncBulkTensorTile);
-          lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
+          for (auto tma_load_type : tma_types) {
+            values.emplace_back(
+                i,
+                j,
+                m,
+                n,
+                all_types[lcg_parkmiller % all_types.size()],
+                tma_load_type);
+          }
         }
       }
     }
