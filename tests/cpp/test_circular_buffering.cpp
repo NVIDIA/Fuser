@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  // NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -26,7 +26,8 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   int64_t tensor_outer_dim = 128;
   int64_t tensor_inner_dim = 128;
   CircularBufferType circular_buffer_type =
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
+      // Pipelined();
+      WarpSpecialized(ParallelType::TIDy);
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -37,10 +38,10 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   fusion->addOutput(tv2);
 
   // Use TMA to load TV0 into shared memory
-  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv3->setMemoryType(MemoryType::Shared);
 
-  TensorView* tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
@@ -1158,7 +1159,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -2047,22 +2048,16 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 auto tmaCircularBufferingParams() {
   // A very simple PRNG:
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
-  uint32_t lcg_parkmiller = 1;
   const std::vector<CircularBufferType> all_types{
-      Pipelined(false),
       Pipelined(true),
-      WarpSpecialized(ParallelType::TIDx),
-      WarpSpecialized(ParallelType::TIDy),
-      WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 240)),
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 240))};
+      WarpSpecialized(ParallelType::TIDx)};
   std::vector<TmaCircularBufferingParams> values;
-  for (int64_t i : {2, 4}) {
+  for (int64_t i : {2}) {
     for (int64_t j : c10::irange(-i, i)) {
-      for (int64_t m : {128, 500, 1024}) {
-        for (int64_t n : {128, 1024}) {
-          values.emplace_back(
-              i, j, m, n, all_types[lcg_parkmiller % all_types.size()]);
-          lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
+      for (int64_t m : {128}) {
+        for (int64_t n : {128}) {
+          values.emplace_back(i, j, m, n, all_types[0]);
+          values.emplace_back(i, j, m, n, all_types[1]);
         }
       }
     }

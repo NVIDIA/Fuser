@@ -1543,7 +1543,7 @@ void schedulePersistentKernel(
       }
     }
 
-    fusion->printMath();
+    // fusion->printMath();
 
     // propagate iteration domains
     if (rparams->circular_buffer_options.isEnable()) {
@@ -1564,7 +1564,7 @@ void schedulePersistentKernel(
     reduction_scheduler_utils::propagateTransformation(reference_tv);
   }
 
-  fusion->printMath();
+  // fusion->printMath();
 
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
@@ -1606,7 +1606,6 @@ void schedulePersistentKernel(
   inlineMost();
 
   // circular buffer
-
   if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {
     int64_t number_of_stages = rparams->circular_buffer_options.stage;
     int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;

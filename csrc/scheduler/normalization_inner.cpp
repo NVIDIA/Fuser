@@ -517,6 +517,36 @@ void innerPersistentHeuristic2D(
     }
   }
 
+
+  // use tma load if possible
+  int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+  rparams->use_tma_load = hw_major >= 9;
+  if(std::getenv("USE_MAIN")) {
+    rparams->use_tma_load = false;
+  }
+
+  // set circular buffer options
+  if (rparams->use_tma_load) {
+    rparams->smem_persistent_buffers = properties.persistent_buffers;
+    int64_t smem_limited_stages =
+        properties.available_regs_smem_size / properties.max_persistent_buffer_size;
+    CircularBufferOptions circular_buffer_options;
+    int64_t target_stages = 2;
+    if(std::getenv("STAGES")) {
+      target_stages = std::atoi(std::getenv("STAGES"));
+    }     
+    circular_buffer_options.stage = std::min(target_stages, smem_limited_stages);
+    circular_buffer_options.prefetch = 1;
+    circular_buffer_options.type = Pipelined(true);
+    rparams->circular_buffer_options = circular_buffer_options;
+
+    // adjust persistent batch size
+    if(std::getenv("BATCH")) {
+      rparams->batches_per_block_inner_reduction = std::atoi(std::getenv("BATCH"));
+    } 
+ 
+  }
+
   rparams->lparams = LaunchParams(
       gdimx,
       LaunchParams::UNINITIALIZED_VAL,
@@ -1088,6 +1118,10 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     // use tma load if possible
     int hw_major = at::cuda::getCurrentDeviceProperties()->major;
     rparams->use_tma_load = hw_major >= 9;
+
+    if(std::getenv("USE_MAIN")) {
+      rparams->use_tma_load = false;
+    }
 
     // set circular buffer options
     if (rparams->use_tma_load) {

@@ -167,7 +167,9 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(
         outer_i++, rparams->batches_per_block_inner_reduction, false);
 
-    outer_unswitch(outer_i++);
+    if(!rparams->use_tma_load){
+      outer_unswitch(outer_i++);
+    }
 
     if (!rparams->vectorize_inner_reduction &&
         rparams->unroll_factor_inner_reduction > 1) {
@@ -676,7 +678,9 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
     auto new_i = new_i_it->second;
     reorder_map[old_i] = new_i;
   }
-  reference_tv->reorder(reorder_map);
+  if(std::getenv("USE_MAIN")) {
+    reference_tv->reorder(reorder_map);
+  } 
 
   std::vector<int64_t> rfactor_axes;
   std::vector<int64_t> rfactor_axes_no_unswitch;

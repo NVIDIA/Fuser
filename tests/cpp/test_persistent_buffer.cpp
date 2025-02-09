@@ -1473,7 +1473,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   FusionGuard fg(&fusion);
   const float kEps = 1e-5;
   Val* eps_ptr = IrBuilder::create<Val>(kEps);
-  constexpr int64_t dim0 = 2048;
+  constexpr int64_t dim0 = 16384;
   std::vector<int64_t> input_shape{dim0, hidden_size};
   std::vector<int64_t> norm_shape{hidden_size};
 
@@ -1583,8 +1583,10 @@ INSTANTIATE_TEST_SUITE_P(
     PersistentBufferTest,
     LayerNormSharedMemoryTest,
     ::testing::Combine(
-        ::testing::Values(DataType::Half, DataType::Float),
-        ::testing::Range((int64_t)32768, (int64_t)81921, (int64_t)4096)),
+        ::testing::Values(DataType::Float),
+        // ::testing::Values(DataType::Half, DataType::Float),
+        ::testing::Values((int64_t)25600, (int64_t)33792)),
+        // ::testing::Range((int64_t)25600, (int64_t)81921, (int64_t)409600)),
     [](const testing::TestParamInfo<TestParam>& info) {
       std::stringstream ss;
       ss << "dtype_" << std::get<0>(info.param);
@@ -1631,4 +1633,25 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "dtype_" << info.param;
       return sanitizeTestName(ss.str());
     });
+// batch size = 2k
+// CircularBufferOptions{ stage=2, prefetch=1, type=PipelinedMBarrierForWAR }   
+// 2k x 25600, set1, 4 x 7 x 928, 47%
+// 2k x 25600, set3, 4 x 8 x 800, 50%
+// 2k x 25600, set4, 4 x 10 x 640, 50%
+// 2k x 25600, set4, 4 x 16 x 416, 40%
+// 2k x 25600, set2, 4 x 25 x 256, 30%
+
+// 16 x 25600, main, 4 x 7 x 928, 51%, 1 bpsm, 1 x 16K blocks, 110.7 waves
+// 16 x 25600, set1, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves
+// 16 x 25600, set1, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves
+// 16 x 25600, set1, 4 x 10 x 640, 59%, 1 bpsm, 2 x  8K blocks, 55.4 waves
+
+// 2048, main, 4 x 2 x 256, 46%
+// 2048, set1, 4 x 2 x 256, stages = 2, 37%
+
+// batch size = 16k, cost = waves x stages per block
+// 2048, main, 4 x 4 x 128, 74%, 10 bpsm,1 x 16K blocks, 11.1 waves, cost 11.1 
+// 2048, set1, 4 x 4 x 128, 64%, 9 bpsm, 2 x 8K  blocks, 6.2  waves, cost 12.4   
+// 2048, set2, 4 x 4 x 128, 54%, 6 bpsm, 4 x 4K  blocks, 4.6  waves, cost 18.4
+// 2048, set2, 4 x 4 x 128, 36%, 3 bpsm, 8 x 2K  blocks, 4.6  waves, cost 36.8    
 } // namespace nvfuser

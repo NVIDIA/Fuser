@@ -42,8 +42,10 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     const IdModel& id_model) {
   NVF_ERROR(for_loop != nullptr);
 
+  std::cout << "\n======= expr " << expr->toString() << std::endl;
   if (for_loop->circularBufferLoopStage() ==
       CircularBufferLoopStage::NotApplicable) {
+    std::cout << "======= NotApplicable ======= " << std::endl;
     return nullptr;
   }
 
@@ -56,6 +58,7 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
   auto consumer_tv = ir_utils::getTvOutput(expr);
 
   if (!consumer_tv->isCircularBuffered()) {
+    std::cout << "======= consumer not isCircularBuffered ======= " << std::endl;
     return nullptr;
   }
 
@@ -64,6 +67,7 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
            .disjointValSets()
            .strictAreMapped(for_loop->iter_domain(), circular_buffer_axis)) {
     // This loop is not the circular buffer loop for this tensor
+    std::cout << "======= This loop is not the circular buffer loop for this tensor ======= " << std::endl;
     return nullptr;
   }
 
@@ -77,11 +81,14 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 
   // This offsetting is only necessary in the main loop
   if (for_loop->circularBufferLoopStage() != CircularBufferLoopStage::Main) {
+    std::cout << "======= This offsetting is only necessary in the main loop ======= " << std::endl;
     return nullptr;
   }
 
   auto prefetch_distance =
       info.getCircularBufferOptionsFor(for_loop->iter_domain()).prefetch;
+  
+  std::cout << "======= prefetch_distance: " << prefetch_distance << std::endl;
 
   return IrBuilder::create<Val>(prefetch_distance, DataType::Index);
 }

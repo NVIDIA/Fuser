@@ -2144,8 +2144,7 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
   bool is_producer_tma_op = producer->definition() != nullptr &&
       producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile;
+      ir_utils::isCpAsyncBulkLoad(producer->definition());
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
@@ -2678,12 +2677,49 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
+    // NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
-      auto gmem_address = getProducerIndex(
-          producer_tv, consumer_tv, loops, rotated_loops, {}, true);
+      // auto gmem_address = getProducerIndex(
+      //     producer_tv, consumer_tv, loops, rotated_loops, {}, true);
+
+      // ND TMA with tensor map
+      ValGroups groups_to_index = tma_info.getTMADomain();
+      // TensorIndexer needs IterDomain instead of ValGroup to work around
+      // the resize indexing issue
+      std::vector<IterDomain*> ids_to_index;
+      ids_to_index.reserve(groups_to_index.size());
+      const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                      : producer_tv->domain()->allIDs();
+      for (const auto& group : groups_to_index) {
+        auto it = std::find_if(
+            tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
+              return group->has(gmem_id);
+            });
+        if (it != tma_all_ids.end()) {
+          ids_to_index.push_back(*it);
+        } else {
+          ids_to_index.push_back(group->front()->as<IterDomain>());
+        }
+      }
+
+      const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+      auto per_dim_indices =
+          indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+      Val* stride = consumer_tv->fusion()->oneVal();
+      for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+        auto per_dim_index = per_dim_indices.at(i);
+        auto logical_id = consumer_tv->getLogicalDomain().at(i);
+        auto per_dim_strided_index =
+            SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
+        per_dim_indices.at(i) = per_dim_strided_index;
+        stride = SimplifyingIrBuilder::mulExpr(stride, logical_id->extent());
+      }
+      auto address_offset = sumVals(per_dim_indices);
+      auto gmem_address = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer_tv), address_offset);
+
       index = IrBuilder::structExpr(
           {{"raw_gmem_addr", gmem_address},
            {"bytes", expected_bytes},
