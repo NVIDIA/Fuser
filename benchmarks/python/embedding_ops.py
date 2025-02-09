@@ -32,7 +32,7 @@ def hf_qwen2(dtype):
         # TODO: compute iobytes
         return 1
 
-    return MyModel(config).cuda(), partial(inputs, dtype), partial(grads, dtype), iobytes
+    return MyModel(config).cuda().to(dtype), partial(inputs, dtype), partial(grads, dtype), iobytes
 
 def hf_phi3(dtype):
     from transformers.models.phi3 import Phi3PreTrainedModel
@@ -63,7 +63,7 @@ def hf_phi3(dtype):
         # TODO: compute iobytes
         return 1
 
-    return MyModel(config).cuda(), partial(inputs, dtype), partial(grads, dtype), iobytes
+    return MyModel(config).cuda().to(dtype), partial(inputs, dtype), partial(grads, dtype), iobytes
 
 def hf_mistral_nemo(dtype):
     from transformers.models.mistral import MistralPreTrainedModel
@@ -93,7 +93,7 @@ def hf_mistral_nemo(dtype):
         # TODO: compute iobytes
         return 1
 
-    return MyModel(config).cuda(), partial(inputs, dtype), partial(grads, dtype), iobytes
+    return MyModel(config).cuda().to(dtype), partial(inputs, dtype), partial(grads, dtype), iobytes
 
 embedding_setup = {
     "hf_qwen2": hf_qwen2,
