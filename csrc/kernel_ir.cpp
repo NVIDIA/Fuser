@@ -443,7 +443,7 @@ const std::string Asm::utility() const {
     std::regex pattern(
         R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
     std::smatch match;
-    if (std::regex_match(input, match, pattern)) {
+    if (std::regex_match(code, match, pattern)) {
       std::string extracted = match[1];
       std::transform(
           extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
