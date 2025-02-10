@@ -46,10 +46,10 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
 
-  const std::vector<Expr*>& exprs = fusion->exprs();
-  if (exprs.size() == 1 && isResharding(exprs[0]) &&
-      HostIrLower::canLower(exprs[0])) {
-    return true;
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Fusion is resharding.");
+    return false;
   }
 
   if (allOutputsArePointerArithmetics(fusion)) {
