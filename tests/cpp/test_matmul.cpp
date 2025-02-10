@@ -4037,6 +4037,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.circular_buffering_strategy = MatmulParams::CircularBufferingStrategy::WarpSpecialized;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
