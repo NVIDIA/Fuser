@@ -7775,7 +7775,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
     bool predicate_rngop = false;
 
    private:
-    void handle(RNGOp* uop) final {
+    void handle(kir::RNGOp* uop) final {
       for (auto expr : scope_exprs_) {
         if (!expr->isA<kir::IfThenElse>() ||
             expr->as<kir::IfThenElse>()->hasElse()) {
