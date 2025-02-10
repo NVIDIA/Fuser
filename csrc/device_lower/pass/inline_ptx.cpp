@@ -327,7 +327,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
-            kir::Asm::Options{/*volatile=*/true}));
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{},
+                /*immediate_inputs=*/{0}}));
   }
 
   void handle(kir::AllocTMem* alloc) final {
