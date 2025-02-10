@@ -3242,7 +3242,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (!asm_->options().immediate_inputs.empty()) {
           utilities_ << "template <";
           bool first = true;
-          for (auto in_i : c10::irange(inputs.size())) {
+          for (auto in_i : c10::irange((int64_t)inputs.size())) {
             if (asm_->options().immediate_inputs.count(in_i)) {
               if (!first) {
                 utilities_ << ", ";
@@ -3263,7 +3263,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (!outputs.empty()) {
           utilities_ << ", ";
         }
-        for (auto in_i : c10::irange(inputs.size())) {
+        for (auto in_i : c10::irange((int64_t)inputs.size())) {
           if (asm_->options().immediate_inputs.count(in_i)) {
             continue;
           }
