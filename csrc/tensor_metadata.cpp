@@ -25,20 +25,23 @@ namespace {
 // contiguous, and update active_ids_ correspondingly.
 class ForwardTraverseFromLogicalToAlloc {
   ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  std::vector<IterDomain*> active_ids_;
+  at::Tensor tensor_;
 
   void handle(Split* split) {
     auto in = split->in();
     auto inner = split->inner();
     auto outer = split->outer();
     auto in_it = active_ids_.find(in);
-    // NVF_ERROR(in_it != active_ids_.end())
     if (in_it == active_ids_.end()) {
       // TODO: see [Allocation domain on both side of logical]
       return;
     }
 
-    auto [in_size, in_stride] = in_it->second;
+    int64_t in_axis in_it - active_ids_.begin();
+    active
+
+        auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     NVF_ERROR(
         in_size % factor == 0,
@@ -280,6 +283,11 @@ void validateAllocationSizesAndStrides(
     expected_stride_if_contiguous = stride * size;
   }
 }
+
+at::Tensor transformFromLogicalToAllocation(
+    at::Tensor tensor,
+    TensorView* tv,
+    const ExpressionEvaluator& ee) {}
 
 } // namespace
 
