@@ -16,6 +16,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
+#include <type.h>
 #include <utils.h>
 #include <vectorization_info.h>
 #include <visibility.h>
@@ -221,6 +222,10 @@ class NVF_API Kernel final : public Fusion {
 
   PrimDataType indexType() const {
     return index_type_;
+  }
+
+  void setIndexType(PrimDataType new_index_type) {
+    index_type_ = new_index_type;
   }
 
   //! Checks if parallel type is padded

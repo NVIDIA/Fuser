@@ -738,8 +738,9 @@ void KernelExecutor::compile(
   if (has_cp_async_bulk) {
     // When using TMA, we will set the index type after lowering so that we can
     // validate that the actual expressions do not overflow, even if we have
-    // large inputs. For now, assume it is 32-bit
-    compile_params.index_type = DataType::Int32;
+    // large inputs. For now, assume it is whatever the arguments would require
+    // for direct indexing.
+    compile_params.index_type = arg_index_type;
   }
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
@@ -825,6 +826,7 @@ void KernelExecutor::compile(
     expr_eval.precomputedValues()->bindValues(kernel->inputs(), args);
     compile_params.index_type = getSmallestIndexTypeByBoundingExpressions(
         kernel, expr_eval, launch_params);
+    kernel->setIndexType(compile_params.index_type.value());
   }
 
   // Now that we have launch parameters we can compile the kernel. It's a bit
