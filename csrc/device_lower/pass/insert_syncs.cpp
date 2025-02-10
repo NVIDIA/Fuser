@@ -1094,6 +1094,22 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     return pending_ops;
   }
 
+  // The for-loop for the k dimension in matmul expressions is circular
+  // buffered. TMA loads are launched to load mma operands into shared memory,
+  // which are consumed by mma expression. A WAR sync is necessary for the wgmma
+  // expession to avoid overwriting the circular buffer stage while it is being
+  // read.
+  //
+  // Special logic is required for warp specialized circular buffering because
+  // the TMA loads and wgmma ops are separated by an IfThenElse.
+  // kir::ExprMutator traverses the fusion in depth-wise order, so TMA loads in
+  // the LoadWarp are detected before the wgmma expressions in the ComputeWarp.
+  //
+  // This function inserts wgmma.commit_group and wgmma.wait_group expressions
+  // before the mbarrier::arrive, which allows load warp to launch next TMA
+  // load. First, we commit all the wgmma expressions issued in this iteration
+  // of the for-loop. Then, we wait for some number of wgmma expressions based
+  // on number of circular buffer stages and number of prefetch stages.
   void handleComputeWarp(ForLoop* for_loop) {
     NVF_ERROR(
         for_loop->circularBufferLoopStage() ==
@@ -1134,6 +1150,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       sync_exprs.pop_back();
     }
 
+    // Clear warp specialized async inputs and exprs
     warp_specialized_async_inputs_in_current_scope_.clear();
     warp_specialized_async_exprs_to_protect_.clear();
   }
@@ -1147,6 +1164,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // Process the expressions in the for loop
     kir::ExprMutator::handle(for_loop);
 
+    // Short-circuit: special handling of ComputeWarp for-loop
     if (for_loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
       return handleComputeWarp(for_loop);
