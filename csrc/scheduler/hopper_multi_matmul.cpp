@@ -625,6 +625,23 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         dc->setLoopDomain(s.as<IterDomain*>());
         dc->setAllocationDomain(s.as<IterDomain*>(), true);
 
+        // Let Mma-N = 256;
+        // Let no = Mma- N / 8
+        // After scheduleMmaOutputAllocation: [128(TIDx), 32(no), 2(m), 2 (ni)]
+
+        dc->split(-3, 2); // 2 elements are taken for 16x16 stmatrix
+        dc->reorder({{-4, -5}});
+        dc->merge(-3);
+        dc->merge(-2);
+        // After Stmatrix transformation: [16(noo), 128(TIDx), 8(noi, m, ni)]
+
+        // Let swizzle = 128B, so Tma-N = 64;
+        // Each iteration of stmatrix creates (64, 16) tile per warp-group, so
+        // 4 iterations to create (64, 64) tile for 128B swizzle.
+        // dc->split(-4, 4, false);
+        // After Tma store split: [128(TIDx), 4(nooo), 4(nooi), 2(noi), 2(m), 2
+        // (ni)]
+
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             dc,
             -1,
@@ -645,6 +662,16 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setLoopDomain(s.as<IterDomain*>());
 
       if (store_with_stmatrix) {
+        // Let Mma-N = 256;
+        // Let no = Mma- N / 8
+        // After scheduleMmaOutputAllocation: [128(TIDx), 32(no), 2(m), 2 (ni)]
+
+        // Let swizzle = 128B, so Tma-N = 64;
+        // Each iteration of stmatrix creates (64, 16) tile per warp-group, so
+        // 4 iterations to create (64, 64) tile for 128B swizzle.
+        // d_smem->split(-3, 4, false);
+        // After Tma store split: [128(TIDx), 4(noo), 8(noi), 2(m), 2 (ni)]
+
         // Schedule shared memory cache; Output from StMatrix
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
@@ -721,7 +748,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         cb_type = (CircularBufferType)Pipelined(false);
         break;
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
-        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 232));
     }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
