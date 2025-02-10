@@ -19,6 +19,8 @@
 #include <type.h>
 
 #include <iostream>
+#include <regex>
+#include <cctype>
 
 namespace nvfuser {
 namespace kir {
@@ -420,10 +422,33 @@ const std::string Asm::utility() const {
       {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
       {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "relinquishTMemAllocPermit"}};
+       "relinquishTMemAllocPermit"},
+      {"wgmma.fence.sync.aligned", "wgmmaFence"},
+      {"fence.proxy.async", "fenceAsyncProxy"},
+      {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
+      {"wgmma.wait_group.sync.aligned", "wgmmaWait"}};
   auto it = ptx_to_utility.find(code());
   if (it != ptx_to_utility.end()) {
     return it->second;
+  }
+  // Match wgmma. Example:
+  // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
+  // utility: wgmmaM64N256K16Half
+  // Half
+  std::regex pattern(R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
+  std::smatch match;
+  if (std::regex_match(input, match, pattern)) {
+    std::string extracted = match[1];
+    std::transform(extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
+    return "wgmma" + extracted + "Half";
+  }
+  // BFloat16
+  std::regex pattern(R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
+  std::smatch match;
+  if (std::regex_match(input, match, pattern)) {
+    std::string extracted = match[1];
+    std::transform(extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
+    return "wgmma" + extracted + "BF16";
   }
   return "";
 }
