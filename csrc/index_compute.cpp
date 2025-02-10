@@ -2674,55 +2674,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   expected_bytes =
       GpuLower::current()->commonScalarMap().hoistScalar(expected_bytes, loops);
   Val* index = nullptr;
-  ValGroups groups_to_index = tma_info.getTMADomain();
-  // TensorIndexer needs IterDomain instead of ValGroup to work around
-  // the resize indexing issue
-  std::vector<IterDomain*> ids_to_index;
-  ids_to_index.reserve(groups_to_index.size());
-  const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
-                                   : producer_tv->domain()->allIDs();
-  for (const auto& group : groups_to_index) {
-    auto it = std::find_if(
-        tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
-          return group->has(gmem_id);
-        });
-    if (it != tma_all_ids.end()) {
-      ids_to_index.push_back(*it);
-    } else {
-      ids_to_index.push_back(group->front()->as<IterDomain>());
-    }
-  }
-
-  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer =
-      indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
-
-  // convert indices to linear index, note that the order of indices is inner
-  // to outer while the order of the logical domain is outer to inner.
-  auto linear_index = [&consumer_tv, &indices_inner_to_outer]() {
-    Val* stride = consumer_tv->fusion()->oneVal();
-    int64_t dim = (int64_t)consumer_tv->getLogicalDomain().size();
-    for (int64_t i = 0; i < dim; i++) {
-      auto per_dim_index = indices_inner_to_outer.at(i);
-      auto logical_id = consumer_tv->getLogicalDomain().at(dim - 1 - i);
-      auto per_dim_strided_index =
-          SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
-      indices_inner_to_outer.at(i) = per_dim_strided_index;
-      stride = SimplifyingIrBuilder::mulExpr(stride, logical_id->extent());
-    }
-    return sumVals(indices_inner_to_outer);
-  };
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    // NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
-
-      auto gmem_address = SimplifyingIrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(producer_tv), linear_index());
-
+      auto gmem_address = getProducerIndex(
+          producer_tv, consumer_tv, loops, rotated_loops, {}, true);
       index = IrBuilder::structExpr(
           {{"raw_gmem_addr", gmem_address},
            {"bytes", expected_bytes},
@@ -2733,6 +2692,29 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     }
   } else {
     // ND TMA with tensor map
+    ValGroups groups_to_index = tma_info.getTMADomain();
+    // TensorIndexer needs IterDomain instead of ValGroup to work around
+    // the resize indexing issue
+    std::vector<IterDomain*> ids_to_index;
+    ids_to_index.reserve(groups_to_index.size());
+    const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                     : producer_tv->domain()->allIDs();
+    for (const auto& group : groups_to_index) {
+      auto it = std::find_if(
+          tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
+            return group->has(gmem_id);
+          });
+      if (it != tma_all_ids.end()) {
+        ids_to_index.push_back(*it);
+      } else {
+        ids_to_index.push_back(group->front()->as<IterDomain>());
+      }
+    }
+
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    auto indices_inner_to_outer =
+        indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+
     auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
     auto descriptor = tma_info.tensorMap();
     if (is_load) {
