@@ -5912,4 +5912,55 @@ TEST_F(ResizeTest, Repro3801) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// Mixing resize and index ops is not supported yet.Specifically,
+// resize requires TensorIndexer, which is based on IdModel, but index
+// ops like take_along_axis is not yet supported by IdModel.
+TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({128, 4095});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({1, 4096}, DataType::Int);
+  fusion.addInput(tv1);
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(4096)}});
+  auto tv3 = takeAlongAxis(tv0, tv2, 0);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({128, 4095}, options);
+  auto t1 = at::randint(0, 128, {1, 4096}, options_int);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2)
+      << "Unexpected segmentation";
+
+  // Make sure two ops are separated into their own segments
+  for (auto segmented_group : runtime->fusionSegments()->groups()) {
+    bool has_resize = false;
+    bool has_index_op = false;
+    for (auto expr : segmented_group->exprs()) {
+      if (scheduler_tools::isResizeBasedOp(expr)) {
+        has_resize = true;
+      } else if (
+          expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+        has_index_op = true;
+      }
+    }
+
+    EXPECT_NE(has_resize, has_index_op);
+  }
+}
+
 } // namespace nvfuser
