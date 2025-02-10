@@ -411,6 +411,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
+
+        // An mma operation is added to async mma pipeline.
+        fill_async_mma_pipeline_ = true;
+        // async mma pipeline has not been flushed yet.
+        flush_async_mma_pipeline_ = false;
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
@@ -420,7 +425,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       registerInsertBefore(expr, fence_async, scope);
     }
 
-    // Insert sync exprs before async ops. For example, insert
+    // Insert sync exprs after async ops. For example, insert
     //   wgmma.commit_group.sync.aligned
     //   wgmma.wait_group.sync.aligned 0
     // before the use of mma results. Note that cp.async is not handled
@@ -430,13 +435,34 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     for (auto inp : expr->inputs()) {
       auto def = inp->definition();
       auto async_type = ir_utils::getAsyncOpType(def);
+
+      NVF_ERROR(
+          !flush_async_mma_pipeline_ || !fill_async_mma_pipeline_,
+          "The async mma pipeline cannot be filled without encountering ",
+          "another mma op after it is flushed with a RAW sync.");
+
+      // Detect a expression that consumes async mma operation.
+      // The async mma pipeline is already flushed and is empty.
+      // Adding a RAW wgmma.wait_group(0) is not necessary so skip it.
+      if (async_type == AsyncOpType::WgMma && !fill_async_mma_pipeline_ &&
+          flush_async_mma_pipeline_) {
+        continue;
+      }
+
       if (async_type != AsyncOpType::NotAsync &&
           async_type != AsyncOpType::CpAsync) {
         input_async_ops[async_type].insert(def);
+        // async mma pipeline is flushed.
+        flush_async_mma_pipeline_ = true;
+        // No mma operations are active in the async mma pipeline.
+        fill_async_mma_pipeline_ = false;
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
+      auto sync_exprs = lower_utils::getSyncExprs(
+          async_type,
+          /*keep_stages=*/0,
+          /*requires_commit=*/async_type != AsyncOpType::WgMma);
       for (auto sync_expr : sync_exprs) {
         insertSyncExpr(ops, expr, sync_expr, nullptr);
       }
@@ -758,7 +784,31 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     NVF_ERROR(sync_before_.empty(), "Didn't place all required syncs.");
   }
 
+  bool checkAsyncMmaPipeline() {
+    return fill_async_mma_pipeline_ == false;
+  }
+
  private:
+  //! fill_async_mma_pipeline_ is true when any mma expression is issued. A RAW
+  //! sync is required before any consumer operations use the results of mma
+  //! expression.
+  //!
+  //! flush_async_mma_pipeline_ is true when a RAW sync is issued for async mma
+  //! pipeline. The RAW sync for async wgmma is `wgmma.wait_group(0)`. All prior
+  //! mma operations are completed after this operation. No additional RAW sync
+  //! are required for other consumer expressions unless another mma expression
+  //! occurs in the fusion.
+  //!
+  //! fill_async_mma_pipeline_ and flush_async_mma_pipeline_ cannot be true
+  //! simultaneously.
+  //!
+  //! fill_async_mma_pipeline_ is always false at end of `ReadAfterWriteSyncs`.
+  //! Detect mma op in async mma pipeline that require RAW sync.
+  bool fill_async_mma_pipeline_ = false;
+
+  //! Only a single wgmma wait_group to flush async mma pipeline.
+  bool flush_async_mma_pipeline_ = false;
+
   //! Keep track of expressions that must be followed by syncthreads
   std::deque<std::pair<Expr*, ParallelTypeBitmap>> sync_before_;
 
@@ -788,6 +838,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& loop_nests) {
     ReadAfterWriteSyncs inserter(loop_nests);
+    NVF_ERROR(
+        inserter.checkAsyncMmaPipeline(),
+        "Async mma pipeline should be empty at end of cuda kernel.");
     return inserter.exprs_;
   }
 };

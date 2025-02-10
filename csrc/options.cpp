@@ -198,6 +198,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"fma", DisableOption::Fma},
           {"grouped_grid_welford_outer_opt",
            DisableOption::GroupedGridWelfordOuterOpt},
+          {"id_model", DisableOption::IdModel},
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
