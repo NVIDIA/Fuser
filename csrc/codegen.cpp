@@ -3190,6 +3190,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Reference:
   // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
+    auto getTypeOrIndexType = [](Val* value) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+        if (isPointerType(ti->index()->dtype())) {
+          return ti->index()->dtype();
+        }
+      }
+      return value->dtype();
+    };
     // If asm_ has a utility name, we will wrap the PTX code in a utility
     // function with that name. Otherwise, we just generate the PTX code
     // directly in the kernel.
@@ -3262,7 +3270,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (in_i > 0) {
             utilities_ << ", ";
           }
-          utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+          utilities_ << getTypeOrIndexType(inputs.at(in_i)) << " in" << in_i;
         }
         utilities_ << ") {\n";
       }
@@ -3300,15 +3308,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         next_level();
         indent();
       }
-
-      auto getTypeOrIndexType = [](Val* value) {
-        if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
-          if (isPointerType(ti->index()->dtype())) {
-            return ti->index()->dtype();
-          }
-        }
-        return value->dtype();
-      };
 
       if (asm_->hasBooleanInput()) {
         (*asm_target) << "\"{\\n\"\n";
