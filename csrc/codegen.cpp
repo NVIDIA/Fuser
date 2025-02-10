@@ -3190,7 +3190,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Reference:
   // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
-    std::cout << asm_->toString() << std::endl;
     auto getTypeOrIndexType = [](Val* value) {
       if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
         if (isPointerType(ti->index()->dtype())) {
