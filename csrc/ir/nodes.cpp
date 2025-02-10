@@ -5064,6 +5064,10 @@ bool ForLoop::isUnrolled() const {
     return false;
   }
 
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -5209,6 +5213,71 @@ bool ForLoop::isGroup() const {
       {typeid(GroupedReductionOp),
        typeid(kir::GroupedGridReduction),
        typeid(kir::GroupedGridWelford)});
+}
+
+namespace {
+
+//! A utility class to check if runtime reduction exists
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  // For ReductionOp and WelfordOp, look for block and grid reduction.
+  // For other reductions, runtime function is always called.
+  void dispatch(const Expr* expr) final {
+    // Lambda that extracts the TensorView from an op's output and
+    // returns true if its domain contains a block or grid reduction.
+    auto checkBlockGridReduction = [](const auto* op) -> bool {
+      TensorView* out_tv = nullptr;
+      if (auto tv_idx = dynamic_cast<kir::TensorIndex*>(op->out())) {
+        out_tv = tv_idx->view();
+      } else if (auto tv = dynamic_cast<TensorView*>(op->out())) {
+        out_tv = tv;
+      }
+      if (out_tv) {
+        const auto domain = out_tv->domain();
+        return domain->hasBlockReduction() || domain->hasGridReduction();
+      }
+      return false;
+    };
+
+    if (auto rop = dynamic_cast<const ReductionOp*>(expr)) {
+      if (checkBlockGridReduction(rop)) {
+        is_found_ = true;
+        return;
+      }
+    } else if (auto wop = dynamic_cast<const WelfordOp*>(expr)) {
+      if (checkBlockGridReduction(wop)) {
+        is_found_ = true;
+        return;
+      }
+    } else if (
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
