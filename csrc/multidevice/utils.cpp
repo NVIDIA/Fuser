@@ -639,4 +639,68 @@ void reorderDIDToFront(TensorView* tv) {
   tv->reorder(order_map);
 }
 
+// Convert sizes/strides to sharded sizes/strides. Track the sharded strides
+// because all strides greater than or equal to the sharded ones will need be
+// adjusted. Generalize this to multiple sharding dimensions for
+// future-proofing.
+std::pair<std::vector<int64_t>, std::vector<int64_t>> removeSharding(
+    std::vector<IterDomain*> domain,
+    std::vector<int64_t> sizes,
+    std::vector<int64_t> strides) {
+  std::vector<std::pair<int64_t, int64_t>> sharded_infos;
+  for (auto id_i : c10::irange(domain.size())) {
+    if (domain[id_i]->isDeviceDim()) {
+      if (sizes[id_i] == 1 || strides[id_i] == 0) {
+        continue;
+      }
+      sharded_infos.push_back({sizes[id_i], strides[id_i]});
+    }
+  }
+
+  std::sort(
+      sharded_infos.begin(),
+      sharded_infos.end(),
+      [](const std::pair<int64_t, int64_t>& lhs,
+         const std::pair<int64_t, int64_t>& rhs) {
+        return (lhs.second < rhs.second);
+      });
+
+  int64_t factor_removed = 1;
+  for (auto sharded_info : sharded_infos) {
+    auto [size, stride] = sharded_info;
+    for (auto id_i : c10::irange(domain.size())) {
+      NVF_ERROR(stride % factor_removed == 0);
+      auto adjusted_stride = stride / factor_removed;
+      if (strides[id_i] > adjusted_stride) {
+        NVF_ERROR(strides[id_i] % size == 0);
+        strides[id_i] /= size;
+      }
+    }
+    factor_removed *= size;
+  }
+
+  for (auto id_i : c10::irange(domain.size())) {
+    if (domain[id_i]->isDeviceDim()) {
+      sizes[id_i] = 1;
+      strides[id_i] = 0;
+    }
+  }
+  return {sizes, strides};
+}
+
+bool consistentDomainSharding(TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    return true;
+  }
+  bool alloc_multi_device = std::any_of(
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
+  bool logical_multi_device = std::any_of(
+      tv->getLogicalDomain().begin(),
+      tv->getLogicalDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
+  return alloc_multi_device == logical_multi_device;
+}
+
 } // namespace nvfuser

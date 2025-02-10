@@ -184,4 +184,19 @@ std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes);
 
+// Convert sizes/strides to sharded sizes/strides. Track the sharded strides
+// because all strides greater than or equal to the sharded ones will need
+// be adjusted. Generalize this to multiple sharding dimensions for
+// future-proofing.
+std::pair<std::vector<int64_t>, std::vector<int64_t>> removeSharding(
+    std::vector<IterDomain*> domain,
+    std::vector<int64_t> sizes,
+    std::vector<int64_t> strides);
+
+// Returns true if logical and alloc domain have consistent sharding
+// information. If neither is sharded that's considered consistent.
+// Once sharding is no longer done on logical this should always be false when a
+// tensor is sharded.
+bool consistentDomainSharding(TensorView* tv);
+
 } // namespace nvfuser

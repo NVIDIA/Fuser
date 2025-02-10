@@ -26,6 +26,7 @@ namespace {
 class ForwardSizesStridesTraverse {
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  bool propagate_strides_;
 
   void handle(Split* split) {
     auto in = split->in();
@@ -98,7 +99,7 @@ class ForwardSizesStridesTraverse {
       return;
     }
     NVF_ERROR(
-        inner_stride * inner_size == outer_stride,
+        !propagate_strides_ || inner_stride * inner_size == outer_stride,
         "Merging of discontiguous dimensions is not allowed in allocation "
         "domain. An allocation IterDomain can't have two different strides.",
         merge->toString(),
@@ -129,8 +130,11 @@ class ForwardSizesStridesTraverse {
  public:
   ForwardSizesStridesTraverse(
       ExpressionEvaluator& ee,
-      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
-      : ee_(ee), active_ids_(active_ids) {}
+      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids,
+      bool propagate_strides)
+      : ee_(ee),
+        active_ids_(active_ids),
+        propagate_strides_(propagate_strides) {}
 
   void run(
       const std::vector<IterDomain*>& logical,
@@ -148,6 +152,7 @@ class BackwardSizesStridesTraverse {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  bool propagate_strides_;
 
   void handle(Split* split) {
     auto in = split->in();
@@ -178,7 +183,7 @@ class BackwardSizesStridesTraverse {
     }
 
     NVF_ERROR(
-        inner_stride * inner_size == outer_stride,
+        !propagate_strides_ || inner_stride * inner_size == outer_stride,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "splitting one dimension into discontiguous dimensions is not allowed in allocation domain",
@@ -248,8 +253,11 @@ class BackwardSizesStridesTraverse {
  public:
   BackwardSizesStridesTraverse(
       ExpressionEvaluator& ee,
-      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
-      : ee_(ee), active_ids_(active_ids) {}
+      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids,
+      bool propagate_strides)
+      : ee_(ee),
+        active_ids_(active_ids),
+        propagate_strides_(propagate_strides) {}
 
   void run(
       const std::vector<IterDomain*>& logical,
@@ -266,18 +274,13 @@ class BackwardSizesStridesTraverse {
 struct IDProperties {
   Val* size;
   Val* stride;
-  bool contiguity;
-};
-
-struct TensorSizeStrideReturn {
-  std::vector<IDProperties> id_properties;
-  std::vector<Val*> validation_statements;
 };
 
 class ID_Dispatch {
  public:
   ID_Dispatch(
       std::vector<IterDomain*> from_domain,
+      bool propagate_strides,
       std::vector<bool> contiguity = {});
 
   class ForwardDispatch_ : public OptInDispatch {
@@ -327,50 +330,74 @@ class ID_Dispatch {
   std::vector<std::pair<IterDomain*, IDProperties>> from_info_;
   std::vector<IterDomain*> from_domain_;
   std::vector<Val*> validation_stmts_;
+
+  // Stride propagation should only be done when projecting from allocation to
+  // logical. It will also enable error checking for contiguity.
+  //
+  // For example if logical is [i0, i1, i2] and allocation is [i2*i1*i0] then
+  // allocation domain should be contiguous, logical should not. Therefore we
+  // should not make sure logical->allocation transforms are all contiguous
+  // merges.
+  //
+  // If we have the reverse: logical is [i2*i1*i0] and allocation is
+  // [i0, i1, i2] then this would be an error because logical can not be
+  // represented from allocation domain as simple stride manipulations.
+  //
+  // Note logical as [i0*i1*i2] and allocation as [i0, i1, i2] would be valid.
+  bool propagate_strides_ = true;
 };
 
 ID_Dispatch::ID_Dispatch(
     std::vector<IterDomain*> from_domain,
+    bool propagate_strides,
     std::vector<bool> contiguity)
     : forward_dispatch_(this),
       backward_dispatch_(this),
-      from_domain_(from_domain) {
+      from_domain_(from_domain),
+      propagate_strides_(propagate_strides) {
   NVF_ERROR(!from_domain_.empty());
   FusionGuard fg(from_domain_[0]->fusion());
   from_domain_ = TensorDomain::noReductions(from_domain_);
-
-  // Set contiguity to false if missing
-  if (contiguity.empty()) {
-    contiguity = std::vector<bool>(from_domain_.size(), false);
-  } else {
-    NVF_ERROR(from_domain_.size() == contiguity.size());
-  }
 
   std::vector<Val*> from_sizes(from_domain.size(), nullptr);
 
   for (auto dim_i : c10::irange(from_domain_.size())) {
     if (from_domain_[dim_i]->isBroadcast() &&
-        !from_domain_[dim_i]->hasExpandedExtent()) {
+        !from_domain_[dim_i]->hasExpandedExtent() &&
+        !from_domain_[dim_i]->isDeviceDim()
+        // Broadcasted device dims can be allocated in logical domain, give them
+        // a symbolic value to process, not a const size 1. I presume this is
+        // due to the "unshardedSize" function, it may be worthwhile to revisit
+        // that function.
+    ) {
       from_sizes[dim_i] = FusionGuard::getCurFusion()->oneVal();
     } else {
       from_sizes[dim_i] = IrBuilder::create<Val>(DataType::Int);
     }
   }
 
-  std::vector<Val*> from_strides;
-
-  // Setup symbolic strides based on contiguity if not provided
-  from_strides = std::vector<Val*>(from_domain_.size(), nullptr);
-  auto stride = FusionGuard::getCurFusion()->oneVal();
-  for (int dim_i = (int)from_domain_.size() - 1; dim_i >= 0; dim_i--) {
-    if (contiguity[dim_i]) {
-      from_strides[dim_i] = stride;
-      stride = SimplifyingIrBuilder::mulExpr(from_sizes[dim_i], stride);
-    } else if (from_domain_[dim_i]->isBroadcast()) {
-      from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
+  std::vector<Val*> from_strides(
+      from_domain_.size(), FusionGuard::getCurFusion()->zeroVal());
+  if (propagate_strides_) {
+    // Set contiguity to false if missing
+    if (contiguity.empty()) {
+      contiguity = std::vector<bool>(from_domain_.size(), false);
     } else {
-      stride = IrBuilder::create<Val>(DataType::Int);
-      from_strides[dim_i] = stride;
+      NVF_ERROR(from_domain_.size() == contiguity.size());
+    }
+
+    // Setup symbolic strides based on contiguity if not provided
+    auto stride = FusionGuard::getCurFusion()->oneVal();
+    for (int dim_i = (int)from_domain_.size() - 1; dim_i >= 0; dim_i--) {
+      if (contiguity[dim_i]) {
+        from_strides[dim_i] = stride;
+        stride = SimplifyingIrBuilder::mulExpr(from_sizes[dim_i], stride);
+      } else if (from_domain_[dim_i]->isBroadcast()) {
+        from_strides[dim_i] = FusionGuard::getCurFusion()->zeroVal();
+      } else {
+        stride = IrBuilder::create<Val>(DataType::Int);
+        from_strides[dim_i] = stride;
+      }
     }
   }
 
@@ -378,10 +405,16 @@ ID_Dispatch::ID_Dispatch(
   for (auto dim_i : c10::irange(from_domain_.size())) {
     active_ids_.push_back(
         {from_domain_[dim_i],
-         IDProperties{
-             from_sizes[dim_i], from_strides[dim_i], contiguity[dim_i]}});
+         IDProperties{from_sizes[dim_i], from_strides[dim_i]}});
   }
   from_info_ = active_ids_;
+
+  // for (auto info : from_info_) {
+  //   std::cout << "ID: " << info.first->toString()
+  //             << "\n  size: " << info.second.size->toString()
+  //             << "\n  stride: " << info.second.stride->toString() <<
+  //             std::endl;
+  // }
 }
 
 ID_Dispatch::ForwardDispatch_::ForwardDispatch_(ID_Dispatch* id_dispatch)
@@ -400,12 +433,10 @@ void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
   Val* inner_size = split->innerSplit() ? factor : other;
   Val* outer_size = split->innerSplit() ? other : factor;
 
-  IDProperties inner_properties = {
-      inner_size, in_properties.stride, in_properties.contiguity};
+  IDProperties inner_properties = {inner_size, in_properties.stride};
   IDProperties outer_properties = {
       outer_size,
-      IrBuilder::mulExpr(in_properties.stride, inner_size),
-      in_properties.contiguity};
+      SimplifyingIrBuilder::mulExpr(in_properties.stride, inner_size)};
 
   id_dispatch_->replaceAndInsert(
       split->in(),
@@ -415,15 +446,17 @@ void ID_Dispatch::ForwardDispatch_::handle(Split* split) {
 void ID_Dispatch::ForwardDispatch_::handle(Merge* merge) {
   auto inner_properties = id_dispatch_->findIdProperties(merge->inner());
   auto outer_properties = id_dispatch_->findIdProperties(merge->outer());
-  id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
-      IrBuilder::mulExpr(inner_properties.size, inner_properties.stride),
-      outer_properties.stride));
+  if (id_dispatch_->propagate_strides_) {
+    id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
+        SimplifyingIrBuilder::mulExpr(
+            inner_properties.size, inner_properties.stride),
+        outer_properties.stride));
+  }
   id_dispatch_->replaceAndInsert(
       merge->inner(),
       {{merge->out(),
         {IrBuilder::mulExpr(inner_properties.size, outer_properties.size),
-         inner_properties.stride,
-         inner_properties.contiguity}}});
+         inner_properties.stride}}});
   id_dispatch_->remove(merge->outer());
 }
 
@@ -433,15 +466,19 @@ ID_Dispatch::BackwardDispatch_::BackwardDispatch_(ID_Dispatch* id_dispatch)
 void ID_Dispatch::BackwardDispatch_::handle(Split* split) {
   auto inner_properties = id_dispatch_->findIdProperties(split->inner());
   auto outer_properties = id_dispatch_->findIdProperties(split->outer());
-  id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
-      IrBuilder::mulExpr(inner_properties.size, inner_properties.stride),
-      outer_properties.stride));
+
+  if (id_dispatch_->propagate_strides_) {
+    id_dispatch_->validation_stmts_.push_back(IrBuilder::eqExpr(
+        SimplifyingIrBuilder::mulExpr(
+            inner_properties.size, inner_properties.stride),
+        outer_properties.stride));
+  }
+
   id_dispatch_->replaceAndInsert(
       split->inner(),
       {{split->in(),
         {IrBuilder::mulExpr(inner_properties.size, outer_properties.size),
-         inner_properties.stride,
-         inner_properties.contiguity}}});
+         inner_properties.stride}}});
   id_dispatch_->remove(split->outer());
 }
 
@@ -459,10 +496,8 @@ void ID_Dispatch::BackwardDispatch_::handle(Merge* merge) {
 
   IDProperties outer_properties = {
       IrBuilder::divExpr(out_properties.size, factor),
-      IrBuilder::mulExpr(out_properties.size, factor),
-      out_properties.contiguity};
-  IDProperties inner_properties = {
-      factor, out_properties.stride, out_properties.contiguity};
+      IrBuilder::mulExpr(out_properties.stride, factor)};
+  IDProperties inner_properties = {factor, out_properties.stride};
 
   id_dispatch_->replaceAndInsert(
       merge->out(),
@@ -607,58 +642,20 @@ void validateContiguity(
   }
 }
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
-    const at::Tensor& tensor,
-    TensorView* tv,
-    ExpressionEvaluator ee) {
-  const auto& logical = tv->getLogicalDomain();
-  const auto& alloc = tv->getMaybeAllocationDomain();
-
-  // active IDs and their shape and stride
-  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  int64_t dim_index = 0;
-  for (IterDomain* id : TensorDomain::noReductions(logical)) {
-    active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
-    dim_index++;
-  }
-  NVF_ERROR(dim_index == tensor.dim());
-
-  ForwardSizesStridesTraverse(ee, active_ids).run(logical, alloc);
-  BackwardSizesStridesTraverse(ee, active_ids).run(logical, alloc);
-
-  // Now active_ids should contain the final sizes and strides, unordered. We
-  // need to put them to the correct order.
-  std::vector<int64_t> allocation_sizes;
-  std::vector<int64_t> allocation_strides;
-  allocation_sizes.reserve(alloc.size());
-  allocation_strides.reserve(alloc.size());
-  for (IterDomain* id : TensorDomain::noReductions(alloc)) {
-    if (id->isDeviceDim()) {
-      allocation_sizes.push_back(1);
-    } else {
-      allocation_sizes.push_back(active_ids.at(id).first);
-    }
-    allocation_strides.push_back(active_ids.at(id).second);
-  }
-
-  // Only validate final sizes and strides when we have a non-empty tensor.
-  if (tensor.numel() != 0) {
-    // validateContiguity(
-    //     alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
-  }
-  return {std::move(allocation_sizes), std::move(allocation_strides)};
-}
-
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection(
     std::vector<int64_t> from_sizes,
     std::vector<int64_t> from_strides,
     std::vector<IterDomain*> from_domain,
     std::vector<IterDomain*> to_domain,
+    bool propagate_strides,
     ExpressionEvaluator ee) {
   from_domain = TensorDomain::noReductions(from_domain);
   to_domain = TensorDomain::noReductions(to_domain);
+
+  // std::cout<<"From: "<<from_domain<<std::endl;
+  // std::cout<<"From sizes: "<<from_sizes<<std::endl;
+  // std::cout<<"From strides: "<<from_strides<<std::endl;
+  // std::cout<<"To domain: "<<to_domain<<std::endl;
 
   NVF_ERROR(
       from_sizes.size() == from_domain.size(),
@@ -673,9 +670,10 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
     active_ids[from_domain[dim_i]] = {
         from_sizes.at(dim_i), from_strides.at(dim_i)};
   }
-
-  ForwardSizesStridesTraverse(ee, active_ids).run(from_domain, to_domain);
-  BackwardSizesStridesTraverse(ee, active_ids).run(from_domain, to_domain);
+  ForwardSizesStridesTraverse(ee, active_ids, propagate_strides)
+      .run(from_domain, to_domain);
+  BackwardSizesStridesTraverse(ee, active_ids, propagate_strides)
+      .run(from_domain, to_domain);
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
@@ -693,18 +691,17 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
     }
   }
 
-  ID_Dispatch dispatch(from_domain);
+  ID_Dispatch dispatch(from_domain, propagate_strides);
   auto from_info = dispatch.from_info_;
   auto to_info = dispatch.transform(to_domain);
   NVF_ERROR(dispatch.from_info_.size() == from_domain.size());
-  ExpressionEvaluator ee2;
   for (auto id_i : c10::irange(from_domain.size())) {
-    // std::cout << "Bind: " << from_info[id_i].first->toString() << " to
-    // "
+    // std::cout << "Bind: " << from_info[id_i].first->toString() << " aka "
+    //           << from_info[id_i].second.size->toString() << " to "
     //           << from_sizes[id_i] << std::endl;
-    // std::cout << "Bind: " << from_info[id_i].second.stride->toString()
-    //           << " to " << from_strides[id_i] << std::endl;
-    ee2.bind(from_info[id_i].second.size, from_sizes[id_i]);
+    if (!ee.isKnown(from_info[id_i].second.size)) {
+      ee.bind(from_info[id_i].second.size, from_sizes[id_i]);
+    }
     if (from_info[id_i].first->isBroadcast()) {
       if (from_info[id_i].second.stride->isConstInt()) {
         // Broadcast strides sometimes come in as a const int, it could be
@@ -713,7 +710,11 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
         continue;
       }
     }
-    ee2.bind(from_info[id_i].second.stride, from_strides[id_i]);
+    if (propagate_strides) {
+      // std::cout << "Bind: " << from_info[id_i].second.stride->toString()
+      //           << " to " << from_strides[id_i] << std::endl;
+      ee.bind(from_info[id_i].second.stride, from_strides[id_i]);
+    }
   }
 
   // Order of to_info is based on projection from from_domain,
@@ -724,15 +725,22 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
   for (auto id_i : c10::irange(to_info.size())) {
     id_to_to_info_pos[to_info[id_i].first] = id_i;
   }
-
   std::vector<int64_t> to_sizes_2;
   std::vector<int64_t> to_strides_2;
   for (auto id_i : c10::irange(to_domain.size())) {
     auto& info = to_info[id_to_to_info_pos.at(to_domain[id_i])];
-    to_sizes_2.push_back(ee2.evaluate(info.second.size).as<int64_t>());
-    to_strides_2.push_back(ee2.evaluate(info.second.stride).as<int64_t>());
+    // std::cout << "Eval size: " << info.second.size->toInlineString()
+    //           << std::endl;
+    to_sizes_2.push_back(ee.evaluate(info.second.size).as<int64_t>());
+    if (propagate_strides) {
+      // std::cout << "Eval stride: " << info.second.stride->toInlineString()
+      //           << std::endl;
+      to_strides_2.push_back(ee.evaluate(info.second.stride).as<int64_t>());
+    } else {
+      to_strides_2.push_back(-1);
+    }
   }
-
+  // std::cout << "Done eval" << std::endl;
   for (auto id_i : c10::irange(to_domain.size())) {
     if (to_domain[id_i]->isBroadcast()) {
       to_strides_2[id_i] = to_strides[id_i];
@@ -753,6 +761,52 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection
   // TODO: Validate allocation contiguity if numel > 1
   return {std::move(to_sizes_2), std::move(to_strides_2)};
 }
+namespace {
+std::vector<int64_t> adjustStrides(
+    const std::vector<int64_t>& orig_sizes,
+    const std::vector<int64_t>& new_sizes,
+    std::vector<int64_t> orig_strides) {
+  NVF_ERROR(
+      orig_sizes.size() == new_sizes.size() &&
+      orig_strides.size() == new_sizes.size());
+  int ndims = orig_sizes.size();
+  for (auto size_i : c10::irange(ndims)) {
+    const auto& new_size = new_sizes[size_i];
+    const auto& orig_size = orig_sizes[size_i];
+    const auto& orig_stride = orig_strides[size_i];
+    if (new_size == orig_size) {
+      continue;
+    }
+    // e.g.
+    // orig sizes [4, 3, 2] -> [4, 6, 2] new sizes
+    // orig strides [24, 6, 1] -> [48, 12, 1] new strides
+    // orig size = 3, new size = 6, orig stride = 6
+    if (new_size > orig_size) {
+      NVF_ERROR(new_size % orig_size == 0);
+      auto factor = new_size / orig_size;
+      for (auto size_j : c10::irange(ndims)) {
+        if (orig_strides[size_j] >= orig_stride) {
+          orig_strides[size_j] *= factor;
+        }
+      }
+    } else {
+      // e.g.
+      // orig sizes [4, 6, 2] -> [4, 3, 2] new sizes
+      // orig strides [48, 12, 1] -> [24, 6, 1] new strides
+      // orig size = 6, new size = 3, orig stride = 12
+      NVF_ERROR(orig_size % new_size == 0);
+      auto factor = orig_size / new_size;
+      for (auto size_j : c10::irange(ndims)) {
+        if (orig_strides[size_j] >= orig_stride) {
+          NVF_ERROR(orig_strides[size_j] % factor == 0);
+          orig_strides[size_j] /= factor;
+        }
+      }
+    }
+  }
+  return orig_strides;
+}
+} // namespace
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
@@ -776,20 +830,108 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
 
-  if (isSharded(tv)) {
-    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
-    metadata->logical_size_data = std::move(unsharded_sizes);
-    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-  } else {
-    metadata->logical_size = input.sizes();
-  }
-  metadata->logical_stride = input.strides();
+  std::pair<std::vector<int64_t>, std::vector<int64_t>> input_info;
 
-  auto [allocation_sizes, allocation_strides] =
-      inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-  metadata->alloc_size_data = std::move(allocation_sizes);
+  std::vector<int64_t> input_sizes = input.sizes().vec();
+  std::vector<int64_t> input_strides = input.strides().vec();
+
+  metadata->logical_size_data = input_sizes;
+  metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+  metadata->logical_stride_data = input_strides;
+  metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+
+  if (!tv->hasAllocation()) {
+    if (input.numel() > 1) {
+      validateContiguity(
+          tv->getLogicalDomain(),
+          tv->getContiguity(),
+          metadata->logical_size_data,
+          metadata->logical_stride_data);
+    }
+    metadata->alloc_size_data = input_sizes;
+    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
+    metadata->alloc_stride_data = input_strides;
+    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+    return {PolymorphicValue(std::move(struct_))};
+  }
+
+  if (isSharded(tv) && !consistentDomainSharding(tv)) {
+    std::cout << "HERE" << std::endl;
+    auto alloc_proj = inferAndValidateProjection(
+        input_sizes,
+        input_strides,
+        tv->getLogicalDomain(),
+        tv->getMaybeAllocationDomain(),
+        false,
+        ee);
+    std::cout << "Alloc proj: " << alloc_proj.first << std::endl;
+    // Get unsharded allocation domain
+    auto alloc_domain =
+        TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+    for (auto id_i : c10::irange(alloc_domain.size())) {
+      if (!alloc_domain[id_i]->isDeviceDim()) {
+        continue;
+      }
+      alloc_proj.first.at(id_i) *=
+          tv->getDeviceMesh().size(alloc_domain[id_i]->getParallelType());
+    }
+    std::cout << "Unsharded Alloc proj: " << alloc_proj.first << std::endl;
+    auto unsharded_logical_proj = inferAndValidateProjection(
+        alloc_proj.first,
+        alloc_proj.second,
+        tv->getMaybeAllocationDomain(),
+        tv->getLogicalDomain(),
+        false,
+        ee);
+    std::cout << "logical strides: " << input_strides << std::endl;
+    auto unsharded_logical_strides =
+        adjustStrides(input_sizes, unsharded_logical_proj.first, input_strides);
+    input_sizes = unsharded_logical_proj.first;
+    input_strides = unsharded_logical_strides;
+    std::cout << "Unsharded logical proj: " << input_sizes << std::endl;
+    std::cout << "Unsharded strides: " << input_strides << std::endl;
+  }
+
+  std::cout << "Processing: " << tv->toString()
+            << "\n  Logical: " << tv->getLogicalDomain()
+            << "\n  Alloc:" << tv->getMaybeAllocationDomain()
+            << "\n logical sizes: " << input_sizes
+            << "\n logical strides: " << input_strides << std::endl;
+
+  auto alloc_proj = inferAndValidateProjection(
+      input_sizes,
+      input_strides,
+      tv->getLogicalDomain(),
+      tv->getMaybeAllocationDomain(),
+      true,
+      ee);
+
+  std::cout << "Alloc Proj: "
+            << "\n alloc sizes: " << alloc_proj.first
+            << "\n alloc strides: " << alloc_proj.second << std::endl;
+
+  alloc_proj = removeSharding(
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain()),
+      alloc_proj.first,
+      alloc_proj.second);
+
+  std::cout << "Alloc Proj unsharded: "
+            << "\n alloc sizes: " << alloc_proj.first
+            << "\n alloc strides: " << alloc_proj.second << std::endl;
+
+  if (input.numel() > 1) {
+    std::cout << 4 << std::endl;
+    validateContiguity(
+        tv->getMaybeAllocationDomain(),
+        tv->getContiguity(),
+        alloc_proj.first,
+        alloc_proj.second);
+    std::cout << 5 << std::endl;
+  }
+
+  metadata->alloc_size_data = std::move(alloc_proj.first);
   metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-  metadata->alloc_stride_data = std::move(allocation_strides);
+  metadata->alloc_stride_data = std::move(alloc_proj.second);
   metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   return {PolymorphicValue(std::move(struct_))};
 }

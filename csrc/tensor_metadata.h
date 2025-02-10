@@ -109,20 +109,18 @@ struct TensorMetaData : public Struct {
 // Another example, if the logical domain is [I1*I2] and the allocation domain
 // is [I1, I2], and the tensor's size is [15] and stride is [7], and the extent
 // of I2 is 5, then the resulting size will be [3, 5] and stride will be [35, 7]
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
-    const at::Tensor& tensor,
-    TensorView* tv,
-    ExpressionEvaluator ee);
 
 // Same as the previous function without the sharded support and allowing to
 // swap the domains for projection. from_[sizes,strides] should alway map to the
 // from domain. Mapped sharded dimensions in from and to are set to const int 1.
+
+// TODO: Update comment, previous function was deleted.
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAndValidateProjection(
     std::vector<int64_t> from_sizes,
     std::vector<int64_t> from_strides,
     std::vector<IterDomain*> from_domain,
     std::vector<IterDomain*> to_domain,
+    bool propagate_strides,
     ExpressionEvaluator ee);
 
 // Checks that domain and its associated contiguity information match the

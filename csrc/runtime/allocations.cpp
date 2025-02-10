@@ -398,55 +398,6 @@ GlobalBufferInfo getBufferInfo(
   return info;
 }
 
-// Convert sizes/strides to sharded sizes/strides. Track the sharded strides
-// because all strides greater than or equal to the sharded ones will need be
-// adjusted. Generalize this to multiple sharding dimensions for
-// future-proofing.
-std::pair<std::vector<int64_t>, std::vector<int64_t>> removeSharding(
-    std::vector<IterDomain*> domain,
-    std::vector<int64_t> sizes,
-    std::vector<int64_t> strides) {
-  std::vector<std::pair<int64_t, int64_t>> sharded_infos;
-  for (auto id_i : c10::irange(domain.size())) {
-    if (domain[id_i]->isDeviceDim()) {
-      if (sizes[id_i] == 1 || strides[id_i] == 0) {
-        continue;
-      }
-      sharded_infos.push_back({sizes[id_i], strides[id_i]});
-    }
-  }
-
-  std::sort(
-      sharded_infos.begin(),
-      sharded_infos.end(),
-      [](const std::pair<int64_t, int64_t>& lhs,
-         const std::pair<int64_t, int64_t>& rhs) {
-        return (lhs.second < rhs.second);
-      });
-
-  int64_t factor_removed = 1;
-  for (auto sharded_info : sharded_infos) {
-    auto [size, stride] = sharded_info;
-    for (auto id_i : c10::irange(domain.size())) {
-      NVF_ERROR(stride % factor_removed == 0);
-      auto adjusted_stride = stride / factor_removed;
-      if (strides[id_i] > adjusted_stride) {
-        NVF_ERROR(strides[id_i] % size == 0);
-        strides[id_i] /= size;
-      }
-    }
-    factor_removed *= size;
-  }
-
-  for (auto id_i : c10::irange(domain.size())) {
-    if (domain[id_i]->isDeviceDim()) {
-      sizes[id_i] = 1;
-      strides[id_i] = 0;
-    }
-  }
-  return {sizes, strides};
-}
-
 } // namespace
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
@@ -506,28 +457,15 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
   if (tv->hasAllocation()) {
     auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-
     auto alloc_domain =
         TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-
-    bool alloc_multi_device = std::any_of(
-        alloc_domain.begin(), alloc_domain.end(), [](IterDomain* id) {
-          return id->isDeviceDim();
-        });
-    bool logical_multi_device = std::any_of(
-        logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
-          return id->isDeviceDim();
-        });
-    // TODO: Once sharding cannot be on logical domain this should always be
-    // false
-    bool consistent_sharding = logical_multi_device == alloc_multi_device;
 
     // Step (1)
     std::vector<Val*> symbolic_sizes(logical_domain.size(), nullptr);
     std::vector<bool> logical_expand_flags(logical_domain.size(), false);
 
     for (auto id_i : c10::irange(logical_domain.size())) {
-      if (logical_domain[id_i]->isDeviceDim() && consistent_sharding) {
+      if (logical_domain[id_i]->isDeviceDim() && consistentDomainSharding(tv)) {
         symbolic_sizes[id_i] = logical_domain[id_i]->container()->oneVal();
       } else {
         symbolic_sizes[id_i] = logical_domain[id_i]->getMaybeExpandedExtent();
@@ -541,11 +479,13 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
         inferShape(tv, symbolic_sizes, logical_expand_flags, expr_eval);
     // std::cout << "Logical: " << logical_size_stride << std::endl;
     // Project to allocation
+
     auto alloc_proj = inferAndValidateProjection(
         logical_size_stride.first,
         logical_size_stride.second,
         logical_domain,
         alloc_domain,
+        false,
         expr_eval);
 
     std::vector<bool> alloc_expand_flags(alloc_domain.size(), false);
@@ -562,12 +502,27 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     // std::cout << "Alloc: " << alloc_proj << std::endl;
     alloc_proj =
         removeSharding(alloc_domain, alloc_proj.first, alloc_proj.second);
+
+    if (std::any_of(
+            alloc_proj.first.begin(), alloc_proj.first.end(), [](int64_t size) {
+              return size > 1;
+            })) {
+      // std::cout << 0 << std::endl;
+      validateContiguity(
+          tv->getMaybeAllocationDomain(),
+          tv->getContiguity(),
+          alloc_proj.first,
+          alloc_proj.second);
+      // std::cout << 1 << std::endl;
+    }
+
     // std::cout << "Alloc no sharding: " << alloc_proj << std::endl;
     auto logical_proj = inferAndValidateProjection(
         alloc_proj.first,
         alloc_proj.second,
         alloc_domain,
         logical_domain,
+        true,
         expr_eval);
     // std::cout << "Final logical proj: " << logical_proj << std::endl;
     return logical_proj;
@@ -593,6 +548,26 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     logical_sizes = removeSharding(
         logical_domain, logical_sizes.first, logical_sizes.second);
     // std::cout << "Logical no sharding: " << logical_sizes << std::endl;
+  }
+
+  if (std::any_of(
+          logical_sizes.first.begin(),
+          logical_sizes.first.end(),
+          [](int64_t size) { return size > 1; })) {
+    // std::cout << 2 << std::endl;
+    // std::cout << tv->getLogicalDomain() << std::endl;
+    // for (auto cont : tv->getContiguity()) {
+    //   std::cout << cont << ", ";
+    // }
+    // std::cout << std::endl;
+    // std::cout << logical_sizes.first << std::endl;
+    // std::cout << logical_sizes.second << std::endl;
+    validateContiguity(
+        tv->getLogicalDomain(),
+        tv->getContiguity(),
+        logical_sizes.first,
+        logical_sizes.second);
+    // std::cout << 3 << std::endl;
   }
 
   return logical_sizes;
