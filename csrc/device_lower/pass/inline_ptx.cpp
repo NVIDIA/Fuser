@@ -279,7 +279,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0},
-                /*immediate_inputs=*/{4, 5, 6, 7}}));
+                /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
