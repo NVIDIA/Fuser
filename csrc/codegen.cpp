@@ -3445,6 +3445,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               code_ << ", ";
             }
             code_ << gen(register_);
+            first = false;
           }
         }
         code_ << ">";
