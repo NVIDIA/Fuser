@@ -3233,9 +3233,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         const auto& inputs = asm_->inputs();
         if (!asm_->options().immediate_inputs.empty()) {
           utilities_ << "template <";
+          bool first = true;
           for (auto in_i : c10::irange(inputs.size())) {
             if (asm_->options().immediate_inputs.count(in_i)) {
+              if (!first) {
+                utilities_ << ", ";
+              }
               utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+              first = false;
             }
           }
           utilities_ << ">\n";
