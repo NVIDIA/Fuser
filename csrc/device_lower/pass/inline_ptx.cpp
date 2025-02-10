@@ -59,7 +59,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/wait->memory(),
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{0}}));
     }
   }
 
@@ -274,7 +278,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{
                 /*volatile=*/true,
                 /*memory=*/false,
-                /*readable_outputs=*/{0}}));
+                /*readable_outputs=*/{0},
+                /*immediate_inputs=*/{4, 5, 6, 7}}));
     registerRemove(mma);
   }
 

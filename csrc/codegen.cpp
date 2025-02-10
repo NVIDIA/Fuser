@@ -3231,6 +3231,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (!utility_generated) {
         const auto& outputs = asm_->outputs();
         const auto& inputs = asm_->inputs();
+        if (!asm_->options().immediate_inputs.empty()) {
+          utilities_ << "template <";
+          for (auto in_i : c10::irange(inputs.size())) {
+            if (asm_->options().immediate_inputs.count(in_i)) {
+              utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+            }
+          }
+          utilities_ << ">\n";
+        }
         utilities_ << "__device__ __inline__ void " << utility_name << "(";
         for (auto out_i : c10::irange(outputs.size())) {
           if (out_i > 0) {
@@ -3242,6 +3251,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           utilities_ << ", ";
         }
         for (auto in_i : c10::irange(inputs.size())) {
+          if (asm_->options().immediate_inputs.count(in_i)) {
+            continue;
+          }
           if (in_i > 0) {
             utilities_ << ", ";
           }
@@ -3249,7 +3261,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
         utilities_ << ") {\n";
       }
-      this->indent() << utility_name << "(";
+      this->indent() << utility_name;
     }
     // Generate the actual PTX code like below:
     //   asm("bla.bla.bla": "=f"(out1): "f"(in1));
@@ -3424,6 +3436,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Something like:
     //   myFunc(T1[0], T0[0]);
     if (as_utility) {
+      if (!asm_->options().immediate_inputs.empty()) {
+        code_ << "<";
+        bool first = true;
+        for (auto [constraint, register_] : asm_->constraintsAndInputs()) {
+          if (constraint == "n") {
+            if (!first) {
+              code_ << ", ";
+            }
+            code_ << gen(register_);
+          }
+        }
+        code_ << ">";
+      }
+      code_ << "(";
       bool first = true;
       for (auto [_, register_] : asm_->constraintsAndOutputs()) {
         if (!first) {

@@ -326,9 +326,10 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
 }
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (auto in : inputs()) {
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    auto in = input(i);
     const char* constraint = nullptr;
-    if (in->isConst()) {
+    if (options().immediate_inputs.count(i) > 0) {
       constraint = "n";
     } else {
       constraint = getPTXConstraints(in);
@@ -415,21 +416,25 @@ std::string Asm::toInlineString(int indent_size) const {
 }
 
 const std::string Asm::utility() const {
-  static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
-      {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
-      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
-      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
-      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
-      {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "relinquishTMemAllocPermit"},
-      {"wgmma.fence.sync.aligned", "wgmmaFence"},
-      {"fence.proxy.async", "fenceAsyncProxy"},
-      {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
-      {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
-      {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
-      {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
-      {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"}};
+  static const std::unordered_map<
+      std::string,
+      std::pair<std::string, std::unordered_set<int64_t>>>
+      ptx_to_utility{
+          {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
+          {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
+          {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
+          {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
+          {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+           "allocTMem"},
+          {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+           "relinquishTMemAllocPermit"},
+          {"wgmma.fence.sync.aligned", "wgmmaFence"},
+          {"fence.proxy.async", "fenceAsyncProxy"},
+          {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
+          {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
+          {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
+          {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
+          {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"}};
   const std::string& code = this->code();
   auto it = ptx_to_utility.find(code);
   if (it != ptx_to_utility.end()) {
