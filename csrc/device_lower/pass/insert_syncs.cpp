@@ -1209,7 +1209,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
         // Default position is last expression in for loop
         size_t num_exprs = for_loop->body().exprs().size();
-        int64_t pos = num_exprs - 1;
+        size_t pos = num_exprs - 1;
 
         // The sync qualifier in the `wgmma.wait_group` ptx instruction only
         // guarantees that a warp executes the instruction. The entire warp
