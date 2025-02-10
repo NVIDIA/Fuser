@@ -426,7 +426,6 @@ const std::string Asm::utility() const {
       {"wgmma.fence.sync.aligned", "wgmmaFence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
-      {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
       {"stmatrix.sync.aligned.m8n8.x1.b16", "stmatrixX1"},
       {"stmatrix.sync.aligned.m8n8.x2.b16", "stmatrixX2"},
       {"stmatrix.sync.aligned.m8n8.x4.b16", "stmatrixX4"}};
