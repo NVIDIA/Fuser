@@ -577,7 +577,9 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : fusion->allTvs()) {
     if (tv->hasDeviceMesh()) {
-      max_index = std::max(max_index, tv->getDeviceMesh().maxDeviceId());
+      for (auto d_id : tv->getDeviceMesh().vector()) {
+        max_index = std::max(max_index, d_id);
+      }
     }
   }
   return static_cast<int64_t>(max_index + 1);
