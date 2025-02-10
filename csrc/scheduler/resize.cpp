@@ -299,7 +299,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // The tensors are going to be reordered to align with the largest
     // input. To make it work, merge operations for reshape should be
     // cancelled.
-    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+    scheduler_tools::cancelReshapeInLoopDomains(
+        largest_input, /*skip_innermost_id=*/true);
   }
 
   for (auto expr : fusion->exprs()) {

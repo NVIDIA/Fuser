@@ -107,7 +107,9 @@ void scheduleLoopDomainsBy(
 // iter domain is reduced, the split needs to remain. If a reshape
 // only consists of merge transforms, cancellation should be possible,
 // but that is not currently supported.
-void cancelReshapeInLoopDomains(TensorView* from_tv);
+void cancelReshapeInLoopDomains(
+    TensorView* from_tv,
+    bool skip_innermost_id = false);
 
 std::optional<int64_t> getInnermostCancelableReshapePosition(
     TensorView* from_tv);

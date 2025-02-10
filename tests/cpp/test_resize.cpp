@@ -5751,7 +5751,7 @@ TEST_F(ResizeTest, TraversalForInliningPosition) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  DisableOptionsGuard::getCurOptions().unset(DisableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto tv0 = makeContigConcreteTensor({16});
   fusion.addInput(tv0);
@@ -5853,7 +5853,7 @@ TEST_F(ResizeTest, Repro3801) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  DisableOptionsGuard::getCurOptions().unset(DisableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto T13 = makeContigConcreteTensor({1, 16});
   fusion.addInput(T13);
