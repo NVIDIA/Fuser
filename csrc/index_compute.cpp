@@ -2145,11 +2145,14 @@ kir::TensorIndex* Index::getProducerIndex(
   bool is_producer_tma_op = producer->definition() != nullptr &&
       producer->definition()->isA<LoadStoreOp>() &&
       ir_utils::isCpAsyncBulkLoad(producer->definition());
+  bool is_consumer_tma_op = consumer->definition() != nullptr &&
+      consumer->definition()->isA<LoadStoreOp>() &&
+      ir_utils::isCpAsyncBulkLoad(consumer->definition());
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
-      is_producer_tma_op ||
+      is_producer_tma_op || is_consumer_tma_op ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);

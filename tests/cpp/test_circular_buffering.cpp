@@ -2091,6 +2091,7 @@ auto tmaCircularBufferingParams() {
                 n,
                 all_types[lcg_parkmiller % all_types.size()],
                 tma_load_type);
+            lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
           }
         }
       }
