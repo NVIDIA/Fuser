@@ -5266,7 +5266,9 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // Backward tensor inputs: grad_input, query, key, value, output,
   // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
-  bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
+  auto query_domain =
+      TensorDomain::noReductions(this->query()->getLogicalDomain());
+  bool first_dim_is_did = query_domain.front()->isDeviceDim();
   auto out_grad = inputs[0].as<at::Tensor>();
   if (first_dim_is_did) {
     NVF_CHECK(out_grad.dim() == 5, "Expected 5D but found ", out_grad.sizes());
