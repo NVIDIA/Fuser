@@ -5227,7 +5227,6 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   }
 
  private:
-  RuntimeReductionFinder() {}
 
   using kir::ConstIrVisitor::handle;
 
