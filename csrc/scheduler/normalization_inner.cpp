@@ -534,11 +534,20 @@ void innerPersistentHeuristic2D(
     int64_t target_stages = 2;
     if(std::getenv("STAGES")) {
       target_stages = std::atoi(std::getenv("STAGES"));
-    }     
+    }
     circular_buffer_options.stage = std::min(target_stages, smem_limited_stages);
     circular_buffer_options.prefetch = 1;
-    circular_buffer_options.type = Pipelined(true);
+
+    // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>, false};
+    CircularBufferType circular_buffer_type{Pipelined(true)};
+    circular_buffer_options.type = circular_buffer_type;
+    if (std::getenv("WARPTIDX")) {
+      CircularBufferType circular_buffer_type{WarpSpecialized(ParallelType::TIDx)};
+      circular_buffer_options.type = circular_buffer_type;
+    }
     rparams->circular_buffer_options = circular_buffer_options;
+
+    
 
     // adjust persistent batch size
     if(std::getenv("BATCH")) {
