@@ -426,9 +426,9 @@ const std::string Asm::utility() const {
       {"wgmma.fence.sync.aligned", "wgmmaFence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
-      {"stmatrix.sync.aligned.m8n8.x1.b16", "stmatrixX1"},
-      {"stmatrix.sync.aligned.m8n8.x2.b16", "stmatrixX2"},
-      {"stmatrix.sync.aligned.m8n8.x4.b16", "stmatrixX4"}};
+      {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
+      {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
+      {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"}};
   const std::string& code = this->code();
   auto it = ptx_to_utility.find(code);
   if (it != ptx_to_utility.end()) {
