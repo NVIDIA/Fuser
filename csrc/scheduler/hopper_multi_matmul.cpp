@@ -734,7 +734,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
             "There can be at most two compute warp groups for register ",
             "sharing with warp specialization");
         constexpr int64_t num_registers_load_warp = 40;
-        constexpr int64_t num_registers_compute_warp = 224;
+        constexpr int64_t num_registers_compute_warp = 232;
         cb_type = (CircularBufferType)WarpSpecialized(
             ParallelType::TIDy,
             std::make_pair(
