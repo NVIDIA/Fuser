@@ -1585,7 +1585,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(DataType::Float),
         // ::testing::Values(DataType::Half, DataType::Float),
-        ::testing::Values((int64_t)25600, (int64_t)33792)),
+        ::testing::Values((int64_t)4096, (int64_t)16384, (int64_t)25600, (int64_t)33792)),
         // ::testing::Range((int64_t)25600, (int64_t)81921, (int64_t)409600)),
     [](const testing::TestParamInfo<TestParam>& info) {
       std::stringstream ss;
@@ -1641,10 +1641,30 @@ INSTANTIATE_TEST_SUITE_P(
 // 2k x 25600, set4, 4 x 16 x 416, 40%
 // 2k x 25600, set2, 4 x 25 x 256, 30%
 
-// 16 x 25600, main, 4 x 7 x 928, 51%, 1 bpsm, 1 x 16K blocks, 110.7 waves
-// 16 x 25600, set1, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves
-// 16 x 25600, set1, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves
-// 16 x 25600, set1, 4 x 10 x 640, 59%, 1 bpsm, 2 x  8K blocks, 55.4 waves
+// current main branch prioritize threads parallelism over instruction parallelism,
+// when a block stalled due to memory access, kernel switch to another block. The kernel
+// execution time is: waves x (memory + computation)
+// With circular bufer, we are prioritizing instruction parallelism over threads parallelism,
+// each block does [n] reductions and overlap memory access and computation within each block.
+// Assuming memory has higher latency than computation, the kernel execution time is:
+// waves x (stages * memory + computation)
+
+// cost-main = waves x memory + waves x computation
+// cost-circular = waves x memory * stages + waves x computation
+
+// has speedup when estimated cost is similar, cost = waves x stages per block
+// 16k x 25600, main, 4 x 7 x 928, 51%, 1 bpsm, 1 x 16K blocks, 110.7 waves, cost 110.7 x memory  + 110.7 x computation
+// 16k x 25600, pipe, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x computation
+// 16k x 25600, pipe, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x computation
+// 16k x 25600, pipe, 4 x 10 x 640, 59%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost 110.7 x memory  + 55.4 x computation
+// 16k x 25600, warp, 4 x 7 x 929, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x computation
+// 16k x 25600, warp, 4 x 10 x 641, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost 110.7 x memory  + 55.4 x computation
+
+// using smem leads to higher cost, performance is lower
+// 16k x 16384, main, 4 x 8 x 512, 73%, 2 bpsm, 1 x 16K blocks, 55.4 waves, cost 55.4
+// 16k x 16384, pipe, 4 x 8 x 512, 53%, 1 bpsm, 2 x 8K blocks, 55.4 waves, cost 110.8
+// 16k x 16383, pipe, 4 x 8 x 512, 54%, 1 bpsm, 3 x 5461 blocks, 36.9 waves, cost 110.8
+// 16k x 16383, warp, 4 x 8 x 512, 52%, 1 bpsm, 3 x 5461 blocks, 36.9 waves, cost 110.8
 
 // 2048, main, 4 x 2 x 256, 46%
 // 2048, set1, 4 x 2 x 256, stages = 2, 37%

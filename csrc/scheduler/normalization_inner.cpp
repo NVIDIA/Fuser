@@ -528,16 +528,18 @@ void innerPersistentHeuristic2D(
   // set circular buffer options
   if (rparams->use_tma_load) {
     rparams->smem_persistent_buffers = properties.persistent_buffers;
+    CircularBufferOptions circular_buffer_options;
     int64_t smem_limited_stages =
         properties.available_regs_smem_size / properties.max_persistent_buffer_size;
-    CircularBufferOptions circular_buffer_options;
-    int64_t target_stages = 2;
-    if(std::getenv("STAGES")) {
-      target_stages = std::atoi(std::getenv("STAGES"));
+    // must divisible
+    while(properties.total_iteration_numel % smem_limited_stages) {
+      smem_limited_stages--;
     }
-    circular_buffer_options.stage = std::min(target_stages, smem_limited_stages);
+    circular_buffer_options.stage = smem_limited_stages;
     circular_buffer_options.prefetch = 1;
-
+    if(std::getenv("STAGES")) {
+      circular_buffer_options.stage = std::atoi(std::getenv("STAGES"));
+    }
     // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>, false};
     CircularBufferType circular_buffer_type{Pipelined(true)};
     circular_buffer_options.type = circular_buffer_type;
