@@ -122,7 +122,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
-              kir::Asm::Options{/*volatile=*/true}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/false,
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{2}}));
     } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
       // TODO: support other types of ld/st
       auto ptx = "tcgen05.ld.sync.aligned.32x32b.x1.b32";
