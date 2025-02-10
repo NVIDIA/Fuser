@@ -3458,7 +3458,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         code_ << gen(register_);
         first = false;
       }
-      for (auto [_, register_] : asm_->constraintsAndInputs()) {
+      for (auto [constraint, register_] : asm_->constraintsAndInputs()) {
+        if (constraint == "n") {
+          continue;
+        }
         if (!first) {
           code_ << ", ";
         }
