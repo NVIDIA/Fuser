@@ -438,25 +438,29 @@ const std::string Asm::utility() const {
   // Match wgmma. Example:
   // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
   // utility: wgmmaM64N256K16Half
-  // Half
-  std::regex pattern(
-      R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
-  std::smatch match;
-  if (std::regex_match(input, match, pattern)) {
-    std::string extracted = match[1];
-    std::transform(
-        extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
-    return "wgmma" + extracted + "Half";
+  {
+    // Half
+    std::regex pattern(
+        R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
+    std::smatch match;
+    if (std::regex_match(input, match, pattern)) {
+      std::string extracted = match[1];
+      std::transform(
+          extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
+      return "wgmma" + extracted + "Half";
+    }
   }
-  // BFloat16
-  std::regex pattern(
-      R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
-  std::smatch match;
-  if (std::regex_match(code, match, pattern)) {
-    std::string extracted = match[1];
-    std::transform(
-        extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
-    return "wgmma" + extracted + "BF16";
+  {
+    // BFloat16
+    std::regex pattern(
+        R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
+    std::smatch match;
+    if (std::regex_match(code, match, pattern)) {
+      std::string extracted = match[1];
+      std::transform(
+          extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
+      return "wgmma" + extracted + "BF16";
+    }
   }
   return "";
 }
