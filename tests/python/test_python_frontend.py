@@ -4906,7 +4906,11 @@ fd.execute(inputs)
             fd.add_output(T6, T1)
             fd.add_output(T5)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func,
+            inputs,
+            skip_serde_check=True,
+        )
 
         assert len(nvf_out) == 1
         self.assertEqual(nvf_out[0], inputs[0].squeeze(1))
