@@ -740,4 +740,61 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
+TEST_F(MultiDeviceTest, TransformPropagatorWithReshape){
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b=2, s=2, h=4, e=3;
+
+  TensorView* in = makeContigConcreteTensor({b, s, d*h*e});
+  TensorView* out = reshape(in, {b, s, d*h*e}, {b, s, d*h, e});
+  
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  // Propagate transform to output
+  TransformPropagator propagator_up(out);
+  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator_up);
+  
+  // DID loop split for input
+  in->setDeviceMesh(mesh);
+  in->split(-2, d, /*inner_split=*/false);
+  in->axis(-3)->parallelize(ParallelType::DIDx);
+
+  // TransformPropagator propagator(in);
+  // MaxLogicalDomainInfoSpanningTree(in).traverse(&propagator);
+
+  out->setDeviceMesh(mesh);
+  out->split(-2, d, /*inner_split=*/false);
+  out->axis(-3)->parallelize(ParallelType::DIDx);
+
+  // // Parallelize out
+  // scheduler_utils::parallelizeAllLike(
+  //   in,
+  //   /*pos=*/-1,
+  //   /*selected_tv=*/{out});
+
+  in->setAllocationDomain(in->getLoopDomain(), true);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({b, s, h*e}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({b, s, h, e})},
+      __LINE__,
+      __FILE__);
+
+  // FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  // EXPECT_THAT(
+  //     runtime->fusionSegments()->groups(),
+  //     UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
+}
+
 } // namespace nvfuser
