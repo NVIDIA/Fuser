@@ -211,6 +211,9 @@ class PrecomputedValues {
     }
     defined_[index] = true;
     values_[index] = value;
+    // if (value.isScalar()){
+    debug() << index << ": " << PolymorphicValue_functions::toString(value) << std::endl;
+    // }
     binding_log_.emplace_back(index, value);
   }
   template <typename T>

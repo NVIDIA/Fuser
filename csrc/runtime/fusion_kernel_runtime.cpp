@@ -478,13 +478,17 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     {
       FUSER_PERF_SCOPE(
           "FusionKernelRuntime::getMaybeHeuristicsFor::PrecomputedValues");
+      // debug() << args.toString() << std::endl;
       evaluator_precomputed_values =
           std::make_unique<PrecomputedValues>(fusion_to_run);
+      // evaluator_precomputed_values->print();
       evaluator_precomputed_values->bindInputs(group_runtime_inputs);
       // TODO Remove binding the original fusion inputs when creating
       // heuristics for fusion segment.
+      debug() << "Bind inputs done" << std::endl;
       evaluator_precomputed_values->bindValues(
           group_to_run->getCompleteFusionInputs(), args);
+      debug() << "Bind values done" << std::endl;
       evaluator_precomputed_values->evaluate();
     }
 

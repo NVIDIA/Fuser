@@ -476,7 +476,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
-                    shape=[b, h, s, e // h],
+                    shape=[-1, -1, -1, -1],
                     dtype=DataType.BFloat16,
                     stride_order=stride_order,
                 )
@@ -506,6 +506,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             )
 
             self.add_output(self.attn)
+            self.add_output(self.log_sumexp)
             for grad in [self.q_grad, self.k_grad, self.v_grad]:
                 self.add_output(grad)
 
@@ -528,7 +529,10 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                     # The loop domain is: {i{B}, i{DIDx}, i{H//D}, i{S}, i{E//H}}
                     # Reorder i{S} in the allocation domain for BHSE: {i{DIDx}, i{B}, i{S}, i{H//D}, i{E//H}}
                     self.sched.reorder(t, {2: 3, 3: 2})
+                self.sched.reorder(t, {0:1, 1:0})
                 self.sched.set_allocation_as_loop(t)
+                print (self.sched.to_string(t))
+            # breakpoint()
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -540,7 +544,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     sharded_q, sharded_k, sharded_v, sharded_out_grad = [
         multidevice_test.shard_tensor(t, 1, mesh) for t in [q, k, v, out_grad]
     ]
-
+    # breakpoint()
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
         expected_out = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, dropout_p=0.0, is_causal=True, scale=None
