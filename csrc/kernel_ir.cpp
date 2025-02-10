@@ -430,7 +430,9 @@ const std::string Asm::utility() const {
       {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
       {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
       {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
-      {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"}};
+      {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
+      {"cp.async.bulk.commit_group", "cpAsyncBulkCommitGroup"},
+      {"cp.async.bulk.wait_group.read", "cpAsyncBulkWaitGroup"}};
   const std::string& code = this->code();
   auto it = ptx_to_utility.find(code);
   if (it != ptx_to_utility.end()) {
