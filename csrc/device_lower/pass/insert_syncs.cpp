@@ -1094,6 +1094,50 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     return pending_ops;
   }
 
+  void handleComputeWarp(ForLoop* for_loop) {
+    NVF_ERROR(
+        for_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::ComputeWarp,
+        "for_loop is not circular buffer compute warp");
+    NVF_ERROR(
+        !warp_specialized_async_inputs_in_current_scope_.empty(),
+        "No TMA loads were detected in LoadWarp.");
+    NVF_ERROR(
+        !warp_specialized_async_exprs_to_protect_.empty(),
+        "No WgMma operations were detected in ComputeWarp.");
+
+    // Establish all tma loads in LoadWarp are used by WgMma operations in
+    // ComputeWarp.
+    for (Expr* expr : warp_specialized_async_exprs_to_protect_) {
+      NVF_ERROR(std::all_of(
+          expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+            return warp_specialized_async_inputs_in_current_scope_.count(val);
+          }));
+      NVF_ERROR(ir_utils::getAsyncOpType(expr) == AsyncOpType::WgMma);
+    }
+
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            for_loop->iter_domain());
+    int64_t pending_ops = opt.stage - opt.prefetch - 1;
+
+    auto sync_exprs =
+        lower_utils::getSyncExprs(AsyncOpType::WgMma, pending_ops);
+    size_t num_exprs = for_loop->body().exprs().size();
+    NVF_ERROR(num_exprs > 1);
+    NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
+    while (!sync_exprs.empty()) {
+      registerInsertAfter(
+          for_loop->body().exprs().at(num_exprs - 2),
+          sync_exprs.back(),
+          &for_loop->body());
+      sync_exprs.pop_back();
+    }
+
+    warp_specialized_async_inputs_in_current_scope_.clear();
+    warp_specialized_async_exprs_to_protect_.clear();
+  }
+
   void handle(ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
@@ -1105,44 +1149,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     if (for_loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
-      NVF_ERROR(
-          !warp_specialized_async_inputs_in_current_scope_.empty(),
-          "No TMA loads were detected in LoadWarp.");
-      NVF_ERROR(
-          !warp_specialized_async_exprs_to_protect_.empty(),
-          "No WgMma operations were detected in ComputeWarp.");
-
-      // Establish all tma loads in LoadWarp are used by WgMma operations in
-      // ComputeWarp.
-      for (Expr* expr : warp_specialized_async_exprs_to_protect_) {
-        NVF_ERROR(std::all_of(
-            expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
-              return warp_specialized_async_inputs_in_current_scope_.count(val);
-            }));
-        NVF_ERROR(ir_utils::getAsyncOpType(expr) == AsyncOpType::WgMma);
-      }
-
-      const auto& opt =
-          GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-              for_loop->iter_domain());
-      int64_t pending_ops = opt.stage - opt.prefetch - 1;
-
-      auto sync_exprs =
-          lower_utils::getSyncExprs(AsyncOpType::WgMma, pending_ops);
-      size_t num_exprs = for_loop->body().exprs().size();
-      NVF_ERROR(num_exprs > 1);
-      NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
-      while (!sync_exprs.empty()) {
-        registerInsertAfter(
-            for_loop->body().exprs().at(num_exprs - 2),
-            sync_exprs.back(),
-            &for_loop->body());
-        sync_exprs.pop_back();
-      }
-
-      warp_specialized_async_inputs_in_current_scope_.clear();
-      warp_specialized_async_exprs_to_protect_.clear();
-      return;
+      return handleComputeWarp(for_loop);
     }
 
     // Insert async wait at the end of this for loop
@@ -1153,7 +1160,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       for (auto it = async_exprs_to_protect_.begin();
            it != async_exprs_to_protect_.end();) {
         auto expr = *it;
-
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
         if (std::none_of(
