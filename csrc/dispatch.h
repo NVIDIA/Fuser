@@ -81,6 +81,7 @@ class Val;
   f(GetItem);                     \
   f(ReverseArray);                \
   f(GetMetaData);                 \
+  f(GetMetaDataAccessor);         \
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \

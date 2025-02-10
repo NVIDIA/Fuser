@@ -665,7 +665,7 @@ class GetMetaDataAccessor : public Expr {
   }
 
   const int64_t dim() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
   }
 
   std::string toString(int indent_size = 0) const override;
