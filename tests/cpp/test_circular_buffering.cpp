@@ -978,8 +978,13 @@ INSTANTIATE_TEST_SUITE_P(
     StagesAndPrefetches(),
     nonTMAName);
 
-using TmaCircularBufferingParams =
-    std::tuple<int64_t, int64_t, int64_t, int64_t, CircularBufferType>;
+using TmaCircularBufferingParams = std::tuple<
+    int64_t,
+    int64_t,
+    int64_t,
+    int64_t,
+    CircularBufferType,
+    LoadStoreOpType>;
 
 class TmaCircularBufferingTest
     : public NVFuserFixtureParamTest<TmaCircularBufferingParams> {
@@ -989,6 +994,7 @@ class TmaCircularBufferingTest
   int64_t tensor_outer_dim = 1;
   int64_t tensor_inner_dim = 1;
   CircularBufferType circular_buffer_type;
+  LoadStoreOpType tma_load_type;
 
   void SetUp() override {
     number_of_stages = std::get<0>(GetParam());
@@ -996,6 +1002,7 @@ class TmaCircularBufferingTest
     tensor_outer_dim = std::get<2>(GetParam());
     tensor_inner_dim = std::get<3>(GetParam());
     circular_buffer_type = std::get<4>(GetParam());
+    tma_load_type = std::get<5>(GetParam());
 
     // NOTE: Multiple of 16 required for inner dimension
     NVF_ERROR(tensor_inner_dim % 16 == 0);
@@ -1159,7 +1166,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1213,7 +1220,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1278,7 +1285,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1331,6 +1338,11 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
     GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
+
+  if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
   }
 
@@ -1413,7 +1425,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   fusion->addOutput(tv2);
 
   // Use TMA to load TV0 into shared memory
-  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv3 = tv0->cacheAfter(tma_load_type);
   tv3->setMemoryType(MemoryType::Shared);
 
   TensorView* tv4 = tv1->cacheAfter();
@@ -1489,7 +1501,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   fusion->addOutput(tv2);
 
   // Use TMA to load TV0 into shared memory
-  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv3 = tv0->cacheAfter(tma_load_type);
   tv3->setMemoryType(MemoryType::Shared);
 
   // Load TV1 into shared memory
@@ -1556,7 +1568,7 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   TensorView* tv1 = sum(tv0, {-1});
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1621,7 +1633,7 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   TensorView* tv1 = sum(tv0, {0});
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1699,8 +1711,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   fusion->addOutput(x_norm);
 
   // Load input from global to shared memory
-  TensorView* x_cache_smem =
-      x->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* x_cache_smem = x->cacheAfter(tma_load_type);
   x_cache_smem->setMemoryType(MemoryType::Shared);
 
   // Load input from shared memory to registers
@@ -1803,6 +1814,11 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
     GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
+
+  if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
   }
 
@@ -1931,6 +1947,11 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
     return;
   }
 
+  if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
+    return;
+  }
+
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2050,14 +2071,26 @@ auto tmaCircularBufferingParams() {
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
   const std::vector<CircularBufferType> all_types{
       Pipelined(true),
-      WarpSpecialized(ParallelType::TIDx)};
+      WarpSpecialized(ParallelType::TIDx),
+      WarpSpecialized(ParallelType::TIDy),
+      WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 240)),
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 240))};
+  const std::vector<LoadStoreOpType> tma_types{
+      LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2}) {
     for (int64_t j : c10::irange(-i, i)) {
-      for (int64_t m : {128}) {
-        for (int64_t n : {128}) {
-          values.emplace_back(i, j, m, n, all_types[0]);
-          values.emplace_back(i, j, m, n, all_types[1]);
+      for (int64_t m : {128, 500, 1024}) {
+        for (int64_t n : {128, 1024}) {
+          for (auto tma_load_type : tma_types) {
+            values.emplace_back(
+                i,
+                j,
+                m,
+                n,
+                all_types[lcg_parkmiller % all_types.size()],
+                tma_load_type);
+          }
         }
       }
     }
@@ -2079,7 +2112,7 @@ std::string tmaName(
      << prefetch_distance_str << "_M_"
      << std::to_string(std::get<2>(info.param)) << "_N_"
      << std::to_string(std::get<3>(info.param)) << "_"
-     << std::get<4>(info.param);
+     << std::get<4>(info.param) << "_" << std::get<5>(info.param);
   return ss.str();
 }
 
