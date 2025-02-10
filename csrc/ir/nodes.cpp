@@ -20,6 +20,7 @@
 #include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
+#include <tensor_metadata.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -1111,6 +1112,73 @@ std::string GetMetaData::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
+
+GetMetaDataAccessor::GetMetaDataAccessor(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    std::string accessor_string,
+    int64_t dim)
+    : Expr(passkey) {
+  // TODO: Make sure input type is StructType
+  // TODO: Make sure output is an int64_t/index type
+  NVF_ERROR(isStructType(input->dtype()));
+  NVF_ERROR(output->isIntegralScalar());
+  addInput(input);
+  addOutput(output);
+  addDataAttribute(accessor_string);
+  addDataAttribute(dim);
+}
+
+std::string GetMetaDataAccessor::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = " << toInlineString()
+                          << "\n";
+  return ss.str();
+}
+
+std::string GetMetaDataAccessor::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << input(0)->toString() << ", " << accessorStr()
+     << ", " << dim() << ")";
+  return ss.str();
+}
+
+bool GetMetaDataAccessor::sameAs(const Statement* other) const {
+  if (!other->isA<GetMetaDataAccessor>()) {
+    return false;
+  }
+  auto other_gmda = other->as<GetMetaDataAccessor>();
+  return other_gmda->input(0)->sameAs(input(0)) &&
+      other_gmda->accessorStr() == accessorStr() && other_gmda->dim() == dim();
+}
+
+std::vector<PolymorphicValue> GetMetaDataAccessor::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(inputs.size() == 1);
+  NVF_ERROR(inputs[0].is<StructHandle>());
+
+  std::vector<int64_t>& data_vec =
+      inputs[0]->*&TensorMetaData::logical_size_data;
+  if (accessorStr() == "data") {
+    auto& data = inputs[0]->*&TensorMetaData::data;
+    auto& dtype = inputs[0]->*&TensorMetaData::dtype;
+    return {PolymorphicValue(Pointer(data, dtype))};
+  } else if (accessorStr() == "logical_stride") {
+    data_vec = inputs[0]->*&TensorMetaData::logical_stride_data;
+  } else if (accessorStr() == "alloc_size") {
+    data_vec = inputs[0]->*&TensorMetaData::alloc_size_data;
+  } else if (accessorStr() == "alloc_stride") {
+    data_vec = inputs[0]->*&TensorMetaData::alloc_stride_data;
+  } else if (accessorStr() == "logical_size") {
+    NVF_THROW("Unknown accessorStr() ", accessorStr());
+  }
+  NVF_ERROR(dim() < (int64_t)data_vec.size());
+  return {PolymorphicValue(data_vec[dim()])};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaDataAccessor)
 
 TensorConstruct::TensorConstruct(
     IrBuilderPasskey passkey,

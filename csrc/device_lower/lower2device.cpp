@@ -477,6 +477,10 @@ void GpuLower::analysis(Fusion* fusion) {
   collectPaddedParallelDims();
   dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
 
+  // Repalace meta data op accesses to tensor logical sizes.
+  replaceMetaDataOps(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "replaceMetaDataOps");
+
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");

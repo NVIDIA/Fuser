@@ -104,6 +104,7 @@ class IrBuilder {
 
   // Get tensor metadata
   NVF_API static Val* metadataExpr(TensorView* tv);
+  NVF_API static Val* getTvDim(TensorView* tv, int64_t dim);
 
   // Get tensor base address, for gmem tensor, it is something like
   // `T1.data`. For smem tensor, it is something like `toSmem(T1)`.

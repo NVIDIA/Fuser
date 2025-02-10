@@ -283,6 +283,13 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
 }
 
+Val* IrBuilder::getTvDim(TensorView* tv, int64_t dim) {
+  auto meta_data = tv->container()->metadataOf(tv);
+  auto out = create<Val>(DataType::Index);
+  create<GetMetaDataAccessor>(out, meta_data, "logical_size", dim);
+  return out;
+}
+
 Val* IrBuilder::baseAddressExpr(TensorView* tv) {
   auto metadata = metadataExpr(tv);
   switch (auto memtype = tv->getMemoryType()) {

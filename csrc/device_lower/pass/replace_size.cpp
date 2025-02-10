@@ -18,6 +18,27 @@
 
 namespace nvfuser {
 
+void replaceMetaDataOps(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  std::unordered_map<Val*, Val*> replacement;
+  for (auto gmda_op : ir_utils::filterByType<GetMetaDataAccessor>(exprs)) {
+    auto inp = gmda_op->input(0);
+    NVF_ERROR(inp->definition() && inp->definition()->isA<GetMetaData>());
+    NVF_ERROR(
+        gmda_op->accessorStr() == "logical_size",
+        "MetaData in kernels only supports logical sizes at this time.");
+    auto gmd = inp->definition()->as<GetMetaData>();
+    auto inp_tv = gmd->input(0)->as<TensorView>();
+    auto logical_dom = TensorDomain::noReductions(inp_tv->getLogicalDomain());
+    auto axis = gmda_op->dim();
+    NVF_ERROR(axis < (int64_t)logical_dom.size());
+    auto size = logical_dom[axis]->getMaybeExpandedExtent();
+    auto gmda_out = gmda_op->output(0);
+    replacement[gmda_out] = size;
+  }
+  ir_utils::replaceValue(fusion, replacement);
+}
+
 namespace {
 // Going to generate a map of tensor view root domain extents to reduce the
 // number used during lowering. For example if we have:

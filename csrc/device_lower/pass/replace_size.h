@@ -13,6 +13,15 @@
 
 namespace nvfuser {
 
+// GetMetaData and MetaDataAccessor nodes can be used to reference tensor sizes.
+// This is important for corect coordination of sizes in multi-gpu scenarios.
+// See MultiDeviceTest.Issue2758 for an example where a "size" will be different
+// depending on the expression. i.e. even though T0 and T1 might both have i0 as
+// a size. T0 might be non sharded for that dim and T1 sharded for that dim.
+// Then the size could change if there's a segmentation between those tensors,
+// being multipled or divided by the device dimension size.
+void replaceMetaDataOps(Fusion*);
+
 // TensorViews are all based on symbolic sizes. When we first initialize them
 // we don't know if they're inputs or outputs which would mean that they have
 // runtime shapes. Intermediate tensors (those not going to global memory) do

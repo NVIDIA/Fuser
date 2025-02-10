@@ -642,6 +642,42 @@ class GetMetaData : public Expr {
   }
 };
 
+// Get an attribute from a struct, struct.attr
+class GetMetaDataAccessor : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetMetaDataAccessor(
+      IrBuilderPasskey,
+      Val* output,
+      Val* input,
+      std::string accessor_string,
+      int64_t dim);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "AccessMetaData";
+  }
+
+  const std::string& accessorStr() const {
+    return attribute<std::string>(0);
+  }
+
+  const int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  bool sameAs(const Statement* other) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 // Construct a tensor from an array
 class TensorConstruct : public Expr {
  public:

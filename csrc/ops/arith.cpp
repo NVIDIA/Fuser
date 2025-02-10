@@ -1527,23 +1527,31 @@ TensorView* min(
 
 std::vector<Val*> shape(TensorView* inp) {
   auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
+  auto meta_data = inp->container()->metadataOf(inp);
   std::vector<Val*> shape;
-
   shape.reserve(iter_domains.size());
-  for (auto id : iter_domains) {
-    shape.push_back(id->getMaybeExpandedExtent());
+  for (auto id_i : c10::irange(iter_domains.size())) {
+    auto size = IrBuilder::create<Val>(DataType::Index);
+    IrBuilder::create<GetMetaDataAccessor>(
+        size, meta_data, "logical_size", id_i);
+    shape.push_back(size);
   }
-
   return shape;
 }
 
 Val* size(TensorView* inp, int64_t dim) {
   auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
   int64_t ndims = static_cast<int64_t>(iter_domains.size());
-  return iter_domains.at(wrapDim(dim, ndims))->getMaybeExpandedExtent();
+  auto id_i = wrapDim(dim, ndims);
+  auto meta_data = inp->container()->metadataOf(inp);
+  auto out_size = IrBuilder::create<Val>(DataType::Index);
+  IrBuilder::create<GetMetaDataAccessor>(
+      out_size, meta_data, "logical_size", id_i);
+  return out_size;
 }
 
 Val* at(const std::vector<Val*>& inp, int64_t index) {
+  NVF_THROW("Shouldn't use this, use size");
   int64_t size = static_cast<int64_t>(inp.size());
   return inp.at(wrapDim(index, size));
 }
