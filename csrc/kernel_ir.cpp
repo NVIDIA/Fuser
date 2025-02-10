@@ -18,9 +18,9 @@
 #include <kernel_ir.h>
 #include <type.h>
 
+#include <cctype>
 #include <iostream>
 #include <regex>
-#include <cctype>
 
 namespace nvfuser {
 namespace kir {
@@ -426,8 +426,12 @@ const std::string Asm::utility() const {
       {"wgmma.fence.sync.aligned", "wgmmaFence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
-      {"wgmma.wait_group.sync.aligned", "wgmmaWait"}};
-  auto it = ptx_to_utility.find(code());
+      {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
+      {"stmatrix.sync.aligned.m8n8.x1.b16", "stmatrixX1"},
+      {"stmatrix.sync.aligned.m8n8.x2.b16", "stmatrixX2"},
+      {"stmatrix.sync.aligned.m8n8.x4.b16", "stmatrixX4"}};
+  const std::string& code = this->code();
+  auto it = ptx_to_utility.find(code);
   if (it != ptx_to_utility.end()) {
     return it->second;
   }
@@ -435,19 +439,23 @@ const std::string Asm::utility() const {
   // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
   // utility: wgmmaM64N256K16Half
   // Half
-  std::regex pattern(R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
+  std::regex pattern(
+      R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
   std::smatch match;
   if (std::regex_match(input, match, pattern)) {
     std::string extracted = match[1];
-    std::transform(extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
+    std::transform(
+        extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
     return "wgmma" + extracted + "Half";
   }
   // BFloat16
-  std::regex pattern(R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
+  std::regex pattern(
+      R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
   std::smatch match;
-  if (std::regex_match(input, match, pattern)) {
+  if (std::regex_match(code, match, pattern)) {
     std::string extracted = match[1];
-    std::transform(extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
+    std::transform(
+        extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
     return "wgmma" + extracted + "BF16";
   }
   return "";
