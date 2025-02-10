@@ -5227,7 +5227,6 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   }
 
  private:
-
   using kir::ConstIrVisitor::handle;
 
   // For ReductionOp and WelfordOp, look for block and grid reduction.
