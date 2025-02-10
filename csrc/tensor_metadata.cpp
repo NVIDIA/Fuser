@@ -774,30 +774,30 @@ std::vector<int64_t> adjustStrides(
     const auto& new_size = new_sizes[size_i];
     const auto& orig_size = orig_sizes[size_i];
     const auto& orig_stride = orig_strides[size_i];
-    if (new_size == orig_size) {
+    if (new_size == orig_size || orig_stride == 0) {
       continue;
     }
     // e.g.
     // orig sizes [4, 3, 2] -> [4, 6, 2] new sizes
-    // orig strides [24, 6, 1] -> [48, 12, 1] new strides
-    // orig size = 3, new size = 6, orig stride = 6
+    // orig strides [6, 2, 1] -> [12, 2, 1] new strides
+    // orig size = 3, new size = 6, orig stride = 2
     if (new_size > orig_size) {
       NVF_ERROR(new_size % orig_size == 0);
       auto factor = new_size / orig_size;
       for (auto size_j : c10::irange(ndims)) {
-        if (orig_strides[size_j] >= orig_stride) {
+        if (orig_strides[size_j] > orig_stride) {
           orig_strides[size_j] *= factor;
         }
       }
     } else {
       // e.g.
       // orig sizes [4, 6, 2] -> [4, 3, 2] new sizes
-      // orig strides [48, 12, 1] -> [24, 6, 1] new strides
-      // orig size = 6, new size = 3, orig stride = 12
+      // orig strides [12, 2, 1] -> [6, 2, 1] new strides
+      // orig size = 6, new size = 3, orig stride = 2
       NVF_ERROR(orig_size % new_size == 0);
       auto factor = orig_size / new_size;
       for (auto size_j : c10::irange(ndims)) {
-        if (orig_strides[size_j] >= orig_stride) {
+        if (orig_strides[size_j] > orig_stride) {
           NVF_ERROR(orig_strides[size_j] % factor == 0);
           orig_strides[size_j] /= factor;
         }
@@ -856,39 +856,12 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   }
 
   if (isSharded(tv) && !consistentDomainSharding(tv)) {
-    std::cout << "HERE" << std::endl;
-    auto alloc_proj = inferAndValidateProjection(
-        input_sizes,
-        input_strides,
-        tv->getLogicalDomain(),
-        tv->getMaybeAllocationDomain(),
-        false,
-        ee);
-    std::cout << "Alloc proj: " << alloc_proj.first << std::endl;
-    // Get unsharded allocation domain
-    auto alloc_domain =
-        TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-    for (auto id_i : c10::irange(alloc_domain.size())) {
-      if (!alloc_domain[id_i]->isDeviceDim()) {
-        continue;
-      }
-      alloc_proj.first.at(id_i) *=
-          tv->getDeviceMesh().size(alloc_domain[id_i]->getParallelType());
-    }
-    std::cout << "Unsharded Alloc proj: " << alloc_proj.first << std::endl;
-    auto unsharded_logical_proj = inferAndValidateProjection(
-        alloc_proj.first,
-        alloc_proj.second,
-        tv->getMaybeAllocationDomain(),
-        tv->getLogicalDomain(),
-        false,
-        ee);
-    std::cout << "logical strides: " << input_strides << std::endl;
-    auto unsharded_logical_strides =
-        adjustStrides(input_sizes, unsharded_logical_proj.first, input_strides);
-    input_sizes = unsharded_logical_proj.first;
-    input_strides = unsharded_logical_strides;
-    std::cout << "Unsharded logical proj: " << input_sizes << std::endl;
+    std::cout << "logical: " << input_sizes << std::endl;
+    std::cout << "strides: " << input_strides << std::endl;
+    auto unsharded_sizes = unshardedSizes(tv, input_sizes);
+    input_strides = adjustStrides(input_sizes, unsharded_sizes, input_strides);
+    input_sizes = unsharded_sizes;
+    std::cout << "Unsharded logical: " << input_sizes << std::endl;
     std::cout << "Unsharded strides: " << input_strides << std::endl;
   }
 
