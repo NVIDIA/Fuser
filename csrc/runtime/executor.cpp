@@ -79,9 +79,9 @@ bool ExprEvalExecutor::isCompiled() const {
   return fusion_ != nullptr;
 }
 
-std::vector<at::Tensor> ExprEvalExecutor::run(
+KernelArgumentHolder ExprEvalExecutor::run(
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder ar_outputs) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run");
 
   if (isProfilerEnabled()) {
@@ -104,11 +104,12 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         "Fusion executor is using expression evaluator,",
         " and expects that the outputs are not populated, which they were.");
     if (outputs.empty()) {
+      outputs.reserve(fusion_->outputs().size);
       for (const auto& out_val : fusion_->outputs()) {
         auto out_tensor =
             expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
         expr_eval.bind(out_val, out_tensor);
-        outputs.emplace_back(out_tensor);
+        outputs.push_back(out_tensor);
       }
     }
   }
@@ -116,7 +117,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
     FusionProfiler::segment(group_id_).stopKernel();
     FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
   }
-  return outputs;
+  return KernelArgumentHolder toC10ArrayRef(outputs);
 }
 
 namespace {
@@ -1166,8 +1167,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     sprof.stopKernel();
     sprof.outputBytesAccessed(computeBytes(outputs));
   }
-
-  return outputs;
+  return PolymorphicValue_functions::toC10ArrayRef(outputs);
 }
 
 flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(

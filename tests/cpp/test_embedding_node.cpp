@@ -45,6 +45,6 @@ TEST_F(EmbeddingTest, EmbeddingFwdNode) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs({input, weight});
-  EXPECT_TRUE(at::allclose(nvf_out[0], aten_out));
+  EXPECT_TRUE(at::allclose(nvf_out[0].toTensor(), aten_out));
 }
 } // namespace nvfuser

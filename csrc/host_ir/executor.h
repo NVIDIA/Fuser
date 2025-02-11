@@ -35,9 +35,8 @@ class HostIrExecutor : public ExecutorAbstract {
 
   bool isCompiled() const override;
 
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<hir::HostIrContainer>& hostContainer() const {
     return host_ir_container_;
@@ -85,8 +84,8 @@ class HostIrEvaluator final : public OptOutDispatch {
       std::unique_ptr<HostIrContainer> container,
       Communicator* communicator = nullptr,
       HostIrEvaluatorParams = HostIrEvaluatorParams());
-  std::vector<at::Tensor> runWithInput(
-      std::unordered_map<Val*, c10::IValue> val_to_IValue);
+  KernelArgumentHolder runWithInput(
+      std::unordered_map<Val*, PolymorphicValue> val_to_pval);
 
   const std::vector<Val*>& inputs() {
     return container_->inputs();

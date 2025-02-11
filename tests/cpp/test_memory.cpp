@@ -99,7 +99,7 @@ TEST_P(MemoryTest, LoadCache) {
   std::filesystem::remove(compiled_kernel->ptx_filename);
 
   // Verify output tensors.
-  std::vector<at::Tensor> actual_ts = ke.run({input});
+  auto actual_ts = ke.run({input});
   testValidate(
       &fusion, actual_ts, {input}, {expected_output}, __LINE__, __FILE__);
 }

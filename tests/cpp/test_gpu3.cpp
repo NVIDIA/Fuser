@@ -1478,7 +1478,8 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
         vec_info.word_size);
   }
 
-  testValidate(&fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTrivialReductionForwarding4_CUDA) {
@@ -4627,7 +4628,7 @@ TEST_F(NVFuserTest, FusionIssue2074_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  ASSERT_TRUE(at::allclose(cg_outputs[1], t4));
+  ASSERT_TRUE(at::allclose(cg_outputs[1].toTensor(), t4));
 }
 
 TEST_F(NVFuserTest, FusionIssue2077_CUDA) {
@@ -4707,9 +4708,9 @@ TEST_F(NVFuserTest, FusionIssue2372_CUDA) {
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   // testValidate currently fails since cg_outputs[1] is an empty tensor
-  ASSERT_TRUE(at::allclose(cg_outputs[0], eager_x_normed));
-  // ASSERT_TRUE(at::equal(cg_outputs[1], mean));
-  ASSERT_TRUE(at::allclose(cg_outputs[2], eager_invstd));
+  ASSERT_TRUE(at::allclose(cg_outputs[0].toTensor(), eager_x_normed));
+  // ASSERT_TRUE(at::equal(cg_outputs[1].toTensor(), mean));
+  ASSERT_TRUE(at::allclose(cg_outputs[2].toTensor(), eager_invstd));
 }
 
 TEST_F(NVFuserTest, FusionIssue2075_CUDA) {
@@ -4934,9 +4935,9 @@ TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  ASSERT_TRUE(at::allclose(cg_outputs[0], cg_outputs[3]));
-  ASSERT_TRUE(at::allclose(cg_outputs[1], cg_outputs[4]));
-  ASSERT_TRUE(at::allclose(cg_outputs[2], cg_outputs[5]));
+  ASSERT_TRUE(at::allclose(cg_outputs[0].toTensor(), cg_outputs[3].toTensor()));
+  ASSERT_TRUE(at::allclose(cg_outputs[1].toTensor(), cg_outputs[4].toTensor()));
+  ASSERT_TRUE(at::allclose(cg_outputs[2].toTensor(), cg_outputs[5].toTensor()));
 }
 
 TEST_F(NVFuserTest, FusionIssue2163ReproInvalidAlias_CUDA) {

@@ -222,7 +222,7 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const at::ArrayRef<c10::IValue>& outputs,
+    const KernelArgumentHolder& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 

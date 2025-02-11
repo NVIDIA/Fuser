@@ -89,7 +89,7 @@ namespace {
 // Host IR specific function, returns the at:Tensor (ordered list) associated
 // with the provdied Fusion output tv
 at::Tensor findBufferForFusionOutput(
-    const std::vector<at::Tensor>& out_tensors,
+    const KernelArgumentHolder& out_tensors,
     const Val* fusion_out,
     const Fusion* fusion) {
   auto i =
@@ -100,9 +100,9 @@ at::Tensor findBufferForFusionOutput(
 }
 } // namespace
 
-std::vector<at::Tensor> HostIrExecutor::run(
+KernelArgumentHolder HostIrExecutor::run(
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("HostIrExecutor::run");
   if (isProfilerEnabled()) {
     NVF_CHECK(
@@ -166,10 +166,10 @@ at::Tensor getKnownTensorOrUndefined(
       : at::Tensor();
 }
 
-std::vector<at::Tensor> getKnownTensorOrUndefined(
+KernelArgumentHolder getKnownTensorOrUndefined(
     const std::vector<Val*>& vals,
     const ExpressionEvaluator& expr_evaluator) {
-  std::vector<at::Tensor> tensors(vals.size());
+  KernelArgumentHolder tensors(vals.size());
   std::transform(
       vals.begin(),
       vals.end(),
@@ -204,12 +204,11 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
+KernelArgumentHolder HostIrEvaluator::runWithInput(
+    std::unordered_map<Val*, PolymorphicValue> val_to_pval) {
   // process input values
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(
-        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
+  for (const auto& [val, pval] : val_to_pval) {
+    expr_evaluator_.bind(val, pval);
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -314,7 +313,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   }
 
   // run the compiled kernel
-  std::vector<at::Tensor> outputs =
+  KernelArgumentHolder outputs =
       container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
 
   // Store the outputs in the context
@@ -351,7 +350,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 
   // placeholder for storing the outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   NVF_ERROR(
       post_ir->hostOpToPost()->isA<HostUnit>(),
@@ -376,7 +375,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
       KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args, KernelArgumentHolder{});
 
     } else {
       DynamicTransform::concretizeFusion(
@@ -394,7 +393,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
       KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args, KernelArgumentHolder{});
     }
   }
 

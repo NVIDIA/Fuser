@@ -167,7 +167,7 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].toTensor(), out_ref));
 }
 
 TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
@@ -193,7 +193,7 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].toTensor(), out_ref));
 }
 
 TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
@@ -241,7 +241,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].toTensor(), out_ref));
 }
 TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
@@ -290,7 +290,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].toTensor(), out_ref));
 }
 
 constexpr int64_t b = 128, m = 64, k = 32, n = 16;

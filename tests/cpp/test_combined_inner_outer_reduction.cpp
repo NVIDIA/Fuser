@@ -920,7 +920,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   auto t4 = t0.sum({0});
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       aten_inputs,
       {t3, t4},
       __LINE__,
@@ -1039,7 +1039,11 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
   auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
   ASSERT_FALSE(persistent_params->project_persistent_buffers);
   testValidate(
-      &fusion_copy, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+      &fusion_copy,
+      cg_results.outputs.toTensor(),
+      aten_inputs,
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser

@@ -98,10 +98,10 @@ bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
   NVF_THROW("Unsupported Executor detected.");
 }
 
-std::vector<at::Tensor> ExecutorDispatch::run(
+KernelArgumentHolder ExecutorDispatch::run(
     ExecutorAbstract* executor,
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run");
   if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     return hire->run(args, outputs);
@@ -115,12 +115,12 @@ std::vector<at::Tensor> ExecutorDispatch::run(
   NVF_THROW("Unsupported Executor detected.");
 }
 
-std::vector<at::Tensor> ExecutorDispatch::run(
+KernelArgumentHolder ExecutorDispatch::run(
     ExecutorAbstract* executor,
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run2");
   if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     return hire->run(args, outputs);

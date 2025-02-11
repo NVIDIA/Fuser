@@ -91,7 +91,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     }
     auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv);
     auto obtained_output = outputs.at(i);
-    EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
+    EXPECT_TRUE(torch::allclose(ref_output, obtained_output.toTensor()))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
         << ". Expected values: " << ref_output

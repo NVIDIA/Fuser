@@ -1142,7 +1142,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
 
   at::Tensor aten_input = at::randn({129, 127}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
 
   KernelExecutor ke;
@@ -1571,7 +1571,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
 
   at::Tensor aten_input = at::randn({1000}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
 
   KernelExecutor ke;
@@ -1639,7 +1639,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer1_CUDA) {
 
   at::Tensor aten_input = at::randn({1000}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -1797,7 +1797,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
 
   at::Tensor aten_input = at::randn({129, 127}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
 
   KernelExecutor ke;
@@ -1858,7 +1858,7 @@ TEST_F(NVFuserTest, FusionComputeAtNoCommonConsumer_CUDA) {
 
   at::Tensor aten_input = at::randn({1000}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
@@ -2170,12 +2170,12 @@ void test_op(
 
   at::Tensor cg_output =
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();
-  std::vector<at::Tensor> output_vect = {cg_output};
+  KernelArgumentHolder output_vect = {cg_output};
   cudaDeviceSynchronize();
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs_ivalues);
-  ke.run(aten_inputs_ivalues, output_vect);
+  ke.compile(&fusion, KernelArgumentHolder(aten_inputs_ivalues));
+  ke.run(KernelArgumentHolder(aten_inputs_ivalues), output_vect);
   cudaDeviceSynchronize();
 
   at::Tensor aten_output = af(aten_inputs);
@@ -2706,8 +2706,6 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
 
       at::Tensor input1 = at::randn({1, 4}, options);
 
-      // std::array<c10::IValue, 1> inputs = {input1};
-      // const c10::ArrayRef<c10::IValue> input_ivalues(inputs);
       std::vector<c10::IValue> inputs = {input1};
 
       KernelExecutor ke;
@@ -5043,7 +5041,7 @@ TEST_F(NVFuserTest, FusionReductionKeepDimScheduler_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -5159,7 +5157,7 @@ TEST_F(NVFuserTest, FusionReductionScheduler_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -5353,7 +5351,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -5411,7 +5409,7 @@ TEST_P(ReductionNoODim, Test) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -5484,7 +5482,7 @@ TEST_P(ReductionWithIterDim, Test) {
   auto aten_output = aten_input.to(at::kDouble).sum({axis});
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -6140,7 +6138,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
 
     testValidate(
         &fusion,
-        cg_results.outputs,
+        cg_results.outputs.toTensor(),
         {aten_input},
         {aten_output},
         __LINE__,
@@ -6199,7 +6197,7 @@ TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input, aten_mask},
       {aten_output},
       __LINE__,
@@ -6378,7 +6376,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
       scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input});
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {std::get<0>(aten_outputs),
        std::get<1>(aten_outputs),
@@ -6842,8 +6840,6 @@ TEST_F(NVFuserTest, FusionPersistentSoftmaxLocalShared_CUDA) {
   at::Tensor out = at::zeros({dimx, dimy}, options);
   at::Tensor cg_static_out = out.narrow(1, 0, static_size);
   at::Tensor cg_dynamic_out = out.narrow(1, static_size, dimy - static_size);
-
-  std::vector<at::Tensor> aten_outputs;
 
   auto aten_output = at::_softmax(aten_input.to(at::kDouble), -1, false);
   at::Tensor aten_static_out = aten_output.narrow(1, 0, static_size);

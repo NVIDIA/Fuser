@@ -305,7 +305,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder1_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({10, 10}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -342,7 +342,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({10, 10}, options);
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -394,7 +394,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder3_CUDA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor aten_input = at::randn({100}, options);
 
-    at::ArrayRef<c10::IValue> cg_outputs = {
+    auto cg_outputs = {
         at::empty_like(aten_input, options),
         at::empty_like(aten_input, options),
         at::empty_like(aten_input, options)};
@@ -437,7 +437,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder4_CUDA) {
   at::Tensor t4 = at::rand_like(t0, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t4};
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(t0, options),
       at::empty_like(t0, options),
       at::empty_like(t0, options),
@@ -471,7 +471,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder5_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({100}, options);
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -616,7 +616,7 @@ TEST_F(NVFuserTest, FusionThreadPredicate_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t3, t2};
 
-  at::ArrayRef<c10::IValue> cg_outputs = {
+  auto cg_outputs = {
       at::empty_like(aten_input, options), at::empty({numel_x}, options)};
 
   KernelExecutor ke;
@@ -715,7 +715,7 @@ TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -772,7 +772,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -809,7 +809,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -843,7 +843,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast3_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {aten_input},
       {aten_output},
       __LINE__,
@@ -2502,7 +2502,7 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
   auto cg_results = scheduleAndRun(&fusion, SchedulerType::Reduction, {t0});
 
   // by default Welford outputs sum of square diff so need to divide to get var
-  cg_results.outputs[1] /= N;
+  cg_results.outputs.toTensor()[1] /= N;
 
   auto at_avg = t0.mean({1});
   auto at_var = t0.var({1}, false);
@@ -2510,7 +2510,7 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {t0},
       {at_avg, at_var, at_n},
       __LINE__,
@@ -5635,7 +5635,7 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       aten_inputs,
       {aten_output2, aten_output3},
       __LINE__,
@@ -5674,7 +5674,7 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {input0, input1},
       {aten_output2, aten_output3},
       __LINE__,

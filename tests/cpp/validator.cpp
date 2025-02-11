@@ -14,9 +14,9 @@ namespace nvfuser {
 
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
-    std::vector<at::Tensor> aten_outputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
+    KernelArgumentHolder aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg,
@@ -43,12 +43,7 @@ void testValidate(
 
   if (aten_outputs.empty()) {
     for (Val* out : non_hidden_outputs) {
-      if (out->isA<TensorView>()) {
-        aten_outputs.emplace_back(expr_eval.evaluate(out).as<at::Tensor>());
-      } else {
-        aten_outputs.emplace_back(
-            PolymorphicValue_functions::toScalar(expr_eval.evaluate(out)))
-      }
+      aten_outputs.push(expr_eval.evaluate(out));
     }
   }
 
@@ -71,7 +66,7 @@ void testValidate(
       NVF_ERROR(aten_inputs[i].isTensor(), "Mismatch of tensor inputs.");
 
       auto fusion_input_tv = fusion->inputs()[i]->as<TensorView>();
-      auto at_tensor = aten_inputs[i].toTensor();
+      auto at_tensor = aten_inputs[i].as<at::Tensor>();
 
       NVF_ERROR(
           at_tensor.dim() ==
@@ -122,8 +117,8 @@ void testValidate(
 
     TensorView* out_tv = out->as<TensorView>();
 
-    const at::Tensor fusion_output_tensor = fusion_outputs[i].asTensor();
-    const at::Tensor aten_output_tensor = aten_outputs[i].asTensor();
+    const at::Tensor fusion_output_tensor = fusion_outputs[i].as<at::Tensor>();
+    const at::Tensor aten_output_tensor = aten_outputs[i].as<at::Tensor>();
 
     NVF_ERROR(
         reduction_sizes.count(out_tv),
@@ -191,8 +186,8 @@ void testValidate(
 
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
     int line_number,
     const char* file_name,
     std::string err_msg,

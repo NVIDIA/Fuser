@@ -135,14 +135,14 @@ class FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
-  NVF_API std::vector<at::Tensor> runFusionWithInputs(
-      const c10::ArrayRef<c10::IValue>& inputs,
+  NVF_API KernelArgumentHolder runFusionWithInputs(
+      const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
   NVF_API bool isCompiled(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       int8_t device = 0);
 
   Fusion* fusion();
@@ -163,7 +163,7 @@ class FusionExecutorCache {
 
   //! Get the kernel code for the given inputs
   std::string getCodeFor(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       bool intrinsic_code);
 
   //! Gets the Scheduled IR for the associated runtime
@@ -176,7 +176,7 @@ class FusionExecutorCache {
 
   //! Get the Scheduled IR for the given inputs
   std::string getScheduledIrFor(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       bool tensor_transforms = false);
 
   // TODO: in a follow up we need a global logging structure
@@ -238,7 +238,7 @@ class FusionExecutorCache {
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup
   KernelArgumentHolder prepareInputs(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached

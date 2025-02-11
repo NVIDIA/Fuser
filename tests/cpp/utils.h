@@ -38,7 +38,7 @@
 namespace nvfuser {
 
 struct CGResultsPackage {
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
   std::unique_ptr<KernelExecutor> kernel_executor;
 };
@@ -56,7 +56,7 @@ const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const c10::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution

@@ -76,7 +76,7 @@ class FusionKernelRuntime {
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API at::ArrayRef<c10::IValue> runWithInputs(KernelArgumentHolder& args);
+  NVF_API KernelArgumentHolder runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
@@ -153,7 +153,7 @@ class FusionKernelRuntime {
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
-  at::ArrayRef<c10::IValue> runKernelWithInput(
+  KernelArgumentHolder runKernelWithInput(
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 

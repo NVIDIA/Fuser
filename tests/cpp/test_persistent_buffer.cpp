@@ -851,7 +851,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
       "Shouldn't project persistent buffers to inputs!");
   testValidate(
       fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       aten_inputs,
       {t5, t8, t11},
       __LINE__,
@@ -905,7 +905,7 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
                                 : "Shouldn't project to inputs!");
     testValidate(
         &fusion,
-        cg_results.outputs,
+        cg_results.outputs.toTensor(),
         {aten_input},
         {aten_output},
         __LINE__,

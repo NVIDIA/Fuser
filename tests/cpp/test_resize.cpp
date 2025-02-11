@@ -2669,7 +2669,8 @@ TEST_F(ResizeTest, Slice1DVectorize) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced twice. Both should be vectorizable.
@@ -2713,7 +2714,8 @@ TEST_F(ResizeTest, Slice1DVectorize2) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced twice. Both should be vectorizable.
@@ -2808,7 +2810,8 @@ TEST_F(ResizeTest, Slice1DVectorize3) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced and also entirely read. Both should be vectorizable.
@@ -2937,7 +2940,8 @@ TEST_F(ResizeTest, Slice2DVectorize1) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 // Fully contiguous tensor, but a sliced domain makes the domain to
@@ -2970,7 +2974,8 @@ TEST_F(ResizeTest, Slice3DVectorize1) {
   ASSERT_EQ(pparams->vectorization_factor, 1)
       << "Unexpected factor of vectorization";
 
-  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 // Similar to Slice3DVectorize2 but with a middle broadcast
@@ -3004,7 +3009,8 @@ TEST_F(ResizeTest, Slice3DVectorize2) {
   ASSERT_EQ(pparams->vectorization_factor, 1)
       << "Unexpected factor of vectorization";
 
-  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 // Repro of issue 540 without transpose
@@ -3497,7 +3503,8 @@ TEST_F(ResizeTest, PadVectorization) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 
-  testValidate(&fusion, cg_results.outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      &fusion, cg_results.outputs.toTensor(), inputs, __LINE__, __FILE__);
 }
 
 // MemoryPromotion generates code with volatile T. This test ensures that our

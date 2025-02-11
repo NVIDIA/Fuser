@@ -328,7 +328,7 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   auto ref_out = in_nhwc.relu();
 
   EXPECT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-  EXPECT_TRUE(ref_out.allclose(cg_outputs[0]));
+  EXPECT_TRUE(ref_out.allclose(cg_outputs[0].toTensor()));
 }
 
 TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {

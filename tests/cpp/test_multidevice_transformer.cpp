@@ -117,7 +117,7 @@ void validate(
         << "Output " << i << " mismatches with atol " << atol << ":"
         << std::endl
         << generate_comparison_details(
-               expected_outputs[i], outputs[i], atol, rtol);
+               expected_outputs[i], outputs[i].toTensor(), atol, rtol);
   }
 }
 

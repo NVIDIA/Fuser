@@ -95,7 +95,7 @@ class ArgumentManager {
 
   const PolymorphicValue* checkTensorMap(Val* v);
 
-  // T is assumed to be either at::ArrayRef<c10::IValue> or
+  // T is assumed to be either KernelArgumentHolder or
   // KernelArgumentHolder (from dry run)
   // TODO: make the output type uniform no matter it's a real or dry run
   template <typename T>
@@ -188,7 +188,7 @@ class InputsIdLookup : public NonCopyable {
   //! inputs at the integer locations specified in that argument will affect the
   //! returned ID.
   NVF_API IdLookupReturn lookupId(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       const std::unordered_set<size_t>& scalar_inputs_to_record = {},
       int8_t device = 0);
 

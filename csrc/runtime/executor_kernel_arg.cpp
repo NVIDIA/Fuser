@@ -17,7 +17,6 @@
 #include <tensor_metadata.h>
 
 namespace nvfuser {
-
 KernelArgumentHolder::KernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> device) {
@@ -25,8 +24,9 @@ KernelArgumentHolder::KernelArgumentHolder(
     // default to device 0
     setDeviceIndex(device.has_value() ? device.value() : (int8_t)0);
   } else {
-    setDeviceIndex(getCommonDeviceCUDA(inputs, device));
+    arguments_.reserve(inputs.size());
     push(inputs);
+    setCommonDeviceCUDA();
   }
 }
 
@@ -379,6 +379,27 @@ int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
     num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
   return num_bytes;
+}
+
+void KernelArgumentHolder::setCommonDeviceCUDA() {
+  int8_t index = 0;
+  // have we found or selected at least one device yet?
+  bool found_device = false;
+  for (const auto& arg : arguments_) {
+    if (!arg.is<at::Tensor>()) {
+      continue;
+    }
+    const auto& device = a.as<at::Tensor>().device();
+    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    auto cur_index = device.index();
+    NVF_ERROR(
+        found_device && index != cur_index,
+        "KernelArgumentHolder doesn't support mixed device args");
+    index = cur_index;
+    found_device = true;
+  }
+  // When there are only scalar inputs, use selected_device or fall back to 0
+  setDevice(index);
 }
 
 } // namespace nvfuser

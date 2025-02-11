@@ -37,17 +37,17 @@ class ExecutorDispatch {
 
   static bool isCompiled(const ExecutorAbstract* executor);
 
-  static at::ArrayRef<c10::IValue> run(
+  static KernelArgumentHolder run(
       ExecutorAbstract* executor,
       KernelArgumentHolder& args,
-      at::ArrayRef<c10::IValue> outputs = {});
+      KernelArgumentHolder outputs = {});
 
-  static at::ArrayRef<c10::IValue> run(
+  static KernelArgumentHolder run(
       ExecutorAbstract* executor,
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       const CompileParams& compile_params = CompileParams(),
-      at::ArrayRef<c10::IValue> outputs = {});
+      KernelArgumentHolder outputs = {});
 
  private:
 };

@@ -306,7 +306,7 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
 }
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    const KernelArgumentHolder& inputs,
     const std::unordered_set<size_t>& scalar_inputs_to_record,
     int8_t device) {
   IdLookupReturn ret;

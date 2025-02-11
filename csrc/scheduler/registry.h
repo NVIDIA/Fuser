@@ -62,7 +62,7 @@ class SchedulerEntry {
   NVF_API static std::unique_ptr<HeuristicParams> scheduleWith(
       Fusion* fusion,
       SchedulerType scheduler_type,
-      const c10::ArrayRef<c10::IValue>& runtime_inputs,
+      const KernelArgumentHolder& runtime_inputs,
       bool validate_scheduler = true);
 
   //! Heuristic comparison

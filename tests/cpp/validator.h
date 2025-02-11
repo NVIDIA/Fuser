@@ -34,9 +34,9 @@ namespace nvfuser {
 // that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
-    std::vector<at::Tensor> aten_outputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
+    KernelArgumentHolder aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
@@ -45,11 +45,14 @@ void testValidate(
 
 // The variant with automatically inferred aten outputs. The `evaluate` method
 // of the exprs in the fusion must be overriden to handle
-// at::ArrayRef<c10::IValue>.
+// KernelArgumentHolder.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
+    int line_number,
+    const char* file_name,
+    std::string err_msg = "",
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 // A gmock matcher for matching heuristics.

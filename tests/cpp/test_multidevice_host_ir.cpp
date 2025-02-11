@@ -128,7 +128,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().toTensor()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -223,7 +223,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().toTensor()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -297,7 +297,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().toTensor()));
 }
 
 TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
@@ -347,7 +347,7 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().toTensor()));
 }
 
 using OverlapDistributedMatmulTest = MultiDeviceTest;
@@ -405,7 +405,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   }
   cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(tc_ref, tc, 1e-2, 1e-2));
+  EXPECT_TRUE(torch::allclose(tc_ref, tc.toTensor(), 1e-2, 1e-2));
 }
 
 TEST_F(OverlapDistributedMatmulTest, AG_linear) {
@@ -467,7 +467,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
   torch::cuda::synchronize();
   cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
+  EXPECT_TRUE(torch::allclose(out_ref, out_at.toTensor(), 1e-1, 1e-1));
 }
 
 } // namespace hir
