@@ -85,8 +85,10 @@ void testValidate(
   for (auto i : c10::irange(non_hidden_outputs.size())) {
     Val* out = non_hidden_outputs[i];
     if (!out->isA<TensorView>()) {
-      auto fusion_output = IValueToPolymorphicValue(fusion_outputs[i]);
-      auto aten_output = IValueToPolymorphicValue(aten_outputs[i]);
+      auto fusion_output = PolymorphicValue_functions::IValueToPolymorphicValue(
+          fusion_outputs[i]);
+      auto aten_output =
+          PolymorphicValue_functions::IValueToPolymorphicValue(aten_outputs[i]);
       if (fusion_output.is<int64_t>()) {
         NVF_ERROR(
             aten_output.is<int64_t>(), "Validation failed mismatched types.");
