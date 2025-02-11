@@ -229,7 +229,7 @@ def test_linear(setup_process_group):
             expected_tensor, dtensor.to_local(), rtol=1.3e-6, atol=1e-3
         )
 
-    assert_close(expected_out_tensor, out_dtensor.to_local())
-    assert_close(expected_grad_x, grad_x.to_local())
-    assert_close(expected_grad_w[rank : rank + 1], grad_w.to_local())
-    assert_close(expected_grad_b[rank : rank + 1], grad_b.to_local())
+    assert_close(expected_out_tensor, out_dtensor)
+    assert_close(expected_grad_x, grad_x)
+    assert_close(expected_grad_w[rank : rank + 1], grad_w)
+    assert_close(expected_grad_b[rank : rank + 1], grad_b)
