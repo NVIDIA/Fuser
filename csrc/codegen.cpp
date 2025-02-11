@@ -3190,7 +3190,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Reference:
   // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
-    auto getTypeOrIndexType = [](Val* value) {
+    auto get_type_or_index_type = [](Val* value) {
       if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
         if (isPointerType(ti->index()->dtype())) {
           return ti->index()->dtype();
@@ -3270,7 +3270,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (in_i > 0) {
             utilities_ << ", ";
           }
-          utilities_ << getTypeOrIndexType(inputs.at(in_i)) << " in" << in_i;
+          utilities_ << get_type_or_index_type(inputs.at(in_i)) << " in"
+                     << in_i;
         }
         utilities_ << ") {\n";
       }
@@ -3318,7 +3319,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         for (const auto* io : outputs_and_inputs) {
           for (auto val : *io) {
             // don't treat pointer to bool as bool
-            auto val_dtype = getTypeOrIndexType(val);
+            auto val_dtype = get_type_or_index_type(val);
             if (val_dtype == DataType::Bool) {
               indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
               indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
@@ -3372,7 +3373,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               if (counter > 0) {
                 next_line();
               }
-              auto reg_dtype = getTypeOrIndexType(register_);
+              auto reg_dtype = get_type_or_index_type(register_);
               if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
                 for (auto i :
                      c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
@@ -3443,7 +3444,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (!asm_->options().immediate_inputs.empty()) {
         code_ << "<";
         bool first = true;
-        for (auto [constraint, register_] : asm_->constraintsAndInputs()) {
+        for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
           if (constraint == "n") {
             if (!first) {
               code_ << ", ";
@@ -3456,14 +3457,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       code_ << "(";
       bool first = true;
-      for (auto [_, register_] : asm_->constraintsAndOutputs()) {
+      for (auto&& [_, register_] : asm_->constraintsAndOutputs()) {
         if (!first) {
           code_ << ", ";
         }
         code_ << gen(register_);
         first = false;
       }
-      for (auto [constraint, register_] : asm_->constraintsAndInputs()) {
+      for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
         if (constraint == "n") {
           continue;
         }
