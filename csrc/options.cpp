@@ -165,6 +165,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
           {"resize_scheduler", EnableOption::ResizeScheduler},
           {"static_fusion_count", EnableOption::StaticFusionCount},
+          {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
           {"host_ir_lowering", EnableOption::HostIrLowering},
       };
@@ -198,6 +199,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"fma", DisableOption::Fma},
           {"grouped_grid_welford_outer_opt",
            DisableOption::GroupedGridWelfordOuterOpt},
+          {"id_model", DisableOption::IdModel},
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
