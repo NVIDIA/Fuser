@@ -4876,3 +4876,41 @@ fd.execute(inputs)
 
         self.assertEqual(nvf_out[0], d)
         self.assertEqual(nvf_out[1], e)
+
+    # See https://github.com/NVIDIA/Fuser/issues/3833
+    def test_bcast_squeeze_replace_aliased_output(self):
+        inputs = [
+            torch.testing.make_tensor(
+                (1, 1, 576), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor((1, 576), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[1, 1, 576],
+                contiguity=[None, None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[1, 576],
+                contiguity=[None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T5 = fd.ops.reshape(T0, new_shape=[1, 576])
+            T6 = fd.ops.set(T5)
+            fd.add_output(T6, T1)
+            fd.add_output(T5)
+
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func,
+            inputs,
+            skip_serde_check=True,
+        )
+
+        assert len(nvf_out) == 1
+        self.assertEqual(nvf_out[0], inputs[0].squeeze(1))
