@@ -27,8 +27,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
                SdpaFwdOp,
                SdpaBwdOp,
                EmbeddingFwdOp,
-               GetMetaData,
-               GetMetaDataAccessor>() ||
+               GetMetaData>() ||
         (expr->isOneOf<LinearOp, MatmulOp>() &&
          !isOptionDisabled(DisableOption::MatmulExprEval)) ||
         ir_utils::isScalarOp(expr);
