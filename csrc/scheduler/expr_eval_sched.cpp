@@ -22,11 +22,24 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  auto exprs = fusion->exprs();
-  if (exprs.size() != 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Fusion must contain only a single expression.");
-    return false;
+  auto expr_check = [](Expr* expr) {
+    return expr->isOneOf<
+               SdpaFwdOp,
+               SdpaBwdOp,
+               EmbeddingFwdOp,
+               GetMetaData,
+               GetMetaDataAccessor>() ||
+        (expr->isOneOf<LinearOp, MatmulOp>() &&
+         !isOptionDisabled(DisableOption::MatmulExprEval)) ||
+        ir_utils::isScalarOp(expr);
+  };
+
+  for (auto expr : fusion->exprs()) {
+    if (!expr_check(expr)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          "Expr not supported in ExprEvalScheduler:", expr->toString());
+      return false;
+    }
   }
 
   if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp>()) {
