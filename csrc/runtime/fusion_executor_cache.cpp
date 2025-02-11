@@ -44,7 +44,7 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
+at::ArrayRef<c10::IValue> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {

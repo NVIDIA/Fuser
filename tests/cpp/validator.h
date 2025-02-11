@@ -34,9 +34,9 @@ namespace nvfuser {
 // that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
+    const at::ArrayRef<c10::IValue>& fusion_outputs,
     const at::ArrayRef<c10::IValue>& aten_inputs,
-    std::vector<at::Tensor> aten_outputs,
+    at::ArrayRef<c10::IValue> aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
@@ -44,10 +44,11 @@ void testValidate(
     const ValidationConstants& tolerances = ValidationConstants());
 
 // The variant with automatically inferred aten outputs. The `evaluate` method
-// of the exprs in the fusion must be overriden to handle at::Tensor.
+// of the exprs in the fusion must be overriden to handle
+// at::ArrayRef<c10::IValue>.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
+    const at::ArrayRef<c10::IValue>& fusion_outputs,
     const at::ArrayRef<c10::IValue>& aten_inputs,
     int line_number,
     const char* file_name,

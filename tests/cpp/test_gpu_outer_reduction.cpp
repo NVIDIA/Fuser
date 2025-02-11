@@ -1224,7 +1224,7 @@ void grid_persistent_batchnorm_bwd_manual(
        at_save_mean,
        at_save_var});
 
-  std::vector<at::Tensor> cg_outputs;
+  at::ArrayRef<c10::IValue> cg_outputs;
 
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), aten_inputs);

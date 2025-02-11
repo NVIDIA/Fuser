@@ -95,8 +95,8 @@ class ArgumentManager {
 
   const PolymorphicValue* checkTensorMap(Val* v);
 
-  // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
-  // (from dry run)
+  // T is assumed to be either at::ArrayRef<c10::IValue> or
+  // KernelArgumentHolder (from dry run)
   // TODO: make the output type uniform no matter it's a real or dry run
   template <typename T>
   void updateWithSegmentOutputs(

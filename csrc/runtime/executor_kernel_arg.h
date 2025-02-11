@@ -137,7 +137,7 @@ std::vector<std::byte> getKernelArgument(
 
 int64_t computeBytes(const KernelArgumentHolder& args);
 
-int64_t computeBytes(const std::vector<at::Tensor>& outputs);
+int64_t computeBytes(const at::ArrayRef<c10::IValue>& outputs);
 
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
 

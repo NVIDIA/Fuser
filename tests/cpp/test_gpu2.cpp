@@ -305,7 +305,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder1_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({10, 10}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -342,7 +342,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({10, 10}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -394,7 +394,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder3_CUDA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor aten_input = at::randn({100}, options);
 
-    std::vector<at::Tensor> cg_outputs = {
+    at::ArrayRef<c10::IValue> cg_outputs = {
         at::empty_like(aten_input, options),
         at::empty_like(aten_input, options),
         at::empty_like(aten_input, options)};
@@ -437,7 +437,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder4_CUDA) {
   at::Tensor t4 = at::rand_like(t0, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t4};
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(t0, options),
       at::empty_like(t0, options),
       at::empty_like(t0, options),
@@ -471,7 +471,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder5_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({100}, options);
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -616,7 +616,7 @@ TEST_F(NVFuserTest, FusionThreadPredicate_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t3, t2};
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options), at::empty({numel_x}, options)};
 
   KernelExecutor ke;

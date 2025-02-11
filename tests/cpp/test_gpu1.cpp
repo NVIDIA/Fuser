@@ -1142,7 +1142,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
 
   at::Tensor aten_input = at::randn({129, 127}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
 
   KernelExecutor ke;
@@ -1571,7 +1571,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
 
   at::Tensor aten_input = at::randn({1000}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
 
   KernelExecutor ke;
@@ -1639,7 +1639,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer1_CUDA) {
 
   at::Tensor aten_input = at::randn({1000}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options)};
@@ -1797,7 +1797,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
 
   at::Tensor aten_input = at::randn({129, 127}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
 
   KernelExecutor ke;
@@ -1858,7 +1858,7 @@ TEST_F(NVFuserTest, FusionComputeAtNoCommonConsumer_CUDA) {
 
   at::Tensor aten_input = at::randn({1000}, options);
 
-  std::vector<at::Tensor> cg_outputs = {
+  at::ArrayRef<c10::IValue> cg_outputs = {
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),
       at::empty_like(aten_input, options),

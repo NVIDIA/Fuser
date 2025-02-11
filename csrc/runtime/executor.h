@@ -45,9 +45,9 @@ class ExprEvalExecutor : public ExecutorAbstract {
 
   bool isCompiled() const override;
 
-  NVF_API std::vector<at::Tensor> run(
+  NVF_API at::ArrayRef<c10::IValue> run(
       KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
+      at::ArrayRef<c10::IValue> outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() {
     return fusion_;
@@ -99,15 +99,15 @@ class KernelExecutor : public ExecutorAbstract {
   // reconsuming the args, so it is okay. It isn't done now because changing it
   // from a reference makes a call as run({}) ambiguous, and that is used
   // in some places in the codebase.
-  NVF_API std::vector<at::Tensor> run(
+  NVF_API at::ArrayRef<c10::IValue> run(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
+      at::ArrayRef<c10::IValue> outputs = {});
 
-  std::vector<at::Tensor> run(
+  at::ArrayRef<c10::IValue> run(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::vector<at::Tensor>& outputs,
+      const at::ArrayRef<c10::IValue>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
@@ -119,7 +119,7 @@ class KernelExecutor : public ExecutorAbstract {
     return run(args, launch_constraints, compile_params, outputs);
   }
 
-  std::vector<at::Tensor> run(
+  at::ArrayRef<c10::IValue> run(
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
@@ -259,7 +259,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs,
+      const at::ArrayRef<c10::IValue>& outputs,
       DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();

@@ -644,7 +644,7 @@ TEST_F(AliasTest, TrivialInputForwarding) {
   at::Tensor t1 = at::randn({10, 4}).cuda();
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> cg_outputs =
+  at::ArrayRef<c10::IValue> cg_outputs =
       executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
