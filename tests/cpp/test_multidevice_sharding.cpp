@@ -747,35 +747,35 @@ TEST_F(MultiDeviceTest, TransformPropagatorWithReshape){
   const int d = communicator_->size();
   const int64_t b=2, s=2, h=4, e=3;
 
-  TensorView* in = makeContigConcreteTensor({b, s, d*h*e});
-  TensorView* out = reshape(in, {b, s, d*h*e}, {b, s, d*h, e});
+  TensorView* in = makeContigConcreteTensor({b, s, d*h*e}); // in: loop domain: {b, s, d*h*e}
+  TensorView* out = reshape(in, {b, s, d*h*e}, {b, s, d*h, e}); // out: loop domain: {b, s, d*h, e}
   
   fusion->addInput(in);
   fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
-  // Propagate transform to output
-  TransformPropagator propagator_up(out);
-  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator_up);
+  // Propagate transform from reshaped output to input.
+  TransformPropagator propagator_c2p(out);
+  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator_c2p);
+  // in: loop domain: {b, s, d*h, e} after transform propagation
   
-  // DID loop split for input
+  // Loop split and parallelize input
   in->setDeviceMesh(mesh);
   in->split(-2, d, /*inner_split=*/false);
   in->axis(-3)->parallelize(ParallelType::DIDx);
+  // in: loop domain: {b, s, DIDx{d}, h, e}
 
-  // TransformPropagator propagator(in);
-  // MaxLogicalDomainInfoSpanningTree(in).traverse(&propagator);
-
-  out->setDeviceMesh(mesh);
-  out->split(-2, d, /*inner_split=*/false);
-  out->axis(-3)->parallelize(ParallelType::DIDx);
-
-  // // Parallelize out
-  // scheduler_utils::parallelizeAllLike(
-  //   in,
-  //   /*pos=*/-1,
-  //   /*selected_tv=*/{out});
+  TransformPropagator propagator_p2c(in);
+  MaxLogicalDomainInfoSpanningTree(in).traverse(&propagator_p2c);
+  // out: loop domain: {b, s, d, h, e} after transform propagation
+  
+  // Parallelize out
+  scheduler_utils::parallelizeAllLike(
+    in,
+    /*pos=*/-1,
+    /*selected_tv=*/{out});
+  // out: loop domain: {b, s, DIDx{d}, h, e} after transform propagation
 
   in->setAllocationDomain(in->getLoopDomain(), true);
   out->setAllocationDomain(out->getLoopDomain(), true);
@@ -790,11 +790,6 @@ TEST_F(MultiDeviceTest, TransformPropagatorWithReshape){
       {in_tensor.view({b, s, h, e})},
       __LINE__,
       __FILE__);
-
-  // FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  // EXPECT_THAT(
-  //     runtime->fusionSegments()->groups(),
-  //     UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser
