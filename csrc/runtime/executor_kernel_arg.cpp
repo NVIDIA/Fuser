@@ -18,42 +18,15 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
+KernelArgumentHolder::KernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
-    std::optional<int8_t> selected_device) {
+    std::optional<int8_t> device) {
   if (inputs.empty()) {
     // default to device 0
-    KernelArgumentHolder args;
-    args.setDeviceIndex(
-        selected_device.has_value() ? selected_device.value() : (int8_t)0);
-    return args;
-  }
-  auto device_index = getCommonDeviceCUDA(inputs, selected_device);
-
-  KernelArgumentHolder args;
-  args.setDeviceIndex(device_index);
-  args.push(inputs);
-
-  return args;
-}
-
-PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
-  if (val.isTensor()) {
-    return val.toTensor();
-  }
-
-  auto scalar_val = val.toScalar();
-  switch (scalar_val.type()) {
-    case c10::ScalarType::ComplexDouble:
-      return (std::complex<double>)scalar_val.toComplexDouble();
-    case c10::ScalarType::Double:
-      return scalar_val.toDouble();
-    case c10::ScalarType::Long:
-      return scalar_val.toLong();
-    case c10::ScalarType::Bool:
-      return scalar_val.toBool();
-    default:
-      NVF_THROW("Can not convert IValue to PolymorphicValue");
+    setDeviceIndex(device.has_value() ? device.value() : (int8_t)0);
+  } else {
+    setDeviceIndex(getCommonDeviceCUDA(inputs, device));
+    push(inputs);
   }
 }
 
@@ -78,7 +51,7 @@ void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
   // allocated here from the subgraph could be, and very likely are, different
   // from I/O expected by the generated CUDA kernel.
   for (const auto& arg : args) {
-    push(IValueToPolymorphicValue(arg));
+    push(PolymorphicValue_functions::IValueToPolymorphicValue(arg));
   }
 }
 
@@ -132,6 +105,15 @@ void KernelArgumentHolder::pushTensorProxy(
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
   push(meta_tensor);
+}
+
+c10::ArrayRef<c10::IValue> KernelArgumentHolder::toArrayRef() const {
+  std::vector<c10::IValue> ival_array;
+  ival_array.reserve(arguments_.size());
+  for (auto arg : arguments_) {
+    ival_array.push_back(PolymorphicValue_functions::toIValue(*arg));
+  }
+  return c10::ArrayRef<c10::IValue>(ival_array);
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::

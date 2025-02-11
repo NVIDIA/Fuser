@@ -29,13 +29,13 @@ namespace nvfuser {
 //! compilation, we are not unnecessarily holding memory that is not needed.
 class KernelArgumentHolder {
  public:
-  NVF_API static KernelArgumentHolder createKernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      std::optional<int8_t> device = std::nullopt);
-
   KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
+
+  KernelArgumentHolder(
+      const c10::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device = std::nullopt);
 
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
@@ -50,6 +50,8 @@ class KernelArgumentHolder {
   NVF_API void push(const c10::ArrayRef<c10::IValue>& args);
 
   NVF_API void push(const std::vector<at::Tensor>& tensors);
+
+  c10::ArrayRef<c10::IValue> toArrayRef() const;
 
   void erase(const PolymorphicValue* arg_to_delete);
 
@@ -138,7 +140,5 @@ std::vector<std::byte> getKernelArgument(
 int64_t computeBytes(const KernelArgumentHolder& args);
 
 int64_t computeBytes(const std::vector<at::Tensor>& outputs);
-
-PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
 
 } // namespace nvfuser
