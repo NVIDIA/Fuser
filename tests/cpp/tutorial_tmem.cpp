@@ -1,1 +1,1 @@
-doc/dev/tmem.md
+../../doc/dev/tmem.md
