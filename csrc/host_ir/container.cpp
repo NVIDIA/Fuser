@@ -48,11 +48,6 @@ void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
   top_level_exprs_.push_back(expr);
 }
 
-void HostIrContainer::pushBackKernelExecutor(
-    std::unique_ptr<KernelExecutor> ke) {
-  return kernel_executors_.push_back(std::move(ke));
-}
-
 void HostIrContainer::setKernelExecutor(
     int64_t index,
     std::unique_ptr<KernelExecutor> ke) {

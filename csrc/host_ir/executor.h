@@ -136,6 +136,8 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
+  std::vector<at::Tensor> dispatchAndCollectOutputs();
+
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
   HostIrEvaluatorParams params_;

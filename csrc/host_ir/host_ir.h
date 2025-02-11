@@ -146,6 +146,15 @@ class LaunchKernel : public Expr {
     return attribute<int64_t>(0);
   }
 
+  const auto& launch_params() const {
+      return attribute<LaunchParams>(1);
+  }
+
+  const auto& compile_params() const {
+      return attribute<CompileParams>(2);
+  }
+
+private:
   const LaunchParams launch_constraints_;
   CompileParams compile_params_;
 };

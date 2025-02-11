@@ -34,10 +34,10 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   auto ke = std::make_unique<KernelExecutor>();
   ke->compile(&fusion, aten_inputs);
 
-  auto hic = std::make_unique<HostIrContainer>();
+  auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
-  hic->pushBackKernelExecutor(std::move(ke));
+  hic->setKernelExecutor(0, std::move(ke));
 
   IrCloner ir_cloner(hic.get());
   auto hic_in = ir_cloner.clone(in);

@@ -204,13 +204,8 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
-  // process input values
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
-  }
-
+std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs()
+{
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -221,6 +216,16 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
+std::vector<at::Tensor> HostIrEvaluator::runWithInput(
+    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, ivalue] : val_to_IValue) {
+    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
+  }
+
+  return dispatchAndCollectOutputs();
+}
+
 std::vector<at::Tensor> HostIrEvaluator::runWithPolymorphicValues(
     std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue) {
   // process input values
@@ -228,14 +233,7 @@ std::vector<at::Tensor> HostIrEvaluator::runWithPolymorphicValues(
     expr_evaluator_.bind(val, *pvalue);
   }
 
-  // Interpret each instruction in an "eager" way by iterate over the Host Ir
-  // Container's top level expression list
-  for (auto expr : container_->topLevelExprs()) {
-    dispatch(expr);
-  }
-
-  // Collect global outputs
-  return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+  return dispatchAndCollectOutputs();
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -335,8 +333,8 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
       container_->getKernelExecutor(launch_kernel->getIndex())
           ->run(
               args,
-              launch_kernel->launch_constraints_,
-              launch_kernel->compile_params_);
+              launch_kernel->launch_params(),
+              launch_kernel->compile_params());
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
