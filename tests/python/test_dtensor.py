@@ -8,6 +8,7 @@ import pytest
 import torch
 import torch.distributed as dist
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import partial
 from nvfuser import DataType, FusionDefinition
 from torch.distributed.tensor import DTensor
@@ -121,7 +122,6 @@ def test_plus_one(setup_process_group):
 
 @pytest.mark.mpi
 def test_linear(setup_process_group):
-    from dataclasses import dataclass
 
     @dataclass
     class LinearConfig:
