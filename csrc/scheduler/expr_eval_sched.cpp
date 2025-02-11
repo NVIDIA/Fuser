@@ -30,7 +30,8 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
                GetMetaData,
                GetMetaDataAccessor>() ||
         (expr->isOneOf<LinearOp, MatmulOp>() &&
-         !isOptionDisabled(DisableOption::MatmulExprEval));
+         !isOptionDisabled(DisableOption::MatmulExprEval)) ||
+        ir_utils::isScalarOp(expr);
   };
 
   for (auto expr : fusion->exprs()) {
