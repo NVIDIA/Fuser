@@ -4324,9 +4324,13 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
+  if (!test_params.warp_specialization) {
+    GTEST_SKIP()
+        << "Sync error with pipelined circular buffering causes incorrect results";
+  }
+
   // Relax tolerance for larger sum due to large K
-  // TODO Incorrect results because incorrect placement of wgmma syncs
-  // EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
@@ -4402,10 +4406,14 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
+  if (!test_params.warp_specialization) {
+    GTEST_SKIP()
+        << "Sync error with pipelined circular buffering causes incorrect results";
+  }
+
   // Relax tolerance for larger sum due to large K
-  // TODO Incorrect results because incorrect placement of wgmma syncs
-  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
@@ -4490,13 +4498,15 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
-  // TODO Incorrect results because incorrect placement of wgmma syncs
-  // TODO Incorrect results because of WAR hazard between aliased shared memory
-  // between tv3 and tv12
+  if (!test_params.warp_specialization) {
+    GTEST_SKIP()
+        << "Sync error with pipelined circular buffering causes incorrect results";
+  }
+
   // Relax tolerance for larger sum due to large K
-  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 5e-2, 1e-1));
 }
 
 INSTANTIATE_TEST_SUITE_P(

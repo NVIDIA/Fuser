@@ -472,8 +472,7 @@ TEST_F(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // welford translate
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs = KernelArgumentHolder(aten_inputs);
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   NVF_ERROR(isTranslated);
@@ -1472,18 +1471,19 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   constexpr int64_t dim0 = 2048;
   std::vector<int64_t> input_shape{dim0, hidden_size};
   std::vector<int64_t> norm_shape{hidden_size};
-  auto input_half = makeContigTensor(2, dtype);
-  auto weight_half = makeContigTensor(1, dtype);
-  auto bias_half = makeContigTensor(1, dtype);
-  fusion.addInput(input_half);
-  fusion.addInput(weight_half);
-  fusion.addInput(bias_half);
-  auto input = castOp(DataType::Float, input_half);
-  auto weight = castOp(DataType::Float, weight_half);
-  auto bias = castOp(DataType::Float, bias_half);
+
+  auto input = makeContigTensor(2, dtype);
+  auto weight = makeContigTensor(1, dtype);
+  auto bias = makeContigTensor(1, dtype);
+  fusion.addInput(input);
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  bias = maybeCastOp(DataType::Float, bias);
   auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-  auto result_output = castOp(dtype, result.output);
-  fusion.addOutput(result_output);
+  result.output = maybeCastOp(dtype, result.output);
+  fusion.addOutput(result.output);
   fusion.addOutput(result.mean);
   fusion.addOutput(result.invstd);
 
@@ -1495,8 +1495,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   std::vector<c10::IValue> aten_inputs = {aten_input, aten_weight, aten_bias};
 
   // try translate Welford in fusion
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs = KernelArgumentHolder(aten_inputs);
   SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   auto fusion_copy = fusion;
 
@@ -1534,18 +1533,9 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   if (has_enough_regs_smem) {
-    // For dtype float, no op scheduler is also used.
-    if (dtype == DataType::Float) {
-      EXPECT_THAT(
-          runtime->fusionSegments()->groups(),
-          UnorderedElementsAre(
-              HeuristicIs(SchedulerType::NoOp),
-              HeuristicIs(SchedulerType::InnerPersistent)));
-    } else {
-      EXPECT_THAT(
-          runtime->fusionSegments()->groups(),
-          UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
-    }
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
     Fusion* scheduled_fusion = runtime->executors()
                                    .back()
                                    ->as<KernelExecutor>()
