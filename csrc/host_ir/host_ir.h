@@ -147,14 +147,14 @@ class LaunchKernel : public Expr {
   }
 
   const auto& launch_params() const {
-      return attribute<LaunchParams>(1);
+    return attribute<LaunchParams>(1);
   }
 
   const auto& compile_params() const {
-      return attribute<CompileParams>(2);
+    return attribute<CompileParams>(2);
   }
 
-private:
+ private:
   const LaunchParams launch_constraints_;
   CompileParams compile_params_;
 };

@@ -204,8 +204,7 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs()
-{
+std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {

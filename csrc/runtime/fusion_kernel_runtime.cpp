@@ -285,7 +285,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
               << std::endl;
     }
-    
+
     std::unordered_map<Val*, const PolymorphicValue*> tensor_map;
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
@@ -349,7 +349,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   // host ir
   std::unique_ptr<hir::HostIrContainer> hic;
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    hic = std::make_unique<hir::HostIrContainer>(num_groups); // Some indices will be empty
+    hic = std::make_unique<hir::HostIrContainer>(
+        num_groups); // Some indices will be empty
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
@@ -447,10 +448,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         }
       }
     }
-    for (const Val* in: segmented_fusion_->inputs()) {
+    for (const Val* in : segmented_fusion_->inputs()) {
       hic->addInput(ir_cloner.clone(in));
     }
-    for (const Val* out: segmented_fusion_->outputs()) {
+    for (const Val* out : segmented_fusion_->outputs()) {
       hic->addOutput(ir_cloner.clone(out));
     }
   }
