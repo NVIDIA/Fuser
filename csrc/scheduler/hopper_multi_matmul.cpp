@@ -742,11 +742,30 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
     CircularBufferType cb_type;
     switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined:
+      case MatmulParams::CircularBufferingStrategy::Pipelined: {
         cb_type = (CircularBufferType)Pipelined(false);
         break;
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
-        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      }
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+        NVF_ERROR(
+            std::all_of(
+                mma_results_.begin(),
+                mma_results_.end(),
+                [](TensorView* tv) {
+                  IterDomain* ws_axis = tv->axis(-7);
+                  return ws_axis->getParallelType() == ParallelType::TIDy &&
+                      ws_axis->extent()->evaluate().as<int64_t>() <= 2;
+                }),
+            "There can be at most two compute warp groups for register ",
+            "sharing with warp specialization");
+        constexpr int64_t num_registers_load_warp = 40;
+        constexpr int64_t num_registers_compute_warp = 232;
+        cb_type = (CircularBufferType)WarpSpecialized(
+            ParallelType::TIDy,
+            std::make_pair(
+                num_registers_load_warp, num_registers_compute_warp));
+        break;
+      }
     }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(

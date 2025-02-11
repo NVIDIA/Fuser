@@ -412,6 +412,22 @@ std::string Asm::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Asm op can not be printed inline");
 }
 
+const std::string Asm::utility() const {
+  static const std::unordered_map<std::string, std::string> ptx_to_utility{
+      {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
+      {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
+      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
+      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
+      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
+      {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+       "relinquishTMemAllocPermit"}};
+  auto it = ptx_to_utility.find(code());
+  if (it != ptx_to_utility.end()) {
+    return it->second;
+  }
+  return "";
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
 
 AllocTMem::AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns)
@@ -1531,6 +1547,67 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EncodeTensorMapTiled)
+
+RNGOp::RNGOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* rng_result,
+    Val* rng_component,
+    DataType dtype,
+    RNGOpType rng_type,
+    // range high and low, or avg and std dev
+    std::vector<Val*> parameters)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(out->isA<kir::TensorIndex>());
+  NVF_ERROR(rng_result->isA<TensorView>());
+  NVF_ERROR(rng_result->as<TensorView>()->getMemoryType() == MemoryType::Local);
+  NVF_ERROR(rng_result->as<TensorView>()->dtype() == DataType::UInt32);
+  NVF_ERROR(rng_result->as<TensorView>()->nDims() == 1);
+  NVF_ERROR(rng_result->as<TensorView>()->axis(0)->extent()->isConstInt());
+  NVF_ERROR(
+      rng_result->as<TensorView>()
+          ->axis(0)
+          ->extent()
+          ->evaluate()
+          .as<int64_t>() == 4);
+  NVF_ERROR(rng_component->dtype() == DataType::Index);
+  NVF_ERROR(rng_component->isA<NamedScalar>());
+  addInput(rng_result);
+  addInput(rng_component);
+  addOutput(out);
+  for (auto v : parameters) {
+    addInput(v);
+  }
+  addDataAttribute(rng_type);
+  addDataAttribute(dtype);
+}
+
+std::string RNGOp::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << output(0)->toString() << " = " << getRNGOpType() << "("
+     << input(0)->toString();
+  for (auto inp_i : c10::irange(1, inputs().size())) {
+    ss << ", " << input(inp_i)->toString();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string RNGOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getRNGOpType() << "(" << input(0)->toString();
+  for (auto inp_i : c10::irange(1, inputs().size())) {
+    ss << ", " << input(inp_i)->toString();
+  }
+  ss << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
 } // namespace kir
 } // namespace nvfuser
