@@ -4324,11 +4324,6 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
-  if (!test_params.warp_specialization) {
-    GTEST_SKIP()
-        << "Sync error with pipelined circular buffering causes incorrect results";
-  }
-
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
@@ -4405,11 +4400,6 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   auto cg_outputs = ke.run(inputs);
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-
-  if (!test_params.warp_specialization) {
-    GTEST_SKIP()
-        << "Sync error with pipelined circular buffering causes incorrect results";
-  }
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
