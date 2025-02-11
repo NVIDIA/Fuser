@@ -122,7 +122,6 @@ def test_plus_one(setup_process_group):
 
 @pytest.mark.mpi
 def test_linear(setup_process_group):
-
     @dataclass
     class LinearConfig:
         def __init__(self, num_devices: int, batch: int, sequence: int, hidden: int):
