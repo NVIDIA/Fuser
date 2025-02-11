@@ -222,6 +222,48 @@ TEST_F(MultiDeviceTest, BackpropMeshes) {
       << "be sharded in the same way as x.";
 }
 
+TEST_F(MultiDeviceTest, DivideBySum) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t d = communicator_->size();
+
+  // [b, h, s, s]
+  TensorView* x = makeContigTensor(4);
+  TensorView* sum_x = sum(x, {-1});
+  TensorView* sum_x_broadcasted = broadcast(sum_x, {false, false, false, true});
+  TensorView* y = div(x, sum_x_broadcasted);
+  fusion->addInput(x);
+  fusion->addOutput(y);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {x, sum_x, sum_x_broadcasted, y}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(1, d, /*inner_split=*/false);
+    tv->axis(1)->parallelize(ParallelType::DIDx);
+    tv->reorder({{1, 0}});
+  }
+  for (auto* tv : {x, y}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  const int64_t b = 2;
+  const int64_t h = d * 3;
+  const int64_t s = 5;
+  at::Tensor unsharded_x_tensor = at::randint(5, {b, h, s, s}, tensor_options);
+  at::Tensor x_tensor = shardTensor(unsharded_x_tensor, x);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor y_tensor = executor_cache.runFusionWithInputs({x_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {y_tensor},
+      {x_tensor},
+      {x_tensor / x_tensor.sum(-1, true)},
+      __LINE__,
+      __FILE__);
+}
+
 TEST_F(MultiDeviceTest, LayerNorm) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

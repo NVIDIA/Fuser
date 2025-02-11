@@ -62,6 +62,7 @@ class GridBroadcast;
 class GridWelford;
 class GroupedGridWelford;
 class AllocateFusedReduction;
+class RNGOp;
 
 // Expr container
 
@@ -209,6 +210,11 @@ class Asm final : public Expr {
   const std::string& code() const {
     return attribute<std::string>(0);
   }
+
+  // The name of the utility function that we want to wrap the inline PTX code
+  // in. If this is empty, then the inline PTX code will be emitted directly
+  // into the kernel.
+  const std::string utility() const;
 
   const Options& options() const {
     return attribute<Options>(1);
@@ -1535,6 +1541,38 @@ class EncodeTensorMapTiled : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class RNGOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  RNGOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* rng_result,
+      Val* rng_component,
+      DataType dtype,
+      RNGOpType rng_type,
+      // range high and low, or avg and std dev
+      std::vector<Val*> parameters = {});
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "RNGOp";
+  }
+
+  RNGOpType getRNGOpType() const {
+    return attribute<RNGOpType>(0);
+  }
+
+  DataType dtype() const {
+    return attribute<DataType>(1);
+  }
 };
 
 } // namespace kir

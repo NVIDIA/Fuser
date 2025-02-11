@@ -568,7 +568,7 @@ class FusionDefinition(_C._FusionDefinition):
             inputs: A list of inputs expected by the fusion definition
             reference_outputs: A list of reference outputs to validate against
         """
-        fusion_outputs = self.execute(inputs)
+        fusion_outputs = self.execute(inputs, **kwargs)
         assert len(fusion_outputs) == len(
             reference_outputs
         ), f"Expected {len(fusion_outputs)} reference outputs for validation."

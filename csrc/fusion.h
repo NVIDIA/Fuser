@@ -90,6 +90,37 @@ struct AliasInfo {
   // Whether integration should hide the output from users. This is currently
   // only used for ReuseBuffer.
   bool hide_output;
+
+  bool operator==(const AliasInfo& other) const {
+    return type == other.type && aliased_io == other.aliased_io &&
+        hide_output == other.hide_output;
+  }
+
+  bool operator!=(const AliasInfo& other) const {
+    return !(*this == other);
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "AliasInfo{\n";
+    ss << "  type = ";
+    switch (type) {
+      case AllocationType::Evaluate:
+        ss << "Evaluate";
+        break;
+      case AllocationType::New:
+        ss << "New";
+        break;
+      case AllocationType::ReuseBuffer:
+        ss << "ReuseBuffer";
+        break;
+    }
+    ss << ",\n  aliased_io = "
+       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
+    ss << "  hide_output = " << (hide_output ? "true" : "false") << "\n";
+    ss << "}\n";
+    return ss.str();
+  }
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -208,9 +239,6 @@ class NVF_API Fusion : public IrContainer {
 
   //! Return the Expr that produces val
   Expr* definition(const Val* val) const;
-
-  //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic() const;
 
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
