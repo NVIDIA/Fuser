@@ -50,6 +50,35 @@ class HostIrExecutor : public ExecutorAbstract {
 
 namespace hir {
 
+enum class IpcSemaphore : cuuint32_t {
+  kReady,
+  kTransferInProgress
+};
+
+class RemoteBufferInfo {
+ public:
+
+  RemoteBufferInfo(at::Tensor tensor);
+  RemoteBufferInfo(std::vector<uint8_t> data); // means it is imported
+  ~RemoteBufferInfo();
+
+  void* ptr() const {
+    return ptr_;
+  }
+
+  auto semaphores() const {
+    return semaphores_;
+  }
+
+  void* ptr_;
+  int64_t storage_offset_;
+  int64_t element_size_;
+  bool is_imported_;
+  cudaIpcMemHandle_t ipc_handle_;
+  cudaIpcMemHandle_t semaphores_ipc_handle_;
+  IpcSemaphore* semaphores_;
+};
+
 /*
 a HostIrEvaluator evaluates a host programs represented through a
 HostIrContainer It is instantiated with the desired HostIrContainer, and runs
@@ -129,6 +158,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp* matmul) override;
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
+  void handle(ShareMemHandles* share_mem_handles) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
@@ -145,6 +175,22 @@ class HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_local_device_index_;
+  struct TensorHash {
+    std::size_t operator()(const at::Tensor& tensor) const {
+      auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
+      auto offset = tensor.storage_offset();
+      auto element_size = tensor.element_size();
+      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+          std::hash<int>()(element_size);
+    }
+  };
+  struct TensorEqual {
+    bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
+      return lhs.equal(rhs);
+    }
+  };
+  std::unordered_map<at::Tensor, std::vector<std::unique_ptr<RemoteBufferInfo>>, TensorHash, TensorEqual>
+      remote_buffers_;
 };
 
 } // namespace hir

@@ -30,51 +30,16 @@
 namespace nvfuser {
 
 template <typename T>
-std::vector<uint8_t> toBytes(T data) {
+std::vector<uint8_t> toBytes(const T& data) {
   return std::vector<uint8_t>(
-      reinterpret_cast<uint8_t*>(&data),
-      reinterpret_cast<uint8_t*>(&data) + sizeof(T));
+      reinterpret_cast<const uint8_t*>(&data),
+      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
 }
 
 template <typename T>
-T fromBytes(std::vector<uint8_t> bytes) {
-  return *reinterpret_cast<T*>(bytes.data());
+const T& fromBytes(const std::vector<uint8_t>& bytes) {
+  return *reinterpret_cast<const T*>(bytes.data());
 }
-
-enum class IpcSemaphore : cuuint32_t {
-  kReady,
-  kTransferInProgress
-};
-
-class RemoteBufferInfo {
- public:
-
-  RemoteBufferInfo(at::Tensor tensor, int64_t size);
-  RemoteBufferInfo(std::vector<uint8_t> data); // means it is imported
-  ~RemoteBufferInfo();
-
-  void* ptr() const {
-    return ptr_;
-  }
-
-  auto semaphores() const {
-    return semaphores_;
-  }
-
-  auto size() const {
-    return size_;
-  }
-
- private:
-  void* ptr_;
-  int64_t size_;
-  int64_t storage_offset_;
-  int64_t element_size_;
-  bool is_imported_;
-  cudaIpcMemHandle_t ipc_handle_;
-  cudaIpcMemHandle_t semaphores_ipc_handle_;
-  IpcSemaphore* semaphores_;
-};
 
 // This file implements the class Communicator which sets up the inter-process
 // Backend. This class contains inter-process information, such as the rank, the
@@ -194,25 +159,7 @@ class Communicator {
     return store_;
   }
 
-  std::vector<RemoteBufferInfo> getRemoteBuffer(at::Tensor tensor, std::string key);
-
  private:
-  struct TensorHash {
-    std::size_t operator()(const at::Tensor& tensor) const {
-      auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
-      auto offset = tensor.storage_offset();
-      auto element_size = tensor.element_size();
-      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
-          std::hash<int>()(element_size);
-    }
-  };
-
-  struct TensorEqual {
-    bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
-      return lhs.equal(rhs);
-    }
-  };
-
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
@@ -245,8 +192,6 @@ class Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
-  std::unordered_map<at::Tensor, std::vector<RemoteBufferInfo>, TensorHash, TensorEqual>
-      remote_buffers_;
 };
 
 } // namespace nvfuser

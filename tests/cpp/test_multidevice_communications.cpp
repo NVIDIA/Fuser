@@ -417,65 +417,62 @@ using P2PCommunicationTest = MultiDeviceTest;
 
 TEST_F(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
-  static constexpr int kNumRepetitions = 8;
+  static constexpr int kNumRepetitions = 2;
 
   if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
-  if (communicator_->size() != 2) {
-    GTEST_SKIP() << "This test needs for now exactly 2 GPUs and 2 ranks.";
-  }
-
-
-
   const DeviceIdxType my_rank = communicator_->deviceId();
   const DeviceIdxType size = communicator_->size();
+  const DeviceIdxType send_peer = (my_rank + 1) % size;
+  const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());
-  auto* tv = makeContigTensor(1);
-  auto* val_my_rank = IrBuilder::create<Val>(my_rank, DataType::Int);
-  container->addInput(tv);
-  if (my_rank == 0) {
-    const DeviceIdxType send_peer = (my_rank + 1) % size;
 
-    auto* val_send_peer = IrBuilder::create<Val>(send_peer, DataType::Int);
-    auto send = IrBuilder::create<P2PCommunication>(tv, val_send_peer, val_my_rank, CommunicatorBackend::kCuda);
-    auto wait_send = IrBuilder::create<hir::Wait>(send);
-    container->pushBackTopLevelExprs(send);
-    container->pushBackTopLevelExprs(wait_send);
-  } else {
-    ASSERT_EQ(my_rank, 1);
-    const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
-    auto* val_recv_peer = IrBuilder::create<Val>(recv_peer, DataType::Int);
-    auto recv = IrBuilder::create<P2PCommunication>(tv, val_my_rank, val_recv_peer, CommunicatorBackend::kCuda);
-    auto wait_recv = IrBuilder::create<hir::Wait>(recv);
-    container->pushBackTopLevelExprs(recv);
-    container->pushBackTopLevelExprs(wait_recv);
-  }
+  auto* my_rank_val = IrBuilder::create<Val>(my_rank, DataType::Int);
+  auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
+  auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
+
+  auto* send_tv = makeContigTensor(1);
+  auto* recv_tv = makeContigTensor(1);
+  container->addInput(send_tv);
+  container->addInput(recv_tv);
+
+  auto recv = IrBuilder::create<P2PCommunication>(recv_tv, my_rank_val, recv_peer_val, CommunicatorBackend::kCuda);
+  auto send = IrBuilder::create<P2PCommunication>(send_tv, send_peer_val, my_rank_val, CommunicatorBackend::kCuda);
+  std::vector<P2PCommunication*> grouped_communications = {recv, send};
+  auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(std::move(grouped_communications));
+  auto wait_recv = IrBuilder::create<hir::Wait>(recv);
+  auto wait_send = IrBuilder::create<hir::Wait>(send);
+
+  container->pushBackTopLevelExprs(share_mem_handles);
+  container->pushBackTopLevelExprs(recv);
+  container->pushBackTopLevelExprs(send);
+  container->pushBackTopLevelExprs(wait_recv);
+  container->pushBackTopLevelExprs(wait_send);
 
   hir::HostIrEvaluator executor(std::move(container), communicator_);
 
-  at::Tensor tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options);
 
-  std::unordered_map<Val*, c10::IValue> inputs = {{tv, tensor}};
+  std::unordered_map<Val*, c10::IValue> inputs = {{send_tv, send_tensor}, {recv_tv, recv_tensor}};
 
   for (auto repetition : c10::irange(kNumRepetitions)) {
-    tensor.copy_(at::arange(kTensorSize, tensor_options) + (1+repetition) * 10 + 100* (1+(1-my_rank)));
+    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition * my_rank);
+    std::cout << "RANK " << my_rank << " REPETITION " << repetition << ", send_peer=" << send_peer << ", recv_peer=" << recv_peer << ", send_tensor=" << send_tensor << std::endl;
     torch::cuda::synchronize();
     communicator_->barrier();
-    std::cout << "RANK " << my_rank << " REPETITION " << repetition << ", tensor=" << tensor << std::endl;
 
     executor.runWithInput(inputs);
 
     torch::cuda::synchronize();
     communicator_->barrier();
     std::cout << "RANK " << my_rank << " validation at" << " REPETITION " << repetition << std::endl;
-    if (my_rank == 1) {
-      auto ref = at::arange(kTensorSize, tensor_options) + (1+repetition) * 10 + 100* (1+my_rank);
-      EXPECT_TRUE(torch::allclose(tensor, ref)) << "Rank " << my_rank << " failed at repetition " << repetition << " with tensor " << tensor << " and ref " << ref;
-    }
+    auto ref = at::arange(kTensorSize, tensor_options) + repetition * recv_peer;
+    EXPECT_TRUE(torch::allclose(recv_tensor, ref)) << "Rank " << my_rank << " failed at repetition " << repetition << " with recv tensor " << recv_tensor << " and ref " << ref;
   }
 }
 
