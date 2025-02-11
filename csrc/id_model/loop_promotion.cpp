@@ -140,11 +140,13 @@ ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
     for (const auto producer :
          ir_utils::filterByType<TensorView>(tv_expr->inputs())) {
       if (!included_tvs.count(producer)) {
+        NVF_ERROR(false);
         continue;
       }
       for (const auto consumer :
            ir_utils::filterByType<TensorView>(tv_expr->outputs())) {
         if (!included_tvs.count(consumer)) {
+          NVF_ERROR(false);
           continue;
         }
 
@@ -791,15 +793,12 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
 
-  std::deque<ValGroup> groups_to_visit;
-
   ValGroups input_groups = getInputGroupsOfExactGraph(graph);
 
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
     if (input_groups.has(id_group)) {
       covered_ids[id_group] = {id_group};
-      groups_to_visit.push_back(id_group);
     }
 
     // Initialize broadcast groups to empty since broadcast domains
@@ -808,7 +807,6 @@ std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
           return id->as<IterDomain>()->isBroadcast();
         })) {
       covered_ids[id_group] = {};
-      groups_to_visit.push_back(id_group);
     }
   }
 

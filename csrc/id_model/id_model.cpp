@@ -324,6 +324,11 @@ ValGraph& IdModel::buildExactGraph() {
   for (auto expr : tv_exprs_) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
+    NVF_ERROR(
+        c_tv != nullptr,
+        "Expected to have a TensorView output: ",
+        expr->toString());
+
     auto all_tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
     // Map siblings, as all other tv output domains must match the first tv
