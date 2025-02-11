@@ -285,8 +285,12 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
               << std::endl;
     }
-    ArgumentManager args_manager(args, runtime_workspace_, hie_->inputs());
-    return hie_->runWithPolymorphicValues(args_manager.getTensorMap());
+    
+    std::unordered_map<Val*, const PolymorphicValue*> tensor_map;
+    for (const auto i : c10::irange(args.size())) {
+      tensor_map.emplace(hie_->inputs()[i], args[i]);
+    }
+    return hie_->runWithPolymorphicValues(tensor_map);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
