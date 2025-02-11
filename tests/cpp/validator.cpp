@@ -14,9 +14,9 @@ namespace nvfuser {
 
 void testValidate(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& fusion_outputs,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
-    at::ArrayRef<c10::IValue> aten_outputs,
+    const std::vector<at::Tensor>& fusion_outputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg,
@@ -191,8 +191,8 @@ void testValidate(
 
 void testValidate(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& fusion_outputs,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const std::vector<at::Tensor>& fusion_outputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     int line_number,
     const char* file_name,
     std::string err_msg,

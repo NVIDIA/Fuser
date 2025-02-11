@@ -86,7 +86,7 @@ class KernelExecutor : public ExecutorAbstract {
   //! tests.
   void compile(
       Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs = {},
+      const c10::ArrayRef<c10::IValue>& inputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams()) {
     KernelArgumentHolder args = KernelArgumentHolder(inputs);
@@ -104,9 +104,9 @@ class KernelExecutor : public ExecutorAbstract {
       CompileParams compile_params = CompileParams(),
       at::ArrayRef<c10::IValue> outputs = {});
 
-  at::ArrayRef<c10::IValue> run(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const at::ArrayRef<c10::IValue>& outputs,
+  std::vector<at::Tensor> run(
+      const c10::ArrayRef<c10::IValue>& inputs,
+      const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
@@ -117,8 +117,8 @@ class KernelExecutor : public ExecutorAbstract {
     return run(args, launch_constraints, compile_params, outputs);
   }
 
-  at::ArrayRef<c10::IValue> run(
-      const at::ArrayRef<c10::IValue>& inputs,
+  std::vector<at::Tensor> run(
+      const c10::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
