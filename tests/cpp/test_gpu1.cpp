@@ -2166,7 +2166,7 @@ void test_op(
 
   std::array<c10::IValue, sizeof...(NumInputs)> aten_inputs = {gen_aten_operand(
       std::get<NumInputs>(it), blocks, threads, /*rand*/ true)...};
-  const at::ArrayRef<c10::IValue> aten_inputs_ivalues(aten_inputs);
+  const c10::ArrayRef<c10::IValue> aten_inputs_ivalues(aten_inputs);
 
   at::Tensor cg_output =
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();
@@ -2707,7 +2707,7 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
       at::Tensor input1 = at::randn({1, 4}, options);
 
       // std::array<c10::IValue, 1> inputs = {input1};
-      // const at::ArrayRef<c10::IValue> input_ivalues(inputs);
+      // const c10::ArrayRef<c10::IValue> input_ivalues(inputs);
       std::vector<c10::IValue> inputs = {input1};
 
       KernelExecutor ke;

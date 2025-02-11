@@ -95,7 +95,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs)
+    const c10::ArrayRef<c10::IValue>& aten_inputs)
     : SchedulerRuntimeInfo(complete_fusion, KernelArgumentHolder(aten_inputs)) {
 }
 
