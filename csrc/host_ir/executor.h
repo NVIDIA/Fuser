@@ -12,6 +12,7 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <multidevice/communicator.h>
+#include <multidevice/distributed_buffer.h>
 #include <runtime/executor.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_params.h>
@@ -49,31 +50,6 @@ class HostIrExecutor : public ExecutorAbstract {
 };
 
 namespace hir {
-
-enum class IpcSemaphore : cuuint32_t { kReady, kTransferInProgress };
-
-class RemoteBufferInfo {
- public:
-  RemoteBufferInfo(at::Tensor tensor);
-  RemoteBufferInfo(std::vector<uint8_t> data); // means it is imported
-  ~RemoteBufferInfo();
-
-  void* ptr() const {
-    return ptr_;
-  }
-
-  auto semaphores() const {
-    return semaphores_;
-  }
-
-  void* ptr_;
-  int64_t storage_offset_;
-  int64_t element_size_;
-  bool is_imported_;
-  cudaIpcMemHandle_t ipc_handle_;
-  cudaIpcMemHandle_t semaphores_ipc_handle_;
-  IpcSemaphore* semaphores_;
-};
 
 /*
 a HostIrEvaluator evaluates a host programs represented through a
@@ -187,10 +163,10 @@ class HostIrEvaluator final : public OptOutDispatch {
   };
   std::unordered_map<
       at::Tensor,
-      std::vector<std::unique_ptr<RemoteBufferInfo>>,
+      std::vector<std::unique_ptr<DistributedBuffer>>,
       TensorHash,
       TensorEqual>
-      remote_buffers_;
+      distributed_buffers_;
 };
 
 } // namespace hir

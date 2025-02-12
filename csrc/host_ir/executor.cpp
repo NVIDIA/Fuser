@@ -8,7 +8,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <cuda.h>
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
@@ -410,64 +409,6 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 }
 
-RemoteBufferInfo::RemoteBufferInfo(at::Tensor tensor)
-    : ptr_(tensor.data_ptr()),
-      storage_offset_(tensor.storage_offset()),
-      element_size_(tensor.element_size()),
-      is_imported_(false) {
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaIpcGetMemHandle(&ipc_handle_, tensor.data_ptr()));
-  const auto number_of_semaphores = Communicator::getInstance().size();
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(
-      (void**)&semaphores_, number_of_semaphores * sizeof(IpcSemaphore)));
-  static_assert(
-      sizeof(IpcSemaphore) == sizeof(int),
-      "IpcSemaphore must be same size as int");
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(
-      (void*)semaphores_,
-      (int)IpcSemaphore::kReady,
-      number_of_semaphores * sizeof(IpcSemaphore)));
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaIpcGetMemHandle(&semaphores_ipc_handle_, semaphores_));
-}
-
-RemoteBufferInfo::RemoteBufferInfo(std::vector<uint8_t> data)
-    : is_imported_(true) {
-  const RemoteBufferInfo& imported_buffer = fromBytes<RemoteBufferInfo>(data);
-
-  storage_offset_ = imported_buffer.storage_offset_;
-  element_size_ = imported_buffer.element_size_;
-  ipc_handle_ = imported_buffer.ipc_handle_;
-  semaphores_ipc_handle_ = imported_buffer.semaphores_ipc_handle_;
-
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaIpcOpenMemHandle(&ptr_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
-  ptr_ = (void*)((uint8_t*)ptr_ + storage_offset_ * element_size_);
-
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
-      (void**)&semaphores_,
-      semaphores_ipc_handle_,
-      cudaIpcMemLazyEnablePeerAccess));
-}
-
-RemoteBufferInfo::~RemoteBufferInfo() {
-  if (is_imported_) {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(ptr_));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle((void*)semaphores_));
-  } else {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaFree((void*)semaphores_));
-  }
-}
-
-std::ostream& operator<<(std::ostream& os, const RemoteBufferInfo& info) {
-  os << "RemoteBufferInfo(ptr=" << info.ptr_
-     << ", storage_offset=" << info.storage_offset_
-     << ", element_size=" << info.element_size_
-     << ", is_imported=" << info.is_imported_
-     << ", semaphores_=" << info.semaphores_ << ")";
-  return os;
-}
-
 void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
   const int64_t my_rank = communicator_->deviceId();
   auto get_tensor = [this](P2PCommunication* communication) -> at::Tensor {
@@ -488,8 +429,8 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
           is_receiver)) { // REMOVE or adapt exporting/opening the handle
       return;
     }
-    if (remote_buffers_.find(get_tensor(communication)) !=
-        remote_buffers_.end()) {
+    if (distributed_buffers_.find(get_tensor(communication)) !=
+        distributed_buffers_.end()) {
       continue;
     }
     communications.push_back(communication);
@@ -498,7 +439,7 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
   // put memhandles to TCP store
   auto get_key =
       [this](P2PCommunication* communication, int64_t rank) -> std::string {
-    return "nvfuser_remote_buffer_info_P2PComm_dst=" +
+    return "nvfuser_distributed_buffer_info_P2PComm_dst=" +
         std::to_string(this->expr_evaluator_.evaluate(communication->dst())
                            .as<int64_t>()) +
         "_src=" +
@@ -506,12 +447,12 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
                            .as<int64_t>()) +
         "_rank=" + std::to_string(rank);
   };
-  std::unordered_map<P2PCommunication*, std::unique_ptr<RemoteBufferInfo>>
+  std::unordered_map<P2PCommunication*, std::unique_ptr<DistributedBuffer>>
       buffer_handles;
   auto store = communicator_->getTcpStore();
   for (P2PCommunication* communication : communications) {
     auto buffer_handle =
-        std::make_unique<RemoteBufferInfo>(get_tensor(communication));
+        std::make_unique<DistributedBuffer>(get_tensor(communication));
     store->set(get_key(communication, my_rank), toBytes(*buffer_handle));
     buffer_handles.emplace(communication, std::move(buffer_handle));
   }
@@ -522,20 +463,20 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
 
   // get memhandles to TCP store
   for (P2PCommunication* communication : communications) {
-    std::vector<std::unique_ptr<RemoteBufferInfo>> remote_buffers;
-    remote_buffers.reserve(communicator_->size());
+    std::vector<std::unique_ptr<DistributedBuffer>> distributed_buffers;
+    distributed_buffers.reserve(communicator_->size());
     const auto dst =
         expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
     const auto src =
         expr_evaluator_.evaluate(communication->src()).as<int64_t>();
     for (int64_t rank : c10::irange(communicator_->size())) {
       if (rank != src && rank != dst) {
-        remote_buffers.push_back(nullptr);
+        distributed_buffers.push_back(nullptr);
         continue;
       }
       if (rank == my_rank) {
         // opening an ipc handle on the exporter's device is not supported
-        remote_buffers.push_back(std::move(buffer_handles.at(communication)));
+        distributed_buffers.push_back(std::move(buffer_handles.at(communication)));
       } else {
         std::string key = get_key(communication, rank);
         NVF_ERROR(
@@ -544,13 +485,13 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
             key,
             " not found in store at rank ",
             my_rank);
-        auto imported_remote_buffer_info =
-            std::make_unique<RemoteBufferInfo>(store->get(key));
-        remote_buffers.push_back(std::move(imported_remote_buffer_info));
+        auto imported_distributed_buffer_info =
+            std::make_unique<DistributedBuffer>(store->get(key));
+        distributed_buffers.push_back(std::move(imported_distributed_buffer_info));
       }
     }
-    remote_buffers_.emplace(
-        get_tensor(communication), std::move(remote_buffers));
+    distributed_buffers_.emplace(
+        get_tensor(communication), std::move(distributed_buffers));
   }
 }
 
@@ -610,18 +551,18 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     return;
   }
 
-  const auto it = remote_buffers_.find(buffer);
+  const auto it = distributed_buffers_.find(buffer);
   NVF_ERROR(
-      it != remote_buffers_.end(),
+      it != distributed_buffers_.end(),
       "No remote buffer found for ",
       communication->toString(),
       " at rank ",
       my_rank);
-  const std::vector<std::unique_ptr<RemoteBufferInfo>>& remote_buffers =
+  const std::vector<std::unique_ptr<DistributedBuffer>>& distributed_buffers =
       it->second;
   const int64_t peer = is_sender ? dst : src;
-  const RemoteBufferInfo& my_buffer = *remote_buffers.at(my_rank);
-  const RemoteBufferInfo& peer_buffer = *remote_buffers.at(peer);
+  const DistributedBuffer& my_buffer = *distributed_buffers.at(my_rank);
+  const DistributedBuffer& peer_buffer = *distributed_buffers.at(peer);
   const auto local_semaphore =
       reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[peer]);
   const auto remote_semaphore =
@@ -637,7 +578,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
         current_stream,
         local_semaphore,
-        (cuuint32_t)(IpcSemaphore::kTransferInProgress),
+        (cuuint32_t)(IpcSemaphore::kInUse),
         CU_STREAM_WAIT_VALUE_EQ));
     // RDMA get the data from the sender
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
@@ -663,13 +604,13 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
         current_stream,
         local_semaphore,
-        (cuuint32_t)(IpcSemaphore::kTransferInProgress),
+        (cuuint32_t)(IpcSemaphore::kInUse),
         CU_STREAM_WRITE_VALUE_DEFAULT));
     // signal to receiver that the buffer is ready
     NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
         current_stream,
         remote_semaphore,
-        (cuuint32_t)(IpcSemaphore::kTransferInProgress),
+        (cuuint32_t)(IpcSemaphore::kInUse),
         CU_STREAM_WRITE_VALUE_DEFAULT)); // passing
                                          // CU_STREAM_WRITE_VALUE_NO_MEMORY_BARRIER
                                          // gives an error
@@ -700,17 +641,17 @@ void HostIrEvaluator::handle(Wait* wait) {
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     at::Tensor buffer =
         getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_);
-    const auto it = remote_buffers_.find(buffer);
+    const auto it = distributed_buffers_.find(buffer);
     NVF_ERROR(
-        it != remote_buffers_.end(),
+        it != distributed_buffers_.end(),
         "No remote buffer found for ",
         p2p_comm->toString(),
         " at rank ",
         my_rank);
-    const std::vector<std::unique_ptr<RemoteBufferInfo>>& remote_buffers =
+    const std::vector<std::unique_ptr<DistributedBuffer>>& distributed_buffers =
         it->second;
 
-    const RemoteBufferInfo& my_buffer = *remote_buffers.at(my_rank);
+    const DistributedBuffer& my_buffer = *distributed_buffers.at(my_rank);
     const auto local_semaphore =
         reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[dst]);
 

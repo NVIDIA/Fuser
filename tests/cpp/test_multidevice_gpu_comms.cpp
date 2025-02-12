@@ -11,6 +11,7 @@
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
 #include <ir/all_nodes.h>
+#include <multidevice/distributed_buffer.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_kernels.h>

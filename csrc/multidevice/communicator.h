@@ -28,18 +28,6 @@
 
 namespace nvfuser {
 
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
-
 // This file implements the class Communicator which sets up the inter-process
 // Backend. This class contains inter-process information, such as the rank, the
 // world size, as well as the Process Group that can be called to perform
