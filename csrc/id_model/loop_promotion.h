@@ -14,6 +14,57 @@ namespace nvfuser {
 class IdModel;
 struct StatefulInliningInfo;
 
+struct CoveredGroup {
+  using CoveredGroups = std::unordered_set<CoveredGroup>;
+
+  CoveredGroup() = default;
+  CoveredGroup(
+      ValGroup group,
+      const std::shared_ptr<CoveredGroups>& split_parent = nullptr)
+      : group_(std::move(group)), split_in_(split_parent) {}
+
+  const ValGroup& group() const {
+    return group_;
+  }
+
+  const std::shared_ptr<CoveredGroups>& splitIn() const {
+    return split_in_;
+  }
+
+  bool operator==(const CoveredGroup& other) const {
+    return group_ == other.group_;
+  }
+
+  bool operator!=(const CoveredGroup& other) const {
+    return !(group_ == other.group_);
+  }
+
+  bool isEqualToOrSuperSetOf(const CoveredGroup& other) const;
+
+ private:
+  ValGroup group_;
+  std::shared_ptr<CoveredGroups> split_in_;
+};
+
+} // namespace nvfuser
+
+namespace std {
+template <>
+struct hash<nvfuser::CoveredGroup> {
+  size_t operator()(const nvfuser::CoveredGroup& x) const {
+    return std::hash<nvfuser::ValGroup>()(x.group());
+  }
+};
+} // namespace std
+
+namespace nvfuser {
+
+using CoveredGroups = std::unordered_set<CoveredGroup>;
+
+bool isEqualToOrSuperSetOf(
+    const CoveredGroups& covered_groups_x,
+    const CoveredGroups& covered_groups_y);
+
 // Callback interface for LoopPromotionMapBuilder. Allow exposing the
 // temporary maps for testing and debugging
 class LoopPromotionMapBuilderCallback {
@@ -140,7 +191,8 @@ class LoopPromotionMapBuilder {
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-      const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+      const std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>&
+          exact_covered_ids,
       const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const;
 
   // Terminal loop ids are iteration domains in each loop group that:

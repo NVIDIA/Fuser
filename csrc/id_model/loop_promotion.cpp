@@ -14,6 +14,60 @@
 
 namespace nvfuser {
 
+bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
+  if (*this == other) {
+    return true;
+  }
+
+  if (group_ == other.group_) {
+    return true;
+  }
+
+  if (split_in_.get() && other.split_in_.get()) {
+    const CoveredGroups& parent = *split_in_;
+    const CoveredGroups& other_parent = *other.split_in_;
+    // If the parents are the same, these two CoveredGroups have two
+    // different ValGroups. That should mean each corresonds to a
+    // different split output group, meaning neigher is a superset
+    if (parent == other_parent) {
+      return false;
+    }
+
+    if (std::all_of(
+            other_parent.begin(),
+            other_parent.end(),
+            [&](const CoveredGroup& other_parent_group) {
+              return std::any_of(
+                  parent.begin(),
+                  parent.end(),
+                  [&](const CoveredGroup& parent_group) {
+                    return parent_group.isEqualToOrSuperSetOf(
+                        other_parent_group);
+                  });
+            })) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool isEqualToOrSuperSetOf(
+    const CoveredGroups& covered_groups_x,
+    const CoveredGroups& covered_groups_y) {
+  return std::all_of(
+      covered_groups_y.begin(),
+      covered_groups_y.end(),
+      [&](const CoveredGroup& cover_group_y) {
+        return std::any_of(
+            covered_groups_x.begin(),
+            covered_groups_x.end(),
+            [&](const CoveredGroup& cover_group_x) {
+              return cover_group_x.isEqualToOrSuperSetOf(cover_group_y);
+            });
+      });
+}
+
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
     IdModel& id_model,
     const StatefulInliningInfo& inlining_info,
@@ -194,6 +248,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
       buildInlineRootResolutionMap(iel_graph, inlining_info_);
 
+  std::cerr << "Step 1\n";
+  for (const auto& [g, id] : iel_promotion_map) {
+    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << "\n";
+  }
+
   if (callback_) {
     callback_->postStep1(iel_promotion_map, iel_graph);
   }
@@ -208,6 +267,12 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     callback_->postStep2(iel_promotion_map, iel_graph);
   }
 
+  std::cerr << "Step 2\n";
+  for (const auto& [iel_group, res] : iel_promotion_map) {
+    std::cerr << nvfuser::toString(iel_group) << " -> " << res->toString()
+              << "\n";
+  }
+
   // Step 3: Determine the promotion of each loop graph based on the
   // IEL promotion map. For each loop group, examine all the IEL
   // promotions and find the most representative one that captures all
@@ -218,6 +283,12 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
 
   if (callback_) {
     callback_->postStep3(initial_loop_promotion_map);
+  }
+
+  std::cerr << "Step 3\n";
+  for (const auto& [iel_group, res] : initial_loop_promotion_map) {
+    std::cerr << nvfuser::toString(iel_group) << " -> " << res->toString()
+              << "\n";
   }
 
   // At this point, most of loop groups should have correct promoted
@@ -362,6 +433,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       continue;
     }
 
+    std::cerr << "Broadcast group: " << nvfuser::toString(iel_group) << "\n";
+
     // Collect all the exact groups of the resolutions of the broadcast id's
     ValGroups resolved_exact_groups;
     for (Val* bcast_id : *iel_group) {
@@ -378,8 +451,12 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     if (resolved_exact_groups.empty()) {
       // No resolution
+      std::cerr << "no resolution\n";
       continue;
     }
+
+    std::cerr << "Resolved exact groups: "
+              << nvfuser::toString(resolved_exact_groups) << "\n";
 
     // resolved_exact_groups is a list of IDs that resolves the
     // broadcast. We only care those that are also in the same loop
@@ -392,6 +469,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     ValGroups loop_covered_exact_groups =
         idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
 
+    std::cerr << "Loop group: " << nvfuser::toString(loop_group) << "\n";
+    std::cerr << "Loop covered group: "
+              << nvfuser::toString(loop_covered_exact_groups) << "\n";
+
     // The intersection of the exact groups that the broadcast domains can be
     // broadcasted to, and those that exist within the same loop groop are is
     // the promotion needed for this iel_group. The promotion should
@@ -401,6 +482,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     if (loop_exact_resolved_intersection.empty()) {
       // No promotion
+      std::cerr << "no promotion\n";
       continue;
     }
 
@@ -444,6 +526,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       }
       NVF_THROW(err_msg.str());
     }
+
+    std::cerr
+        << "Promotion: "
+        << promoted_iel_groups.front()->front()->as<IterDomain>()->toString()
+        << "\n";
 
     iel_promotion_map[iel_group] =
         promoted_iel_groups.front()->front()->as<IterDomain>();
@@ -763,6 +850,89 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
   return covered_ids;
 }
 
+std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+computeCoveredGroups2(const ValGraph& graph) {
+  // Map from an exact iter domain group, to all the exact iter domain groups it
+  // covers
+  // std::unordered_map<ValGroup, ValGroups> covered_ids;
+  std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>> covered_ids;
+  std::cerr << "computeCoveredGroups2\n";
+
+  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
+    // Initialize inputs
+    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
+    if (id_group_defs.empty()) {
+      covered_ids[id_group] = std::make_shared<CoveredGroups>();
+      covered_ids[id_group]->insert(CoveredGroup(id_group));
+      std::cerr << "Init group: " << nvfuser::toString(id_group) << " "
+                << id_group->front()->toString() << "\n";
+    }
+
+    // Initialize broadcast groups to empty since broadcast domains
+    // don't matter for indexing
+    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+          return id->as<IterDomain>()->isBroadcast();
+        })) {
+      covered_ids[id_group] = std::make_shared<CoveredGroups>();
+    }
+  }
+
+  ValGraphStmtSort exact_stmt_sort(graph);
+
+  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
+    std::cerr << "Exact expr: " << exact_expr->front()->toString();
+
+    // Initialize to empty group
+    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+      covered_ids.emplace(output_group, std::make_shared<CoveredGroups>());
+    }
+
+    if (exact_expr->front()->isA<Split>()) {
+      const auto& input_groups = graph.inputGroups(exact_expr);
+      NVF_ERROR(input_groups.size() == 1);
+
+      const std::shared_ptr<CoveredGroups>& covered_groups =
+          covered_ids.at(input_groups.at(0));
+
+      for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+        covered_ids[output_group]->insert(
+            CoveredGroup(output_group, covered_groups));
+      }
+      continue;
+    }
+
+    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
+
+    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+      // Note that pushBack must be used instead of just
+      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
+      // exact expr groups and may have different coverage groups depending on
+      // the expr groups. For example, this can happen with reshape or resize.
+      // See test LoopPromotionCoverage for a concrete example.
+      for (const ValGroup& inp_group : input_groups) {
+        const std::shared_ptr<CoveredGroups>& inp_covered_groups =
+            covered_ids.at(inp_group);
+        covered_ids[output_group]->insert(
+            inp_covered_groups->begin(), inp_covered_groups->end());
+      }
+    }
+  }
+#if 0
+  for (const auto& [eg, egg]: covered_ids) {
+    std::cerr << nvfuser::toString(eg)
+              << " (" << eg->front()->toString() << ") "
+              << " -> "
+              << nvfuser::toString(egg)
+              << "\n";
+    for (const auto& eg: egg) {
+      std::cerr << eg->front()->toString() << " ";
+    }
+    std::cerr << "\n";
+  }
+#endif
+  return covered_ids;
+}
+
 }; // namespace
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
@@ -771,8 +941,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) const {
+#if 0
   const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
       computeCoveredGroups(idGraph(IdMappingMode::EXACT));
+#else
+  const std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+      exact_covered_ids = computeCoveredGroups2(idGraph(IdMappingMode::EXACT));
+#endif
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =
@@ -788,6 +963,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         iel_promotion_map,
         exact_covered_ids,
         terminal_loop_ids);
+    std::cerr << "Loop group promotion: " << nvfuser::toString(loop_group)
+              << " -> "
+              << (promotion_id == nullptr ? "Not found"
+                                          : promotion_id->toString())
+              << "\n";
     if (promotion_id) {
       loop_promotion_map[loop_group] = promotion_id;
     }
@@ -800,9 +980,13 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     const ValGroup& loop_group,
     const ValGraph& iel_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-    const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+    const std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>&
+        exact_covered_ids,
     const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const {
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+
+  std::cerr << "findPromotionOfLoopGroup: " << nvfuser::toString(loop_group)
+            << "\n";
 
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
@@ -843,10 +1027,16 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
       // the terminal ID.
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(loop_id), loop_id->as<IterDomain>());
+
+      std::cerr << "Promotion candidate (no iel promo): " << loop_id->toString()
+                << "\n";
     } else {
       // If this terminal ID has a promotion, grab the promoted ID.
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(iel_promo_it->second), iel_promo_it->second);
+
+      std::cerr << "Promotion candidate (promo): "
+                << iel_promo_it->second->toString() << "\n";
     }
   }
 
@@ -854,11 +1044,34 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   ValGroups exact_groups = exact_graph.toGroups(*loop_group);
 
   // All exact groups covered by all iter domains in this loop group
-  ValGroups loop_group_covered_ids;
+  // ValGroups loop_group_covered_ids;
+  CoveredGroups loop_group_covered_ids;
   for (const ValGroup& exact_group : exact_groups) {
     auto covered_it = exact_covered_ids.find(exact_group);
     NVF_ERROR(covered_it != exact_covered_ids.end());
-    loop_group_covered_ids.pushBack(covered_it->second);
+    loop_group_covered_ids.insert(
+        covered_it->second->begin(), covered_it->second->end());
+  }
+
+#if 0
+  std::cerr << "Loop group covered ids: " << nvfuser::toString(loop_group_covered_ids) << "\n";
+
+  for (const auto& covered_g: loop_group_covered_ids) {
+    std::cerr << covered_g->front()->toString() << "\n";
+  }
+#endif
+
+  std::cerr << "Loop group covered ids:\n";
+  for (const CoveredGroup& covered_group : loop_group_covered_ids) {
+    std::cerr << nvfuser::toString(covered_group.group())
+              << covered_group.group()->front()->toString() << "\n";
+    if (covered_group.splitIn().get()) {
+      std::cerr << "\tSplit from:\n";
+      for (const CoveredGroup& parent_group :
+           *(covered_group.splitIn().get())) {
+        std::cerr << "\t" << nvfuser::toString(parent_group.group()) << "\n";
+      }
+    }
   }
 
   // Check if any of the candidate Iter Domains we collected cover all the
@@ -867,13 +1080,34 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   for (const auto& entry : exact_promoted_terminal_ids) {
     const ValGroup& terminal_id_group = entry.first;
     IterDomain* terminal_id = entry.second;
+    std::cerr << "Candidate: " << terminal_id->toString() << "\n";
     auto covered_it = exact_covered_ids.find(terminal_id_group);
     NVF_ERROR(covered_it != exact_covered_ids.end());
-    if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
+    // std::cerr << "Covered: " <<
+    // nvfuser::toString(covered_it->second) << "\n";
+    const auto& covered_groups = covered_it->second;
+    for (const CoveredGroup& covered_group : *covered_groups) {
+      std::cerr << nvfuser::toString(covered_group.group())
+                << covered_group.group()->front()->toString() << "\n";
+      if (covered_group.splitIn().get()) {
+        // std::cerr << "\tSplit from: " <<
+        // nvfuser::toString(covered_group->split_parent->group) <<
+        //"\n";
+        std::cerr << "\tSplit from:\n";
+        for (const CoveredGroup& parent_group :
+             *(covered_group.splitIn().get())) {
+          std::cerr << "\t" << nvfuser::toString(parent_group.group()) << "\n";
+        }
+      }
+    }
+
+    if (isEqualToOrSuperSetOf(*covered_it->second, loop_group_covered_ids)) {
+      std::cerr << "Found: " << terminal_id->toString() << "\n";
       return terminal_id;
     }
   }
 
+  std::cerr << "Not found\n";
   return nullptr;
 }
 

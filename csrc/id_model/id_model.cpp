@@ -819,6 +819,15 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
 
+  tvs_.front()->fusion()->print();
+
+  std::cerr << "Loop graph\n" << idGraph(IdMappingMode::LOOP).toString();
+
+  for (const auto& [vg, id] : loop_promotion_map_) {
+    std::cerr << "Promotion: " << nvfuser::toString(vg) << " -> "
+              << id->toString() << "\n";
+  }
+
   return idGraph(IdMappingMode::LOOP);
 }
 
