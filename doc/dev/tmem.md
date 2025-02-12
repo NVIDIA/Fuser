@@ -397,7 +397,7 @@ TEST_F(TMemTutorial, TooManyCols) {
   scheduler_utils::parallelizeAllLike(tv4);
   inlineAllAt(tv4, 4);
 
-  tv2->setTMemDimSepPos(-2);
+  tv2->setTMemDimSepPos(1);
 
   // Tries to allocate (32, 1105) for tv2.
   EXPECT_THAT(
