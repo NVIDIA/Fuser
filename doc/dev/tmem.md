@@ -1,4 +1,4 @@
-//\
+// This file is both a cpp and a Markdown \
 <!--
 
 // clang-format off
