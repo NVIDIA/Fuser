@@ -645,15 +645,12 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WAIT_VALUE_EQ));
     std::cout << "RANK " << my_rank << " RECV after 1st WAIT" << ", buffer.data_ptr()=" << buffer.data_ptr() << ", my_buffer.ptr()=" << my_buffer.ptr() << ", sent tensor=" << buffer << ", buffer.numel()=" << buffer.numel() << ", buffer.element_size()=" << buffer.element_size() << std::endl;
     // RDMA get the data from the sender
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
         buffer.data_ptr(),
         peer_buffer.ptr(),
-        // my_buffer.ptr(),
         buffer.numel() * buffer.element_size(),
-        cudaMemcpyDeviceToDevice
-        // current_stream));
-        ));
-    std::cout << "RANK " << my_rank << " RECV after memcpy" << std::endl;
+        cudaMemcpyDeviceToDevice,
+        current_stream));
     // Signals completion to self
     NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
     // Signals completion to receiver
