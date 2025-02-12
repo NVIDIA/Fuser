@@ -380,7 +380,7 @@ TEST_F(TMemTutorial, TooManyCols) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({2, 3, 5, 7, 11, 13, 17});
+  auto tv0 = makeContigConcreteTensor({32, 3, 5, 7, 11, 13, 17});
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -389,12 +389,13 @@ TEST_F(TMemTutorial, TooManyCols) {
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
 
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->axis(1)->parallelize(ParallelType::TIDx);
-  tv4->axis(3)->parallelize(ParallelType::BIDy);
-  tv4->axis(4)->parallelize(ParallelType::TIDy);
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+  tv4->axis(1)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::TIDy);
+  tv4->axis(4)->parallelize(ParallelType::BIDy);
+  tv4->axis(5)->parallelize(ParallelType::TIDz);
   scheduler_utils::parallelizeAllLike(tv4);
-  inlineAllAt(tv4, 3);
+  inlineAllAt(tv4, 4);
 
   tv2->setTMemDimSepPos(-2);
 
