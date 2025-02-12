@@ -29,10 +29,9 @@ namespace nvfuser {
 namespace {
 // Replace CUDA tensor with Meta tensor because storing tensors can cause
 // out-of-memory issues. Other arguments are returned as-is.
-std::shared_ptr<PolymorphicValue> convertMetadataArg(
-    std::shared_ptr<PolymorphicValue> arg) {
-  if (arg->is<at::Tensor>()) {
-    if (const auto& tensor = arg->as<at::Tensor>(); tensor.is_cuda()) {
+PolymorphicValue convertMetadataArg(PolymorphicValue arg) {
+  if (arg.is<at::Tensor>()) {
+    if (const auto& tensor = arg.as<at::Tensor>(); tensor.is_cuda()) {
       auto meta_tensor = at::Tensor(at::detail::empty_strided_meta(
           tensor.sizes(),
           tensor.strides(),
@@ -40,7 +39,7 @@ std::shared_ptr<PolymorphicValue> convertMetadataArg(
           c10::nullopt,
           c10::Device(c10::DeviceType::Meta, 0),
           c10::nullopt));
-      return std::make_shared<PolymorphicValue>(std::move(meta_tensor));
+      return std::move(meta_tensor);
     }
   }
   return arg;
