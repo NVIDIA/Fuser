@@ -2234,25 +2234,28 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
-        
         // Check if logical ID is directly in the loop domain
         auto find_it = std::find(
             tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
-        
-        // If not found directly and there is a sharded loop ID, 
+
+        // If not found directly and there is a sharded loop ID,
         // check if the logical ID is the same as the producer of the DID split.
         if (find_it == tv->getLoopDomain().end()) {
           int64_t sharded_axis = getShardedLoopAxis(tv, ParallelType::DIDx);
           if (sharded_axis != -1) {
             // Get the split operation that created the DIDx dimension
-            auto split = dynamic_cast<Split*>(tv->getLoopDomain().at(sharded_axis)->definition());
+            auto split = dynamic_cast<Split*>(
+                tv->getLoopDomain().at(sharded_axis)->definition());
             if (split && split->in() == logical_id) {
               // The DIDx axis is not reordered, since
-              find_it = std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), split->inner());
+              find_it = std::find(
+                  tv->getLoopDomain().begin(),
+                  tv->getLoopDomain().end(),
+                  split->inner());
             }
           }
         }
-        
+
         NVF_ERROR(
             find_it != tv->getLoopDomain().end(),
             "Require ",
@@ -2260,9 +2263,9 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        
+
         // Reorder the reshape dimensions to the front of the domain
-        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);  
+        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
         old2new[old_pos] = (int64_t)old2new.size();
       }
     }
