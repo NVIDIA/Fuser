@@ -131,25 +131,13 @@ bool isLoopGraphUniform(const IdModel& id_model) {
 
 ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
     const ValGraph& exact_graph) const {
-  const std::unordered_set<TensorView*> included_tvs{
-      id_model_.tvs().begin(), id_model_.tvs().end()};
-
   std::unordered_set<IterDomain*> non_input_ids;
 
   for (auto tv_expr : id_model_.tvExprs()) {
     for (const auto producer :
          ir_utils::filterByType<TensorView>(tv_expr->inputs())) {
-      if (!included_tvs.count(producer)) {
-        NVF_ERROR(false);
-        continue;
-      }
       for (const auto consumer :
            ir_utils::filterByType<TensorView>(tv_expr->outputs())) {
-        if (!included_tvs.count(consumer)) {
-          NVF_ERROR(false);
-          continue;
-        }
-
         auto p2c = PairwiseLogicalDomainMap(producer, consumer)
                        .mapBroadcast(false)
                        .mapProducerToConsumer();
