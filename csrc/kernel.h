@@ -44,9 +44,6 @@ struct KernelSummary {
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
 
-  //! Indicate the need to generate random numbers
-  bool has_philox_op = false;
-
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 

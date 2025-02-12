@@ -360,12 +360,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
 
-    if (kernel_summary.has_philox_op) {
-      indent() << "Array<uint32_t, 4> rng_result;\n";
-      indent() << "nvfuser_index_t rng_subseq = -1;\n";
-      indent() << "nvfuser_index_t rng_offset = -1;\n";
-    }
-
     // Do we have any dynamic shared memory buffers?
     const bool has_dynamic_smem =
         !kernel_summary.dynamic_smem_allocations.empty();
@@ -865,26 +859,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const RNGOp* rop) final {
-    // TODO: NVF_ERROR that the scheduler correctly creates an
-    // innermost ID of size 4 (float) or size 2 (double)?
-    auto index = genInline(rop->getPhiloxIndex());
-    int multiple = rop->getPhiloxMultiple();
-    indent() << "nvfuser_index_t linear_index" << rop->name() << " = " << index
-             << ";\n";
-    indent() << "nvfuser_index_t rng_subseq" << rop->name() << " = linear_index"
-             << rop->name() << " / " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_component" << rop->name()
-             << " = linear_index" << rop->name() << " % " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
-             << genInline(rop->getRNGOffsetVal()) << ";\n";
-    indent() << "if (rng_subseq != rng_subseq" << rop->name()
-             << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  rng_result = philox(" << genInline(rop->getRNGSeedVal())
-             << ", rng_subseq" << rop->name() << ", "
-             << "rng_offset" << rop->name() << ");\n";
-    indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
-    indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
-    indent() << "}\n";
+    NVF_THROW("RNGOp should be lowered to kir::RNGOp");
+  }
+
+  void handle(const kir::RNGOp* rop) final {
     auto op_type = rop->getRNGOpType();
     indent() << gen(rop->output(0)) << " = " << op_type;
     if (needFloatSuffix(op_type)) {
@@ -897,16 +875,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       // Generate other datatypes in double
     }
-    code_ << "(rng_result, rng_component" << rop->name();
-    switch (op_type) {
-      case RNGOpType::UniformRange:
-      case RNGOpType::NormalGeneral: {
-        auto parameters = rop->getParameters();
-        NVF_ERROR(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
-      default:;
+    code_ << "(" << gen(rop->input(0));
+    for (auto inp_i : c10::irange(1, rop->inputs().size())) {
+      code_ << ", " << gen(rop->input(inp_i));
     }
     code_ << ");\n";
   }
@@ -3219,6 +3190,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Reference:
   // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
+    auto get_type_or_index_type = [](Val* value) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+        if (isPointerType(ti->index()->dtype())) {
+          return ti->index()->dtype();
+        }
+      }
+      return value->dtype();
+    };
     // If asm_ has a utility name, we will wrap the PTX code in a utility
     // function with that name. Otherwise, we just generate the PTX code
     // directly in the kernel.
@@ -3260,6 +3239,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (!utility_generated) {
         const auto& outputs = asm_->outputs();
         const auto& inputs = asm_->inputs();
+        if (!asm_->options().immediate_inputs.empty()) {
+          utilities_ << "template <";
+          bool first = true;
+          for (auto in_i : c10::irange((int64_t)inputs.size())) {
+            if (asm_->options().immediate_inputs.count(in_i)) {
+              if (!first) {
+                utilities_ << ", ";
+              }
+              utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+              first = false;
+            }
+          }
+          utilities_ << ">\n";
+        }
         utilities_ << "__device__ __inline__ void " << utility_name << "(";
         for (auto out_i : c10::irange(outputs.size())) {
           if (out_i > 0) {
@@ -3270,15 +3263,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (!outputs.empty()) {
           utilities_ << ", ";
         }
-        for (auto in_i : c10::irange(inputs.size())) {
+        for (auto in_i : c10::irange((int64_t)inputs.size())) {
+          if (asm_->options().immediate_inputs.count(in_i)) {
+            continue;
+          }
           if (in_i > 0) {
             utilities_ << ", ";
           }
-          utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+          utilities_ << get_type_or_index_type(inputs.at(in_i)) << " in"
+                     << in_i;
         }
         utilities_ << ") {\n";
       }
-      this->indent() << utility_name << "(";
+      this->indent() << utility_name;
     }
     // Generate the actual PTX code like below:
     //   asm("bla.bla.bla": "=f"(out1): "f"(in1));
@@ -3313,15 +3310,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent();
       }
 
-      auto getTypeOrIndexType = [](Val* value) {
-        if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
-          if (isPointerType(ti->index()->dtype())) {
-            return ti->index()->dtype();
-          }
-        }
-        return value->dtype();
-      };
-
       if (asm_->hasBooleanInput()) {
         (*asm_target) << "\"{\\n\"\n";
         int64_t boolean_counter = 0;
@@ -3331,7 +3319,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         for (const auto* io : outputs_and_inputs) {
           for (auto val : *io) {
             // don't treat pointer to bool as bool
-            auto val_dtype = getTypeOrIndexType(val);
+            auto val_dtype = get_type_or_index_type(val);
             if (val_dtype == DataType::Bool) {
               indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
               indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
@@ -3385,7 +3373,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               if (counter > 0) {
                 next_line();
               }
-              auto reg_dtype = getTypeOrIndexType(register_);
+              auto reg_dtype = get_type_or_index_type(register_);
               if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
                 for (auto i :
                      c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
@@ -3453,15 +3441,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Something like:
     //   myFunc(T1[0], T0[0]);
     if (as_utility) {
+      if (!asm_->options().immediate_inputs.empty()) {
+        code_ << "<";
+        bool first = true;
+        for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
+          if (constraint == "n") {
+            if (!first) {
+              code_ << ", ";
+            }
+            code_ << gen(register_);
+            first = false;
+          }
+        }
+        code_ << ">";
+      }
+      code_ << "(";
       bool first = true;
-      for (auto [_, register_] : asm_->constraintsAndOutputs()) {
+      for (auto&& [_, register_] : asm_->constraintsAndOutputs()) {
         if (!first) {
           code_ << ", ";
         }
         code_ << gen(register_);
         first = false;
       }
-      for (auto [_, register_] : asm_->constraintsAndInputs()) {
+      for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
+        if (constraint == "n") {
+          continue;
+        }
         if (!first) {
           code_ << ", ";
         }
