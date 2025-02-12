@@ -745,11 +745,47 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
+TEST_F(MultiDeviceTest, ReorderDIDToFront) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  const int64_t b = 2, s = 4, h = 16;
+  TensorView* in = makeConcreteTensor({b, s, d * h});
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(-1, d, /*inner_split=*/false);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    reorderDIDToFront(tv);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    NVF_CHECK(tv->axis(0)->isDeviceDim());
+  }
+
+  at::Tensor in_tensor = at::randn({b, s, h}, tensor_options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
+  const int64_t b = 2, s = 2, h = 4, e = 3;
   const int64_t b = 2, s = 2, h = 4, e = 3;
 
   TensorView* tv0 = makeContigConcreteTensor(
@@ -771,6 +807,7 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   TransformPropagator propagator_c2p(tv1);
   MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator_c2p);
   // in: loop domain: {b, s, d*h, e} after transform propagation
+
 
   // Loop split and parallelize input
   tv0->setDeviceMesh(mesh);
