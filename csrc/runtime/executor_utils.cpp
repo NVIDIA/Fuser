@@ -1251,7 +1251,9 @@ void validateIndexCasts(
   }
   ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
   NVF_ERROR(
-      calc.castsFromIndexAreSafe(), "Found unsafe casts from DataType::Index");
+      calc.castsFromIndexAreSafe(),
+      "Found unsafe casts from DataType::Index. ",
+      "This is likely because one coordinate of a TMA instruction overflowed Int32");
 }
 
 } // namespace executor_utils
