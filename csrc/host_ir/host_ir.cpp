@@ -126,9 +126,7 @@ LaunchKernel::LaunchKernel(
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs)
-    : Expr(passkey, inputs, outputs, {}),
-      launch_constraints_(launch_constraints),
-      compile_params_(compile_params) {
+    : Expr(passkey, inputs, outputs, {}) {
   addDataAttribute(hic_executor_index);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);

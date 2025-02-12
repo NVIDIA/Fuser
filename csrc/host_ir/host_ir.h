@@ -153,10 +153,6 @@ class LaunchKernel : public Expr {
   const auto& compile_params() const {
     return attribute<CompileParams>(2);
   }
-
- private:
-  const LaunchParams launch_constraints_;
-  CompileParams compile_params_;
 };
 
 class Stream : public Val {
