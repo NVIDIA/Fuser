@@ -429,8 +429,7 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
           is_receiver)) { // REMOVE or adapt exporting/opening the handle
       return;
     }
-    if (ipc_handles_.find(get_tensor(communication)) !=
-        ipc_handles_.end()) {
+    if (ipc_handle_cache_.find(communication, expr_evaluator_) != nullptr) {
       continue;
     }
     communications.push_back(communication);
@@ -463,20 +462,20 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
 
   // get memhandles to TCP store
   for (P2PCommunication* communication : communications) {
-    std::vector<std::unique_ptr<IpcHandle>> ipc_handles;
-    ipc_handles.reserve(communicator_->size());
+    auto ipc_handles = std::make_unique<std::vector<std::unique_ptr<IpcHandle>>>();
+    ipc_handles->reserve(communicator_->size());
     const auto dst =
         expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
     const auto src =
         expr_evaluator_.evaluate(communication->src()).as<int64_t>();
     for (int64_t rank : c10::irange(communicator_->size())) {
       if (rank != src && rank != dst) {
-        ipc_handles.push_back(nullptr);
+        ipc_handles->push_back(nullptr);
         continue;
       }
       if (rank == my_rank) {
         // opening an ipc handle on the exporter's device is not supported
-        ipc_handles.push_back(std::move(buffer_handles.at(communication)));
+        ipc_handles->push_back(std::move(buffer_handles.at(communication)));
       } else {
         std::string key = get_key(communication, rank);
         NVF_ERROR(
@@ -487,11 +486,11 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
             my_rank);
         auto imported_ipc_handle_info =
             std::make_unique<IpcHandle>(store->get(key));
-        ipc_handles.push_back(std::move(imported_ipc_handle_info));
+        ipc_handles->push_back(std::move(imported_ipc_handle_info));
       }
     }
-    ipc_handles_.emplace(
-        get_tensor(communication), std::move(ipc_handles));
+    ipc_handle_cache_.insert(
+      communication, expr_evaluator_, std::move(ipc_handles));
   }
 }
 
@@ -551,15 +550,14 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     return;
   }
 
-  const auto it = ipc_handles_.find(buffer);
+  const auto it = ipc_handle_cache_.find(communication, expr_evaluator_);
   NVF_ERROR(
-      it != ipc_handles_.end(),
+      it != nullptr,
       "No remote buffer found for ",
       communication->toString(),
       " at rank ",
       my_rank);
-  const std::vector<std::unique_ptr<IpcHandle>>& ipc_handles =
-      it->second;
+  const std::vector<std::unique_ptr<IpcHandle>>& ipc_handles = *it;
   const int64_t peer = is_sender ? dst : src;
   const IpcHandle& my_buffer = *ipc_handles.at(my_rank);
   const IpcHandle& peer_buffer = *ipc_handles.at(peer);
@@ -641,15 +639,14 @@ void HostIrEvaluator::handle(Wait* wait) {
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     at::Tensor buffer =
         getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_);
-    const auto it = ipc_handles_.find(buffer);
+    const auto it = ipc_handle_cache_.find(p2p_comm, expr_evaluator_);
     NVF_ERROR(
-        it != ipc_handles_.end(),
+        it != nullptr,
         "No remote buffer found for ",
         p2p_comm->toString(),
         " at rank ",
         my_rank);
-    const std::vector<std::unique_ptr<IpcHandle>>& ipc_handles =
-        it->second;
+    const std::vector<std::unique_ptr<IpcHandle>>& ipc_handles = *it;
 
     const IpcHandle& my_buffer = *ipc_handles.at(my_rank);
     const auto local_semaphore =

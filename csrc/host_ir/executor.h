@@ -147,26 +147,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_local_device_index_;
-  struct TensorHash {
-    std::size_t operator()(const at::Tensor& tensor) const {
-      auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
-      auto offset = tensor.storage_offset();
-      auto element_size = tensor.element_size();
-      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
-          std::hash<int>()(element_size);
-    }
-  };
-  struct TensorEqual {
-    bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
-      return lhs.equal(rhs);
-    }
-  };
-  std::unordered_map<
-      at::Tensor,
-      std::vector<std::unique_ptr<IpcHandle>>,
-      TensorHash,
-      TensorEqual>
-      ipc_handles_;
+  IpcHandleCache ipc_handle_cache_;
 };
 
 } // namespace hir
