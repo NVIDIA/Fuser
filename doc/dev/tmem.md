@@ -29,7 +29,9 @@ constexpr static bool verbose = true; /*
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <inlining.h>
 #include <ops/alias.h>
+#include <scheduler/utils.h>
 
 namespace nvfuser {
 
@@ -323,7 +325,79 @@ void xorSwizzleLogicalDomain(TensorView* tv) {
 } /*
 ```
 
-something
+Now let's take a look at a few code examples of invalid tensor memory
+allocation. Valid examples requires knowledge of indexing, which will be
+discussed in the next section. For all valid and invalid examples, we will
+be looking at gmem->register->tmem->register->gmem copy kernels. Note that
+there is no data path between gmem and tmem, so we have to use register as
+a transfer station.<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorial, TooManyLanes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 5, 7, 11, 13, 17});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv4->axis(3)->parallelize(ParallelType::BIDy);
+  tv4->axis(4)->parallelize(ParallelType::TIDy);
+  scheduler_utils::parallelizeAllLike(tv4);
+  inlineAllAt(tv4, 3);
+
+  tv2->setTMemDimSepPos(-2);
+
+  // Tries to allocate (256, 16) for tv2.
+  EXPECT_THAT(
+      [&]() { KernelExecutor().compile(&fusion); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Not enough tensor memory lanes: tried to allocate 256, but only 128 available.")));
+} /*
+```
+
+In the above example, the fusion is scheduled as:
+```python
+[BIDx{2}, TIDx{3}, 5, (ComputeAt), BIDy{7}, TIDy{11}, 13, (TMem Dim Sep), 17] 
+```
+
+Because 2 and 7 are parallelized on `BID`s, they are not allocated. Because 3
+and 11 are parallelized on `TID`s, they are allocated. Because 5 is on the left
+of the compute-at position, it is not allocated. Because 13 is on the right of
+the compute-at position, it is allocated. So the total number of lanes required
+for this tensor is: `3 * 11 * 13 = 429`, which is larger than the total available
+lanes, `128`.
+
+<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorial, TooManyCols) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({128, 1024});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv2->setTMemDimSepPos(1);
+
+  // Tries to allocate (128, 1024) for tv2.
+  EXPECT_THAT(
+      [&]() { KernelExecutor().compile(&fusion); },
+      ::testing::ThrowsMessage<std::runtime_error>(
+          ::testing::HasSubstr("Not enough columns")));
+} /*
+```
 
 <!-- */
 } // namespace nvfuser
