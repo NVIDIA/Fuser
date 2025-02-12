@@ -20,7 +20,6 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
-#include <kernel_ir_dispatch.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <runtime/allocations.h>
@@ -42,12 +41,6 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
-#include <limits>
-#include "evaluator_common.h"
-#include "expr_evaluator.h"
-#include "ir/internal_nodes.h"
-#include "parallel_dimension_map.h"
-#include "type.h"
 
 namespace nvfuser {
 
@@ -165,7 +158,6 @@ bool hasCpuScalarOutputs(Fusion* _fusion) {
       });
   return has_any_cpu_output;
 }
-
 } // namespace
 
 bool KernelExecutor::supported(Fusion* fusion) {
@@ -215,13 +207,6 @@ void KernelExecutor::compile(
   // make sure the compile param type is valid with the given kernel
   // arguments.
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
-  if (has_cp_async_bulk) {
-    // When using TMA, we will set the index type after lowering so that we can
-    // validate that the actual expressions do not overflow, even if we have
-    // large inputs. For now, assume it is whatever the arguments would require
-    // for direct indexing.
-    compile_params.index_type = arg_index_type;
-  }
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
     // int64, that's an error
@@ -229,22 +214,13 @@ void KernelExecutor::compile(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-
-  } else if (arg_index_type == PrimDataType::Int) {
+  } else {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
     // indexing. Note that if the arg type is 32-bit, it doesn't mean
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
-    NVF_ERROR(
-        !has_cp_async_bulk,
-        "Compilation with int64 is required based on input arguments, but ",
-        "int32 is required because of TMA operations.");
-  } else if (has_cp_async_bulk) {
-    // TMA operations require 32-bit indexing.
-    compile_params.index_type = PrimDataType::Int32;
-  } else {
     compile_params.index_type = arg_index_type;
   }
 
@@ -276,12 +252,9 @@ void KernelExecutor::compile(
   std::optional<int64_t> block_size = std::nullopt;
 
   auto launch_params = launch_constraints;
-  kir::Kernel* kernel = compiled_kernel_->lowered()->kernel();
-  ExpressionEvaluator expr_eval =
-      executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
-  PrecomputedValues pv(kernel);
-  expr_eval.bindPrecomputedValues(&pv);
   if (!args.empty()) {
+    auto expr_eval =
+        executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
     NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
         launch_constraints,
