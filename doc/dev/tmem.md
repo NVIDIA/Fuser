@@ -5,7 +5,8 @@
 > It is difficult to avoid them. But they should not affect reading.
 > All the unit tests displayed here are executable from the `tutorial` binary
 
-<!--
+<!--*/
+#pragma GCC diagnostic ignored "-Wcomment"
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
@@ -13,12 +14,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#pragma GCC diagnostic ignored "-Wcomment"
 /*-->
 
 To see prints in the test, change below to `true`:<!-- */ //-->\
 ```cpp
-constexpr static bool verbose = false; /*
+constexpr static bool verbose = true; /*
 ```
 
 # Tensor Memory Support in NVFuser
@@ -51,25 +51,157 @@ will give us a rough idea of how tensor memory should behave.
 
 ## Review of inlining and parallelization
 
-Let's consider a simple gmem->register->gmem copy kernel. The first kernel we
-look at is a kernel without any inlining and parallelization:<!-- */ //-->\
+Let's consider a simple gmem->shared->gmem copy kernel. Let's look at the kernel
+with different inlining and parallelization strategy:<!-- */ //-->\
 ```cpp
-TEST_F(ReviewInliningParallelization, GRGCopy1) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+TEST_F(ReviewInliningParallelization, GSGCopy1) {
+  at::Tensor t0 = at::rand({2, 4}, at::kCUDA);
 
-  auto tv0 = makeContigConcreteTensor({2, 4});
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  if constexpr (verbose) {
-    fusion.printKernel();
+    auto tv0 = makeContigConcreteTensor({2, 4});
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    fusion.addOutput(tv2);
+
+    tv1->setMemoryType(MemoryType::Shared);
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
+  }
+
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({2, 4});
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    fusion.addOutput(tv2);
+
+    tv1->setMemoryType(MemoryType::Shared);
+    tv1->axis(1)->parallelize(ParallelType::BIDx);
+    tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_EQ(ke.lastLaunchParams().smem(), 2 * sizeof(float));
+  }
+
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({2, 4});
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    fusion.addOutput(tv2);
+
+    tv1->setMemoryType(MemoryType::Shared);
+    tv1->inlineAt(1);
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_EQ(ke.lastLaunchParams().smem(), 4 * sizeof(float));
+  }
+
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({2, 4});
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    fusion.addOutput(tv2);
+
+    tv1->setMemoryType(MemoryType::Shared);
+    tv1->inlineAt(1);
+    tv1->axis(1)->parallelize(ParallelType::BIDx);
+    tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_EQ(ke.lastLaunchParams().smem(), 1 * sizeof(float));
+  }
+
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({2, 4});
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    fusion.addOutput(tv2);
+
+    tv1->setMemoryType(MemoryType::Shared);
+    tv1->inlineAt(1);
+    tv1->axis(0)->parallelize(ParallelType::TIDx);
+    tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
   }
 } /*
 ```
 
-blabla
+The generated kernel looks like this (modified to neglect minor details):
+```CUDA
+__global__ void kernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
+  Array<float, 8, 1> T1;
+  for(int i0 = 0; i0 < 2; ++i0) {
+    for(int i2 = 0; i2 < 4; ++i2) {
+      T1[4 * i0 + i2] = T0[4 * i0 + i2];
+    }
+  }
+  for(int i3 = 0; i3 < 2; ++i3) {
+    for(int i5 = 0; i5 < 4; ++i5) {
+      T2[4 * i3 + i5] = T1[4 * i3 + i5];
+    }
+  }
+}
+```
+
+In this kernel, because the computation of `T1` is not inlined, `T1` is
+allocated in the top scope of the kernel in full size.
 
 <!-- */
 } // namespace nvfuser
