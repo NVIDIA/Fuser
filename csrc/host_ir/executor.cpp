@@ -640,12 +640,11 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   const auto current_stream = reinterpret_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
 
   if (is_receiver) {
-    std::cout << "RANK " << my_rank << " RECV, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << ", my_buffer.ptr()=" << my_buffer.ptr() << ", buffer.data_ptr()=" << buffer.data_ptr() << "recv tensor=" << buffer << std::endl;
-    // signal to self that transfer is in progress
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT));
-    // signal sender that receiver is ready
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, remote_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT)); // passing CU_STREAM_WRITE_VALUE_NO_MEMORY_BARRIER gives an error
-    std::cout << "RANK " << my_rank << " RECV BEFORE MEMCPY, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << ", my_buffer.ptr()=" << my_buffer.ptr() << ", buffer.data_ptr()=" << buffer.data_ptr() << "recv tensor=" << buffer << std::endl;
+    // wait for sender to be ready
+    std::cout << "RANK " << my_rank << " RECV, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << std::endl;
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WAIT_VALUE_EQ));
+    std::cout << "RANK " << my_rank << " RECV after 1st WAIT" << ", buffer.data_ptr()=" << buffer.data_ptr() << ", my_buffer.ptr()=" << my_buffer.ptr() << ", sent tensor=" << buffer << ", buffer.numel()=" << buffer.numel() << ", buffer.element_size()=" << buffer.element_size() << std::endl;
+    // RDMA get the data from the sender
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
         buffer.data_ptr(),
         peer_buffer.ptr(),
@@ -654,13 +653,19 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
         cudaMemcpyDeviceToDevice
         // current_stream));
         ));
-    std::cout << "RANK " << my_rank << " RECV AFTER MEMCPY, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << ", my_buffer.ptr()=" << my_buffer.ptr() << ", buffer.data_ptr()=" << buffer.data_ptr() << "recv tensor=" << buffer << std::endl;
+    std::cout << "RANK " << my_rank << " RECV after memcpy" << std::endl;
+    // Signals completion to self
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
+    // Signals completion to receiver
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, remote_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
   } else /*sender*/ {
-    std::cout << "RANK " << my_rank << " SEND, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << std::endl;
-    // wait for sender to be ready
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WAIT_VALUE_EQ));
-    std::cout << "RANK " << my_rank << " SEND after 1st WAIT" << ", buffer.data_ptr()=" << buffer.data_ptr() << ", my_buffer.ptr()=" << my_buffer.ptr() << ", sent tensor=" << buffer << ", buffer.numel()=" << buffer.numel() << ", buffer.element_size()=" << buffer.element_size() << std::endl;
-    // RDMA writes data from sender to receiver
+    std::cout << "RANK " << my_rank << " SEND, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << ", my_buffer.ptr()=" << my_buffer.ptr() << ", buffer.data_ptr()=" << buffer.data_ptr() << "recv tensor=" << buffer << std::endl;
+    std::cout << "RANK " << my_rank << " SEND BEFORE signaling, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << ", my_buffer.ptr()=" << my_buffer.ptr() << ", buffer.data_ptr()=" << buffer.data_ptr() << "recv tensor=" << buffer << std::endl;
+    // signal to self that transfer is in progress
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT));
+    // signal to receiver that the buffer is ready
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, remote_semaphore, (cuuint32_t)(IpcSemaphore::kTransferInProgress), CU_STREAM_WRITE_VALUE_DEFAULT)); // passing CU_STREAM_WRITE_VALUE_NO_MEMORY_BARRIER gives an error
+    std::cout << "RANK " << my_rank << " SEND AFTER signaling, peer=" << peer << ", local semaphore=" << local_semaphore << ", remote semaphore=" << remote_semaphore << ", my_buffer.ptr()=" << my_buffer.ptr() << ", buffer.data_ptr()=" << buffer.data_ptr() << "recv tensor=" << buffer << std::endl;
     // NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
     // NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
     //     peer_buffer.ptr(),
@@ -670,11 +675,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     //     cudaMemcpyDeviceToDevice
     //     // current_stream));
     //     ));
-    std::cout << "RANK " << my_rank << " SEND after memcpy" << std::endl;
-    // Signals completion to self
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
-    // Signals completion to receiver
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(current_stream, remote_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WRITE_VALUE_DEFAULT));
   }
 }
 
@@ -698,8 +698,7 @@ void HostIrEvaluator::handle(Wait* wait) {
   const auto dst = expr_evaluator_.evaluate(p2p_comm->dst()).as<int64_t>();
   const auto src = expr_evaluator_.evaluate(p2p_comm->src()).as<int64_t>();
   const int64_t my_rank = communicator_->deviceId();
-  const bool is_receiver = my_rank == dst;
-  if (is_receiver) {
+  if (my_rank == src) {
     const auto current_stream = static_cast<CUstream>(c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     at::Tensor buffer = getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_);
     const auto it = remote_buffers_.find(buffer);
@@ -707,7 +706,7 @@ void HostIrEvaluator::handle(Wait* wait) {
     const std::vector<std::unique_ptr<RemoteBufferInfo>>& remote_buffers = it->second;
 
     const RemoteBufferInfo& my_buffer = *remote_buffers.at(my_rank);
-    const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[src]);
+    const auto local_semaphore = reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[dst]);
 
     std::cout << "RANK " << my_rank << " WAIT RECV BEFORE cuStreamWaitValue32 on local semaphore " << local_semaphore << std::endl;
     NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(current_stream, local_semaphore, (cuuint32_t)(IpcSemaphore::kReady), CU_STREAM_WAIT_VALUE_EQ));

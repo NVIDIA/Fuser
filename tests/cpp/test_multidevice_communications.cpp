@@ -448,8 +448,8 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   auto wait_send = IrBuilder::create<hir::Wait>(send);
 
   container->pushBackTopLevelExprs(share_mem_handles);
-  container->pushBackTopLevelExprs(recv);
   container->pushBackTopLevelExprs(send);
+  container->pushBackTopLevelExprs(recv);
   container->pushBackTopLevelExprs(wait_recv);
   container->pushBackTopLevelExprs(wait_send);
 
