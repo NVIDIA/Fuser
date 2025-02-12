@@ -432,6 +432,27 @@ domain must satisfy specific patterns. For the case of a TMem store `T0_t ->
 T1_r`, the loop domain of `T1_r` and allocation domain of `T0_t` must satisfy
 specific patterns.
 
+The specific patterns of TMem accessing is specified in the
+[PTX-documentation](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout).
+These patterns are:
+
+**32x32b:**
+![32x32b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-3232b.png)
+
+**16x64b:**
+![16x64b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-1664b.png)
+
+**16x128b:**
+![16x128b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-16128b.png)
+
+**16x256b:**
+
+![16x256b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-16256b.png)
+
+**16x32bx2:**
+
+![16x32bx2](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-1632b2.png)
+
 <!-- */
 } // namespace nvfuser
 // \-->
