@@ -99,7 +99,10 @@ int64_t computeSharedMemory(
           dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
-
+      std::cout << "smem_alloc: " << smem_alloc->buffer()->toInlineString()
+                << ", size_val: " << size_val
+                << ", first_byte: " << first_byte
+                << ", last_byte: " << last_byte << std::endl;
       total = std::max(total, last_byte);
     }
   }

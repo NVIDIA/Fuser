@@ -1483,14 +1483,14 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   fusion.addInput(input);
   fusion.addInput(weight);
   fusion.addInput(bias);
-  if (dtype == DataType::Half) {
+  if (dtype == DataType::BFloat16) {
     input = castOp(DataType::Float, input);
     weight = castOp(DataType::Float, weight);
     bias = castOp(DataType::Float, bias);
   }
   auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-  if (dtype == DataType::Half) {
-    result.output = castOp(DataType::Half, result.output);
+  if (dtype == DataType::BFloat16) {
+    result.output = castOp(DataType::BFloat16, result.output);
   }
   fusion.addOutput(result.output);
   fusion.addOutput(result.mean);
@@ -1583,8 +1583,8 @@ INSTANTIATE_TEST_SUITE_P(
     PersistentBufferTest,
     LayerNormSharedMemoryTest,
     ::testing::Combine(
-        ::testing::Values(DataType::Float),
-        // ::testing::Values(DataType::Half, DataType::Float),
+        // ::testing::Values(DataType::Float),
+        ::testing::Values(DataType::BFloat16, DataType::Float),
         ::testing::Values((int64_t)4096, (int64_t)16384, (int64_t)25600, (int64_t)33792)),
         // ::testing::Range((int64_t)25600, (int64_t)81921, (int64_t)409600)),
     [](const testing::TestParamInfo<TestParam>& info) {
@@ -1665,6 +1665,28 @@ INSTANTIATE_TEST_SUITE_P(
 // 16k x 16384, pipe, 4 x 8 x 512, 53%, 1 bpsm, 2 x 8K blocks, 55.4 waves, cost 110.8
 // 16k x 16383, pipe, 4 x 8 x 512, 54%, 1 bpsm, 3 x 5461 blocks, 36.9 waves, cost 110.8
 // 16k x 16383, warp, 4 x 8 x 512, 52%, 1 bpsm, 3 x 5461 blocks, 36.9 waves, cost 110.8
+
+// 16k x 4096, main, 4 x 8 x 128, 76%, 8 bpsm, 1 x 16K blocks, 13.8 waves
+// 16k x 4096, pipe, 4 x 8 x 128, 33%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 1
+// 16k x 4096, pipe, 4 x 8 x 128, 35%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 2
+// 16k x 4096, pipe, 4 x 8 x 128, 33%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 3
+// 16k x 4096, pipe, 4 x 8 x 128, 32%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 4
+// 16k x 4096, pipe, 4 x 8 x 128, 79%, 1 bpsm, 2 x 8K blocks,  13.8 waves, prefetch 4
+
+// fp16
+// 16k x 4096, main, 4 x 8 x 128, 60%, 9 bpsm, 1 x 16K blocks, 56 regs
+// 16k x 4096, main, 4 x 8 x 128, 53%, 5 bpsm, 1 x 16K blocks, 96 regs
+// 16k x 4096, main, 4 x 8 x 128, 60%, 10 bpsm, 2 x 8K blocks, 48 regs
+
+// fp16
+// 8k x 4096, main, 4 x 8 x 128, 60%, 9 bpsm, 1 x 16K blocks, 56 regs
+// 8k x 4096, main, 4 x 8 x 128, 56%, 10 bpsm, 2 x 8K blocks, 48 regs
+// 8k x 4096, main, 4 x 8 x 128, 46%, 6 bpsm,  4 x 4K blocks, 61 regs
+// 8k x 4096, main, 4 x 8 x 128, 53%, 5 bpsm,  4 x 4K blocks, 95 regs, preldg, fetch 1
+// 8k x 4096, main, 4 x 8 x 128, 43%, 4 bpsm,  4 x 4K blocks, 115 regs, preldg, fetch 2
+// 8k x 4096, main, 4 x 8 x 128, 48%, 5 bpsm,  4 x 4K blocks, 96 regs, preldg, fetch 2, no fetch unroll
+// 8k x 4096, main, 4 x 8 x 128, 41%, 4 bpsm,  4 x 4K blocks, 100 regs, preldg, fetch 3
+// 8k x 4096, main, 4 x 8 x 128, 45%, 4 bpsm,  4 x 4K blocks, 105 regs, preldg, fetch 3, no fetch unroll
 
 // 2048, main, 4 x 2 x 256, 46%
 // 2048, set1, 4 x 2 x 256, stages = 2, 37%

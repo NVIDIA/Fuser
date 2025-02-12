@@ -167,7 +167,7 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(
         outer_i++, rparams->batches_per_block_inner_reduction, false);
 
-    if(!rparams->use_tma_load){
+    if (!rparams->use_tma_load) {
       outer_unswitch(outer_i++);
     }
 
@@ -302,7 +302,6 @@ TensorView* scheduleReductionTV(
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
     }
-
   }
 
   std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
@@ -678,9 +677,7 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
     auto new_i = new_i_it->second;
     reorder_map[old_i] = new_i;
   }
-  if(std::getenv("USE_MAIN")) {
-    reference_tv->reorder(reorder_map);
-  } 
+  reference_tv->reorder(reorder_map);
 
   std::vector<int64_t> rfactor_axes;
   std::vector<int64_t> rfactor_axes_no_unswitch;
@@ -1021,6 +1018,40 @@ void sharedMemoryConsumerVectorization(
     }
     tv->axis(vect_axis_pos)->parallelize(ParallelType::Vectorize);
   }
+}
+
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : c10::irange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isBroadcast(); })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
 }
 
 } // namespace reduction_scheduler_utils

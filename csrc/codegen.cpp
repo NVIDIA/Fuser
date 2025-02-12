@@ -3032,7 +3032,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->circularBufferLoopStage() !=
+    if (std::getenv("NO_FETCH_UNROLL") == nullptr && loop->circularBufferLoopStage() !=
         CircularBufferLoopStage::NotApplicable) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler

@@ -1515,22 +1515,23 @@ void schedulePersistentKernel(
       }
     }
 
-    // tma tvs are excluded in transform propagation
+    // tma tvs are excluded in transform propagation, to add a valid path from
+    // reduction tv to output tv, needs to connect pre-reduction tv and
+    // post-reduction tv with dummy outputs
     if (!rparams->project_persistent_buffers) {
       for (auto tv : tma_tvs) {
         const auto& consumers = ir_utils::consumerTvsOf(tv);
-        // find a pre-reduction consumer
         TensorView* pre_redu_tv = nullptr;
         TensorView* post_redu_tv = nullptr;
         for (auto tv : consumers) {
           if (DependencyCheck::isDependencyOf(tv, reduction_tv)) {
             pre_redu_tv = tv;
             continue;
-          }else{
+          } else {
             post_redu_tv = tv;
             continue;
           }
-          if(pre_redu_tv && post_redu_tv) {
+          if (pre_redu_tv && post_redu_tv) {
             break;
           }
         }
@@ -1554,10 +1555,9 @@ void schedulePersistentKernel(
 
     // propagate reduction domains
     TransformPropagator propagator(reference_tv);
-    std::vector<TensorView*> all_tvs_except_cache =
+    std::vector<TensorView*> non_tma_tvs =
         ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
-    SetSelector selector(
-        {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+    SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
     MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
         .traverse(&propagator);
   } else {
@@ -1600,10 +1600,45 @@ void schedulePersistentKernel(
     for (auto tv : tma_tvs) {
       tv->axis(-1)->parallelize(ParallelType::Bulk);
     }
+    if (std::getenv("PRELDG")) {
+      // If a cached input is used by outer broadcast tvs e.g. weights and bias
+      // in layer norm, don't inline them. We want to prefetch them into
+      // registers at the begining of the kernel to avoid issuing memory load
+      // instructions during the computation stage.
+      const auto& outer_broadcast_tvs =
+          reduction_scheduler_utils::getOuterBroadcastTvs(
+              fusion, reduction_tvs);
+      std::vector<TensorView*> cached_input_outer_broadcast_tvs;
+      for (auto tv : cached_inputs) {
+        // tma tvs don't need special handling
+        if (std::find(tma_tvs.begin(), tma_tvs.end(), tv) != tma_tvs.end()) {
+          continue;
+        }
+        // cached input used by outer broadcast tensors needs to be prefetch
+        if (std::any_of(
+                outer_broadcast_tvs.begin(),
+                outer_broadcast_tvs.end(),
+                [&tv](TensorView* bcast_tv) {
+                  return DependencyCheck::isDependencyOf(tv, bcast_tv);
+                })) {
+          cached_input_outer_broadcast_tvs.push_back(tv);
+        }
+      }
+      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
+          fusion,
+          {cached_input_outer_broadcast_tvs.begin(),
+           cached_input_outer_broadcast_tvs.end()});
+      inlineMost(all_tvs_except_special);
+    } else if (std::getenv("PRESMEM")) {
+      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
+          fusion, {smem_consumers.begin(), smem_consumers.end()});
+      inlineMost(all_tvs_except_special);
+    } else {
+      inlineMost();
+    }
+  } else {
+    inlineMost();
   }
-
-  // Inline the schedule
-  inlineMost();
 
   // circular buffer
   if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {
