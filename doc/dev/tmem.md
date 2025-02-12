@@ -5,6 +5,11 @@
 > It is difficult to avoid them. But they should not affect reading.
 > All the unit tests displayed here are executable from the `tutorial` binary
 
+To see prints in the test, change below to `true`:<!-- */ //-->\
+```cpp
+constexpr static bool verbose = false; /*
+```
+
 # Tensor Memory Support in NVFuser
 <!--
 */
@@ -43,12 +48,23 @@ will give us a rough idea of how tensor memory should behave.
 
 ## Review of inlining and parallelization
 
-<!-- */ //-->\
+Let's consider a simple gmem->register->gmem copy kernel. The first kernel we
+look at is a kernel without any inlining and parallelization:<!-- */ //-->\
 ```cpp
-int main() {} /*
+TEST_F(ReviewInliningParallelization, GRGCopy1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 4});
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  fusion.printKernel();
+} /*
 ```
 
-blabla
+ blabla
 
 <!-- */
 } // namespace nvfuser
