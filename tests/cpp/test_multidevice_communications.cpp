@@ -413,7 +413,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
     testing::PrintToStringParamName());
 
-using P2PCommunicationTest = MultiDeviceTest; 
+using P2PCommunicationTest = MultiDeviceTest;
 
 TEST_F(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
@@ -440,10 +440,13 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   container->addInput(send_tv);
   container->addInput(recv_tv);
 
-  auto recv = IrBuilder::create<P2PCommunication>(recv_tv, my_rank_val, recv_peer_val, CommunicatorBackend::kCuda);
-  auto send = IrBuilder::create<P2PCommunication>(send_tv, send_peer_val, my_rank_val, CommunicatorBackend::kCuda);
+  auto recv = IrBuilder::create<P2PCommunication>(
+      recv_tv, my_rank_val, recv_peer_val, CommunicatorBackend::kCuda);
+  auto send = IrBuilder::create<P2PCommunication>(
+      send_tv, send_peer_val, my_rank_val, CommunicatorBackend::kCuda);
   std::vector<P2PCommunication*> grouped_communications = {recv, send};
-  auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(std::move(grouped_communications));
+  auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
+      std::move(grouped_communications));
   auto wait_recv = IrBuilder::create<hir::Wait>(recv);
   auto wait_send = IrBuilder::create<hir::Wait>(send);
 
@@ -458,17 +461,21 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options);
   at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options);
 
-  std::unordered_map<Val*, c10::IValue> inputs = {{send_tv, send_tensor}, {recv_tv, recv_tensor}};
+  std::unordered_map<Val*, c10::IValue> inputs = {
+      {send_tv, send_tensor}, {recv_tv, recv_tensor}};
 
   for (auto repetition : c10::irange(kNumRepetitions)) {
-    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition * 10 + 100 * my_rank);
-    std::cout << "RANK " << my_rank << " REPETITION " << repetition << ", send_peer=" << send_peer << ", recv_peer=" << recv_peer << ", send_tensor=" << send_tensor << std::endl;
+    send_tensor.copy_(
+        at::arange(kTensorSize, tensor_options) + repetition * 10 +
+        100 * my_rank);
 
     executor.runWithInput(inputs);
 
-    std::cout << "RANK " << my_rank << " validation at" << " REPETITION " << repetition << std::endl;
-    auto ref = at::arange(kTensorSize, tensor_options) + repetition * 10 + 100 * recv_peer;
-    EXPECT_TRUE(torch::allclose(recv_tensor, ref)) << "Rank " << my_rank << " failed at repetition " << repetition << " with recv tensor " << recv_tensor << " and ref " << ref;
+    auto ref = at::arange(kTensorSize, tensor_options) + repetition * 10 +
+        100 * recv_peer;
+    EXPECT_TRUE(torch::allclose(recv_tensor, ref))
+        << "Rank " << my_rank << " failed at repetition " << repetition
+        << " with recv tensor " << recv_tensor << " and ref " << ref;
   }
 }
 

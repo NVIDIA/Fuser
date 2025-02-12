@@ -5,6 +5,7 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <cuda.h>
 #include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
@@ -13,7 +14,6 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_kernels.h>
-#include <cuda.h>
 
 namespace nvfuser {
 
@@ -148,9 +148,12 @@ TEST_F(StreamOpTest, StreamWriteValue32) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(0));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamCreate(&stream));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&buf, sizeof(int)));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(buf, &value, sizeof(int), cudaMemcpyHostToDevice, stream));
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(stream, (CUdeviceptr)buf, new_value, CU_STREAM_WRITE_VALUE_DEFAULT));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(&value, buf, sizeof(int), cudaMemcpyDeviceToHost, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      buf, &value, sizeof(int), cudaMemcpyHostToDevice, stream));
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream, (CUdeviceptr)buf, new_value, CU_STREAM_WRITE_VALUE_DEFAULT));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      &value, buf, sizeof(int), cudaMemcpyDeviceToHost, stream));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
   EXPECT_EQ(value, new_value);
 }

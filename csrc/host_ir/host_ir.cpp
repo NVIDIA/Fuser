@@ -323,8 +323,10 @@ std::string EndCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-
-ShareMemHandles::ShareMemHandles(IrBuilderPasskey passkey, std::vector<P2PCommunication*> communications) : Expr(passkey) {
+ShareMemHandles::ShareMemHandles(
+    IrBuilderPasskey passkey,
+    std::vector<P2PCommunication*> communications)
+    : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<HostIrContainer>(),

@@ -318,7 +318,9 @@ class EndCoalescing : public Expr {
 class ShareMemHandles : public Expr {
  public:
   using Expr::Expr;
-  ShareMemHandles(IrBuilderPasskey passkey, std::vector<P2PCommunication*> communications);
+  ShareMemHandles(
+      IrBuilderPasskey passkey,
+      std::vector<P2PCommunication*> communications);
 
   ShareMemHandles(const ShareMemHandles& other) = delete;
   ShareMemHandles& operator=(const ShareMemHandles& other) = delete;

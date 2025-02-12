@@ -11,10 +11,9 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 // #include <cuda.h>
-#include <driver_api.h>
-#include <cuda_utils.h>
 #include <cuda_runtime.h>
-
+#include <cuda_utils.h>
+#include <driver_api.h>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>

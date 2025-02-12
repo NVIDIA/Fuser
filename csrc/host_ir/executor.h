@@ -50,14 +50,10 @@ class HostIrExecutor : public ExecutorAbstract {
 
 namespace hir {
 
-enum class IpcSemaphore : cuuint32_t {
-  kReady,
-  kTransferInProgress
-};
+enum class IpcSemaphore : cuuint32_t { kReady, kTransferInProgress };
 
 class RemoteBufferInfo {
  public:
-
   RemoteBufferInfo(at::Tensor tensor);
   RemoteBufferInfo(std::vector<uint8_t> data); // means it is imported
   ~RemoteBufferInfo();
@@ -189,7 +185,11 @@ class HostIrEvaluator final : public OptOutDispatch {
       return lhs.equal(rhs);
     }
   };
-  std::unordered_map<at::Tensor, std::vector<std::unique_ptr<RemoteBufferInfo>>, TensorHash, TensorEqual>
+  std::unordered_map<
+      at::Tensor,
+      std::vector<std::unique_ptr<RemoteBufferInfo>>,
+      TensorHash,
+      TensorEqual>
       remote_buffers_;
 };
 
