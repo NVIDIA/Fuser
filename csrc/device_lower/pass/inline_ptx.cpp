@@ -59,7 +59,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/wait->memory(),
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{0}}));
     }
   }
 
@@ -118,7 +122,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
-              kir::Asm::Options{/*volatile=*/true}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/false,
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{2}}));
     } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
       // TODO: support other types of ld/st
       auto ptx = "tcgen05.ld.sync.aligned.32x32b.x1.b32";
@@ -274,7 +282,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{
                 /*volatile=*/true,
                 /*memory=*/false,
-                /*readable_outputs=*/{0}}));
+                /*readable_outputs=*/{0},
+                /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
@@ -318,7 +327,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
-            kir::Asm::Options{/*volatile=*/true}));
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{},
+                /*immediate_inputs=*/{0}}));
   }
 
   void handle(kir::AllocTMem* alloc) final {
