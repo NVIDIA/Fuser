@@ -1,5 +1,6 @@
 /*
-> [!NOTE] This file is both a cpp and a Markdown.
+> [!NOTE]
+> This file is both a cpp and a Markdown.
 > You may see some strange symbols in the rendered Markdown.
 > It is difficult to avoid them. But they should not affect reading.
 <!--
