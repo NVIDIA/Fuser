@@ -410,7 +410,8 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 }
 
 void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
-  ipc_handle_cache_.exchangeHandles(share_mem_handles->communications(), expr_evaluator_);
+  ipc_handle_cache_.exchangeHandles(
+      share_mem_handles->communications(), expr_evaluator_);
 }
 
 void HostIrEvaluator::handle(Communication* communication) {
@@ -469,7 +470,8 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     return;
   }
 
-  const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(communication, expr_evaluator_);
+  const P2pIpcHandle& ipc_handles =
+      ipc_handle_cache_.get(communication, expr_evaluator_);
   const IpcHandle& peer_buffer = ipc_handles.peer();
   const auto local_semaphore =
       reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
@@ -549,7 +551,8 @@ void HostIrEvaluator::handle(Wait* wait) {
     at::Tensor buffer =
         getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_);
 
-    const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
+    const P2pIpcHandle& ipc_handles =
+        ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
     const auto local_semaphore =
         reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
 

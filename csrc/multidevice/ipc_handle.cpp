@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include<cuda_utils.h>
-#include<multidevice/communicator.h>
-#include<multidevice/ipc_handle.h>
+#include <cuda_utils.h>
+#include <multidevice/communicator.h>
+#include <multidevice/ipc_handle.h>
 
 namespace nvfuser {
 
@@ -27,7 +27,6 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 } // namespace
 
-
 IpcHandle::IpcHandle(at::Tensor tensor)
     : ptr_(tensor.data_ptr()),
       storage_offset_(tensor.storage_offset()),
@@ -35,15 +34,13 @@ IpcHandle::IpcHandle(at::Tensor tensor)
       rank_(Communicator::getInstance().deviceId()) {
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaIpcGetMemHandle(&ipc_handle_, tensor.data_ptr()));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(
-      (void**)&semaphore_, sizeof(IpcSemaphore)));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMalloc((void**)&semaphore_, sizeof(IpcSemaphore)));
   static_assert(
       sizeof(IpcSemaphore) == sizeof(int),
       "IpcSemaphore must be same size as int");
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(
-      (void*)semaphore_,
-      (int)IpcSemaphore::kReady,
-      sizeof(IpcSemaphore)));
+      (void*)semaphore_, (int)IpcSemaphore::kReady, sizeof(IpcSemaphore)));
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaIpcGetMemHandle(&semaphore_ipc_handle_, semaphore_));
 }
@@ -76,12 +73,14 @@ IpcHandle::~IpcHandle() {
   }
 }
 
-void IpcHandleCache::exchangeHandles(const std::vector<P2PCommunication*>& communications, const ExpressionEvaluator& expr_evaluator) {
+void IpcHandleCache::exchangeHandles(
+    const std::vector<P2PCommunication*>& communications,
+    const ExpressionEvaluator& expr_evaluator) {
   Communicator* communicator = &Communicator::getInstance();
   const int64_t my_rank = communicator->deviceId();
-  auto get_tensor = [&expr_evaluator](P2PCommunication* communication) -> at::Tensor {
-    return expr_evaluator.evaluate(communication->buffer())
-        .as<at::Tensor>();
+  auto get_tensor =
+      [&expr_evaluator](P2PCommunication* communication) -> at::Tensor {
+    return expr_evaluator.evaluate(communication->buffer()).as<at::Tensor>();
   };
 
   std::vector<P2PCommunication*> non_cached_communications;
@@ -92,7 +91,12 @@ void IpcHandleCache::exchangeHandles(const std::vector<P2PCommunication*>& commu
         expr_evaluator.evaluate(communication->src()).as<int64_t>();
     const bool is_sender = my_rank == src;
     const bool is_receiver = my_rank == dst;
-    NVF_ERROR(is_sender || is_receiver, "RANK ", my_rank, " is not involved in the p2p comm ", communication);
+    NVF_ERROR(
+        is_sender || is_receiver,
+        "RANK ",
+        my_rank,
+        " is not involved in the p2p comm ",
+        communication);
     if (is_sender && is_receiver) {
       continue;
     }
@@ -103,23 +107,24 @@ void IpcHandleCache::exchangeHandles(const std::vector<P2PCommunication*>& commu
   }
 
   // put memhandles to TCP store
-  auto get_tcp_store_key =
-      [&expr_evaluator](P2PCommunication* communication, int64_t rank) -> std::string {
+  auto get_tcp_store_key = [&expr_evaluator](
+                               P2PCommunication* communication,
+                               int64_t rank) -> std::string {
     return "nvfuser_ipc_handle_info_P2PComm_dst=" +
-        std::to_string(expr_evaluator.evaluate(communication->dst())
-                          .as<int64_t>()) +
+        std::to_string(
+               expr_evaluator.evaluate(communication->dst()).as<int64_t>()) +
         "_src=" +
-        std::to_string(expr_evaluator.evaluate(communication->src())
-                          .as<int64_t>()) +
+        std::to_string(
+               expr_evaluator.evaluate(communication->src()).as<int64_t>()) +
         "_rank=" + std::to_string(rank);
   };
   std::unordered_map<P2PCommunication*, std::unique_ptr<IpcHandle>>
       local_ipc_handles;
   auto store = communicator->getTcpStore();
   for (P2PCommunication* communication : non_cached_communications) {
-    auto buffer_handle =
-        std::make_unique<IpcHandle>(get_tensor(communication));
-    store->set(get_tcp_store_key(communication, my_rank), toBytes(*buffer_handle));
+    auto buffer_handle = std::make_unique<IpcHandle>(get_tensor(communication));
+    store->set(
+        get_tcp_store_key(communication, my_rank), toBytes(*buffer_handle));
     local_ipc_handles.emplace(communication, std::move(buffer_handle));
   }
 
@@ -130,27 +135,27 @@ void IpcHandleCache::exchangeHandles(const std::vector<P2PCommunication*>& commu
   // get memhandles from TCP store
   for (P2PCommunication* communication : non_cached_communications) {
     const auto dst =
-    expr_evaluator.evaluate(communication->dst()).as<int64_t>();
+        expr_evaluator.evaluate(communication->dst()).as<int64_t>();
     const auto src =
-    expr_evaluator.evaluate(communication->src()).as<int64_t>();
+        expr_evaluator.evaluate(communication->src()).as<int64_t>();
     int64_t peer = (my_rank == dst) ? src : dst;
 
     auto& local_ipc_handle = local_ipc_handles.at(communication);
 
     std::string key = get_tcp_store_key(communication, peer);
     NVF_ERROR(
-      store->check({key}),
-      "key ",
-      key,
-      " not found in store at rank ",
-      my_rank);
+        store->check({key}),
+        "key ",
+        key,
+        " not found in store at rank ",
+        my_rank);
     auto peer_ipc_handle = std::make_unique<IpcHandle>(store->get(key));
 
-    auto ipc_handles = std::make_unique<P2pIpcHandle>(std::move(local_ipc_handle), std::move(peer_ipc_handle));
+    auto ipc_handles = std::make_unique<P2pIpcHandle>(
+        std::move(local_ipc_handle), std::move(peer_ipc_handle));
 
-    insert(
-      communication, expr_evaluator, std::move(ipc_handles));
+    insert(communication, expr_evaluator, std::move(ipc_handles));
   }
 }
 
-} // nvfuser
+} // namespace nvfuser
