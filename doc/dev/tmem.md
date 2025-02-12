@@ -437,23 +437,36 @@ The specific patterns of TMem accessing is specified in the
 These patterns are:
 
 <details>
-<summary> **32x32b:** </summary>
+<summary>32x32b:</summary>
 
 ![32x32b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-3232b.png)
 </details>
 
-**16x64b:**
+<details>
+<summary>16x64b:</summary>
+
 ![16x64b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-1664b.png)
+</details>
 
-**16x128b:**
+<details>
+<summary>16x128b:</summary>
+
 ![16x128b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-16128b.png)
+</details>
 
-**16x256b:**
+
+<details>
+<summary>16x256b:</summary>
+
 ![16x256b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-16256b.png)
+</details>
 
-**16x32bx2:**
+
+<details>
+<summary>16x32bx2:</summary>
 
 ![16x32bx2](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-1632b2.png)
+</details>
 
 <!-- */
 } // namespace nvfuser
