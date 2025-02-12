@@ -999,7 +999,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     // TMA allows us to avoid linear indexing
     // TODO: verify here that we will be able to use Int32 indexing. If not,
     // then disable use_smem_epilogue.
-    //mparams->cparams.index_type = PrimDataType::Int32;
+    // mparams->cparams.index_type = PrimDataType::Int32;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
