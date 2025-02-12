@@ -446,7 +446,6 @@ These patterns are:
 ![16x128b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-16128b.png)
 
 **16x256b:**
-
 ![16x256b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-16256b.png)
 
 **16x32bx2:**
