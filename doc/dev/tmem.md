@@ -235,8 +235,24 @@ TEST_F(ReviewInliningParallelization, GSGCopy1) {
 } /*
 ```
 
-In this kernel, because the computation of `T1` is not inlined, `T1` is
-allocated in the top scope of the kernel in full size.
+From the above example, we can see that:
+1. If the memory type of a tensor is distributed across a parallel type, then
+   IterDomains with this parallel type are not allocated, regardless of
+   the tensor's compute-at position.
+2. If the memory type of a tensor is shared among a parallel type, then
+   IterDomains with this parallel type are always allocated, regardless of
+   the tensor's compute-at position.
+3. Except for the above two rules, the allocation of a tensor is determined by
+   its compute-at position. IterDomains on the right of the compute-at position
+   are allocated, while IterDomains on the left of the compute-at position are
+   not allocated.
+
+Tensor memory is similar to shared memory, that is, it is distributed across
+`BIDx`, `BIDy`, `BIDz`, `DIDx`, `DIDy`, and `DIDz`, and shared across `TIDx`,
+`TIDy`, and `TIDz`. So the above rules applies to tensor memory the same way
+as they do to shared memory.
+
+## Tensor memory
 
 <!-- */
 } // namespace nvfuser
