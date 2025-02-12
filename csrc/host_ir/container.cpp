@@ -20,6 +20,9 @@ namespace nvfuser {
 
 namespace hir {
 
+HostIrContainer::HostIrContainer(int64_t num_kernel_executors)
+    : kernel_executors_(num_kernel_executors) {}
+
 HostIrContainer::~HostIrContainer() = default;
 
 Stream* HostIrContainer::getDefaultStream() {
@@ -41,12 +44,14 @@ const std::vector<Expr*>& HostIrContainer::topLevelExprs() const {
 
 void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
   assertInContainer(expr, "Cannot add expr, ");
-  return top_level_exprs_.push_back(expr);
+  top_level_exprs_.push_back(expr);
 }
 
-void HostIrContainer::pushBackKernelExecutor(
+void HostIrContainer::setKernelExecutor(
+    int64_t index,
     std::unique_ptr<KernelExecutor> ke) {
-  return kernel_executors_.push_back(std::move(ke));
+  NVF_ERROR(kernel_executors_.at(index) == nullptr);
+  kernel_executors_.at(index) = std::move(ke);
 }
 
 KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {

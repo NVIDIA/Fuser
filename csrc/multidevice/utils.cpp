@@ -623,20 +623,13 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 void reorderDIDToFront(TensorView* tv) {
-  // new position to old position
+  // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
 
   for (auto pos : c10::irange(tv->nDims())) {
     if (tv->axis(pos)->isDeviceDim()) {
-      order_map[current_pos] = pos;
-      current_pos++;
-    }
-  }
-
-  for (auto pos : c10::irange(tv->nDims())) {
-    if (!tv->axis(pos)->isDeviceDim()) {
-      order_map[current_pos] = pos;
+      order_map[pos] = current_pos;
       current_pos++;
     }
   }

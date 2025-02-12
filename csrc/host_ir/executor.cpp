@@ -89,20 +89,20 @@ namespace {
 // Host IR specific function, returns the at:Tensor (ordered list) associated
 // with the provdied Fusion output tv
 at::Tensor findBufferForFusionOutput(
-    const std::vector<at::Tensor>& out_tensors,
+    const KernelArgumentHolder& output_args,
     const Val* fusion_out,
     const Fusion* fusion) {
   auto i =
       std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
   NVF_ERROR(i != fusion->outputs().end());
   auto index = std::distance(fusion->outputs().begin(), i);
-  return out_tensors[index];
+  return output_args[index].as<at::Tensor>();
 }
 } // namespace
 
-std::vector<at::Tensor> HostIrExecutor::run(
+KernelArgumentHolder HostIrExecutor::run(
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder output_args) {
   FUSER_PERF_SCOPE("HostIrExecutor::run");
   if (isProfilerEnabled()) {
     NVF_CHECK(
@@ -118,10 +118,10 @@ std::vector<at::Tensor> HostIrExecutor::run(
   // Bind fusion inputs
   auto expr_eval = executor_utils::bindInputs(args, host_ir_container_.get());
 
-  if (outputs.empty()) {
+  if (output_args.empty()) {
     std::vector<GlobalBufferInfo> output_info = getBufferInfos(
         expr_eval, PrimDataType::Int, host_ir_container_->outputs());
-    outputs = allocateOutputs(
+    output_args = allocateOutputs(
         host_ir_container_.get(),
         output_info,
         c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
@@ -136,7 +136,7 @@ std::vector<at::Tensor> HostIrExecutor::run(
         communicator_->getBackendForTeam(communication->team(), std::nullopt);
     auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
     at::Tensor out_tensor = findBufferForFusionOutput(
-        outputs, communication->out(), host_ir_container_.get());
+        output_args, communication->out(), host_ir_container_.get());
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -151,7 +151,7 @@ std::vector<at::Tensor> HostIrExecutor::run(
     FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
     FusionProfiler::segment(group_id_).stopKernel();
   }
-  return outputs;
+  return output_args;
 }
 
 namespace hir {
@@ -166,7 +166,7 @@ at::Tensor getKnownTensorOrUndefined(
       : at::Tensor();
 }
 
-std::vector<at::Tensor> getKnownTensorOrUndefined(
+KernelArgumentHolder getKnownTensorOrUndefined(
     const std::vector<Val*>& vals,
     const ExpressionEvaluator& expr_evaluator) {
   std::vector<at::Tensor> tensors(vals.size());
@@ -177,7 +177,7 @@ std::vector<at::Tensor> getKnownTensorOrUndefined(
       [&expr_evaluator](Val* val) -> at::Tensor {
         return getKnownTensorOrUndefined(val, expr_evaluator);
       });
-  return tensors;
+  return KernelArgumentHolder(tensors);
 }
 
 } // namespace
@@ -189,7 +189,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -204,13 +204,7 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
-  // process input values
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
-  }
-
+KernelArgumentHolder HostIrEvaluator::dispatchAndCollectOutputs() {
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -219,6 +213,16 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
+KernelArgumentHolder HostIrEvaluator::runWithInput(
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    expr_evaluator_.bind(val, pvalue);
+  }
+
+  return dispatchAndCollectOutputs();
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -279,13 +283,13 @@ void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
   streams_.insert(
       {get_current_stream->stream(),
        c10::cuda::getCurrentCUDAStream(
-           static_cast<c10::DeviceIndex>(my_device_index_))});
+           static_cast<c10::DeviceIndex>(my_local_device_index_))});
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
   cudaStream_t current_stream =
       c10::cuda::getCurrentCUDAStream(
-          static_cast<c10::DeviceIndex>(my_device_index_))
+          static_cast<c10::DeviceIndex>(my_local_device_index_))
           .stream();
   cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
 
@@ -299,9 +303,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 }
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
-  std::vector<c10::IValue> input_IValues;
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+  KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -309,23 +311,27 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         input,
         " for handling ",
         launch_kernel->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    args.push(input_evaluation);
+    args.push(expr_evaluator_.evaluate(input));
   }
 
   // run the compiled kernel
-  std::vector<at::Tensor> outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
+  KernelArgumentHolder outputs =
+      container_->getKernelExecutor(launch_kernel->getIndex())
+          ->run(
+              args,
+              {},
+              launch_kernel->launch_params(),
+              launch_kernel->compile_params());
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
     expr_evaluator_.bind(
-        launch_kernel->outputs().at(output_idx), outputs.at(output_idx));
+        launch_kernel->outputs().at(output_idx), outputs[output_idx]);
   }
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
-  std::vector<c10::IValue> input_IValues;
+  KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -333,25 +339,11 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         input,
         " for handling ",
         post_ir->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    c10::IValue value;
-    if (input_evaluation.is<at::Tensor>()) {
-      value = input_evaluation.as<at::Tensor>();
-    } else if (input_evaluation.is<int64_t>()) {
-      value = at::Scalar(input_evaluation.as<int64_t>());
-    } else {
-      NVF_ERROR(
-          "Wrong type ",
-          input_evaluation.type().name(),
-          " for the PolymorphicValue ",
-          input_evaluation,
-          ", must be at::Tensor or int64_t");
-    }
-    input_IValues.push_back(value);
+    input_args.push(expr_evaluator_.evaluate(input));
   }
 
   // placeholder for storing the outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   NVF_ERROR(
       post_ir->hostOpToPost()->isA<HostUnit>(),
@@ -368,43 +360,41 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
-    outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
+    outputs = fec_.at(hu).runFusionWithInputs(input_args);
   } else {
     // This path should generally be avoided as it will likely send the fusion
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      KernelArgumentHolder args =
-          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = KernelArgumentHolder(ExecutorDispatch::run(ea, input_args));
 
     } else {
-      DynamicTransform::concretizeFusion(
-          hu->fusion_to_execute(), input_IValues);
+      DynamicTransform::concretizeFusion(hu->fusion_to_execute(), input_args);
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
                hu->fusion_to_execute(), 1, 1, 1, 1)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
-        KernelArgumentHolder args =
-            KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
         ExecutorDispatch::compile(
-            ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
+            ea,
+            hu->fusion_to_execute(),
+            input_args,
+            LaunchParams(),
+            CompileParams());
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      KernelArgumentHolder args =
-          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = KernelArgumentHolder(
+          ExecutorDispatch::run(ea, input_args, KernelArgumentHolder{}));
     }
   }
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
     expr_evaluator_.bind(
-        post_ir->outputs().at(output_idx), outputs.at(output_idx));
+        post_ir->outputs().at(output_idx), outputs[output_idx]);
   }
 }
 

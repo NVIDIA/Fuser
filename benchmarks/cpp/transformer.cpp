@@ -63,7 +63,7 @@ void forward_transformer(
   auto mlp_w1 = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
-  std::vector<c10::IValue> at_inputs = {
+  KernelArgumentHolder args = {
       sequence_parallel ? shardTensor(x, 0, mesh, communicator).unsqueeze(0)
                         : x,
       ln0_w,
@@ -96,7 +96,7 @@ void forward_transformer(
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("FwdIteration" + std::to_string(i)).c_str());
     }
-    auto outputs = fec->runFusionWithInputs(at_inputs);
+    auto outputs = fec->runFusionWithInputs(args);
 
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
@@ -151,7 +151,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto mha_linear0 = at::rand({B * S, 3 * E}, options);
   auto mlp_linear1 = at::rand({B * S, 4 * E}, options);
 
-  std::vector<c10::IValue> at_inputs = {
+  KernelArgumentHolder args = {
       x,
       grad,
       shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator)
@@ -179,7 +179,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
 
   DistributedTransformer model(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.backward(dtype);
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   cudaSetDevice(communicator->deviceId());
   auto start = std::chrono::high_resolution_clock::now();
@@ -191,7 +191,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("BwdIteration" + std::to_string(i)).c_str());
     }
-    outputs = fec->runFusionWithInputs(at_inputs);
+    outputs = fec->runFusionWithInputs(args);
 
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();

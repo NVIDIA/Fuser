@@ -102,15 +102,15 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
       MmaLayout::TN, M, N, K, /*dtype=*/at::kFloat);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
-  std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
+  KernelArgumentHolder args = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -162,16 +162,16 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
-  std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
+  KernelArgumentHolder args = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -221,15 +221,15 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
 
-  std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
+  KernelArgumentHolder args = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -277,13 +277,13 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
       getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
-  std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
+  KernelArgumentHolder args = {shardTensor(in0, a), shardTensor(in1, b)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {out}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, args, {out}, __LINE__, __FILE__);
 
   const FusionKernelRuntime* kernel_runtime =
       executor_cache.getMostRecentKernelRuntime();
@@ -334,15 +334,15 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
   out = out.view({Mo, Mi, N});
-  std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
+  KernelArgumentHolder args = {shardTensor(in0, a), shardTensor(in1, b)};
   auto expected_output = shardTensor(out, c).view({1, Mi, N});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -383,8 +383,8 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
+  KernelArgumentHolder args = {x_tensor, sharded_w_tensor};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   at::Tensor expected_mm_t_tensor =
       atMatmul(x_tensor, w_tensor.view({mesh.size() * 36, 48}), MmaLayout::TN)
@@ -393,7 +393,7 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {shardTensor(expected_mm_t_tensor, mm_t)},
       __LINE__,
       __FILE__);
@@ -426,14 +426,14 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
+  KernelArgumentHolder args = {x_tensor, sharded_w_tensor};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   at::Tensor expected_y_tensor = at::matmul(x_tensor, w_tensor);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {shardTensor(expected_y_tensor, 0, mesh)},
       __LINE__,
       __FILE__);
@@ -489,15 +489,14 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
     auto sharded_x = shardTensor(x_tensor, x);
     auto sharded_w = shardTensor(w_tensor, w);
 
-    std::vector<c10::IValue> in_tensors({sharded_x, sharded_w});
-    std::vector<at::Tensor> out_tensors =
-        executor_cache.runFusionWithInputs(in_tensors);
+    KernelArgumentHolder args = {sharded_x, sharded_w};
+    auto out_tensors = executor_cache.runFusionWithInputs(args);
 
     at::Tensor expected_y_tensor = at::linear(x_tensor, w_tensor);
     testValidate(
         executor_cache.fusion(),
         out_tensors,
-        in_tensors,
+        args,
         {expected_y_tensor},
         __LINE__,
         __FILE__);

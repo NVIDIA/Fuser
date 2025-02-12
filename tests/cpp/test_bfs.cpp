@@ -557,7 +557,6 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
   //   Split: iS4{( i0 * i2 )} by factor 4 -> iS5{( ceilDiv(( i0 * i2 ), 4) )},
   //   iS6{4}
   //  loop domain : (iS5{( ceilDiv(( i0 * i2 ), 4) )}, iS6{4})
-  fusion.print();
 
   auto iS5 = tv1->axis(0);
   auto iS6 = tv1->axis(1);

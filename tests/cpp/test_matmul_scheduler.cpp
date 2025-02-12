@@ -222,7 +222,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t6, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t6, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -307,7 +308,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
       16l / dataTypeSize(in_type),
       16l / dataTypeSize(out_type));
 
-  NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -412,7 +414,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
-  NVF_CHECK(outputs[0].allclose(t7, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t7, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -501,9 +504,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
       16l / dataTypeSize(out_type));
 
   // D tensor results
-  NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t3, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(outputs[1].allclose(t5, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t5, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -613,9 +618,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
-  NVF_CHECK(outputs[0].allclose(t6, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t6, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(outputs[1].allclose(t8, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t8, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -699,7 +706,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
       16l / dataTypeSize(in_type),
       16l / dataTypeSize(out_type));
 
-  NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -788,9 +796,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
       16l / dataTypeSize(out_type));
 
   // D tensor results
-  NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t3, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(outputs[1].allclose(t5, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t5, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -893,7 +903,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t7, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t7, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -1002,9 +1013,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
-  NVF_CHECK(outputs[0].allclose(t6, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t6, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(outputs[1].allclose(t8, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t8, abs_err_thr, rel_err_thr));
 }
 
 } // namespace
@@ -1150,7 +1163,7 @@ TEST_P(MatmulSchedulerTestWithLayout, BasicMatmulRelaxedCheck) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
@@ -1199,7 +1212,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for 'C = float2half(A x B)' fusion, for
@@ -1252,7 +1265,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for 'C = alpha * (A x B)' fusion, for
@@ -1308,7 +1321,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for 'C = float2half(alpha * (A x B))'
@@ -1366,7 +1379,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1437,7 +1450,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t5, 0.01, 0.04));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t5, 0.01, 0.04));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1513,7 +1526,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t6, 0.001, 0.004));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t6, 0.001, 0.004));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1596,7 +1609,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t8, 0.01, 0.06));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t8, 0.01, 0.06));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1676,14 +1689,14 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // t8 := (alpha * ((A x B) + bias)) + (beta * C)
   auto t8 = at::add(t6, t7);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
+  KernelArgumentHolder args = {t0, t1, t2, t3, alpha, beta};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t8, 0.01, 0.01));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t8, 0.01, 0.01));
 }
 
 // Strided batch gemm test taht uses matmul scheduler, for Ampere:
@@ -1736,7 +1749,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatch) {
   // NOTE: increasted absolute tolerance to silence false negative
   // verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t2, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t2, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with alpha and beta that uses matmul scheduler,
@@ -1811,7 +1824,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t6, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t6, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with alpha and beta scaling that uses matmul
@@ -1893,7 +1906,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaSingleBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t7, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t7, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with bias that uses matmul scheduler, for Ampere:
@@ -1954,7 +1967,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t4, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with single bias vector that uses matmul
@@ -2017,7 +2030,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueSingleBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t4, 0.0001, 0.0001));
 }
 
 // Test matmul with contiguous inputs but sizes that are not divisible by 8 and
@@ -2092,21 +2105,21 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
               at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
           auto bias = maybeUnalign(at::randn({M, N}, options), align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2128,7 +2141,8 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
         EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
         EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
-        EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        EXPECT_TRUE(
+            at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
       };
 
       [[maybe_unused]] bool contig_K_A =
@@ -2287,7 +2301,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
@@ -2295,14 +2309,14 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
           auto bias =
               padAndUnalign2D(at::randn({M, N}, options), pad_bias, align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2324,7 +2338,8 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
         EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
         EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
-        EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        EXPECT_TRUE(
+            at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
       };
 
       [[maybe_unused]] bool contig_K_A =
@@ -2701,7 +2716,6 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       atBiasEpilogue(
           at::matmul(a.to(at::kFloat), b.to(at::kFloat).t()), c.to(at::kFloat))
           .neg_();
-  std::vector<c10::IValue> inputs{t0, t1, c};
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2721,10 +2735,10 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       ->schedule(fusion.get(), &mparams);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams);
-  auto outputs = ke.run(inputs);
+  ke.compile(fusion.get(), {t0, t1, c}, LaunchParams(), matmul_cparams);
+  auto outputs = ke.run({t0, t1, c});
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Test automatically scheduling a fusion that requires 64-bit indexing
@@ -2753,18 +2767,17 @@ TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
   const int M = 1 << 16, N = 1 << 15, K = 1 << 8;
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  at::Tensor a = at::randn({M, K}, options);
-  at::Tensor b = at::randn({K, N}, options);
-  std::vector<c10::IValue> inputs{a, b};
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
 
-  at::Tensor tref = -at::matmul(a, b);
+  at::Tensor tref = -at::matmul(t0, t1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 
   if (!cudaArchGuardShouldSkip(9, 0)) {
     // The Hopper matmul scheduler should reject this fusion since it requires
@@ -2829,9 +2842,8 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({K, N}, options);
   auto t2 = at::randn({K, N}, options);
-  std::vector<c10::IValue> inputs{t0, t1, t2};
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   at::Tensor t3, t4;
   if (fusion_enabled) {
@@ -2847,7 +2859,7 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   }
   at::Tensor tref = ((at::sigmoid(t3) * t3) * t4);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
@@ -2983,7 +2995,7 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 // Same as above but without the the input tv1 being transposed.
@@ -3016,7 +3028,7 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
@@ -3052,7 +3064,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
@@ -3090,7 +3102,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 // Matmul test for Ampere MMA: across supported layouts
@@ -3127,7 +3139,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
@@ -3164,7 +3176,7 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
@@ -3201,7 +3213,7 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
 
   auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -3232,14 +3244,13 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   fusion->addOutput(mm);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto x_ref = at::randn({M, K}, options);
-  auto y_ref = at::randn({N, K}, options);
-  std::vector<c10::IValue> inputs{x_ref, y_ref};
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto tref = at::linear(t0.to(at::kFloat), t1.to(at::kFloat));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 using HopperMatmulSchedulerTestParams = std::tuple<
@@ -3365,7 +3376,7 @@ class HopperMatmulSchedulerTest
     KernelExecutor ke;
     ke.compile(fusion, inputs, LaunchParams(), matmul_cparams);
     auto nvf_out = ke.run(inputs);
-    EXPECT_TRUE(at::allclose(nvf_out.at(0), tref, 1e-2, 1e-2));
+    EXPECT_TRUE(at::allclose(nvf_out[0].as<at::Tensor>(), tref, 1e-2, 1e-2));
   }
 
  protected:
@@ -3383,7 +3394,7 @@ class HopperMatmulSchedulerTest
 
   MatmulParams mparams;
 
-  std::vector<c10::IValue> inputs;
+  KernelArgumentHolder inputs;
 
   // Tests should place the reference tensor here
   at::Tensor tref;

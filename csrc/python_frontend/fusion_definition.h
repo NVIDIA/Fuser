@@ -177,15 +177,15 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void finalizeDefinition();
   //! Check that a user schedule exists for FusionDefinition and input
   //! arguments on device.
-  NVF_API bool existSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API bool existSchedule(const KernelArgumentHolder& args);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& args,
       bool overwrite_existing_schedule = false);
   //! Finalized use scheduling of a fusion
   //! resets FusionGuard, lowers IR to a kernel, compiles kernel
-  NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void finalizeSchedule(const KernelArgumentHolder& args);
   //! A hook that gets called right before
   //! FusionDefinition.multidevice_schedule.
   NVF_API void setupMultideviceSchedule();
@@ -212,7 +212,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! method. This would be similar to getDebugOutput. I didn't choose that
   //! because it introduced a new state in the class that could get out of sync.
   NVF_API std::vector<DistributedTensor> execute(
-      const at::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder inputs,
       std::optional<int8_t> device,
       bool override_user_schedule,
       bool capture_debug_output,
@@ -226,7 +226,7 @@ class NVF_API FusionDefinition : public FusionState {
   }
   // Returns the tolerances values based on reduction sizes.
   NVF_API std::vector<std::pair<double, double>> getValTolerances(
-      const at::ArrayRef<c10::IValue>& inputs);
+      const KernelArgumentHolder& inputs);
 
   //! Return the unscheduled Fusion IR
   NVF_API std::string fusionIr();
@@ -238,7 +238,7 @@ class NVF_API FusionDefinition : public FusionState {
       bool override_user_schedule) const;
   //! Return the Cuda code for the given inputs
   NVF_API std::string cudaCodeFor(
-      const at::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder inputs,
       bool intrinsic_code,
       bool override_user_schedule) const;
   //! Return the Cuda code for the last executed set of inputs
@@ -247,7 +247,7 @@ class NVF_API FusionDefinition : public FusionState {
       bool override_user_schedule) const;
   //! Return the Cuda code for the given inputs
   NVF_API std::string scheduledFusionIrFor(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
@@ -285,7 +285,7 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! Run segmentation algorithm on FusionDefinition. Returns the number of
   //! segments.
-  NVF_API int64_t setupSegmentation(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API int64_t setupSegmentation(const KernelArgumentHolder& inputs);
   //! Given an empty FusionDefinition and a segment id, buildSegment creates the
   //! CPP Fusion, translates it to the python FusionDefinition, then return a
   //! mapping from segment fusion state indices to the original fusion state

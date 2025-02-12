@@ -36,19 +36,14 @@ namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
-bool checkSameStride(const std::vector<c10::IValue>& tensors) {
+bool checkSameStride(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
   for (const auto idx : c10::irange(tensors.size() - 1)) {
-    auto current = tensors[idx];
-    auto next = tensors[idx + 1];
-    if (!current.isTensor() || !next.isTensor()) {
-      return false;
-    }
+    auto current_tensor = tensors[idx];
+    auto next_tensor = tensors[idx + 1];
 
-    const auto& current_tensor = current.toTensor();
-    const auto& next_tensor = next.toTensor();
     if (current_tensor.ndimension() != next_tensor.ndimension()) {
       return false;
     }
@@ -63,18 +58,13 @@ bool checkSameStride(const std::vector<c10::IValue>& tensors) {
 }
 
 // Return true if all the tensors are contiguous and have the same striding
-bool checkSameContiguity(const std::vector<c10::IValue>& tensors) {
+bool checkSameContiguity(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
 
-  auto reference = tensors.front();
-  if (!reference.isTensor()) {
-    return false;
-  }
-
   // Determine if the reference tensor is contiguous
-  const auto& reference_tensor = reference.toTensor();
+  const auto& reference_tensor = tensors.front();
   int64_t expected_stride = 1;
   for (const auto i : c10::irange(1, reference_tensor.ndimension() + 1)) {
     int64_t ind = reference_tensor.ndimension() - i;
@@ -94,8 +84,8 @@ bool checkSameContiguity(const std::vector<c10::IValue>& tensors) {
 bool checkValidMisalignedTensors(
     const std::unordered_set<TensorView*>& inp_tv,
     const std::unordered_set<TensorView*>& out_tv,
-    const std::vector<c10::IValue>& inp_tensors,
-    const std::vector<c10::IValue>& out_tensors) {
+    const std::vector<at::Tensor>& inp_tensors,
+    const std::vector<at::Tensor>& out_tensors) {
   if (out_tv.empty()) {
     // Only check input tensors
     return checkSameStride(inp_tensors);
@@ -105,7 +95,7 @@ bool checkValidMisalignedTensors(
     return checkSameContiguity(inp_tensors);
   } else {
     // Only check input and output tensors
-    std::vector<c10::IValue> tensors;
+    std::vector<at::Tensor> tensors;
     tensors.insert(tensors.end(), inp_tensors.begin(), inp_tensors.end());
     tensors.insert(tensors.end(), out_tensors.begin(), out_tensors.end());
     return checkSameStride(tensors);
@@ -445,7 +435,7 @@ void validateAlignedVectorizedFusionInputOutput(
 void validateAlignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   // Verify extents of aligned vectorized tensors
@@ -468,17 +458,17 @@ void validateAlignedVectorizedTensors(
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
     auto word_size = kernel->summary().vectorized_accesses.at(tv);
-    NVF_ERROR(args[pos]->is<at::Tensor>(), "alias io only supports tensor");
+    NVF_ERROR(args[pos].is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
+        args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
   }
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(
-          outputs[pos], word_size, tv, expr_eval);
+          output_args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
     }
   }
 }
@@ -489,7 +479,7 @@ void validateAlignedVectorizedTensors(
 void validateMisalignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   auto tensor_vectorization_validation_entry =
@@ -499,8 +489,8 @@ void validateMisalignedVectorizedTensors(
             return executor_utils::getVectorizedTensorValidationInfo(kernel);
           });
 
-  std::vector<c10::IValue> inp_misaligned_tensors;
-  std::vector<c10::IValue> out_misaligned_tensors;
+  std::vector<at::Tensor> inp_misaligned_tensors;
+  std::vector<at::Tensor> out_misaligned_tensors;
 
   const auto& inp_misaligned_tensors_pos =
       tensor_vectorization_validation_entry.get().inp_misaligned_tensors_pos;
@@ -510,19 +500,19 @@ void validateMisalignedVectorizedTensors(
       inp_misaligned_tensors_pos.end(),
       std::back_inserter(inp_misaligned_tensors),
       [&args](int idx) {
-        NVF_ERROR(args[idx]->is<at::Tensor>(), "alias io only supports tensor");
-        return args[idx]->as<at::Tensor>();
+        NVF_ERROR(args[idx].is<at::Tensor>(), "alias io only supports tensor");
+        return args[idx].as<at::Tensor>();
       });
 
   const auto& out_misaligned_tensors_pos =
       tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
     std::transform(
         out_misaligned_tensors_pos.begin(),
         out_misaligned_tensors_pos.end(),
         std::back_inserter(out_misaligned_tensors),
-        [&outputs](int idx) { return outputs[idx]; });
+        [&output_args](int idx) { return output_args[idx].as<at::Tensor>(); });
   }
   // If input stride is non-contiguous + no outputs, return false
   NVF_ERROR(
@@ -558,16 +548,16 @@ void validateCircularBuffering(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("KernelExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 
   validateMisalignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 }
 
 ExpressionEvaluator bindInputs(
@@ -588,13 +578,13 @@ ExpressionEvaluator bindInputs(
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
     try {
-      expr_eval.bind(inputs[i], *args[i], true);
+      expr_eval.bind(inputs[i], args[i], true);
     } catch (const nvfError& e) {
       std::stringstream ss;
       ss << "When trying to run the provided host program,"
          << " there was an error with the provided input " << i
          << ". Provided input was:" << std::endl;
-      indent(ss, 1) << PolymorphicValue_functions::toString(*args[i])
+      indent(ss, 1) << PolymorphicValue_functions::toString(args[i])
                     << std::endl;
       ss << "Fusion input was:" << std::endl;
       indent(ss, 1) << inputs[i]->toString() << std::endl;
