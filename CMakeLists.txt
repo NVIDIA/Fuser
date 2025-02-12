@@ -315,7 +315,7 @@ if(NOT MSVC)
       # manylinux image. consider enable this when we upgrade.
       # linking comment:
       # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-      -Wno-error=restrict -Wno-error=stringop-overflow)
+      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
   else()
     target_compile_options(codegen_internal PRIVATE
       -Wall -Wno-unused-function -Werror)
@@ -713,9 +713,11 @@ if(BUILD_TEST)
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
 
-  add_test(tutorial
-    "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp"
-    "${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp")
+  set(TUTORIAL_SRCS)
+  list(APPEND TUTORIAL_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp)
+  add_test(tutorial "${TUTORIAL_SRCS}" "")
   list(APPEND TEST_BINARIES tutorial)
 
   set(HOSTIR_TEST_SRCS)

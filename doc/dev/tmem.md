@@ -5,16 +5,7 @@
 > It is difficult to avoid them. But they should not affect reading.
 > All the unit tests displayed here are executable from the `tutorial` binary
 
-To see prints in the test, change below to `true`:<!-- */ //-->\
-```cpp
-constexpr static bool verbose = false; /*
-```
-
-# Tensor Memory Support in NVFuser
 <!--
-*/
-
-#pragma GCC diagnostic ignored "-Wcomment"
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
@@ -22,11 +13,23 @@ constexpr static bool verbose = false; /*
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#pragma GCC diagnostic ignored "-Wcomment"
+/*-->
+
+To see prints in the test, change below to `true`:<!-- */ //-->\
+```cpp
+constexpr static bool verbose = false; /*
+```
+
+# Tensor Memory Support in NVFuser
+<!--*/
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+
+#include <ops/alias.h>
 
 namespace nvfuser {
 
@@ -60,13 +63,13 @@ TEST_F(ReviewInliningParallelization, GRGCopy1) {
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
 
-  if (verbose) {
+  if constexpr (verbose) {
     fusion.printKernel();
   }
 } /*
 ```
 
- blabla
+blabla
 
 <!-- */
 } // namespace nvfuser
