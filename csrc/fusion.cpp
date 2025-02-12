@@ -399,14 +399,14 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     const {
   FUSER_PERF_SCOPE("Fusion::print");
 
-  debug() << "Inputs:" << std::endl;
+  os << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    debug() << "  " << inp << std::endl;
+    os << "  " << inp << std::endl;
   }
 
-  debug() << "Outputs:" << std::endl;
+  os << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    debug() << "  " << out << std::endl;
+    os << "  " << out << std::endl;
   }
 
   os << "\n%kernel {\n";
