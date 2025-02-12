@@ -310,7 +310,7 @@ if(NOT MSVC)
           # manylinux image. consider enable this when we upgrade.
           # linking comment:
           # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-          -Wno-error=restrict -Wno-error=stringop-overflow -Wno-comment)
+          -Wno-error=restrict -Wno-error=stringop-overflow)
   else()
       target_compile_options(codegen_internal PRIVATE
           -Wall -Wno-unused-function -Werror)
