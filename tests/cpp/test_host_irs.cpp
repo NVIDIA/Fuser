@@ -1134,7 +1134,7 @@ TEST_F(AllocationTest, HostIr) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto outputs = hie.runWithInput(std::unordered_map<Val*, c10::IValue>());
+  auto outputs = hie.runWithInput({});
 
   EXPECT_EQ(sizes, outputs.at(0).sizes());
 }
@@ -1171,7 +1171,7 @@ TEST_F(AllocationTest, inHostForLoop) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto outputs = hie.runWithInput(std::unordered_map<Val*, c10::IValue>());
+  auto outputs = hie.runWithInput({});
 
   EXPECT_EQ(sizes, outputs.at(0).sizes());
 }
