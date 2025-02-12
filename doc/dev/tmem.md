@@ -437,7 +437,7 @@ The specific patterns of TMem accessing is specified in the
 These patterns are:
 
 <details>
-<summary>**32x32b:**</summary>
+<summary> **32x32b:** </summary>
 
 ![32x32b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-3232b.png)
 </details>
