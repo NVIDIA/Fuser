@@ -36,7 +36,8 @@ constexpr static bool verbose = true; /*
 namespace nvfuser {
 
 using ReviewInliningParallelization = NVFuserTest;
-using TMemTutorial = BlackwellBase;
+using TMemTutorialC = NVFuserTest;
+using TMemTutorialR = BlackwellBase;
 
 /* -->
 
@@ -332,7 +333,7 @@ be looking at gmem->register->tmem->register->gmem copy kernels. Note that
 there is no data path between gmem and tmem, so we have to use register as
 a transfer station.<!-- */ //-->\
 ```cpp
-TEST_F(TMemTutorial, TooManyLanes) {
+TEST_F(TMemTutorialC, TooManyLanes) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -376,7 +377,7 @@ lanes, `128`.
 
 Now let's take a look at another example:<!-- */ //-->\
 ```cpp
-TEST_F(TMemTutorial, TooManyCols) {
+TEST_F(TMemTutorialC, TooManyCols) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -475,6 +476,14 @@ the TMem<->register transfer is not all warps can access all lanes of the tensor
 memory. The entire 128 lanes of the tensor memory is divided into 4
 subpartitions, each has 32 lanes. The warp `i` can only access the subpartition
 `i % 4`.
+
+With the above restrictions in mind, let's take a look at a few examples of how
+NOT to schedule TMem load and store:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialC, TooManyCols) {
+  //
+} /*
+```
 
 <!-- */
 } // namespace nvfuser
