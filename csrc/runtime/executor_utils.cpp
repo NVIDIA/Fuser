@@ -1249,8 +1249,6 @@ void validateIndexCasts(
   if (!kernel->summary().has_index_casts) {
     return;
   }
-  // Bind tensor metadata
-  // expr_eval.precomputedValues()->bindValues(kernel->inputs(), args);
   ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
   NVF_ERROR(
       calc.castsFromIndexAreSafe(), "Found unsafe casts from DataType::Index");
