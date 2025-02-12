@@ -88,6 +88,24 @@ int64_t getMaxBlocksPerSmTmaNoCircularBuffer(
   return total_smem / smem_per_block;
 }
 
+int64_t getMaxCircularBufferStages(
+    Fusion* fusion,
+    const PersistentKernelProperties& properties) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t total_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor;
+  int64_t smem_mbarrier = sizeof(uint64_t) * 2;
+  // CUDA driver, reduction workspace, no need to consider shared memory round
+  // up since the whole dim is parallelized as Bulk.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  int64_t overhead_per_block =
+      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+  int64_t smem_per_stage = overhead_per_block +
+      properties.max_persistent_buffer_size + smem_mbarrier;
+  std::cout << "smem_per_stage: " << smem_per_stage << std::endl;
+  std::cout << "overhead_per_block: " << overhead_per_block << std::endl;
+  std::cout << "total_smem: " << total_smem << std::endl;
+  return total_smem / smem_per_stage;
+}
 void innerPersistentHeuristicSharedMemory(
     const PersistentKernelProperties& properties,
     ReductionParams* rparams) {
@@ -130,6 +148,7 @@ void innerPersistentHeuristicSharedMemory(
 }
 
 void innerPersistentHeuristicTMA(
+    Fusion* fusion,
     const PersistentKernelProperties& properties,
     ReductionParams* rparams,
     int64_t max_blocks_per_sm) {
@@ -139,31 +158,50 @@ void innerPersistentHeuristicTMA(
   }
   rparams->use_tma_load = true;
   CircularBufferOptions circular_buffer_options;
+  int64_t smem_limited_stages = getMaxCircularBufferStages(fusion, properties);
+  while (properties.total_iteration_numel % smem_limited_stages) {
+    smem_limited_stages--;
+  }
+  circular_buffer_options.stage = smem_limited_stages;
+  circular_buffer_options.prefetch = 1;
+  if (std::getenv("STAGES")) {
+    circular_buffer_options.stage = std::atoi(std::getenv("STAGES"));
+  }
+  // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
+  // false};
+  CircularBufferType circular_buffer_type{Pipelined(true)};
+  circular_buffer_options.type = circular_buffer_type;
+  if (std::getenv("WARPTIDX")) {
+    CircularBufferType circular_buffer_type{
+        WarpSpecialized(ParallelType::TIDx)};
+    circular_buffer_options.type = circular_buffer_type;
+  }
   rparams->circular_buffer_options = circular_buffer_options;
-
   int64_t vectorize_factor = properties.vectorize_factor;
-  int64_t after_vect = properties.total_reduction_numel / properties.vectorize_factor;
+  int64_t after_vect =
+      properties.total_reduction_numel / properties.vectorize_factor;
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
-  int64_t persistent_batch = ceilDiv(after_vect, bdimx);  
+  int64_t persistent_batch = ceilDiv(after_vect, bdimx);
   // when shared memory usage allows more than 1 blocks per sm, halve the
   // threads per block to achieve more blocks per sm. Otherwise, with 1024
   // threads, and 2 blocks per sm, each thread can only use 32 registers which
   // is too small for normalization kernel.
-  if (max_blocks_per_sm > 1) {
-    bdimx /= 2;
-    persistent_batch = ceilDiv(after_vect, bdimx);   
-  }else{
-    // Try to find a divisible batch size
-    int64_t tmp_persistent_batch = persistent_batch;
-    int64_t max_persistent_batch = persistent_batch * 2;
-    while(after_vect % tmp_persistent_batch && tmp_persistent_batch + 1 <= max_persistent_batch){
-      tmp_persistent_batch++;
-      if(after_vect % tmp_persistent_batch == 0){
-        persistent_batch = tmp_persistent_batch;
-        break;
-      }
+  // if (max_blocks_per_sm > 1 && circular_buffer_options.stage > 1) {
+  //   bdimx /= 2;
+  //   persistent_batch = ceilDiv(after_vect, bdimx);
+  // }else{
+  // Try to find a divisible batch size
+  int64_t tmp_persistent_batch = persistent_batch;
+  int64_t max_persistent_batch = persistent_batch * 2;
+  while (after_vect % tmp_persistent_batch &&
+         tmp_persistent_batch + 1 <= max_persistent_batch) {
+    tmp_persistent_batch++;
+    if (after_vect % tmp_persistent_batch == 0) {
+      persistent_batch = tmp_persistent_batch;
+      break;
     }
   }
+  // }
   if (std::getenv("BDIMX")) {
     bdimx = std::atoi(std::getenv("BDIMX"));
   }
@@ -171,15 +209,13 @@ void innerPersistentHeuristicTMA(
   int64_t threads_per_warp = (int64_t)dev_prop->warpSize;
   int64_t padded_bdimx = ceilDiv(bdimx, threads_per_warp) * threads_per_warp;
   rparams->smem_persistent_buffers = properties.persistent_buffers;
-  if (max_blocks_per_sm > 1) {
+  if (max_blocks_per_sm > 1 && circular_buffer_options.stage == 1) {
     rparams->cparams.maxrregcount =
         getRegPerThreadGivenThreadsPerSM(max_blocks_per_sm * padded_bdimx);
     rparams->cparams.enable_magic_zero = true;
-  }  else {
+  } else {
     rparams->cparams.enable_magic_zero = false;
-
   }
-
 
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -622,15 +658,45 @@ void innerPersistentHeuristic2D(
       getMaxBlocksPerSmTmaNoCircularBuffer(fusion, properties);
   if (best_heuristic.blocks_per_sm == 1 && blocks_per_sm > 1 &&
       std::getenv("USE_MAIN") == nullptr) {
-    return innerPersistentHeuristicTMA(properties, rparams, blocks_per_sm);
+    return innerPersistentHeuristicTMA(
+        fusion, properties, rparams, blocks_per_sm);
   }
-
-  rparams->cparams.maxrregcount = best_heuristic.register_per_thread;
-  // Disable magic zero to further reduce computation cost.
-  // Magic zero reduces register usage, so only disble it when the register
-  // usage is so low that we can disable project to avoid recompute.
-  if (is_high_bandwidth_flops_ratio && disable_project_to_avoid_recompute) {
-    rparams->cparams.enable_magic_zero = false;
+  
+  if (std::getenv("USE_TMA") != nullptr) {
+      rparams->use_tma_load = true;
+      rparams->smem_persistent_buffers = properties.persistent_buffers;
+      CircularBufferOptions circular_buffer_options;
+      int64_t smem_limited_stages = getMaxCircularBufferStages(fusion, properties);
+      while (properties.total_iteration_numel % smem_limited_stages) {
+        smem_limited_stages--;
+      }
+      circular_buffer_options.stage = smem_limited_stages;
+      circular_buffer_options.prefetch = 1;
+      if (std::getenv("STAGES")) {
+        circular_buffer_options.stage = std::atoi(std::getenv("STAGES"));
+      }
+      if (std::getenv("PREFETCH")) {
+        circular_buffer_options.prefetch = std::atoi(std::getenv("PREFETCH"));
+      }      
+      // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
+      // false};
+      CircularBufferType circular_buffer_type{Pipelined(true)};
+      circular_buffer_options.type = circular_buffer_type;
+      if (std::getenv("WARPTIDX")) {
+        CircularBufferType circular_buffer_type{
+            WarpSpecialized(ParallelType::TIDx)};
+        circular_buffer_options.type = circular_buffer_type;
+      }
+      rparams->circular_buffer_options = circular_buffer_options;
+      rparams->cparams.enable_magic_zero = false;
+  }else{
+    rparams->cparams.maxrregcount = best_heuristic.register_per_thread;
+    // Disable magic zero to further reduce computation cost.
+    // Magic zero reduces register usage, so only disble it when the register
+    // usage is so low that we can disable project to avoid recompute.
+    if (is_high_bandwidth_flops_ratio && disable_project_to_avoid_recompute) {
+      rparams->cparams.enable_magic_zero = false;
+    }
   }
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
@@ -1181,14 +1247,16 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
     if (std::getenv("USE_MAIN") == nullptr) {
       int64_t blocks_per_sm =
-          getMaxBlocksPerSmTmaNoCircularBuffer(fusion, prop);      
-      innerPersistentHeuristicTMA(prop, rparams.get(), blocks_per_sm);
+          getMaxBlocksPerSmTmaNoCircularBuffer(fusion, prop);
+      innerPersistentHeuristicTMA(fusion, prop, rparams.get(), blocks_per_sm);
     } else {
       innerPersistentHeuristicSharedMemory(prop, rparams.get());
     }
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
+
     innerPersistentHeuristic2D(fusion, prop, rparams.get());
+
   } else {
     rparams->tag = "3D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic3D(prop, rparams.get());
