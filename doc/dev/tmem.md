@@ -419,6 +419,8 @@ right of the compute-at position, it is allocated. So the total number of
 columns required for this tensor is: `5 * 13 * 17 = 1105`, which is larger than
 the total available lanes, `512`.
 
+## The loop domain of TMem load and store
+
 <!-- */
 } // namespace nvfuser
 // \-->
