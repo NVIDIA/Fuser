@@ -432,7 +432,9 @@ domain must satisfy specific patterns. For the case of a TMem store `T0_t ->
 T1_r`, the loop domain of `T1_r` and allocation domain of `T0_t` must satisfy
 specific patterns.
 
-The specific patterns of TMem accessing is specified in the
+The TMem<->register transfer are warp-collective operations, and the threads in
+a warp must access the tensor memory in a specific way.
+The specific patterns of TMem<->register transfer is specified in the
 [PTX-documentation](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout).
 These patterns are:
 
@@ -467,6 +469,12 @@ These patterns are:
 
 ![16x32bx2](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-1632b2.png)
 </details>
+
+Besides threads in a warp must satisfy specific pattern, another restriction of
+the TMem<->register transfer is not all warps can access all lanes of the tensor
+memory. The entire 128 lanes of the tensor memory is divided into 4
+subpartitions, each has 32 lanes. The warp `i` can only access the subpartition
+`i % 4`.
 
 <!-- */
 } // namespace nvfuser
