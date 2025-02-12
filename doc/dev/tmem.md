@@ -254,6 +254,16 @@ as they do to shared memory.
 
 ## Tensor memory
 
+NVIDIA's official document for tensor memory can be found
+[here](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory).
+
+Unlike any other memory type that we commonly see in computer architecture, the
+addresses of tensor memory do not form a linear space. Instead, the addresses
+of tensor memory are two-dimensional, and the two dimensions are called `row`
+(or `lane`) and `column`.
+
+![Tensor Memory Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tensor-memory-layout.png)
+
 <!-- */
 } // namespace nvfuser
 // \-->
