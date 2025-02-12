@@ -273,10 +273,35 @@ part specifies the lane, and the right part specifies the column. The position
 is called *Tensor Memory Dimension Separator Position*, or *TMem DimSep
 Position* in short.
 
-In practice, we might want to allocate a tensor in tensor memory like the figure
-below:
+In practice, to support some MMA shapes, we might want to allocate a tensor in
+tensor memory like the figure below:
 
 ![TMEM-Allocation-Example](tmem/alloc-example.svg)
+
+That is, the tensor is not a contiguous rectangle in tensor memory, but instead,
+is strided in the row dimension. Because NVFuser already supports strided
+allocation of global memory tensors, the concepts in that space easily extend to
+tensor memory:
+
+The TMem dimsep position does not only apply to the allocation domain, but also
+applies to contiguity and stride. The contiguity and stride on the left of the
+TMem dimsep position are for the lane, and the contiguity and stride on the
+right of are for the column.
+
+In the above example, the allocation domain, contiguity, and stride of the
+tensor could be:
+
+```python
+allocation domain: [ BIDx,  4, 16, | , BIDy, 8 ]
+       contiguity: [    ?,  F,  T, | ,    ?, T ]
+           stride: [    ?, 32,  1, | ,    ?, 1 ]
+```
+
+It worth noting that, because the tensor memory is distributed across `BIDx` and
+`BIDy`, IterDomains with these parallel types are not allocated. So whether
+these IterDomains are on the left or right of the TMem dimsep position does not
+matter. The value of their contiguity and stride does not matter either (The `?`
+in the above example).
 
 <!-- */
 } // namespace nvfuser
