@@ -726,29 +726,23 @@ namespace {
 int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
-  int64_t max_smem = 0;
   int64_t max_vectorize_factor =
       SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
   int64_t dim_size = tv_buffer_size / data_type_size;
-  // Check all possible combinations of vectorization factor, batch size and
-  // threads per block
-  for (int64_t vectorize_factor = 1; vectorize_factor <= max_vectorize_factor;
-       vectorize_factor *= 2) {
-    // heuristic only uses divisible vectorization factor
-    if (dim_size % vectorize_factor != 0) {
-      continue;
-    }
-    int64_t after_vect = dim_size / vectorize_factor;
-    // For shared memory persistence, heuristic always uses maximum threads
-    // per block
-    int64_t threads_per_block = max_threads_per_block;
-    int64_t persistent_batch = ceilDiv(after_vect, threads_per_block);
-    max_smem = std::max(
-        max_smem,
-        persistent_batch * vectorize_factor * threads_per_block *
-            data_type_size);
+  
+  // always use the largest vectorize factor
+  int64_t vectorize_factor = 1;
+  while (dim_size % (vectorize_factor * 2) == 0 &&
+         vectorize_factor * 2 <= max_vectorize_factor) {
+    vectorize_factor *= 2;
   }
-  return max_smem;
+
+  // derive persistent batch size from 
+  int64_t after_vect = dim_size / vectorize_factor;
+  int64_t persistent_batch = ceilDiv(after_vect, max_threads_per_block);
+  int64_t threads_per_block = ceilDiv(after_vect, persistent_batch);
+  return persistent_batch * vectorize_factor * threads_per_block *
+      data_type_size;
 }
 int64_t sharedMemoryRoundUpOverhead(
     SchedulerRuntimeInfo& runtime_info,

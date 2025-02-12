@@ -142,25 +142,44 @@ void innerPersistentHeuristicTMA(
   rparams->circular_buffer_options = circular_buffer_options;
 
   int64_t vectorize_factor = properties.vectorize_factor;
+  int64_t after_vect = properties.total_reduction_numel / properties.vectorize_factor;
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
+  int64_t persistent_batch = ceilDiv(after_vect, bdimx);  
   // when shared memory usage allows more than 1 blocks per sm, halve the
   // threads per block to achieve more blocks per sm. Otherwise, with 1024
   // threads, and 2 blocks per sm, each thread can only use 32 registers which
   // is too small for normalization kernel.
   if (max_blocks_per_sm > 1) {
     bdimx /= 2;
+    persistent_batch = ceilDiv(after_vect, bdimx);   
+  }else{
+    // Try to find a divisible batch size
+    int64_t tmp_persistent_batch = persistent_batch;
+    int64_t max_persistent_batch = persistent_batch * 2;
+    while(after_vect % tmp_persistent_batch && tmp_persistent_batch + 1 <= max_persistent_batch){
+      tmp_persistent_batch++;
+      if(after_vect % tmp_persistent_batch == 0){
+        persistent_batch = tmp_persistent_batch;
+        break;
+      }
+    }
   }
   if (std::getenv("BDIMX")) {
     bdimx = std::atoi(std::getenv("BDIMX"));
   }
-  int64_t persistent_batch = ceilDiv(
-      properties.total_reduction_numel / properties.vectorize_factor, bdimx);
+
   int64_t threads_per_warp = (int64_t)dev_prop->warpSize;
   int64_t padded_bdimx = ceilDiv(bdimx, threads_per_warp) * threads_per_warp;
   rparams->smem_persistent_buffers = properties.persistent_buffers;
-  rparams->cparams.maxrregcount =
-      getRegPerThreadGivenThreadsPerSM(max_blocks_per_sm * padded_bdimx);
-  rparams->cparams.enable_magic_zero = true;
+  if (max_blocks_per_sm > 1) {
+    rparams->cparams.maxrregcount =
+        getRegPerThreadGivenThreadsPerSM(max_blocks_per_sm * padded_bdimx);
+    rparams->cparams.enable_magic_zero = true;
+  }  else {
+    rparams->cparams.enable_magic_zero = false;
+
+  }
+
 
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -1227,6 +1246,9 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
+    std::cout << "persistent_buffer_size " << persistent_buffer_size
+              << " > available_persistent_buffer_size "
+              << available_persistent_buffer_size << std::endl;
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         can_use_smem_persistent
