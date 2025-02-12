@@ -1043,7 +1043,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
-  void dispatch(Expr* expr) {
+  void dispatch(Expr* expr) final {
     if (auto* uop = dynamic_cast<UnaryOp*>(expr);
         uop && uop->getUnaryOpType() == UnaryOpType::ToUnsignedSmemAddr) {
       // This is a workaround for a limitation in being able to evaluate
@@ -1123,7 +1123,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     return expr_eval_.evaluate(val).as<int64_t>();
   }
 
-  void handle(ForLoop* loop) {
+  void handle(ForLoop* loop) final {
     // Set bounds for the loop variable
     BoundedInt start = bounds_.at(loop->start());
     BoundedInt stop = bounds_.at(loop->stop());
@@ -1131,11 +1131,11 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     kir::IrVisitor::handle(loop);
   }
 
-  void handle(LoadStoreOp* lsop) {
+  void handle(LoadStoreOp* lsop) final {
     setBounds(lsop->out(), bounds_.at(lsop->in()));
   }
 
-  void handle(UnaryOp* uop) {
+  void handle(UnaryOp* uop) final {
     BoundedInt a = bounds_.at(uop->in());
     BoundedInt result;
     switch (uop->getUnaryOpType()) {
@@ -1157,7 +1157,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     setBounds(uop->out(), result);
   }
 
-  void handle(BinaryOp* bop) {
+  void handle(BinaryOp* bop) final {
     BoundedInt a = bounds_.at(bop->lhs());
     BoundedInt b = bounds_.at(bop->rhs());
     BoundedInt result;
@@ -1210,7 +1210,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     setBounds(bop->out(), result);
   }
 
-  void handle(TernaryOp* top) {
+  void handle(TernaryOp* top) final {
     switch (top->getTernaryOpType()) {
       default:
         NVF_THROW("Not yet implemented");
