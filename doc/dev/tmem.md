@@ -398,7 +398,7 @@ TEST_F(TMemTutorial, TooManyCols) {
 
   tv2->setTMemDimSepPos(-2);
 
-  // Tries to allocate (429, 17) for tv2.
+  // Tries to allocate (32, 1105) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
