@@ -335,7 +335,7 @@ class ShareMemHandles : public Expr {
     return "hir::ShareMemHandles";
   }
 
-  const std::vector<P2PCommunication*>& communications() {
+  const std::vector<P2PCommunication*>& communications() const {
     return attribute<std::vector<P2PCommunication*>>(0);
   }
 };

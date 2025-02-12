@@ -339,7 +339,11 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ShareMemHandles)
 
 std::string ShareMemHandles::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "ShareMemHandles" << std::endl;
+  indent(ss, indent_size) << "ShareMemHandles(";
+  for (auto communication: communications()) {
+    ss << communication->toInlineString() << ", ";
+  }
+  ss << std::endl;
   return ss.str();
 }
 
