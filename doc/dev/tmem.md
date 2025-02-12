@@ -60,7 +60,9 @@ TEST_F(ReviewInliningParallelization, GRGCopy1) {
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
 
-  fusion.printKernel();
+  if (verbose) {
+    fusion.printKernel();
+  }
 } /*
 ```
 
