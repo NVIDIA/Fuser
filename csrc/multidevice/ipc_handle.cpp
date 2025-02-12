@@ -76,7 +76,6 @@ IpcHandle::~IpcHandle() {
   }
 }
 
-
 void IpcHandleCache::exchangeHandles(const std::vector<P2PCommunication*>& communications, const ExpressionEvaluator& expr_evaluator) {
   Communicator* communicator = &Communicator::getInstance();
   const int64_t my_rank = communicator->deviceId();

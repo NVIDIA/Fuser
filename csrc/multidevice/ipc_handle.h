@@ -56,13 +56,17 @@ class P2pIpcHandle {
   std::unique_ptr<IpcHandle> peer_;
 };
 
+// The cache key must be match on (dst, src, tensor, Id of SendComm, Id of RecvComm) or (int64_t dst, int64_t src, tensor, P2PCommunication*)
+// we need a counter on Tensor+P2PCommunication* for each given dst, src
+// In the store, we need the key to be computed on (dst, src, counter), also bc it cannot depend nor on tensor neither on P2PCommunication* (not even its ID)
+// We could store separately the local and remote handles, or by first mapping with the IpcHandle's rank. Btw, we need to add rank to IpcHandle.
 class IpcHandleCache {
  public:
   IpcHandleCache() = default;
   ~IpcHandleCache() = default;
 
-  const P2pIpcHandle& get(P2PCommunication* communication, ExpressionEvaluator& expr_evaluator) {
-    auto it = find(getKey(communication, expr_evaluator));
+  const P2pIpcHandle& get(P2PCommunication* communication, ExpressionEvaluator& expr_evaluator) const {
+    auto it = find(communication, expr_evaluator);
     NVF_ERROR(
       it != nullptr,
       "No remote buffer found for ",
@@ -75,22 +79,19 @@ class IpcHandleCache {
  private:
   using KeyType = std::tuple<int64_t, int64_t, at::Tensor, P2PCommunication*>;
 
-  KeyType getKey(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator) {
+  KeyType getKey(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator) const  {
     int64_t dst = expr_evaluator.evaluate(comm->dst()).as<int64_t>();
     int64_t src = expr_evaluator.evaluate(comm->src()).as<int64_t>();
     at::Tensor buffer = expr_evaluator.evaluate(comm->buffer()).as<at::Tensor>();
     return std::make_tuple(dst, src, buffer, comm);
   }
-  void insert(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator, std::unique_ptr<P2pIpcHandle> handle) {
+
+  void insert(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator, std::unique_ptr<P2pIpcHandle> handle)  {
     handles_[getKey(comm, expr_evaluator)] = std::move(handle);
   }
 
-  P2pIpcHandle* find(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator) {
-    return find(getKey(comm, expr_evaluator));
-  }
-
-  P2pIpcHandle* find(KeyType key) {
-    auto it = handles_.find(key);
+  P2pIpcHandle* find(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator) const  {
+    auto it = handles_.find(getKey(comm, expr_evaluator));
     if (it == handles_.end()) {
       return nullptr;
     }
@@ -102,7 +103,7 @@ class IpcHandleCache {
       auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
       auto offset = tensor.storage_offset();
       auto element_size = tensor.element_size();
-      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) << 32 ^
           std::hash<int>()(element_size);
     }
   };
@@ -138,11 +139,5 @@ class IpcHandleCache {
     KeyEqual>
     handles_;
 };
-
-
-// The cache key must be match on (dst, src, tensor, Id of SendComm, Id of RecvComm) or (int64_t dst, int64_t src, tensor, P2PCommunication*)
-// we need a counter on Tensor+P2PCommunication* for each given dst, src
-// In the store, we need the key to be computed on (dst, src, counter), also bc it cannot depend nor on tensor neither on P2PCommunication* (not even its ID)
-// We could store separately the local and remote handles, or by first mapping with the IpcHandle's rank. Btw, we need to add rank to IpcHandle.
 
 } // nvfuser
