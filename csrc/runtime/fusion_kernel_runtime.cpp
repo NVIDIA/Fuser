@@ -290,7 +290,12 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
-    return hie_->runWithPolymorphicValues(tensor_map);
+    auto outputs = hie_->runWithPolymorphicValues(tensor_map);
+    if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
+              << std::endl;
+    }
+    return outputs;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
