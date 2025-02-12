@@ -417,7 +417,7 @@ using P2PCommunicationTest = MultiDeviceTest;
 
 TEST_F(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
-  static constexpr int kNumRepetitions = 2;
+  static constexpr int kNumRepetitions = 32;
 
   if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
@@ -463,13 +463,9 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   for (auto repetition : c10::irange(kNumRepetitions)) {
     send_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition * 10 + 100 * my_rank);
     std::cout << "RANK " << my_rank << " REPETITION " << repetition << ", send_peer=" << send_peer << ", recv_peer=" << recv_peer << ", send_tensor=" << send_tensor << std::endl;
-    torch::cuda::synchronize();
-    communicator_->barrier();
 
     executor.runWithInput(inputs);
 
-    torch::cuda::synchronize();
-    communicator_->barrier();
     std::cout << "RANK " << my_rank << " validation at" << " REPETITION " << repetition << std::endl;
     auto ref = at::arange(kTensorSize, tensor_options) + repetition * 10 + 100 * recv_peer;
     EXPECT_TRUE(torch::allclose(recv_tensor, ref)) << "Rank " << my_rank << " failed at repetition " << repetition << " with recv tensor " << recv_tensor << " and ref " << ref;
