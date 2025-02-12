@@ -32,16 +32,6 @@ NVF_API bool distributedEnabled() {
 
 namespace {
 
-std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
-  std::unordered_set<IterDomain*> sharded_ids;
-  std::copy_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      std::inserter(sharded_ids, sharded_ids.begin()),
-      [](auto id) { return id->isDeviceDim(); });
-  return sharded_ids;
-}
-
 // Returns the position where an axis is allocated in a tv, skipping trivial
 // dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
 // tv's loop domain WAR: today we assume that the loop domain match with the
@@ -228,6 +218,21 @@ int64_t getShardedLogicalAxis(
   }
 
   return logical_id_to_axis.at(id);
+}
+
+int64_t getShardedLoopAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  NVF_ERROR(
+      isParallelTypeDeviceDim(parallel_type),
+      "Expect a DID but found: ",
+      parallel_type);
+  for (int64_t i : c10::irange(tv->nDims())) {
+    if (tv->getLoopDomain()[i]->isDeviceDim()) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 at::Tensor shardTensor(
@@ -577,7 +582,9 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : fusion->allTvs()) {
     if (tv->hasDeviceMesh()) {
-      max_index = std::max(max_index, tv->getDeviceMesh().maxDeviceId());
+      for (auto d_id : tv->getDeviceMesh().vector()) {
+        max_index = std::max(max_index, d_id);
+      }
     }
   }
   return static_cast<int64_t>(max_index + 1);

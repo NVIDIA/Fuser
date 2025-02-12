@@ -456,10 +456,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
 @pytest.mark.mpi
 def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
-    d, b, s, h, e = multidevice_test.size, 2, 1024, 12, 768
-
-    if h % d != 0:
-        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
+    d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
 
     class Model(FusionDefinition):
@@ -476,7 +473,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
-                    shape=[b, h, s, e // h],
+                    shape=[-1, -1, -1, -1],
                     dtype=DataType.BFloat16,
                     stride_order=stride_order,
                 )
@@ -541,6 +538,10 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             # Set allocation as loop for output tvs
             for t in output_tvs:
                 self.sched.set_allocation_as_loop(t)
+
+    b, s, h, e = 2, 1024, 12, 768
+    if h % d != 0:
+        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     torch.cuda.set_device(multidevice_test.local_rank)
 

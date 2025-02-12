@@ -544,8 +544,8 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // order, but since there's no expr, it just makes sure exprs() and
   // vals() return all the val and expr groups.
   {
-    IdModel id_model(&fusion);
-    const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const ValGraph& vg = id_model.buildExactGraph();
     ValGraphStmtSort vg_stmt_sort(vg);
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
   }
@@ -559,9 +559,9 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // The exact graph should just map all IDs of the tensors. Ther
   // ordering of the exprs should be the merge and then the split.
   {
-    IdModel id_model(&fusion);
+    IdModel id_model(&fusion, /*build_graphs=*/false);
 
-    const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    const ValGraph& vg = id_model.buildExactGraph();
     ValGraphStmtSort vg_stmt_sort(vg);
 
     // Reference expr order: merge, split
@@ -611,9 +611,9 @@ TEST_F(IdModelTest, ValGraphStmtSort2) {
   // one. Since it should be deterministic, we check if the returned
   // expr vector is indeed ordered that way.
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
 
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& vg = id_model.buildExactGraph();
   ValGraphStmtSort vg_stmt_sort(vg);
 
   std::vector<Expr*> ref_order;
@@ -653,8 +653,8 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
   // connected with tv0, tv1 and tv2.
   tv4->merge(0)->split(0, 1);
 
-  IdModel id_model(&fusion);
-  ValGraph vg = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  ValGraph vg = id_model.buildExactGraph();
 
   // Map the split-by-1 input and output
   vg.mapVals(tv2->axis(0), tv2->axis(0)->definition()->input(0));
@@ -2190,7 +2190,7 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
   TransformPropagatorWithCheck propagator(avg);
   MaxLogicalDomainInfoSpanningTree(avg).traverse(&propagator);
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
   for (auto welford_out : {welford_out_tvs.var_sum, welford_out_tvs.n}) {
@@ -2224,7 +2224,7 @@ TEST_F(IdModelTest, LoopPromotionWithViewRFactor1) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_group = loop_graph.toGroup(tv5->axis(0));
@@ -2274,7 +2274,7 @@ TEST_F(IdModelTest, LoopPromotionWithLogicalDomains2) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_group = loop_graph.toGroup(tv8->axis(0));
@@ -2333,7 +2333,7 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
@@ -2390,7 +2390,7 @@ TEST_F(IdModelTest, ParallelTypePropagation) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
   id_model.validateAndPropagatePType();
 
   EXPECT_EQ(tv1->axis(0)->getParallelType(), tv2->axis(0)->getParallelType())
@@ -2456,7 +2456,9 @@ TEST_F(IdModelTest, BroadcastGraph) {
   fusion->addOutput(tv3);
 
   {
-    IdModel id_model(fusion.get());
+    IdModel id_model(fusion.get(), /*build_graphs=*/false);
+    id_model.buildExactGraph();
+    id_model.buildBroadcastGraph();
 
     // In the Exact graph, b0 should not be mapped with i0
     EXPECT_FALSE(id_model.idGraph(IdMappingMode::EXACT)
@@ -2474,7 +2476,8 @@ TEST_F(IdModelTest, BroadcastGraph) {
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   {
-    IdModel id_model(fusion.get());
+    IdModel id_model(fusion.get(), /*build_graphs=*/false);
+    id_model.buildBroadcastGraph();
     // tv2 and tv3 should be fully mapped in the Broadcast graph
     for (const auto i : c10::irange(tv2->nDims())) {
       EXPECT_TRUE(id_model.idGraph(IdMappingMode::BROADCAST)
@@ -2512,7 +2515,8 @@ TEST_F(IdModelTest, MappingClonedIDs) {
       << "Expected: " << ref_mapping.toString()
       << ". Actual: " << mapping->toString();
 
-  IdModel id_model_after_clone(&fusion);
+  IdModel id_model_after_clone(&fusion, /*build_graphs=*/false);
+  id_model_after_clone.buildExactGraph();
   for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
     EXPECT_TRUE(id_model_after_clone.idGraph(IdMappingMode::EXACT)
                     .disjointValSets()
@@ -2647,7 +2651,7 @@ TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   // Make sure that:
   // - all loop IDs of tv2, tv3 and tv4 are grouped together.
@@ -2693,7 +2697,7 @@ TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   for (auto tv : {tv1, tv2, tv3}) {
     for (const auto i : c10::irange(tv->getLoopDomain().size())) {
