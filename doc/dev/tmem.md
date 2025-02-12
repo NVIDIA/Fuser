@@ -23,9 +23,7 @@
 namespace nvfuser {
 /* -->
 
-Please ignore the lines around here.
-
-<!-- */ //-->\
+Please ignore the lines around here.<!-- */ //-->\
 ```cpp
 int main() {} /*
 ```
