@@ -3,6 +3,7 @@
 > This file is both a [cpp](../../tests/cpp/tutorial_tmem.cpp) and a Markdown.
 > You may see some strange symbols in the rendered Markdown.
 > It is difficult to avoid them. But they should not affect reading.
+> All the unit tests displayed here are executable from the `tutorial` binary
 
 # Tensor Memory Support in NVFuser
 <!--
@@ -34,7 +35,7 @@ Similar to shared memory, it is a memory in the SM that is accessible by threads
 in the CTA. Although there are many differences between tensor memory and shared
 memory, the fact that they are shared by threads and distributed across
 different CTAs makes the behavior of tensor memory similar to shared memory when
-talking about allocation and inlining.
+talking about allocation and how it is affected by inlining and parallelization.
 
 Before diving deep into tensor memory, let's first do a quick review of inlining
 and parallelization, and how they impact allocation and indexing. This review
