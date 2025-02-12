@@ -303,6 +303,16 @@ these IterDomains are on the left or right of the TMem dimsep position does not
 matter. The value of their contiguity and stride does not matter either (The `?`
 in the above example).
 
+Also, please note that the term "row", "lane" and "column" when referring to the
+memory layout of tensor memory are not related to the "row" and "column" of the
+tensor itself. We can store an arbitrary part of the tensor in an arbitrary form
+in tensor memory. In the language of NVFuser, the logical domain of a TMem
+TensorView and the allocation domain of the TensorView can have arbitrary
+transformations between them. The important thing is not the transformation
+between the logical domain and the allocation domain, but the transformation
+between the allocation domain and the loop domain, which specifies how we access
+tensor memory in the kernel.
+
 <!-- */
 } // namespace nvfuser
 // \-->
