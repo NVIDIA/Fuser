@@ -169,12 +169,14 @@ bool isTvOp(const Expr* expr) {
           PadOp,
           SliceOp,
           CatOp,
+          kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
           kir::GridBroadcast,
           kir::GridWelford,
           kir::GroupedGridWelford,
-          kir::VectorizedWelfordOp>())) {
+          kir::VectorizedWelfordOp,
+          kir::RNGOp>())) {
     return true;
   }
   return false;
@@ -550,6 +552,32 @@ class ReplaceExprInput : private kir::ExprMutator {
   void handle(RNGOp* node) final {
     // RNGOp has no input
     return;
+  }
+
+  void handle(kir::RNGOp* node) final {
+    auto replaced_inputs = getMaybeInputReplacementMap(node);
+    if (replaced_inputs.has_value()) {
+      kir::RNGOp* replacement = nullptr;
+      if (node->inputs().size() == 4) {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType(),
+            std::vector<Val*>{
+                replaced_inputs->at(node->input(2)),
+                replaced_inputs->at(node->input(3))});
+      } else {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType());
+      }
+      registerReplaceWithPredicate(node, replacement);
+    }
   }
 
   void handle(ReductionOp* node) final {
@@ -1994,11 +2022,16 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
+std::vector<Expr*> getSyncExprs(
+    AsyncOpType async_type,
+    int64_t keep_stages,
+    bool requires_commit) {
   std::vector<Expr*> sync_exprs;
   sync_exprs.reserve(2);
-  auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-  sync_exprs.push_back(commit);
+  if (requires_commit) {
+    auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
+    sync_exprs.push_back(commit);
+  }
   auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
   sync_exprs.push_back(wait);
   return sync_exprs;

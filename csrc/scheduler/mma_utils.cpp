@@ -1315,13 +1315,15 @@ void scheduleStMatrixForMmaOutput(
       dataTypeSize(tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
+  // NOTE: There can be iterDomains to left of the mma output if there is cta
+  // or warp tiling.
   if (tile_m == 16 && tile_n == 16) {
     // Let [M, N] be [64, 32]
     // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
     // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
     tv->split(-3, 2);
     // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
-    tv->reorder({{-4, 0}});
+    tv->reorder({{-4, -5}});
     // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
     tv->merge(-3);
     tv->merge(-2);
@@ -1329,7 +1331,7 @@ void scheduleStMatrixForMmaOutput(
     // Let [M, N] be [64, 16]
     // After scheduleMmaOutputAllocation: [128(TIDx), 2, 2, 2]
     // [128(TIDx), 2, 2, 2] -> [2, 128(TIDx), 2, 2]
-    tv->reorder({{-3, 0}});
+    tv->reorder({{-3, -4}});
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
@@ -1347,7 +1349,7 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
     TORCH_WARN("TODO: Update getOperandInnerDims for multiple patterns");
   }
   const MatmulPattern& pattern = patterns[0];
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto id_roles = pattern.getDimRoles(id_model);
   const auto tensor_roles_opt = getTensorRoles(fusion, id_model, id_roles);
   if (!tensor_roles_opt.isValid()) {
@@ -2103,8 +2105,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
 } // namespace
 
 DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
-  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+  const ValGraph& graph = id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
   // Batch. These are enumerated in the MatmulDimRole enum class. They are

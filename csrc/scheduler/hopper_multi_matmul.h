@@ -69,15 +69,14 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
  public:
   HopperMultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : MultipleMatmulScheduler(fusion, params) {
-    const auto device_prop = at::cuda::getCurrentDeviceProperties();
-    const int cc = device_prop->major * 10 + device_prop->minor;
-    NVF_ERROR(
-        cc >= 90 && cc < 100, "This matmul scheduler is restricted to Hopper.");
+    validate();
   }
 
   void run() final;
 
  private:
+  void validate() const;
+
   void cacheInputsAndOutputs();
 
   // Including current tensor naming convention for reference,
@@ -152,8 +151,13 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
   //! data
   void setCGADims() const {
-    if (params_->cluster_dims != std::tuple<int, int, int>{1, 1, 1}) {
-      fusion_->manage("cluster_dims", params_->cluster_dims);
+    if (params_->cluster_dims != MatmulParams::ClusterDims{1, 1, 1}) {
+      fusion_->manage(
+          "cluster_dims",
+          std::tuple<int64_t, int64_t, int64_t>{
+              params_->cluster_dims.x,
+              params_->cluster_dims.y,
+              params_->cluster_dims.z});
     }
   }
 
@@ -187,7 +191,12 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // Schedule a block-tiled TensorView like mma output.
   // Why? WGMMA has a unique output format. TensorViews after the mma-result in
   // registers must respect this format for correctness.
-  void transformLikeMmaOutput(TensorView* tv, bool is_mma_result);
+  // This version is meant to be used on the mma_result, which has a Reduction
+  // K axis.
+  void transformLikeMmaOutputWithK(TensorView* tv);
+
+  // This is like the above method, but tv should not have any K dimension
+  void transformLikeMmaOutputWithoutK(TensorView* tv);
 
  private:
   std::vector<ValGroup> canonical_dim_ordering_;

@@ -1377,7 +1377,17 @@ SqueezeOp::SqueezeOp(
 std::string SqueezeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = squeeze( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = squeeze( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getSqueezeDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
@@ -3682,6 +3692,20 @@ void TensorDomain::swizzle(
   resetDomains();
 }
 
+void TensorDomain::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion) {
+  NVF_ERROR(nDims() > 0, "Tried to do resize on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto resized_id = IterDomain::resize(id, left_expansion, right_expansion);
+  loop_domain_.at(axis) = resized_id;
+  resetDomains();
+}
+
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noReductionDomain;
@@ -4532,6 +4556,33 @@ std::string MatmulOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace {
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
+// the rfactored DID axis to correctly bind with the logical domain. See
+// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(static_cast<int64_t>(logical.size()))) {
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
+    }
+  }
+
+  return rfactor_did_idx;
+}
+} // namespace
+
 std::vector<PolymorphicValue> MatmulOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -4540,28 +4591,8 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
 
   auto matmul_out = at::matmul(a, b);
 
-  // When the contracting dimension is sharded, each device has a partial
-  // matmul output and is followed by an allreduce. For loop split, this is
-  // represented as an rfactored reduction. The local matmul logical domain
-  // after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze the
-  // rfactored DID axis to correctly bind with the logical domain. See
-  // tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
-  auto out_logical = TensorDomain::noReductions(out()->getLogicalDomain());
-  int64_t rfactor_did_idx = -1;
-  for (auto idx : c10::irange(static_cast<int64_t>(out_logical.size()))) {
-    if (!out_logical.at(idx)->isRFactorProduct() ||
-        !out_logical.at(idx)->isDeviceDim()) {
-      continue;
-    }
-    if (rfactor_did_idx != -1) {
-      NVF_THROW(
-          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
-          out_logical);
-    }
-    rfactor_did_idx = idx;
-  }
-
-  if (rfactor_did_idx != -1) {
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
     matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
   }
 
@@ -4637,19 +4668,26 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   auto num_device_dims = weight.dim() - 2;
   squeeze_device_dims(weight, num_device_dims);
 
-  at::Tensor out;
+  at::Tensor out_tensor;
   if (has_bias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
     squeeze_device_dims(bias, num_device_dims);
-    out = at::linear(in, weight, bias);
+    out_tensor = at::linear(in, weight, bias);
   } else {
-    out = at::linear(in, weight);
+    out_tensor = at::linear(in, weight);
   }
 
   for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
-    out = out.unsqueeze(0);
+    out_tensor = out_tensor.unsqueeze(0);
   }
-  return {out};
+
+  // Handle rFactor DIDs similar to MatmulOp::evaluate.
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
+  }
+
+  return {out_tensor};
 }
 
 SdpaFwdOp::SdpaFwdOp(

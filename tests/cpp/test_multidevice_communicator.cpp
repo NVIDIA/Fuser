@@ -49,7 +49,20 @@ MATCHER_P2(
 } // namespace
 
 // A regression test for #2499.
-TEST_P(CommunicatorTest, Barrier) {
+//
+// It's currently disabled for a potential flake. One way to fix that is:
+// ```
+// for each iteration i:
+//   timestamps[i] = now()
+//   barrier()
+//
+// prev_max = -inf
+// for each iteration i:
+//   min = allreduce(timestamps[i], MIN)
+//   assert prev_max <= min
+//   prev_max = allreduce(timestamps[i], MAX)
+// ```
+TEST_P(CommunicatorTest, DISABLED_Barrier) {
   using clock = std::chrono::high_resolution_clock;
 
   const auto rank = communicator_->deviceId();

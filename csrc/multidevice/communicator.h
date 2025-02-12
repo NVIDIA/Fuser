@@ -51,25 +51,7 @@ constexpr int comm_server_local_rank_default = 0;
 
 class Communicator {
  public:
-  static Communicator& getInstance() {
-    // This isn't the best practice to use singleton. Ideally, we'd like to
-    // ```
-    // static Communicator communicator;
-    // ```
-    // and let the destructor clean it up at program exit after `main` returns.
-    // This however would cause a "driver shutting down" error, likely because
-    // another static variable destructor shuts down the CUDA driver before
-    // ~Communicator. Note that the order of static variable destruction
-    // across translation units is undefined.
-    //
-    // Therefore, we `new Communicator()` as a raw pointer and let the user
-    // call Communicator::getInstance().cleanup() to clean up the Communicator
-    // explicitly before the end of `main`. For example, the cleanup method is
-    // called via MultiDeviceTestEnvironment::TearDown in C++ unit tests and
-    // nvfuser._cleanup() in Python.
-    static auto* communicator = new Communicator();
-    return *communicator;
-  }
+  static Communicator& getInstance();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;

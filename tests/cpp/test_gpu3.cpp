@@ -7368,77 +7368,6 @@ TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
   testValidate(executor_cache.fusion(), cg_outputs, {11}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
-  auto test = [](const int64_t hidden_size, DataType dtype) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
-    const float kEps = 1e-5;
-    Val* eps_ptr = IrBuilder::create<Val>(kEps);
-    constexpr int64_t dim0 = 2048;
-    std::vector<int64_t> input_shape{dim0, hidden_size};
-    std::vector<int64_t> norm_shape{hidden_size};
-    auto input_half = makeContigTensor(2, dtype);
-    auto weight_half = makeContigTensor(1, dtype);
-    auto bias_half = makeContigTensor(1, dtype);
-    fusion.addInput(input_half);
-    fusion.addInput(weight_half);
-    fusion.addInput(bias_half);
-    auto input = castOp(DataType::Float, input_half);
-    auto weight = castOp(DataType::Float, weight_half);
-    auto bias = castOp(DataType::Float, bias_half);
-    auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-    auto result_output = castOp(dtype, result.output);
-    fusion.addOutput(result_output);
-    fusion.addOutput(result.mean);
-    fusion.addOutput(result.invstd);
-
-    auto options = at::TensorOptions()
-                       .dtype(data_type_to_aten(dtype))
-                       .device(at::kCUDA, 0);
-    at::Tensor aten_input = at::randn(input_shape, options);
-    c10::optional<at::Tensor> aten_weight =
-        at::randn({input_shape[1]}, options);
-    c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
-    auto fusion_copy = fusion;
-    auto scheduler =
-        SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
-    SchedulerRuntimeInfo runtime_info(
-        &fusion, {aten_input, aten_weight, aten_bias});
-    auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
-    auto persistent_params = heuristic_params->as<ReductionParams>();
-    NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
-    if (hidden_size * dataTypeSize(dtype) >
-        scheduler_utils::register_file_size) {
-      NVF_CHECK(
-          !persistent_params->smem_persistent_buffers.empty(),
-          "Should use shared memory buffer!");
-    } else {
-      NVF_CHECK(
-          persistent_params->smem_persistent_buffers.empty(),
-          "Shouldn't use shared memory buffer!");
-    }
-
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs(
-        {aten_input, aten_weight, aten_bias});
-
-    testValidate(
-        &fusion_copy,
-        cg_outputs,
-        {aten_input, aten_weight, aten_bias},
-        __LINE__,
-        __FILE__,
-        "");
-  };
-  // loop from 16K to 128K hidden size
-  for (auto dtype : {DataType::Float, DataType::Half}) {
-    for (int i = 8; i <= 128; i += 8) {
-      test(i * 1024, dtype);
-    }
-  }
-}
-
 // converted from https://github.com/NVIDIA/Fuser/issues/443
 TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -7846,7 +7775,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
     bool predicate_rngop = false;
 
    private:
-    void handle(RNGOp* uop) final {
+    void handle(kir::RNGOp* uop) final {
       for (auto expr : scope_exprs_) {
         if (!expr->isA<kir::IfThenElse>() ||
             expr->as<kir::IfThenElse>()->hasElse()) {
@@ -8669,8 +8598,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   // the loop domain, preventing uniform inlining. Check if the
   // outermost loop domains of all tensors are mapped and inlined.
   auto ref_outermost = tv7->getLoopDomain().at(0);
-  IdModel id_model(&fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -8730,8 +8659,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   // the loop domain, preventing uniform inlining. Check if the
   // outermost loop domains of all tensors are mapped and inlined.
   auto ref_outermost = tv5->getLoopDomain().at(0);
-  IdModel id_model(&fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -8790,8 +8719,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   // the loop domain, preventing uniform inlining. Check if the
   // outermost loop domains of all tensors are mapped and inlined.
   auto ref_outermost = tv6->getLoopDomain().at(0);
-  IdModel id_model(&fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;

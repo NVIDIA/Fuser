@@ -8,6 +8,7 @@
 #include <cuda_utils.h>
 #include <multidevice/communicator.h>
 #include <options.h>
+#include <utils.h>
 
 #include <netdb.h>
 #include <map>
@@ -225,6 +226,99 @@ Communicator::Communicator(
 #ifdef USE_C10D_NCCL
   nccl_available_ = true;
 #endif
+}
+
+namespace {
+void waitForDebuggerAtRanks(
+    Communicator* communicator,
+    const std::vector<DeviceIdxType>& ranks) {
+  if (std::count(ranks.begin(), ranks.end(), communicator->deviceId()) > 0) {
+    volatile bool waiting = true;
+    auto pid = getpid();
+    std::cerr << "Process " << pid
+              << " is waiting for the debugger. To continue debugging, "
+              << "start gdb, `attach " << pid
+              << "`, `set var waiting=false`, and `fini`." << std::endl;
+    while (waiting) { // Please change `waiting` in the debugger.
+    }
+    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
+  }
+
+  if (communicator->is_available()) {
+    communicator->barrier();
+  }
+}
+} // namespace
+
+Communicator& Communicator::getInstance() {
+  // This isn't the best practice to use singleton. Ideally, we'd like to
+  // ```
+  // static Communicator communicator;
+  // ```
+  // and let the destructor clean it up at program exit after `main` returns.
+  // This however would cause a "driver shutting down" error, likely because
+  // another static variable destructor shuts down the CUDA driver before
+  // ~Communicator. Note that the order of static variable destruction
+  // across translation units is undefined.
+  //
+  // Therefore, we `new Communicator()` as a raw pointer and let the user
+  // call Communicator::getInstance().cleanup() to clean up the Communicator
+  // explicitly before the end of `main`. For example, the cleanup method is
+  // called via MultiDeviceTestEnvironment::TearDown in C++ unit tests and
+  // nvfuser._cleanup() in Python.
+  static auto* communicator = new Communicator();
+
+  // EnableOption::WaitDebugger can be used to attach gdb to one of the
+  // processes for debugging. For example,
+  //
+  // ```
+  // mpirun -np 2 -x NVFUSER_ENABLE='wait_debugger(1)' bin/test_multidevice
+  // --gtest_filter=*ReduceScatter
+  // ```
+  //
+  // When an mpirun fails, it usually prints out something like
+  // ```
+  // mpirun detected that one or more processes exited with non-zero status,
+  // thus causing the job to be terminated. The first process to do so was:
+  //
+  //   Process name: [[17665,1],0]
+  //   Exit code:    1
+  // ```
+  // The last bit of the process name (0 in this case) is the rank of the first
+  // failing process, and usually the rank to debug.
+  //
+  // Sometimes, multiple processes fail, and a failed, non-gdb'ed process can
+  // cause `mpirun` to terminate the entire job including the process being
+  // gdb'ed. For that, I use `mpirun -continuous` so `mpirun` keeps running the
+  // process being gdb'ed.
+  if (isOptionEnabled(EnableOption::WaitDebugger)) {
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      // Catch exceptions so call_once always flips `once` and executes this
+      // functor only once.
+      try {
+        const std::vector<std::string>& ranks_as_str =
+            getEnableOptionArguments(EnableOption::WaitDebugger);
+        std::vector<DeviceIdxType> ranks;
+        for (const auto& rank_as_str : ranks_as_str) {
+          const DeviceIdxType rank = std::stol(rank_as_str);
+          NVF_CHECK(
+              rank >= 0 && rank < communicator->size(),
+              "rank=",
+              rank,
+              " must be in the range of [0,",
+              communicator->size(),
+              ").");
+          ranks.push_back(rank);
+        }
+        waitForDebuggerAtRanks(communicator, ranks);
+      } catch (const std::exception& e) {
+        TORCH_WARN("Failed to wait for debugger: ", e.what());
+      }
+    });
+  }
+
+  return *communicator;
 }
 
 void Communicator::cleanup() {
