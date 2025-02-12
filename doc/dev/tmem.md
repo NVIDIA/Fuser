@@ -313,6 +313,18 @@ between the logical domain and the allocation domain, but the transformation
 between the allocation domain and the loop domain, which specifies how we access
 tensor memory in the kernel.
 
+To demonstrate the above point, we always do an XOR swizzle on the logical domain
+when scheduling the allocation domain. This is not because in real world we want
+this swizzle, but just to show that the logical domain and the allocation domain
+can have arbitrary transformations between them:<!-- */ //-->\
+```cpp
+void xorSwizzleLogicalDomain(TensorView* tv) {
+  tv->swizzle(SwizzleType::XOR, 0, 1);
+} /*
+```
+
+something
+
 <!-- */
 } // namespace nvfuser
 // \-->
