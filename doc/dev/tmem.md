@@ -436,8 +436,11 @@ The specific patterns of TMem accessing is specified in the
 [PTX-documentation](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout).
 These patterns are:
 
-**32x32b:**
+<details>
+<summary>**32x32b:**</summary>
+
 ![32x32b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-3232b.png)
+</details>
 
 **16x64b:**
 ![16x64b](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tcgen05-mma-fragment-1664b.png)
