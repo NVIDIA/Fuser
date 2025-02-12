@@ -434,9 +434,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      auto in_clone = ir_cloner.clone(group_to_run->inputs());
-      auto out_clone = ir_cloner.clone(group_to_run->outputs());
       if (hic->hasKernelExecutor(run_order_id)) {
+        auto in_clone = ir_cloner.clone(group_to_run->inputs());
+        auto out_clone = ir_cloner.clone(group_to_run->outputs());
         auto heuristic_params = schedulers().at(run_order_id).get();
         auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
             run_order_id,
