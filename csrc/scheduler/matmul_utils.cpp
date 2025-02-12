@@ -989,12 +989,17 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
-  if (isHopper(mparams->mma_macro)) {
+  if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
     // our TMA buffers at an offset that's a multiple of 64 (like 0) if
     // possible.
     mparams->promote_prologue_smem_reuse = true;
+
+    // TMA allows us to avoid linear indexing
+    // TODO: verify here that we will be able to use Int32 indexing. If not,
+    // then disable use_smem_epilogue.
+    //mparams->cparams.index_type = PrimDataType::Int32;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
