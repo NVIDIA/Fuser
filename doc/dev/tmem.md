@@ -29,8 +29,8 @@ constexpr static bool verbose = true; /*
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <inlining.h>
 #include <ops/alias.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {
@@ -364,23 +364,23 @@ TEST_F(TMemTutorial, TooManyLanes) {
 
 In the above example, the fusion is scheduled as:
 ```python
-[BIDx{2}, TIDx{3}, 5, (ComputeAt), BIDy{7}, TIDy{11}, 13, (TMem Dim Sep), 17] 
+[BIDx{2}, TIDx{3}, 5, (CA), BIDy{7}, TIDy{11}, 13, (DimSep), 17]
 ```
 
 Because 2 and 7 are parallelized on `BID`s, they are not allocated. Because 3
 and 11 are parallelized on `TID`s, they are allocated. Because 5 is on the left
-of the compute-at position, it is not allocated. Because 13 is on the right of
-the compute-at position, it is allocated. So the total number of lanes required
+of the compute-at position, it is not allocated. Because 13 and 17 is on the right
+of the compute-at position, it is allocated. So the total number of lanes required
 for this tensor is: `3 * 11 * 13 = 429`, which is larger than the total available
 lanes, `128`.
 
-<!-- */ //-->\
+Now let's take a look at another example:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorial, TooManyCols) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({128, 1024});
+  auto tv0 = makeContigConcreteTensor({2, 3, 5, 7, 11, 13, 17});
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -389,15 +389,34 @@ TEST_F(TMemTutorial, TooManyCols) {
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
 
-  tv2->setTMemDimSepPos(1);
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv4->axis(3)->parallelize(ParallelType::BIDy);
+  tv4->axis(4)->parallelize(ParallelType::TIDy);
+  scheduler_utils::parallelizeAllLike(tv4);
+  inlineAllAt(tv4, 3);
 
-  // Tries to allocate (128, 1024) for tv2.
+  tv2->setTMemDimSepPos(-2);
+
+  // Tries to allocate (429, 17) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Not enough columns")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Not enough tensor memory lanes: tried to allocate 429, but only 128 available.")));
 } /*
 ```
+
+In the above example, the fusion is scheduled as:
+```python
+[TIDx{32}, (DimSep), BIDx{3}, TIDy{5}, 7, (CA), BIDy{11}, TIDz{13}, 17]
+```
+
+Because 3 and 11 are parallelized on `BID`s, they are not allocated. Because
+32, 5, and 13 are parallelized on `TID`s, they are allocated. Because 7 is on
+the left of the compute-at position, it is not allocated. Because 17 is on the
+right of the compute-at position, it is allocated. So the total number of
+columns required for this tensor is: `5 * 13 * 17 = 1105`, which is larger than
+the total available lanes, `512`.
 
 <!-- */
 } // namespace nvfuser
