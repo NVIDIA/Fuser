@@ -795,6 +795,9 @@ TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
   auto mesh = DeviceMesh::createForNumDevices(d);
 
   // Propagate transform from reshaped output to input.
+  // Without this propagation, the two DID axes on `in` and `out` will not be
+  // mapped in together in ID model. This causes scheduling to fail due to
+  // resharding.
   TransformPropagator propagator_c2p(out);
   MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator_c2p);
   // in: loop domain: {b, s, d*h, e} after transform propagation
@@ -805,16 +808,17 @@ TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
   in->axis(-3)->parallelize(ParallelType::DIDx);
   // in: loop domain: {b, s, DIDx{d}, h, e}
 
+  // Propagate DID loop split to output
   TransformPropagator propagator_p2c(in);
   MaxLogicalDomainInfoSpanningTree(in).traverse(&propagator_p2c);
   // out: loop domain: {b, s, d, h, e} after transform propagation
 
-  // Parallelize out
+  // Parallelize output
   scheduler_utils::parallelizeAllLike(
       in,
       /*pos=*/-1,
       /*selected_tv=*/{out});
-  // out: loop domain: {b, s, DIDx{d}, h, e} after transform propagation
+  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
 
   in->setAllocationDomain(in->getLoopDomain(), true);
   out->setAllocationDomain(out->getLoopDomain(), true);
