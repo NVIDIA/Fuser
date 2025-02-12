@@ -818,7 +818,7 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
-
+#if 0
   tvs_.front()->fusion()->print();
 
   std::cerr << "Loop graph\n" << idGraph(IdMappingMode::LOOP).toString();
@@ -827,7 +827,7 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
     std::cerr << "Promotion: " << nvfuser::toString(vg) << " -> "
               << id->toString() << "\n";
   }
-
+#endif
   return idGraph(IdMappingMode::LOOP);
 }
 
