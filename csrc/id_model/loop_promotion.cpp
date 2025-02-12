@@ -26,11 +26,16 @@ bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
   if (split_in_.get() && other.split_in_.get()) {
     const CoveredGroups& parent = *split_in_;
     const CoveredGroups& other_parent = *other.split_in_;
-    // If the parents are the same, these two CoveredGroups have two
-    // different ValGroups. That should mean each corresonds to a
-    // different split output group, meaning neigher is a superset
+
+    // When these two CoveredGroups have two different ValGroups but
+    // they share the same split input
     if (parent == other_parent) {
-      return false;
+      // If both correspond to inner or outer, they should effectively
+      // cover the same group. This should only occur when the
+      // difference is only about merged broadcast groups. If they
+      // correspond to different outputs, they should not considered
+      // the same.
+      return is_inner_ == other.is_inner_;
     }
 
     if (std::all_of(
@@ -895,8 +900,10 @@ computeCoveredGroups2(const ValGraph& graph) {
           covered_ids.at(input_groups.at(0));
 
       for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+        bool is_inner =
+            output_group->has(exact_expr->front()->as<Split>()->inner());
         covered_ids[output_group]->insert(
-            CoveredGroup(output_group, covered_groups));
+            CoveredGroup(output_group, covered_groups, is_inner));
       }
       continue;
     }
@@ -1027,16 +1034,10 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
       // the terminal ID.
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(loop_id), loop_id->as<IterDomain>());
-
-      std::cerr << "Promotion candidate (no iel promo): " << loop_id->toString()
-                << "\n";
     } else {
       // If this terminal ID has a promotion, grab the promoted ID.
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(iel_promo_it->second), iel_promo_it->second);
-
-      std::cerr << "Promotion candidate (promo): "
-                << iel_promo_it->second->toString() << "\n";
     }
   }
 
@@ -1063,7 +1064,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
 
   std::cerr << "Loop group covered ids:\n";
   for (const CoveredGroup& covered_group : loop_group_covered_ids) {
-    std::cerr << nvfuser::toString(covered_group.group())
+    std::cerr << nvfuser::toString(covered_group.group()) << ", "
               << covered_group.group()->front()->toString() << "\n";
     if (covered_group.splitIn().get()) {
       std::cerr << "\tSplit from:\n";
@@ -1087,7 +1088,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // nvfuser::toString(covered_it->second) << "\n";
     const auto& covered_groups = covered_it->second;
     for (const CoveredGroup& covered_group : *covered_groups) {
-      std::cerr << nvfuser::toString(covered_group.group())
+      std::cerr << nvfuser::toString(covered_group.group()) << ", "
                 << covered_group.group()->front()->toString() << "\n";
       if (covered_group.splitIn().get()) {
         // std::cerr << "\tSplit from: " <<

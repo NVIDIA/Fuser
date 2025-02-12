@@ -20,8 +20,11 @@ struct CoveredGroup {
   CoveredGroup() = default;
   CoveredGroup(
       ValGroup group,
-      const std::shared_ptr<CoveredGroups>& split_parent = nullptr)
-      : group_(std::move(group)), split_in_(split_parent) {}
+      const std::shared_ptr<CoveredGroups>& split_parent = nullptr,
+      bool is_inner = false)
+      : group_(std::move(group)),
+        split_in_(split_parent),
+        is_inner_(is_inner) {}
 
   const ValGroup& group() const {
     return group_;
@@ -44,6 +47,7 @@ struct CoveredGroup {
  private:
   ValGroup group_;
   std::shared_ptr<CoveredGroups> split_in_;
+  bool is_inner_ = false;
 };
 
 } // namespace nvfuser
