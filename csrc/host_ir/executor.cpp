@@ -410,88 +410,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 }
 
 void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
-  const int64_t my_rank = communicator_->deviceId();
-  auto get_tensor = [this](P2PCommunication* communication) -> at::Tensor {
-    return this->expr_evaluator_.evaluate(communication->buffer())
-        .as<at::Tensor>();
-  };
-
-  std::vector<P2PCommunication*> communications;
-  for (auto expr : share_mem_handles->communications()) {
-    auto communication = expr->as<P2PCommunication>();
-    const auto dst =
-        expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
-    const auto src =
-        expr_evaluator_.evaluate(communication->src()).as<int64_t>();
-    const bool is_sender = my_rank == src;
-    const bool is_receiver = my_rank == dst;
-    if (!(is_sender ^
-          is_receiver)) { // REMOVE or adapt exporting/opening the handle
-      return;
-    }
-    if (ipc_handle_cache_.find(communication, expr_evaluator_) != nullptr) {
-      continue;
-    }
-    communications.push_back(communication);
-  }
-
-  // put memhandles to TCP store
-  auto get_key =
-      [this](P2PCommunication* communication, int64_t rank) -> std::string {
-    return "nvfuser_ipc_handle_info_P2PComm_dst=" +
-        std::to_string(this->expr_evaluator_.evaluate(communication->dst())
-                           .as<int64_t>()) +
-        "_src=" +
-        std::to_string(this->expr_evaluator_.evaluate(communication->src())
-                           .as<int64_t>()) +
-        "_rank=" + std::to_string(rank);
-  };
-  std::unordered_map<P2PCommunication*, std::unique_ptr<IpcHandle>>
-      buffer_handles;
-  auto store = communicator_->getTcpStore();
-  for (P2PCommunication* communication : communications) {
-    auto buffer_handle =
-        std::make_unique<IpcHandle>(get_tensor(communication));
-    store->set(get_key(communication, my_rank), toBytes(*buffer_handle));
-    buffer_handles.emplace(communication, std::move(buffer_handle));
-  }
-
-  // barrier to ensure all ranks have pushed their memhandles to the store
-  // TODO: precisely select what ranks need to wait on that barrier.
-  communicator_->barrier();
-
-  // get memhandles to TCP store
-  for (P2PCommunication* communication : communications) {
-    auto ipc_handles = std::make_unique<std::vector<std::unique_ptr<IpcHandle>>>();
-    ipc_handles->reserve(communicator_->size());
-    const auto dst =
-        expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
-    const auto src =
-        expr_evaluator_.evaluate(communication->src()).as<int64_t>();
-    for (int64_t rank : c10::irange(communicator_->size())) {
-      if (rank != src && rank != dst) {
-        ipc_handles->push_back(nullptr);
-        continue;
-      }
-      if (rank == my_rank) {
-        // opening an ipc handle on the exporter's device is not supported
-        ipc_handles->push_back(std::move(buffer_handles.at(communication)));
-      } else {
-        std::string key = get_key(communication, rank);
-        NVF_ERROR(
-            store->check({key}),
-            "key ",
-            key,
-            " not found in store at rank ",
-            my_rank);
-        auto imported_ipc_handle_info =
-            std::make_unique<IpcHandle>(store->get(key));
-        ipc_handles->push_back(std::move(imported_ipc_handle_info));
-      }
-    }
-    ipc_handle_cache_.insert(
-      communication, expr_evaluator_, std::move(ipc_handles));
-  }
+  ipc_handle_cache_.exchangeHandles(share_mem_handles->communications(), expr_evaluator_);
 }
 
 void HostIrEvaluator::handle(Communication* communication) {
@@ -550,21 +469,12 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     return;
   }
 
-  const auto it = ipc_handle_cache_.find(communication, expr_evaluator_);
-  NVF_ERROR(
-      it != nullptr,
-      "No remote buffer found for ",
-      communication->toString(),
-      " at rank ",
-      my_rank);
-  const std::vector<std::unique_ptr<IpcHandle>>& ipc_handles = *it;
-  const int64_t peer = is_sender ? dst : src;
-  const IpcHandle& my_buffer = *ipc_handles.at(my_rank);
-  const IpcHandle& peer_buffer = *ipc_handles.at(peer);
+  const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(communication, expr_evaluator_);
+  const IpcHandle& peer_buffer = ipc_handles.peer();
   const auto local_semaphore =
-      reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[peer]);
+      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
   const auto remote_semaphore =
-      reinterpret_cast<CUdeviceptr>(&peer_buffer.semaphores()[my_rank]);
+      reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore());
   static_assert(
       sizeof(IpcSemaphore) == sizeof(uint32_t), "IpcSemaphore must be 32 bits");
 
@@ -631,7 +541,6 @@ void HostIrEvaluator::handle(Wait* wait) {
     return;
   }
 
-  const auto dst = expr_evaluator_.evaluate(p2p_comm->dst()).as<int64_t>();
   const auto src = expr_evaluator_.evaluate(p2p_comm->src()).as<int64_t>();
   const int64_t my_rank = communicator_->deviceId();
   if (my_rank == src) {
@@ -639,18 +548,10 @@ void HostIrEvaluator::handle(Wait* wait) {
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     at::Tensor buffer =
         getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_);
-    const auto it = ipc_handle_cache_.find(p2p_comm, expr_evaluator_);
-    NVF_ERROR(
-        it != nullptr,
-        "No remote buffer found for ",
-        p2p_comm->toString(),
-        " at rank ",
-        my_rank);
-    const std::vector<std::unique_ptr<IpcHandle>>& ipc_handles = *it;
 
-    const IpcHandle& my_buffer = *ipc_handles.at(my_rank);
+    const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
     const auto local_semaphore =
-        reinterpret_cast<CUdeviceptr>(&my_buffer.semaphores()[dst]);
+        reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
 
     NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
         current_stream,

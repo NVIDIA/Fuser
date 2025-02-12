@@ -12,18 +12,6 @@
 
 namespace nvfuser {
 
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
-
 enum class IpcSemaphore : cuuint32_t { kReady, kInUse };
 
 class IpcHandle {
@@ -36,68 +24,69 @@ class IpcHandle {
     return ptr_;
   }
 
-  auto semaphores() const {
-    return semaphores_;
+  auto semaphore() const {
+    return semaphore_;
   }
 
  private:
   void* ptr_;
   int64_t storage_offset_;
   int64_t element_size_;
-  bool is_imported_;
   cudaIpcMemHandle_t ipc_handle_;
-  cudaIpcMemHandle_t semaphores_ipc_handle_;
-  IpcSemaphore* semaphores_;
+  cudaIpcMemHandle_t semaphore_ipc_handle_;
+  IpcSemaphore* semaphore_;
+  int64_t rank_;
 };
 
-using P2pIpcHandle = std::vector<std::unique_ptr<IpcHandle>>;
-// class P2pIpcHandle {
-//  public:
-//   P2pIpcHandle(IpcHandle local_handle, IpcHandle peer_handle)
-//       : local_handle_(local_handle), peer_handle_(peer_handle) {};
+class P2pIpcHandle {
+ public:
 
-//   ~P2pIpcHandle();
+  P2pIpcHandle(std::unique_ptr<IpcHandle> local, std::unique_ptr<IpcHandle> peer) : local_(std::move(local)), peer_(std::move(peer)) {}
 
-//   const auto& local() {
-//     return local_handle_;
-//   }
+  const auto& local() const {
+    return *local_;
+  }
 
-//   const auto& peer() {
-//     return peer_handle_;
-//   }
+  const auto& peer() const {
+    return *peer_;
+  }
 
-//  private:
-//   IpcHandle local_handle_;
-//   IpcHandle peer_handle_;
-// };
-
+ private:
+  std::unique_ptr<IpcHandle> local_;
+  std::unique_ptr<IpcHandle> peer_;
+};
 
 class IpcHandleCache {
-  public:
-    IpcHandleCache() = default;
-    ~IpcHandleCache() = default;
+ public:
+  IpcHandleCache() = default;
+  ~IpcHandleCache() = default;
 
-
-  P2pIpcHandle* find(P2PCommunication* comm, ExpressionEvaluator& expr_evaluator) {
-    return find(getKey(comm, expr_evaluator));
+  const P2pIpcHandle& get(P2PCommunication* communication, ExpressionEvaluator& expr_evaluator) {
+    auto it = find(getKey(communication, expr_evaluator));
+    NVF_ERROR(
+      it != nullptr,
+      "No remote buffer found for ",
+      communication->toString());
+    return *it;
   }
 
-  void insert(P2PCommunication* comm, ExpressionEvaluator& expr_evaluator, std::unique_ptr<P2pIpcHandle> handle) {
-    handles_[getKey(comm, expr_evaluator)] = std::move(handle);
-  }
+  void exchangeHandles(const std::vector<P2PCommunication*>& communications, const ExpressionEvaluator& expr_evaluator);
 
  private:
   using KeyType = std::tuple<int64_t, int64_t, at::Tensor, P2PCommunication*>;
 
-  KeyType getKey(P2PCommunication* comm, ExpressionEvaluator& expr_evaluator) {
+  KeyType getKey(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator) {
     int64_t dst = expr_evaluator.evaluate(comm->dst()).as<int64_t>();
     int64_t src = expr_evaluator.evaluate(comm->src()).as<int64_t>();
     at::Tensor buffer = expr_evaluator.evaluate(comm->buffer()).as<at::Tensor>();
     return std::make_tuple(dst, src, buffer, comm);
   }
+  void insert(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator, std::unique_ptr<P2pIpcHandle> handle) {
+    handles_[getKey(comm, expr_evaluator)] = std::move(handle);
+  }
 
-  void insert(KeyType key, std::unique_ptr<P2pIpcHandle> handle) {
-    handles_[key] = std::move(handle);
+  P2pIpcHandle* find(P2PCommunication* comm, const ExpressionEvaluator& expr_evaluator) {
+    return find(getKey(comm, expr_evaluator));
   }
 
   P2pIpcHandle* find(KeyType key) {
@@ -123,8 +112,6 @@ class IpcHandleCache {
       return lhs.equal(rhs);
     }
   };
-
-
 
   struct KeyHash {
     std::size_t operator()(const KeyType& key) const {
