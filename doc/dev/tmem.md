@@ -402,7 +402,7 @@ TEST_F(TMemTutorial, TooManyCols) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Not enough tensor memory lanes: tried to allocate 429, but only 128 available.")));
+          "Not enough tensor memory columns: tried to allocate 1105, but only 512 available.")));
 } /*
 ```
 
