@@ -27,8 +27,8 @@ programs. Later, we it should support non-linear program having a DAG structure.
 
 class HostIrContainer final : public Fusion {
  public:
-  HostIrContainer() = default;
-  HostIrContainer(int64_t sz);
+  // num_kernel_executors is only needed when the container has LaunchKernel instructions.
+  explicit HostIrContainer(int64_t num_kernel_executors = 0);
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
