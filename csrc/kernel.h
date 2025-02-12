@@ -128,6 +128,10 @@ struct KernelSummary {
   //! Reason: At runtime, we check that at least a single warp along TIDx axis
   //! exists.
   bool has_elect_sync_predicate = false;
+
+  //! Do we have any possibly narrowing casts from DataType::Index variables?
+  //! These need to be validated to prevent overflow.
+  bool has_index_casts = false;
 };
 
 class KernelPerformanceProfile {
