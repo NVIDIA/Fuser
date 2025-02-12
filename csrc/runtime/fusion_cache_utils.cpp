@@ -41,11 +41,11 @@ ArgumentManager::ArgumentManager(
   setLastUsedSegmentID(runtime_workspace.group_run_order);
 }
 
-const std::unordered_map<Val*, const PolymorphicValue*>& ArgumentManager::
+const std::unordered_map<Val*, const PolymorphicValue&>& ArgumentManager::
     getTensorMap() const {
   return tensor_map_;
 }
-const PolymorphicValue* ArgumentManager::checkTensorMap(Val* v) {
+const PolymorphicValue& ArgumentManager::checkTensorMap(Val* v) {
   return tensor_map_.at(v);
 }
 
@@ -59,22 +59,12 @@ void ArgumentManager::addOutputsToArgsAndTensorMap(
       "Output size does not match.");
 
   for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-    Val* output = group_outputs[group_out_i];
-    const PolymorphicValue*& runtime_output = tensor_map_[output];
-    if (runtime_output != nullptr) {
-      // A trivial forwarding output or a dupliated output shares the same
-      // `Val*` as another fusion input/output. In those cases, we keep
-      // mapping it to the same runtime output.
-      continue;
-    }
-
     if constexpr (std::is_pointer_v<
                       decltype(group_runtime_outputs[group_out_i])>) {
       fusion_args_.push(*group_runtime_outputs[group_out_i]);
     } else {
       fusion_args_.push(group_runtime_outputs[group_out_i]);
     }
-    runtime_output = fusion_args_.back();
   }
 }
 
@@ -121,13 +111,13 @@ void ArgumentManager::mapFusionInputsToArgs(
     // TODO: we probably have done this already up to this point
     //      should consider caching the expression evaluators, both
     //      more convenient and safer than replication
-    if (fusion_args_[i]->is<at::Tensor>()) {
+    if (fusion_args_[i].is<at::Tensor>()) {
       // Note this is very ugly way. We are pushing every single extent to
       // args, because we don't have a better place to hold them.
-      auto rank = fusion_args_[i]->as<at::Tensor>().dim();
+      auto rank = fusion_args_[i].as<at::Tensor>().dim();
       for (const auto dim : c10::irange(rank)) {
         fusion_args_.push(
-            PolymorphicValue(fusion_args_[i]->as<at::Tensor>().size(dim)));
+            PolymorphicValue(fusion_args_[i].as<at::Tensor>().size(dim)));
         tensor_map_.emplace(
             group_extent_binding_order[extent_index++], fusion_args_.back());
       }

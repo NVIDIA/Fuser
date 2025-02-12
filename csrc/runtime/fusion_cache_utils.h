@@ -84,6 +84,10 @@ struct PairPointerEquals {
 // checks the input and output arguments of each segment and make a map from val
 // to the segment_id where the val is lastly used. The arguments representing
 // these vals are then deleted after the segment runs.
+//
+// Warning: Argument Manager does not manage the lifetime of arguments. It
+// should never outlive the lifetime of provided args. i.e. it is just an
+// accessor to the provided args.
 class ArgumentManager {
  public:
   ArgumentManager(
@@ -91,9 +95,9 @@ class ArgumentManager {
       const RuntimeWorkSpace& runtime_workspace,
       const std::vector<Val*>& fusion_inputs);
 
-  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() const;
+  const std::unordered_map<Val*, const PolymorphicValue&>& getTensorMap() const;
 
-  const PolymorphicValue* checkTensorMap(Val* v);
+  const PolymorphicValue& checkTensorMap(Val* v);
 
   // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
   // (from dry run)
@@ -109,7 +113,7 @@ class ArgumentManager {
     ss << "ArgumentManager {";
     for (auto entry : tensor_map_) {
       ss << "  " << entry.first->toString() << " : "
-         << PolymorphicValue_functions::toString(*entry.second) << std::endl;
+         << PolymorphicValue_functions::toString(entry.second) << std::endl;
     }
     ss << "}" << std::endl;
     return ss.str();
@@ -118,7 +122,7 @@ class ArgumentManager {
  private:
   KernelArgumentHolder& fusion_args_;
   // map from val to args
-  std::unordered_map<Val*, const PolymorphicValue*> tensor_map_;
+  std::unordered_map<Val*, const PolymorphicValue&> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 

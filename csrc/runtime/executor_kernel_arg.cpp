@@ -88,10 +88,10 @@ void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   }
 }
 
-void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
+void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
   auto iter = std::remove_if(
       arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return arg_to_delete == ref.get();
+        return arg_to_delete == ref;
       });
   arguments_.erase(iter, arguments_.end());
 }
@@ -99,10 +99,10 @@ void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
 std::string KernelArgumentHolder::toString() const {
   std::stringstream ss;
   for (const auto& arg : arguments_) {
-    if (arg->is<at::Tensor>()) {
-      ss << debug_str(arg->as<at::Tensor>()) << "\n";
+    if (arg.is<at::Tensor>()) {
+      ss << debug_str(arg.as<at::Tensor>()) << "\n";
     } else {
-      ss << *arg << "\n";
+      ss << PolymorphicValue_functions::toString(arg) << "\n";
     }
   }
   return ss.str();
@@ -110,8 +110,8 @@ std::string KernelArgumentHolder::toString() const {
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   for (const auto& arg : arguments_) {
-    if (arg->is<at::Tensor>()) {
-      if (getSmallestIndexType(arg->as<at::Tensor>()) == PrimDataType::Int) {
+    if (arg.is<at::Tensor>()) {
+      if (getSmallestIndexType(arg.as<at::Tensor>()) == PrimDataType::Int) {
         return PrimDataType::Int;
       }
     }
@@ -348,7 +348,6 @@ std::vector<std::byte> polymorphicValueToBytes(
       return buffer;
     }
   } else if (argument.is<Opaque>()) {
-    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");
     return argument.as<Opaque>().bytes();
   } else {
     NVF_THROW(
@@ -380,8 +379,8 @@ int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers
   for (auto i : c10::irange(args.size())) {
-    if (args[i]->is<at::Tensor>()) {
-      auto t = args[i]->as<at::Tensor>();
+    if (args[i].is<at::Tensor>()) {
+      auto t = args[i].as<at::Tensor>();
       num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
   }
