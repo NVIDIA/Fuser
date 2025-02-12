@@ -354,11 +354,11 @@ TEST_F(TMemTutorial, TooManyLanes) {
 
   tv2->setTMemDimSepPos(-2);
 
-  // Tries to allocate (256, 16) for tv2.
+  // Tries to allocate (429, 17) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Not enough tensor memory lanes: tried to allocate 256, but only 128 available.")));
+          "Not enough tensor memory lanes: tried to allocate 429, but only 128 available.")));
 } /*
 ```
 
