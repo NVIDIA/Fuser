@@ -12,7 +12,7 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <multidevice/communicator.h>
-#include <multidevice/distributed_buffer.h>
+#include <multidevice/ipc_handle.h>
 #include <runtime/executor.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_params.h>
@@ -163,10 +163,10 @@ class HostIrEvaluator final : public OptOutDispatch {
   };
   std::unordered_map<
       at::Tensor,
-      std::vector<std::unique_ptr<DistributedBuffer>>,
+      std::vector<std::unique_ptr<IpcHandle>>,
       TensorHash,
       TensorEqual>
-      distributed_buffers_;
+      ipc_handles_;
 };
 
 } // namespace hir
