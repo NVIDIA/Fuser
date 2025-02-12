@@ -511,7 +511,13 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
   for (P2PCommunication* communication: communications) {
     std::vector<std::unique_ptr<RemoteBufferInfo>> remote_buffers;
     remote_buffers.reserve(communicator_->size());
+    const auto dst = expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
+    const auto src = expr_evaluator_.evaluate(communication->src()).as<int64_t>();
     for (int64_t rank : c10::irange(communicator_->size())) {
+      if (rank != src && rank != dst) {
+        remote_buffers.push_back(nullptr);
+        continue;
+      }
       std::cout << "RANK " << my_rank << " after barrier for key " << get_key(communication, rank) << std::endl;
       if (rank == my_rank) {
         // opening an ipc handle on the exporter's device is not supported

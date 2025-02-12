@@ -461,7 +461,7 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   std::unordered_map<Val*, c10::IValue> inputs = {{send_tv, send_tensor}, {recv_tv, recv_tensor}};
 
   for (auto repetition : c10::irange(kNumRepetitions)) {
-    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition * my_rank);
+    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition * 10 + 100 * my_rank);
     std::cout << "RANK " << my_rank << " REPETITION " << repetition << ", send_peer=" << send_peer << ", recv_peer=" << recv_peer << ", send_tensor=" << send_tensor << std::endl;
     torch::cuda::synchronize();
     communicator_->barrier();
@@ -471,7 +471,7 @@ TEST_F(P2PCommunicationTest, CudaComm) {
     torch::cuda::synchronize();
     communicator_->barrier();
     std::cout << "RANK " << my_rank << " validation at" << " REPETITION " << repetition << std::endl;
-    auto ref = at::arange(kTensorSize, tensor_options) + repetition * recv_peer;
+    auto ref = at::arange(kTensorSize, tensor_options) + repetition * 10 + 100 * recv_peer;
     EXPECT_TRUE(torch::allclose(recv_tensor, ref)) << "Rank " << my_rank << " failed at repetition " << repetition << " with recv tensor " << recv_tensor << " and ref " << ref;
   }
 }
