@@ -421,6 +421,17 @@ the total available lanes, `512`.
 
 ## The loop domain of TMem load and store
 
+In NVFuser, the loop structure, parallelization and compute-at strategy of an
+expression is determined by the loop domain of the output of the expression.
+Unlike shared memory, which allows threads to access it arbitrarily, tensor
+memory must be accessed in a specific way. That is, the transformations between
+the allocation domain of the TMem TensorView and the loop domain of the consumer
+of the TMem accessing expression must satisfy specific patterns. That is, for
+the case of a TMem load `T0_r -> T1_t`, `T1_t`'s loop domain and allocation
+domain must satisfy specific patterns. For the case of a TMem store `T0_t ->
+T1_r`, the loop domain of `T1_r` and allocation domain of `T0_t` must satisfy
+specific patterns.
+
 <!-- */
 } // namespace nvfuser
 // \-->
