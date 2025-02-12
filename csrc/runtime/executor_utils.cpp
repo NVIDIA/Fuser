@@ -13,6 +13,7 @@
 
 #include <contiguity.h>
 #include <debug.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -719,6 +720,540 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   }
 
   return parallel_iter_extents_ptr;
+}
+
+namespace {
+// This holds inclusive bounds for
+struct BoundedInt {
+  int64_t min = std::numeric_limits<int64_t>::min();
+  int64_t max = std::numeric_limits<int64_t>::max();
+
+  bool canBeZero() const {
+    return min <= 0L && max >= 0L;
+  }
+
+  BoundedInt operator+(const BoundedInt& other) const {
+    return BoundedInt{min + other.min, max + other.max};
+  }
+
+  BoundedInt operator+(const int64_t other) const {
+    return BoundedInt{min + other, max + other};
+  }
+
+  BoundedInt operator-(const BoundedInt& other) const {
+    return BoundedInt{min - other.min, max - other.max};
+  }
+
+  BoundedInt operator-(const int64_t other) const {
+    return BoundedInt{min - other, max - other};
+  }
+
+  BoundedInt operator*(const BoundedInt& other) const {
+    // TODO: How should we handle overflow here?
+    std::vector<int64_t> xs{
+        min * other.min, min * other.max, max * other.min, max * other.max};
+    return BoundedInt{
+        *std::min_element(xs.begin(), xs.end()),
+        *std::max_element(xs.begin(), xs.end())};
+  }
+
+  BoundedInt operator*(const int64_t other) const {
+    if (other < 0L) {
+      return BoundedInt{max * other, min * other};
+    }
+    return BoundedInt{min * other, max * other};
+  }
+
+  BoundedInt recip() const {
+    if (!canBeZero()) {
+      return BoundedInt{1L / max, 1L / min};
+    }
+
+    if (min == 0L) {
+      if (max == 0) {
+        return BoundedInt{};
+      }
+      return BoundedInt{1 / max, std::numeric_limits<int64_t>::max()};
+    } else if (max == 0L) {
+      return BoundedInt{std::numeric_limits<int64_t>::min(), 1L / min};
+    } else {
+      return BoundedInt{};
+    }
+  }
+
+  BoundedInt operator/(const BoundedInt& other) const {
+    if (min >= 0 && other.min > 0) {
+      return {min / other.max, max / other.min};
+    }
+
+    if (other.canBeZero()) {
+      // division by zero case. Return unbounded
+      return BoundedInt();
+    }
+    return (*this) * other.recip();
+  }
+
+  BoundedInt operator/(const int64_t other) const {
+    if (other == 0L) {
+      // division by zero case. Return unbounded
+      return BoundedInt();
+    }
+    return BoundedInt{min / other, max / other};
+  }
+
+  BoundedInt operator%(const BoundedInt& other) const {
+    if (min >= 0L && other.min > 0L && max < other.min) {
+      return {min, max};
+    } else {
+      return BoundedInt{0L, other.max};
+    }
+  }
+
+  BoundedInt operator%(const int64_t other) const {
+    if (min >= 0L && max < other) {
+      return {min, max};
+    } else {
+      return {0L, other - 1L};
+    }
+  }
+
+  //! Returns the number of high bits that must be common among all integers in
+  //! this interval
+  int64_t commonHighBits() const {
+// #if __cplusplus < 202002L
+#if true
+    // XOR and view result as unsigned, so that right shift will be _logical_
+    // instead of arithmetic.
+    uint64_t different_bits = (*reinterpret_cast<const uint64_t*>(&max)) ^
+        (*reinterpret_cast<const uint64_t*>(&min));
+    // TODO: add countl_zero to csrc/C++20/ somewhere for C++17 backward
+    // compatibility
+    int64_t fixed_bits = 64L;
+    while (different_bits != 0L) {
+      different_bits >>= 1;
+      fixed_bits--;
+    }
+    return fixed_bits;
+#else
+    int64_t different_bits = b.max ^ b.min;
+    return (int64_t)std::countl_zero(different_bits);
+#endif
+  }
+
+  // For bitwise operations, we consider the range of each bit independently.
+  // Consider a number x=0bABCDE. If min(x)=max(x), then each of the bits A, B,
+  // C, D, and E are fixed. However, if there is a range of values possible then
+  // a subset of these bits could take on either 0 or 1. Suppose the range of x
+  // is [0b01010, 0b01100]. Then we know that A=0, B=1, and C, D, and E can have
+  // either value. Generally speaking, for numbers lying between two positive
+  // integers, we know the lower-most K many bits are not fixed, where K is
+  // PRECISION-(number of high bits in common). We can compute the largest K
+  // between this and other, then we know that the XOR between these two values
+  // can have any value for that many lower bits and all the higher bits are
+  // determined by XORing the two min (or max) bounds with one another.
+  //
+  // [Note on twos-complement negative integers]
+  // Since twos-complement negative integers can be envisioned as simply
+  // stacking (without flipping) the negative values at the right side of the
+  // positive values, we can apply the same algorithm regardless of signedness.
+  BoundedInt operator^(const BoundedInt& other) const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator&(const BoundedInt& other) const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (min & other.min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator|(const BoundedInt& other) const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (min | other.min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator~() const {
+    // New interval has this many fixed bits
+    int64_t fixed_bits = commonHighBits();
+    // Mask everything below the higher fixed_bits
+    int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+    int64_t new_min = (~min) & (~low_mask); // 0b01000
+    int64_t new_max = new_min + low_mask; // 0b01111
+    return {new_min, new_max};
+  }
+
+  // Index types are always signed (always going to be true?). This means that a
+  // right shift is _arithmetic_ right shift, so if the argument is negative,
+  // after the shift it stays negative.
+  BoundedInt operator>>(const BoundedInt& other) const {
+    NVF_ERROR(other.min >= 0, "Shift operator must not have negative shift");
+    // Note: arithmetic right shift makes negative values closer to zero, as it
+    // does for positive values
+    int64_t new_min = (min < 0L) ? (min >> other.min) : (min >> other.max);
+    int64_t new_max = (max < 0L) ? (max >> other.max) : (min >> other.min);
+    return {new_min, new_max};
+  }
+
+  BoundedInt operator<<(const BoundedInt& other) const {
+    NVF_ERROR(
+        min >= 0,
+        "Left shift must not be applied to number that can be negative");
+    NVF_ERROR(other.min >= 0, "Shift operator must not have negative shift");
+    return {min << other.min, max << other.max};
+  }
+};
+
+class ScalarBoundsCalculator : kir::IrVisitor {
+ public:
+  ScalarBoundsCalculator(
+      kir::Kernel* kernel,
+      ExpressionEvaluator& expr_eval,
+      const LaunchParams& launch_params)
+      : expr_eval_(expr_eval), launch_params_(launch_params) {
+    // Process all exprs
+    kir::IrVisitor::handle(kernel->topLevelExprs());
+  }
+
+  //! Return the bounds, computed over all scalars in the fusion with the given
+  //! data type
+  BoundedInt boundByDataType(DataType dtype = DataType::Index) {
+    BoundedInt ret;
+    bool initialized = false;
+    for (auto& [val, b] : bounds_) {
+      if (val->dtype() != dtype) {
+        continue;
+      }
+      if (!initialized) {
+        ret = b;
+        initialized = true;
+      } else {
+        ret.min = std::min(ret.min, b.min);
+        ret.max = std::max(ret.max, b.max);
+      }
+      if (b.min < std::numeric_limits<int32_t>::min() ||
+          b.max > std::numeric_limits<int32_t>::max()) {
+      }
+    }
+    return ret;
+  }
+
+  //! Look at all casts (T)x where x is of type nvfuser_index_t, to ensure that
+  //! these casts are safe i.e. that the bounds of x do not overflow those
+  //! representable by T.
+  bool castsFromIndexAreSafe() const {
+    return std::all_of(
+        casts_from_index_.begin(), casts_from_index_.end(), [&](UnaryOp* cast) {
+          const BoundedInt& bounds = bounds_.at(cast->in());
+          DataType out_type = cast->out()->dtype();
+          if (out_type == DataType::Int) {
+            return true;
+          } else if (out_type == DataType::Int32) {
+            return bounds.min >= std::numeric_limits<int32_t>::min() &&
+                bounds.max <= std::numeric_limits<int32_t>::max();
+          } else if (out_type == DataType::Short) {
+            return bounds.min >= std::numeric_limits<int16_t>::min() &&
+                bounds.max <= std::numeric_limits<int16_t>::max();
+          } else if (out_type == DataType::Char) {
+            return bounds.min >= std::numeric_limits<int8_t>::min() &&
+                bounds.max <= std::numeric_limits<int8_t>::max();
+          } else if (out_type == DataType::UInt64) {
+            // upper limit is above that of int64_t, which is the type of
+            // bounds.max
+            return bounds.min >= 0L;
+          } else if (out_type == DataType::UInt32) {
+            return bounds.min >= std::numeric_limits<uint32_t>::min() &&
+                bounds.max <= std::numeric_limits<uint32_t>::max();
+          } else if (out_type == DataType::UInt16) {
+            return bounds.min >= std::numeric_limits<uint16_t>::min() &&
+                bounds.max <= std::numeric_limits<uint16_t>::max();
+          } else if (out_type == DataType::Byte) {
+            return bounds.min >= std::numeric_limits<uint8_t>::min() &&
+                bounds.max <= std::numeric_limits<uint8_t>::max();
+          } else {
+            NVF_THROW("Unhandled DataType ", cast->out()->dtype());
+          }
+        });
+  }
+
+ private:
+  void setBounds(Val* val, const BoundedInt& bounds) {
+    bounds_[val] = bounds;
+  }
+
+  void setBounds(Val* val, int64_t min, int64_t max) {
+    setBounds(val, {min, max});
+  }
+
+  void setAsUnbounded(Val* val) {
+    setBounds(
+        val,
+        std::numeric_limits<int64_t>::min(),
+        std::numeric_limits<int64_t>::max());
+  }
+
+  void boundNamedScalar(NamedScalar* scalar) {
+    if (std::optional<ParallelType> ptype = scalar->getParallelDim();
+        ptype.has_value()) {
+      // scalar is the extent of a parallel dim, so evaluate it
+      int64_t dim_int = launch_params_.getDim(ptype.value());
+      setBounds(scalar, dim_int, dim_int);
+    } else if (std::optional<ParallelType> ptype = scalar->getParallelIndex();
+               ptype.has_value()) {
+      // scalar is the index of a parallel dim, so bound it by [0, dim-1]
+      int64_t dim_int = launch_params_.getDim(ptype.value());
+      setBounds(scalar, 0L, dim_int - 1L);
+    } else {
+      // We do not know how to bound other NamedScalars
+      setAsUnbounded(scalar);
+    }
+  }
+
+  // Non-recursive function to look up bounds if they have been recorded
+  // already. For NamedScalars, also look in parallel dimension map. Finally,
+  // try and evaluate. If all this fails, return nullopt.
+  std::optional<BoundedInt> maybeGetBounds(Val* val) {
+    if (auto it = bounds_.find(val); it != bounds_.end()) {
+      return it->second;
+    } else if (auto* scalar = dynamic_cast<NamedScalar*>(val)) {
+      boundNamedScalar(scalar);
+      return bounds_.at(val);
+    } else if (PolymorphicValue pv = expr_eval_.evaluate(val, known_scalars_);
+               pv.hasValue()) {
+      setBounds(val, pv.as<int64_t>(), pv.as<int64_t>());
+      return bounds_.at(val);
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
+
+  void dispatch(Expr* expr) {
+    if (auto* uop = dynamic_cast<UnaryOp*>(expr);
+        uop && uop->getUnaryOpType() == UnaryOpType::ToUnsignedSmemAddr) {
+      // This is a workaround for a limitation in being able to evaluate
+      // metadata for tensors with swizzles.
+      // TODO: is there a better workaround?
+      int64_t max_smem_addr =
+          (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock -
+          1L;
+      known_scalars_[uop->out()] = max_smem_addr;
+      setBounds(uop->out(), 0L, max_smem_addr);
+      return;
+    }
+
+    if (auto* uop = dynamic_cast<UnaryOp*>(expr); uop &&
+        uop->getUnaryOpType() == UnaryOpType::Cast &&
+        uop->in()->dtype() == DataType::Index &&
+        uop->out()->isIntegralScalar()) {
+      // Collect casts _from_ Index scalars, so that we can check that these are
+      // safe.
+      casts_from_index_.push_back(uop);
+    }
+
+    if (!expr->isA<ForLoop>() &&
+        std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* outp) {
+              return !outp->isIntegralScalar();
+            })) {
+      // We don't need to process expressions that do not produce integers.
+      // Note that for loops do "produce" their index variables for our
+      // purposes.
+      // It is possible that the expression outputs are constant scalars, so
+      // try and compute them here.
+      for (Val* outp : expr->outputs()) {
+        if (outp->isIntegralScalar()) {
+          PolymorphicValue pv = expr_eval_.evaluate(outp, known_scalars_);
+          if (pv.hasValue()) {
+            setBounds(outp, pv.as<int64_t>(), pv.as<int64_t>());
+          }
+        }
+      }
+      return;
+    }
+    // Inline scalar expressions might not have their inputs processed yet
+    // The following loop ensures that all inputs to expr have recorded bounds.
+    std::vector<Val*> immediate_inputs = expr->inputs();
+    if (auto* loop = dynamic_cast<ForLoop*>(expr)) {
+      immediate_inputs.push_back(loop->start());
+      immediate_inputs.push_back(loop->stop());
+      immediate_inputs.push_back(loop->step());
+    }
+    for (Val* inp : immediate_inputs) {
+      if (!inp->isIntegralScalar()) {
+        continue;
+      }
+      std::optional<BoundedInt> inp_bounds = maybeGetBounds(inp);
+      if (!inp_bounds.has_value()) {
+        // If inp is not constant, then we can try bounding its inputs, if
+        // they are int scalars. If it has no producers that are int scalars,
+        // and it is unbound, then we cannot provide any bounds for it.
+        if (Expr* def = inp->definition();
+            def &&
+            std::any_of(
+                def->inputs().begin(), def->inputs().end(), [](Val* definp) {
+                  return definp->isIntegralScalar();
+                })) {
+          // Recursively dispatch definitions
+          dispatch(def);
+        } else {
+          setAsUnbounded(inp);
+        }
+      }
+    }
+    kir::IrVisitor::dispatch(expr);
+  }
+
+  inline int64_t evalInt(Val* val) {
+    return expr_eval_.evaluate(val).as<int64_t>();
+  }
+
+  void handle(ForLoop* loop) {
+    // Set bounds for the loop variable
+    BoundedInt start = bounds_.at(loop->start());
+    BoundedInt stop = bounds_.at(loop->stop());
+    setBounds(loop->index(), start.min, stop.max - 1L);
+    kir::IrVisitor::handle(loop);
+  }
+
+  void handle(LoadStoreOp* lsop) {
+    setBounds(lsop->out(), bounds_.at(lsop->in()));
+  }
+
+  void handle(UnaryOp* uop) {
+    BoundedInt a = bounds_.at(uop->in());
+    BoundedInt result;
+    switch (uop->getUnaryOpType()) {
+      case UnaryOpType::BitwiseNot:
+        result = ~a;
+        break;
+      case UnaryOpType::Cast:
+        // This assumes there is no loss or overflow, since those should not
+        // occur in our kernels. We can check that later for index types using
+        // castsFromIndexAreSafe().
+        result = a;
+        break;
+      case UnaryOpType::Neg:
+        result = {-a.max, -a.min};
+        break;
+      default:
+        NVF_THROW("Not yet implemented");
+    }
+    setBounds(uop->out(), result);
+  }
+
+  void handle(BinaryOp* bop) {
+    BoundedInt a = bounds_.at(bop->lhs());
+    BoundedInt b = bounds_.at(bop->rhs());
+    BoundedInt result;
+    switch (bop->getBinaryOpType()) {
+      case BinaryOpType::Add:
+        result = a + b;
+        break;
+      case BinaryOpType::BitwiseAnd:
+        result = a & b;
+        break;
+      case BinaryOpType::BitwiseOr:
+        result = a | b;
+        break;
+      case BinaryOpType::BitwiseXor:
+        result = a ^ b;
+        break;
+      case BinaryOpType::CeilDiv:
+        // ceilDiv(a, b) = (a + b - 1) / b
+        //
+        // If a >=0 and b > 0, then the result is at least ceilDiv(a.min, b.max)
+        // and at most ceilDiv(a.max, b.min). This is the most common case
+        if (a.min >= 0L && b.min > 0L) {
+          result = {ceilDiv(a.min, b.max), ceilDiv(a.max, b.min)};
+        } else {
+          // TODO: This doesn't seem quite right
+          result = (a + b - 1) / b;
+        }
+        break;
+      case BinaryOpType::Div:
+        result = a / b;
+        break;
+      case BinaryOpType::Mod:
+        result = a % b;
+        break;
+      case BinaryOpType::Mul:
+        result = a * b;
+        break;
+      case BinaryOpType::Lshift:
+        result = a << b;
+        break;
+      case BinaryOpType::Rshift:
+        result = a >> b;
+        break;
+      case BinaryOpType::Sub:
+        result = a - b;
+        break;
+      default:
+        NVF_THROW("Not yet implemented");
+    }
+    setBounds(bop->out(), result);
+  }
+
+  void handle(TernaryOp* top) {
+    switch (top->getTernaryOpType()) {
+      default:
+        NVF_THROW("Not yet implemented");
+    }
+  }
+
+ private:
+  ExpressionEvaluator& expr_eval_;
+  const LaunchParams& launch_params_;
+  std::unordered_map<const Val*, BoundedInt> bounds_;
+  std::unordered_map<const Val*, PolymorphicValue> known_scalars_;
+  std::vector<UnaryOp*> casts_from_index_;
+};
+
+// TODO: Use this to set index type
+PrimDataType getSmallestIndexTypeByBoundingExpressions(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval,
+    const LaunchParams& launch_params) {
+  // bind args to expression evaluator
+  ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
+  // Compute the range of all nvfuser_index_t values in the fusion
+  BoundedInt index_bounds = calc.boundByDataType();
+  return (index_bounds.min < (int64_t)std::numeric_limits<int32_t>::min() ||
+          index_bounds.max > (int64_t)std::numeric_limits<int32_t>::max())
+      ? PrimDataType::Int
+      : PrimDataType::Int32;
+}
+
+} // namespace
+
+void validateIndexCasts(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval,
+    const LaunchParams& launch_params) {
+  if (!kernel->summary().has_index_casts) {
+    return;
+  }
+  // Bind tensor metadata
+  // expr_eval.precomputedValues()->bindValues(kernel->inputs(), args);
+  ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
+  NVF_ERROR(
+      calc.castsFromIndexAreSafe(), "Found unsafe casts from DataType::Index");
 }
 
 } // namespace executor_utils
