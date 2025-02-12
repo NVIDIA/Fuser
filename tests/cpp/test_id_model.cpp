@@ -2710,4 +2710,93 @@ TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
   }
 }
 
+// Repro of issue #3702
+// https://github.com/NVIDIA/Fuser/issues/3702. Indexing traversal
+// faied due to invalid loop promotion.
+TEST_F(IdModelTest, InvalidLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto T0 = makeContigConcreteTensor({1, 32, 6});
+  fusion.addInput(T0);
+  auto T32 = makeContigConcreteTensor({1, 6, 2048}, DataType::BFloat16);
+  fusion.addInput(T32);
+
+  auto T6 = transpose(T0, 1, 2);
+  auto T98 = broadcast(T6, {false, false, true, false});
+  auto T99 = expand(
+      T98,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(-1L)});
+  auto T100 = reshape(
+      T99,
+      {IrBuilder::create<Val>(1L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(-1)});
+  auto T11 = sin(T100);
+  auto T13 = mul(T11, IrBuilder::create<Val>(1.0));
+  auto T15 = castOp(DataType::BFloat16, T13);
+  auto T43 = broadcast(T15, {false, true, false, false});
+  auto T59 = expand(
+      T43,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T61 = castOp(DataType::Float, T59);
+  auto T10 = cos(T100);
+  auto T12 = mul(T10, IrBuilder::create<Val>(1.0));
+  auto T14 = castOp(DataType::BFloat16, T12);
+  auto T41 = broadcast(T14, {false, true, false, false});
+  auto T66 = expand(
+      T41,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T79 = expand(
+      T43,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T81 = castOp(DataType::Float, T79);
+  auto T35 = reshape(
+      T32,
+      {IrBuilder::create<Val>(1L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(64L)});
+  auto T36 = transpose(T35, 1, 2);
+  auto T47 = castOp(DataType::Float, T36);
+  auto T46 = expand(
+      T41,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T48 = castOp(DataType::Float, T46);
+  auto T49 = mul(T47, T48);
+  fusion.addOutput(T61);
+  fusion.addOutput(T66);
+  fusion.addOutput(T81);
+  fusion.addOutput(T36);
+  fusion.addOutput(T49);
+
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 32, 6}, options_fp32);
+  auto t32 = at::randn({1, 6, 2048}, options_bf16);
+  std::vector<c10::IValue> inputs({t0, t32});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
