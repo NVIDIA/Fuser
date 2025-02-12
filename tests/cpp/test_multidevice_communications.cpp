@@ -432,29 +432,29 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   FusionGuard fg(container.get());
 
   auto* my_rank_val = IrBuilder::create<Val>(my_rank, DataType::Int);
-  auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
   auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
+  auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
 
   auto* send_tv = makeContigTensor(1);
   auto* recv_tv = makeContigTensor(1);
   container->addInput(send_tv);
   container->addInput(recv_tv);
 
-  auto recv = IrBuilder::create<P2PCommunication>(
-      recv_tv, my_rank_val, recv_peer_val, CommunicatorBackend::kCuda);
   auto send = IrBuilder::create<P2PCommunication>(
-      send_tv, send_peer_val, my_rank_val, CommunicatorBackend::kCuda);
-  std::vector<P2PCommunication*> grouped_communications = {recv, send};
+    send_tv, send_peer_val, my_rank_val, CommunicatorBackend::kCuda);
+    auto recv = IrBuilder::create<P2PCommunication>(
+        recv_tv, my_rank_val, recv_peer_val, CommunicatorBackend::kCuda);
+  std::vector<P2PCommunication*> grouped_communications = {send, recv};
   auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
       std::move(grouped_communications));
-  auto wait_recv = IrBuilder::create<hir::Wait>(recv);
   auto wait_send = IrBuilder::create<hir::Wait>(send);
+  auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
   container->pushBackTopLevelExprs(share_mem_handles);
   container->pushBackTopLevelExprs(send);
   container->pushBackTopLevelExprs(recv);
-  container->pushBackTopLevelExprs(wait_recv);
   container->pushBackTopLevelExprs(wait_send);
+  container->pushBackTopLevelExprs(wait_recv);
 
   hir::HostIrEvaluator executor(std::move(container), communicator_);
 

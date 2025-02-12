@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -472,58 +473,12 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 
   const P2pIpcHandle& ipc_handles =
       ipc_handle_cache_.get(communication, expr_evaluator_);
-  const IpcHandle& peer_buffer = ipc_handles.peer();
-  const auto local_semaphore =
-      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
-  const auto remote_semaphore =
-      reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore());
-  static_assert(
-      sizeof(IpcSemaphore) == sizeof(uint32_t), "IpcSemaphore must be 32 bits");
-
-  const auto current_stream = reinterpret_cast<CUstream>(
-      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-
+  const auto current_stream = static_cast<CUstream>(
+    c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
   if (is_receiver) {
-    // wait for sender to be ready
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-        current_stream,
-        local_semaphore,
-        (cuuint32_t)(IpcSemaphore::kInUse),
-        CU_STREAM_WAIT_VALUE_EQ));
-    // RDMA get the data from the sender
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-        buffer.data_ptr(),
-        peer_buffer.ptr(),
-        buffer.numel() * buffer.element_size(),
-        cudaMemcpyDeviceToDevice,
-        current_stream));
-    // Signals completion to self
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        current_stream,
-        local_semaphore,
-        (cuuint32_t)(IpcSemaphore::kReady),
-        CU_STREAM_WRITE_VALUE_DEFAULT));
-    // Signals completion to receiver
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        current_stream,
-        remote_semaphore,
-        (cuuint32_t)(IpcSemaphore::kReady),
-        CU_STREAM_WRITE_VALUE_DEFAULT));
+    getZcopy::RecvPost(ipc_handles, buffer.numel() * buffer.element_size(), current_stream);
   } else /*sender*/ {
-    // signal to self that transfer is in progress
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        current_stream,
-        local_semaphore,
-        (cuuint32_t)(IpcSemaphore::kInUse),
-        CU_STREAM_WRITE_VALUE_DEFAULT));
-    // signal to receiver that the buffer is ready
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        current_stream,
-        remote_semaphore,
-        (cuuint32_t)(IpcSemaphore::kInUse),
-        CU_STREAM_WRITE_VALUE_DEFAULT)); // passing
-                                         // CU_STREAM_WRITE_VALUE_NO_MEMORY_BARRIER
-                                         // gives an error
+    getZcopy::SendPost(ipc_handles, current_stream);
   }
 }
 
@@ -544,23 +499,14 @@ void HostIrEvaluator::handle(Wait* wait) {
   }
 
   const auto src = expr_evaluator_.evaluate(p2p_comm->src()).as<int64_t>();
+  const auto dst = expr_evaluator_.evaluate(p2p_comm->dst()).as<int64_t>();
   const int64_t my_rank = communicator_->deviceId();
-  if (my_rank == src) {
+  if (my_rank == src && src != dst) {
     const auto current_stream = static_cast<CUstream>(
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-    at::Tensor buffer =
-        getKnownTensorOrUndefined(p2p_comm->buffer(), expr_evaluator_);
-
     const P2pIpcHandle& ipc_handles =
         ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
-    const auto local_semaphore =
-        reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
-
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-        current_stream,
-        local_semaphore,
-        (cuuint32_t)(IpcSemaphore::kReady),
-        CU_STREAM_WAIT_VALUE_EQ));
+    getZcopy::SendWait(ipc_handles, current_stream);
   }
 }
 

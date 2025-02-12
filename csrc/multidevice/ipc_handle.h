@@ -151,6 +151,7 @@ class IpcHandleCache {
 
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyHash, KeyEqual>
       handles_;
+  // TODO: add counter to support multiple send/recv per pair of ranks
 };
 
 } // namespace nvfuser
