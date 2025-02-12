@@ -262,7 +262,21 @@ addresses of tensor memory do not form a linear space. Instead, the addresses
 of tensor memory are two-dimensional, and the two dimensions are called `row`
 (or `lane`) and `column`.
 
-![Tensor Memory Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tensor-memory-layout.png)
+![Tensor-Memory-Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/tensor-memory-layout.png)
+
+In NVFuser, the allocation domain is the domain that specifies how tensor is
+allocated in memory. For all other memory types, because these memory types are
+linear spaces, the allocation domain is just a vector of `IterDomain`s. But for
+tensor memory, because it is 2D, the allocation domain is a vector of
+`IterDomain`s plus a position that splits the vector into two parts: the left
+part specifies the lane, and the right part specifies the column. The position
+is called *Tensor Memory Dimension Separator Position*, or *TMem DimSep
+Position* in short.
+
+In practice, we might want to allocate a tensor in tensor memory like the figure
+below:
+
+![TMEM-Allocation-Example](tmem/alloc-example.svg)
 
 <!-- */
 } // namespace nvfuser
