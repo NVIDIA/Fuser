@@ -33,7 +33,7 @@ class KernelArgumentHolder {
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
 
-  KernelArgumentHolder(
+  NVF_API KernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> device = std::nullopt);
 
