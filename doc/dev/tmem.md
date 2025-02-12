@@ -57,6 +57,7 @@ with different inlining and parallelization strategy:<!-- */ //-->\
 TEST_F(ReviewInliningParallelization, GSGCopy1) {
   at::Tensor t0 = at::rand({2, 4}, at::kCUDA);
 
+  // Naive copy kernel, no inlining, no parallelization
   {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -77,9 +78,11 @@ TEST_F(ReviewInliningParallelization, GSGCopy1) {
     ke.compile(&fusion);
     auto out = ke.run({t0});
     EXPECT_TRUE(at::equal(out[0], t0));
+    // T1 is allocated in full size
     EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
   }
 
+  // No inlining, has BIDx parallelization
   {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -102,9 +105,12 @@ TEST_F(ReviewInliningParallelization, GSGCopy1) {
     ke.compile(&fusion);
     auto out = ke.run({t0});
     EXPECT_TRUE(at::equal(out[0], t0));
+    // Because smem is distributed across different CTAs, only the first
+    // dimension of T1 is allocated.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 2 * sizeof(float));
   }
 
+  // Inline at 1, no parallelization
   {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -126,9 +132,13 @@ TEST_F(ReviewInliningParallelization, GSGCopy1) {
     ke.compile(&fusion);
     auto out = ke.run({t0});
     EXPECT_TRUE(at::equal(out[0], t0));
+    // Because the first dimension of T1 is inlined, inside the outer loop, T1
+    // is consumed right after it is produced. So T1 the first dimension of T1
+    // is not allocated.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 4 * sizeof(float));
   }
 
+  // Inline at 1, with BIDx parallelization
   {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -152,9 +162,13 @@ TEST_F(ReviewInliningParallelization, GSGCopy1) {
     ke.compile(&fusion);
     auto out = ke.run({t0});
     EXPECT_TRUE(at::equal(out[0], t0));
+    // Due to inlining, the first dimension of T1 is not allocated. Due to
+    // BIDx parallelization, the second dimension of T1 is not allocated. So T1
+    // is only allocated in size 1.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 1 * sizeof(float));
   }
 
+  // Inline at 1, with TIDx parallelization
   {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -178,26 +192,47 @@ TEST_F(ReviewInliningParallelization, GSGCopy1) {
     ke.compile(&fusion);
     auto out = ke.run({t0});
     EXPECT_TRUE(at::equal(out[0], t0));
+    // Although the first dimension of T1 is inlined, because shared memory is
+    // shared by threads, the TIDx parallelization will override the inlining,
+    // and make the first dimension of T1 allocated. The second dimension of T1
+    // is allocated normally. So T1 is allocated in full size.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
   }
-} /*
-```
 
-The generated kernel looks like this (modified to neglect minor details):
-```CUDA
-__global__ void kernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  Array<float, 8, 1> T1;
-  for(int i0 = 0; i0 < 2; ++i0) {
-    for(int i2 = 0; i2 < 4; ++i2) {
-      T1[4 * i0 + i2] = T0[4 * i0 + i2];
+  // Inline at 1, with TIDx and BIDx parallelization
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({2, 4});
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    fusion.addOutput(tv2);
+
+    tv1->setMemoryType(MemoryType::Shared);
+    tv1->inlineAt(1);
+    tv1->axis(0)->parallelize(ParallelType::TIDx);
+    tv2->axis(0)->parallelize(ParallelType::TIDx);
+    tv1->axis(1)->parallelize(ParallelType::BIDx);
+    tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+    if constexpr (verbose) {
+      fusion.printKernel();
     }
+
+    KernelExecutor ke;
+    ke.compile(&fusion);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0], t0));
+    // Although the first dimension of T1 is inlined, because shared memory is
+    // shared by threads, the TIDx parallelization will override the inlining,
+    // and make the first dimension of T1 allocated. The second dimension of T1
+    // is not allocated due to BIDx parallelization. So T1 is allocated in
+    // size 2.
+    EXPECT_EQ(ke.lastLaunchParams().smem(), 2 * sizeof(float));
   }
-  for(int i3 = 0; i3 < 2; ++i3) {
-    for(int i5 = 0; i5 < 4; ++i5) {
-      T2[4 * i3 + i5] = T1[4 * i3 + i5];
-    }
-  }
-}
+} /*
 ```
 
 In this kernel, because the computation of `T1` is not inlined, `T1` is
