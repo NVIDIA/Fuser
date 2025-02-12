@@ -121,7 +121,7 @@ class IpcHandleCache {
       auto offset = tensor.storage_offset();
       auto element_size = tensor.element_size();
       return std::hash<std::uintptr_t>()(ptr) ^
-          std::hash<int64_t>()(offset) << 32 ^ std::hash<int>()(element_size);
+          std::hash<int64_t>()(offset << 8) ^ std::hash<int>()(element_size);
     }
   };
 
@@ -133,8 +133,8 @@ class IpcHandleCache {
 
   struct KeyHash {
     std::size_t operator()(const KeyType& key) const {
-      return (std::hash<int64_t>()(std::get<0>(key)) << 13) ^
-          (std::hash<int64_t>()(std::get<1>(key)) << 7) ^
+      return (std::hash<int64_t>()(std::get<0>(key) << 13)) ^
+          (std::hash<int64_t>()(std::get<1>(key) << 7)) ^
           (TensorHash{}(std::get<2>(key))) ^
           (std::hash<P2PCommunication*>()(std::get<3>(key)));
     }
