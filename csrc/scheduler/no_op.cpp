@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <alias_analysis.h>
 #include <host_ir/lower.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
