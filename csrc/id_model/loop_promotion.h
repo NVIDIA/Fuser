@@ -132,9 +132,8 @@ class LoopPromotionMapBuilder {
   // represented as a set of CoveredGroup, which is either an exact
   // group of input IDs or an output group of split.
   static std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
-  computeCoveredGroups(const ValGraph& exact_graph,
-                       const IdModel& id_model);
-  
+  computeCoveredGroups(const ValGraph& exact_graph, const IdModel& id_model);
+
  private:
   LoopPromotionMapBuilder(
       IdModel& id_model,
@@ -170,15 +169,17 @@ class LoopPromotionMapBuilder {
   // informatiom of the IDs of the fusion inputs, i.e., i0, so the
   // propagation should start from i0, then i1, i2 and i3, ignoring
   // the back edge to i0.
-  static ValGroups getInputGroupsOfExactGraph(const ValGraph& exact_graph,
-                                              const IdModel& id_model);
+  static ValGroups getInputGroupsOfExactGraph(
+      const ValGraph& exact_graph,
+      const IdModel& id_model);
 
   // Similar to getInputGroupsOfExactGraph but for an IEL graph.
   // We first get the inputs of the Exact graph. For the
   // IEL propagation, any IEL group that has an ID that is included
   // in any of the input groups of the exact graph is used as an input.
-  static ValGroups getInputGroupsOfIELGraph(const ValGraph& iel_graph,
-                                            const IdModel& id_model);
+  static ValGroups getInputGroupsOfIELGraph(
+      const ValGraph& iel_graph,
+      const IdModel& id_model);
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
