@@ -1120,6 +1120,7 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
       auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0], t0));
 
+      // Check that vectorized PTX instructions are used
       auto kernel_str = codegen::generateCudaKernel(ke.kernel());
       std::stringstream expect_st, expect_ld;
       expect_st << "tcgen05.st.sync.aligned.32x32b.x" << st_vec << ".b32";
