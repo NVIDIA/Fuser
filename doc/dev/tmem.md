@@ -61,7 +61,7 @@ will give us a rough idea of how tensor memory should behave.
 Let's consider a simple gmem->shared->gmem copy kernel. Let's look at the kernel
 with different inlining and parallelization strategy:<!-- */ //-->\
 ```cpp
-TEST_F(ReviewInliningParallelization, GSGCopy1) {
+TEST_F(ReviewInliningParallelization, GSGCopy) {
   at::Tensor t0 = at::rand({2, 4}, at::kCUDA);
 
   // Naive copy kernel, no inlining, no parallelization
