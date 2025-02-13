@@ -84,7 +84,6 @@ void ArgumentManager::updateWithSegmentOutputs(
   // Delete args corresponding to vals lastly used in this segment
   if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
     for (auto val : vals_last_used_at_segment_[group_id]) {
-      std::cout << "Erasing: " << val->toString() << std::endl;
       tensor_map_.erase(val);
     }
   }
