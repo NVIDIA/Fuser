@@ -2922,8 +2922,7 @@ TEST_F(IdModelTest, CoveredGroups) {
   IdModel id_model(&fusion, true);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  // The exact
-  // group of the tv3 and tv4 IDs should cover both the inner and
+  // The exact group of the tv3 and tv4 IDs should cover both the inner and
   // outer split groups of the input group of the tv1 logical ID.
   const auto covered_groups =
       LoopPromotionMapBuilder::computeCoveredGroups(exact_graph, id_model);
@@ -2931,12 +2930,15 @@ TEST_F(IdModelTest, CoveredGroups) {
   const auto& input_group = exact_graph.toGroup(tv1->getLogicalDomain().at(0));
   auto input_covered_group_it = covered_groups.find(input_group);
   ASSERT_NE(input_covered_group_it, covered_groups.end());
-  const auto& input_covered_groups = input_covered_group_it->second;
+  const std::shared_ptr<CoveredGroups>& input_covered_groups =
+      input_covered_group_it->second;
 
   const auto& tv4_exact_group = exact_graph.toGroup(tv4->axis(0));
   auto tv4_exact_group_it = covered_groups.find(tv4_exact_group);
   ASSERT_NE(tv4_exact_group_it, covered_groups.end());
-  const auto& tv4_covered_groups = tv4_exact_group_it->second;
+  const std::shared_ptr<CoveredGroups>& tv4_covered_groups =
+      tv4_exact_group_it->second;
+
   // It should consist of two CoveredGroups, both of which inheriths
   // from the logical ID of tv1 through a split
   EXPECT_EQ(tv4_covered_groups->size(), 2);
