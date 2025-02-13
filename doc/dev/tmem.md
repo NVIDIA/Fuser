@@ -864,7 +864,6 @@ TEST_F(TMemTutorialR, Complicated1) {
   tv4->split(1, 64);
   tv4->split(1, 8);
   tv4->split(1, 4);
-  tv4->split(1, 2);
 
   // We want to split the first 4096 into [2, 16, 8, 2, 8, 1], where these
   // dimensions will eventually have the following properties:
@@ -879,7 +878,6 @@ TEST_F(TMemTutorialR, Complicated1) {
   tv4->split(0, 2);
   tv4->split(0, 8);
   tv4->split(0, 16);
-  tv4->split(0, 2);
 
   // Parallelize:
   tv4->axis(0)->parallelize(ParallelType::TIDz);
@@ -899,6 +897,92 @@ TEST_F(TMemTutorialR, Complicated1) {
 
   // Reorder and inlining
   tv4->reorder({{6, 2}, {7, 3}});
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  inlineAllAt(tv4, 4);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+
+  // Check that tv2 is allocated 64 columns.
+  ke.registerLoweringHook([](GpuLower* lower) {
+    auto check_pass = [](const std::vector<Expr*>& exprs) {
+      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+      ASSERT_EQ(regions.size(), 1);
+      const auto& region = regions[0];
+      EXPECT_EQ(region.num_columns->evaluate(), 64);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+Here comes the example 2:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, Complicated2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4096, 4096});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  // apply fancy transformations, shape is still [4096, 4096]
+  fancyTransformations(tv4);
+
+  // We want the first 4096 to go into lanes, and the second 4096 to go into
+  // columns.
+
+  // We want to split the second 4096 into [4, 8, 2, 16, 2, 2], where these
+  // dimensions will eventually have the following properties:
+  // -  4: serial,  left of CA (not allocated)
+  // -  8:   BIDy,  left of CA (not allocated)
+  // -  2:   TIDy,  left of CA (allocated)
+  // - 16: serial, right of CA (allocated)
+  // -  2:   BIDz, right of CA (not allocated)
+  // -  2:   TIDz, right of CA (allocated)
+  tv4->split(1, 2);
+  tv4->split(1, 2);
+  tv4->split(1, 16);
+  tv4->split(1, 2);
+  tv4->split(1, 8);
+
+  // We want to split the first 4096 into [32, 128], where these
+  // dimensions will eventually have the following properties:
+  // -  32: serial,   left of CA (not allocated)
+  // - 128:   TIDx,  right of CA (allocated)
+  tv4->split(0, 128);
+
+  // Parallelize:
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv4->axis(3)->parallelize(ParallelType::BIDx);
+  tv4->axis(4)->parallelize(ParallelType::TIDy);
+  tv4->axis(6)->parallelize(ParallelType::BIDz);
+  tv4->axis(7)->parallelize(ParallelType::TIDz);
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  // Set the allocation domain of TMem tensor
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(2);
+
+  // Reorder and inlining
+  tv4->reorder({{1, 4}});
   TransformPropagatorWithCheck propagator(tv4);
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   inlineAllAt(tv4, 4);
