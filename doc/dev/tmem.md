@@ -1012,8 +1012,9 @@ TEST_F(TMemTutorialR, Complicated2) {
 ```
 
 It also worth mentioning that the storing and loading of tensor memory is not
-required to be in the same way. The following example shows how to use tensor
-memory to do a transpose:<!-- */ //-->\
+required to be in the same way. As long as both matches an allowed pattern.
+The following example shows how to use tensor memory to do a transpose
+:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Transpose) {
   Fusion fusion;
