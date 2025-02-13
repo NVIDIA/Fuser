@@ -26,10 +26,10 @@ struct CoveredGroup {
   CoveredGroup() = default;
   CoveredGroup(
       ValGroup group,
-      const std::shared_ptr<CoveredGroups>& split_parent = nullptr,
+      std::shared_ptr<CoveredGroups> split_in = nullptr,
       bool is_inner = false)
       : group_(std::move(group)),
-        split_in_(split_parent),
+        split_in_(std::move(split_in)),
         is_inner_(is_inner) {}
 
   const ValGroup& group() const {
