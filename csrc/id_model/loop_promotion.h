@@ -84,12 +84,6 @@ struct hash<nvfuser::CoveredGroup> {
 
 namespace nvfuser {
 
-// Computes coverage info of each exact group. Coverage is
-// represented as a set of CoveredGroup, which is either an exact
-// group of input IDs or an output group of split.
-std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
-computeCoveredGroups(const ValGraph& exact_graph);
-
 // Callback interface for LoopPromotionMapBuilder. Allow exposing the
 // temporary maps for testing and debugging
 class LoopPromotionMapBuilderCallback {
@@ -134,12 +128,57 @@ class LoopPromotionMapBuilder {
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
 
+  // Computes coverage info of each exact group. Coverage is
+  // represented as a set of CoveredGroup, which is either an exact
+  // group of input IDs or an output group of split.
+  static std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+  computeCoveredGroups(const ValGraph& exact_graph,
+                       const IdModel& id_model);
+  
  private:
   LoopPromotionMapBuilder(
       IdModel& id_model,
       const StatefulInliningInfo& inlining_info,
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
+
+  // Given an Exact graph, get val groups that should be used as
+  // starting groups when propagating promotion info. For non-cyclic
+  // graphs, this should be equivalent to what ValGraph::getTerminatingInputs()
+  // returns. For cyclic graphs, there may be no terminating inputs
+  // due to a cyclic dependency, so getTerminatingInputs() may return
+  // just nothing.
+  //
+  // Instead, we first find input iter domains, which are (maybe) root
+  // iter domains that have no corresponding producer iter domains as
+  // defined by PairwiseLogicalDomainMap. Any exact groups that
+  // include any of the input iter domains are considered input
+  // groups.
+  //
+  // For example, given a graph like shown below:
+  //
+  //  i0 -> i1 -> i2 -> i3
+  //   ^          |
+  //   +----------+
+  //
+  // Here, i0 represents a Val group that contains IDs of fusion input
+  // tensors.
+  //
+  // ValGraph::getTerminatingInputs would return nothing as there's no
+  // terminating input. However, when this is used in
+  // computeCoveredGroups, what we need to do is to propagate the
+  // informatiom of the IDs of the fusion inputs, i.e., i0, so the
+  // propagation should start from i0, then i1, i2 and i3, ignoring
+  // the back edge to i0.
+  static ValGroups getInputGroupsOfExactGraph(const ValGraph& exact_graph,
+                                              const IdModel& id_model);
+
+  // Similar to getInputGroupsOfExactGraph but for an IEL graph.
+  // We first get the inputs of the Exact graph. For the
+  // IEL propagation, any IEL group that has an ID that is included
+  // in any of the input groups of the exact graph is used as an input.
+  static ValGroups getInputGroupsOfIELGraph(const ValGraph& iel_graph,
+                                            const IdModel& id_model);
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
