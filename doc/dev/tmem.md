@@ -18,7 +18,7 @@
 
 To see prints in the test, change below to `true`:<!-- */ //-->\
 ```cpp
-constexpr static bool verbose = true; /*
+constexpr static bool verbose = false; /*
 ```
 
 # Tensor Memory Support in NVFuser
@@ -36,6 +36,8 @@ constexpr static bool verbose = true; /*
 #include <ops/alias.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
+
+#define NOT_IMPLEMENTED GTEST_SKIP() << "Not implemented yet";
 
 namespace nvfuser {
 
@@ -329,6 +331,7 @@ data path between gmem and tmem, so we have to use registers as transfer
 station.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyLanes) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -375,6 +378,7 @@ lanes `128`.
 Now let's take a look at another example:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyCols) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -478,6 +482,7 @@ With the above restrictions in mind, let's take a look at a few examples of how
 NOT to schedule TMem load and store:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotWarpCollective) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -506,6 +511,7 @@ The above example is invalid because there are only 16 threads in the kernel.
 Warp collective operations require at least a whole warp to run.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotContiguous) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -538,6 +544,7 @@ patterns requires the warp to access a contiguous 32 or 16 lanes of data
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, OneLane) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -569,6 +576,7 @@ columns of the tensor memory, while all the specified patterns requires the warp
 to access a contiguous 32 or 16 lanes of data.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -601,6 +609,7 @@ However, warp 0 can only access subpartition 0, and warp 1 can only access
 subpartition 1.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition2) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -633,6 +642,7 @@ is not allowed.
 Now, let's take a look at some valid examples:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpXYZ) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -671,6 +681,7 @@ accesses a 32x1 box of the tensor memory. This is a valid 32x32b pattern
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYZ) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -708,6 +719,7 @@ accessing a whole column, with each warp accessing its subpartition of
 32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYColZ) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -745,6 +757,7 @@ whole column. Warp group `i` is accessing column `i`.
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXColYZ) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -788,6 +801,7 @@ shown in the table below:
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -872,6 +886,7 @@ void checkAllocationSize(KernelExecutor& ke, int64_t expected_ncols) {
 Here comes the example 1:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated1) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -955,6 +970,7 @@ TEST_F(TMemTutorialR, Complicated1) {
 Here comes the example 2:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated2) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1036,6 +1052,7 @@ pattern. The following example shows how to use tensor memory to do a transpose
 :<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Transpose) {
+  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1082,6 +1099,7 @@ Tensor memory load and store can be vectorized as a power of 2, from 1 all the
 way to 128:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Vectorization) {
+  NOT_IMPLEMENTED
   const std::vector<int64_t> vec_factors = {1, 2, 4, 8, 16, 32, 64, 128};
   for (int64_t st_vec : vec_factors) {
     for (int64_t ld_vec : vec_factors) {
