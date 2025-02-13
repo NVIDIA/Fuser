@@ -2913,8 +2913,6 @@ TEST_F(IdModelTest, CoveredGroups) {
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  fusion.printMath();
-
   for (auto tv : fusion.allTvs()) {
     tv->flatten();
   }
