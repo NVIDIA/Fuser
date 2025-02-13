@@ -2710,6 +2710,66 @@ TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
   }
 }
 
+// Test to verify the split-aware covered group analysis. See
+// also https://github.com/NVIDIA/Fuser/pull/3877.
+TEST_F(IdModelTest, CoveredGroups) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({-1});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {8}, {2, 4});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+  }
+
+  inlineMost();
+
+  IdModel id_model(&fusion, true);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // The exact
+  // group of the tv3 and tv4 IDs should cover both the inner and
+  // outer split groups of the input group of the tv1 logical ID.
+  const auto covered_groups =
+      LoopPromotionMapBuilder::computeCoveredGroups2(exact_graph);
+
+  const auto& input_group = exact_graph.toGroup(tv1->getLogicalDomain().at(0));
+  auto input_covered_group_it = covered_groups.find(input_group);
+  ASSERT_NE(input_covered_group_it, covered_groups.end());
+  const auto& input_covered_groups = input_covered_group_it->second;
+
+  const auto& tv4_exact_group = exact_graph.toGroup(tv4->axis(0));
+  auto tv4_exact_group_it = covered_groups.find(tv4_exact_group);
+  ASSERT_NE(tv4_exact_group_it, covered_groups.end());
+  const auto& tv4_covered_groups = tv4_exact_group_it->second;
+  // It should consist of two CoveredGroups, both of which inheriths
+  // from the logical ID of tv1 through a split
+  EXPECT_EQ(tv4_covered_groups->size(), 2);
+  for (const CoveredGroup& covered_group : *tv4_covered_groups) {
+    EXPECT_EQ(covered_group.splitIn(), input_covered_groups);
+    if (covered_group.isInner()) {
+      EXPECT_EQ(
+          covered_group.group(),
+          exact_graph.toGroup(tv4->getLogicalDomain().at(1)));
+    } else {
+      EXPECT_EQ(
+          covered_group.group(),
+          exact_graph.toGroup(tv4->getLogicalDomain().at(0)));
+    }
+  }
+}
+
 // Repro of issue #3702
 // https://github.com/NVIDIA/Fuser/issues/3702. Indexing traversal
 // faied due to invalid loop promotion.
