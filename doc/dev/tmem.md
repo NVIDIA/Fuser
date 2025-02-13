@@ -140,8 +140,8 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     auto out = ke.run({t0});
     EXPECT_TRUE(at::equal(out[0], t0));
     // Because the first dimension of T1 is inlined, inside the outer loop, T1
-    // is consumed right after it is produced. So T1 the first dimension of T1
-    // is not allocated.
+    // is consumed right after it is produced. So the first dimension of T1 is
+    // not allocated.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 4 * sizeof(float));
   }
 
@@ -202,7 +202,8 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     // Although the first dimension of T1 is inlined, because shared memory is
     // shared by threads, the TIDx parallelization will override the inlining,
     // and make the first dimension of T1 allocated. The second dimension of T1
-    // is allocated normally. So T1 is allocated in full size.
+    // is allocated normally because it is on the right of the compute-at
+    // position. So T1 is allocated in full size.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
   }
 
@@ -293,7 +294,7 @@ tensor memory:
 The TMem dimsep position does not only apply to the allocation domain, but also
 applies to contiguity and stride. The contiguity and stride on the left of the
 TMem dimsep position are for the lane, and the contiguity and stride on the
-right of are for the column.
+right are for the column.
 
 In the above example, the allocation domain, contiguity, and stride of the
 tensor could be:
@@ -313,8 +314,8 @@ in the above example).
 Also, please note that the term "row", "lane" and "column" when referring to the
 memory layout of tensor memory are not related to the "row" and "column" of the
 tensor itself. We can store an arbitrary part of the tensor in an arbitrary form
-in tensor memory. In the language of NVFuser, the logical domain of a TMem
-TensorView and the allocation domain of the TensorView can have arbitrary
+in tensor memory. That is, in the language of NVFuser, the logical domain of a
+TMem TensorView and the allocation domain of the TensorView can have arbitrary
 transformations between them. The important thing is not the transformation
 between the logical domain and the allocation domain, but the transformation
 between the allocation domain and the loop domain, which specifies how we access
