@@ -852,7 +852,7 @@ Second, let's use the following function to check the allocation size of tensor
 memory:<!-- */ //-->\
 ```cpp
 void checkAllocationSize(KernelExecutor& ke, int64_t expected_ncols) {
-  ke.registerLoweringHook([](GpuLower* lower) {
+  ke.registerLoweringHook([expected_ncols](GpuLower* lower) {
     auto check_pass = [expected_ncols](const std::vector<Expr*>& exprs) {
       const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
       ASSERT_EQ(regions.size(), 1);
