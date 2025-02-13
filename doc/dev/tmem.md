@@ -704,7 +704,7 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
 ```
 
 In the above example, each CTA has one warp group. This entire warp group is
-accessing a whole column, with each warp group accessing its subpartition of
+accessing a whole column, with each warp accessing its subpartition of
 32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYColZ) {
@@ -822,7 +822,8 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
 
 In the above example, each CTA has 2 warp groups, each warp group accesses a
 whole column. Warp group `i` is accessing column `i`. This is a valid 32x32b
-pattern.
+pattern. Note that although the order of `TIDx` and `TIDy` seems wrong, it
+does not matter because the size of `TIDx` is just 1.
 
 Now, let's take a look at a few more complicated examples that puts as much
 of what we have learned so far into practice.
