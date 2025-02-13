@@ -717,8 +717,8 @@ if(BUILD_TEST)
   list(APPEND TUTORIAL_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
     ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp)
-  add_test(tutorial "${TUTORIAL_SRCS}" "")
-  list(APPEND TEST_BINARIES tutorial)
+  add_test(test_tutorial "${TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES test_tutorial)
 
   set(HOSTIR_TEST_SRCS)
   list(APPEND HOSTIR_TEST_SRCS
