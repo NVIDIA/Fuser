@@ -1152,7 +1152,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
         result = {-a.max, -a.min};
         break;
       default:
-        NVF_THROW("Not yet implemented");
+        NVF_THROW(
+            "Propagation of integer bounds is not yet implemented for ",
+            uop->toString());
     }
     setBounds(uop->out(), result);
   }
@@ -1205,7 +1207,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
         result = a - b;
         break;
       default:
-        NVF_THROW("Not yet implemented");
+        NVF_THROW(
+            "Propagation of integer bounds is not yet implemented for ",
+            bop->toString());
     }
     setBounds(bop->out(), result);
   }
@@ -1213,7 +1217,9 @@ class ScalarBoundsCalculator : kir::IrVisitor {
   void handle(TernaryOp* top) final {
     switch (top->getTernaryOpType()) {
       default:
-        NVF_THROW("Not yet implemented");
+        NVF_THROW(
+            "Propagation of integer bounds is not yet implemented for ",
+            top->toString());
     }
   }
 
