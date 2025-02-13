@@ -1139,6 +1139,11 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     BoundedInt a = bounds_.at(uop->in());
     BoundedInt result;
     switch (uop->getUnaryOpType()) {
+      case UnaryOpType::Abs:
+        result = {
+            std::min(std::abs(a.min), std::abs(a.max)),
+            std::max(std::abs(a.min), std::abs(a.max))};
+        break;
       case UnaryOpType::BitwiseNot:
         result = ~a;
         break;
