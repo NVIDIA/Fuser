@@ -111,7 +111,7 @@ c10::ArrayRef<c10::IValue> KernelArgumentHolder::toArrayRef() const {
   std::vector<c10::IValue> ival_array;
   ival_array.reserve(arguments_.size());
   for (const auto& arg : arguments_) {
-    ival_array.push_back(PolymorphicValue_functions::toIValue(*arg));
+    ival_array.push_back(PolymorphicValue_functions::toIValue(arg));
   }
   return c10::ArrayRef<c10::IValue>(ival_array);
 }
