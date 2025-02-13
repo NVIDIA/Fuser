@@ -1064,7 +1064,7 @@ In the above example, we store and load the tensor memory like the table below:
 Tensor memory load and store can be vectorized as a power of 2, from 1 all the
 way to 128:<!-- */ //-->\
 ```cpp
-TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
+TEST_F(TMemTutorialR, Vectorization) {
   const std::vector<int64_t> vec_factors = {1, 2, 4, 8, 16, 32, 64, 128};
   for (int64_t st_vec : vec_factors) {
     for (int64_t ld_vec : vec_factors) {
