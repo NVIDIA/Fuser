@@ -3,7 +3,8 @@
 > This file is both a [cpp](../../tests/cpp/tutorial_tmem.cpp) and a Markdown.
 > You may see some strange symbols in the rendered Markdown.
 > It is difficult to avoid them. But they should not affect reading.
-> All the unit tests displayed here are executable from the `tutorial` binary
+> All the unit tests displayed here are executable from the `test_tutorial`
+> binary
 
 <!--*/
 #pragma GCC diagnostic ignored "-Wcomment"
