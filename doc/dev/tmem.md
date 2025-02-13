@@ -570,7 +570,6 @@ The above example is invalid because the tensor memory is not accessed in one of
 the specified pattern. In the above example, each warp access one lane and 32
 columns of the tensor memory, while all the specified patterns requires the warp
 to access a contiguous 32 or 16 lanes of data.<!-- */ //-->\
-.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition) {
   Fusion fusion;
@@ -602,7 +601,37 @@ The above example is invalid because the warp accesses the wrong subpartition of
 the tensor memory. In the above example, there are two warps, where warp 0
 accesses the subpartition 0 and 1, and warp 1 accesses the subpartition 2 and 3.
 However, warp 0 can only access subpartition 0, and warp 1 can only access
-subpartition 1.
+subpartition 1..<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialC, WrongSubpartition2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDy);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->setTMemDimSepPos(1);
+
+  EXPECT_THAT(
+      [&]() { KernelExecutor().compile(&fusion); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store.")));
+} /*
+```
+
+The above example is also invalid because the warp accesses the wrong subpartition.
+In the above example, there are two warps, both accessing subpartition 0, which
+is not allowed.
 
 <!-- */
 } // namespace nvfuser
