@@ -18,6 +18,8 @@ struct CoveredGroup;
 
 using CoveredGroups = std::unordered_set<CoveredGroup>;
 
+std::string toString(const CoveredGroups& covered_groups);
+
 // Represents an input (or split output) ID group that an exact group
 // depends on (i.e., covers). If an input ID group is split, split_in_
 // refers to the covered groups of the input ID group, and group_

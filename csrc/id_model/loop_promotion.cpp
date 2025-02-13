@@ -16,6 +16,16 @@
 
 namespace nvfuser {
 
+std::string toString(const CoveredGroups& covered_groups) {
+  std::stringstream ss;
+  ss << "{\n";
+  for (const auto& cg : covered_groups) {
+    ss << "\t" << cg.toString() << "\n";
+  }
+  ss << "}\n";
+  return ss.str();
+}
+
 // Check if this CoveredGroup is equal to or a superset of the other
 // CoveredGroup. Trying to check as many sufficient conditions as
 // possible, but may not be complete.
@@ -122,14 +132,27 @@ std::string CoveredGroup::toString() const {
 
 namespace {
 
-std::string toString(const CoveredGroups& covered_groups) {
-  std::stringstream ss;
-  ss << "{\n";
-  for (const auto& cg : covered_groups) {
-    ss << "\t" << cg.toString() << "\n";
+bool isDependencyOf(
+    const std::shared_ptr<CoveredGroups>& dependency,
+    const std::shared_ptr<CoveredGroups>& of);
+
+bool isDependencyOf(
+    const std::shared_ptr<CoveredGroups>& dependency,
+    const CoveredGroup& of) {
+  if (dependency->count(of)) {
+    return true;
   }
-  ss << "}\n";
-  return ss.str();
+
+  if (of.splitIn() == dependency) {
+    return true;
+  }
+
+  if (of.splitIn().get() != nullptr &&
+      isDependencyOf(dependency, of.splitIn())) {
+    return true;
+  }
+
+  return false;
 }
 
 bool isDependencyOf(
@@ -139,15 +162,11 @@ bool isDependencyOf(
     return true;
   }
 
-  for (const auto& covered_group : *of) {
-    if (covered_group.splitIn() == dependency) {
-      return true;
-    }
-
-    if (covered_group.splitIn().get() != nullptr &&
-        isDependencyOf(dependency, covered_group.splitIn())) {
-      return true;
-    }
+  if (std::any_of(
+          of->begin(), of->end(), [&](const CoveredGroup& covered_group) {
+            return isDependencyOf(dependency, covered_group);
+          })) {
+    return true;
   }
 
   return false;
@@ -942,6 +961,18 @@ LoopPromotionMapBuilder::computeCoveredGroups(
   std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
       covered_group_map;
 
+  auto get_mapped_covered_groups = [&covered_group_map](
+                                       const ValGroup& id_group) {
+    auto map_it = covered_group_map.find(id_group);
+    if (map_it == covered_group_map.end()) {
+      // Initialize to empty group if not yet initialized
+      map_it =
+          covered_group_map.emplace(id_group, std::make_shared<CoveredGroups>())
+              .first;
+    }
+    return map_it->second;
+  };
+
   ValGroups input_groups_of_graph =
       getInputGroupsOfExactGraph(exact_graph, id_model);
 
@@ -976,46 +1007,41 @@ LoopPromotionMapBuilder::computeCoveredGroups(
     const std::vector<ValGroup> output_groups =
         exact_graph.outputGroups(exact_expr);
 
-    auto output_covered_groups = std::make_shared<CoveredGroups>();
-    for (const ValGroup& input_group : input_groups) {
-      const std::shared_ptr<CoveredGroups>& inp_covered_groups =
-          covered_group_map.at(input_group);
-      output_covered_groups->insert(
-          inp_covered_groups->begin(), inp_covered_groups->end());
+    // If this expr is a split, don't propagate the input coverage as
+    // is but set the covered group of each output group by itself.
+    // The input coverage info is propagated as the split input.
+    if (exact_expr->front()->isA<Split>()) {
+      auto input_coverage = get_mapped_covered_groups(input_groups.at(0));
+      for (const ValGroup& output_group : output_groups) {
+        auto output_coverage = get_mapped_covered_groups(output_group);
+        if (isDependencyOf(output_coverage, input_coverage)) {
+          continue;
+        }
+        bool is_inner =
+            output_group->has(exact_expr->front()->as<Split>()->inner());
+        output_coverage->insert(
+            CoveredGroup(output_group, input_coverage, is_inner));
+      }
+      continue;
     }
 
     for (const ValGroup& output_group : output_groups) {
-      auto map_it = covered_group_map.find(output_group);
-      if (map_it == covered_group_map.end()) {
-        // Initialize to empty group if not yet initialized
-        map_it = covered_group_map
-                     .emplace(output_group, std::make_shared<CoveredGroups>())
-                     .first;
-      }
       std::shared_ptr<CoveredGroups> current_output_covered_groups =
-          map_it->second;
+          get_mapped_covered_groups(output_group);
 
-      if (isDependencyOf(
-              current_output_covered_groups, output_covered_groups)) {
-        continue;
-      }
+      for (const ValGroup& input_group : input_groups) {
+        const std::shared_ptr<CoveredGroups>& inp_covered_groups =
+            covered_group_map.at(input_group);
+        if (isDependencyOf(current_output_covered_groups, inp_covered_groups)) {
+          continue;
+        }
 
-      // Note that an exact group may have multiple
-      // exact expr groups and may have different coverage groups depending on
-      // the expr groups. For example, this can happen with reshape or resize.
-      // See test LoopPromotionCoverage for a concrete example.
-
-      // If this expr is a split, don't propagate the input coverage as
-      // is but set the covered group of each output group by itself.
-      // The input coverage info is propagated as the split input.
-      if (exact_expr->front()->isA<Split>()) {
-        bool is_inner =
-            output_group->has(exact_expr->front()->as<Split>()->inner());
+        // Note that an exact group may have multiple
+        // exact expr groups and may have different coverage groups depending on
+        // the expr groups. For example, this can happen with reshape or resize.
+        // See test LoopPromotionCoverage for a concrete example.
         current_output_covered_groups->insert(
-            CoveredGroup(output_group, output_covered_groups, is_inner));
-      } else {
-        current_output_covered_groups->insert(
-            output_covered_groups->begin(), output_covered_groups->end());
+            inp_covered_groups->begin(), inp_covered_groups->end());
       }
     }
   }
