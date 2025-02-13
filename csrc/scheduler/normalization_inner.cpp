@@ -158,14 +158,20 @@ void innerPersistentHeuristicTMA(
   }
   rparams->use_tma_load = true;
   CircularBufferOptions circular_buffer_options;
+  int64_t max_stages = 128;
+  if (std::getenv("MAX_STAGES")) {
+    max_stages = std::atoi(std::getenv("MAX_STAGES"));
+  }
   int64_t smem_limited_stages = getMaxCircularBufferStages(fusion, properties);
   while (properties.total_iteration_numel % smem_limited_stages) {
     smem_limited_stages--;
   }
-  circular_buffer_options.stage = smem_limited_stages;
+  circular_buffer_options.stage = std::min(smem_limited_stages, max_stages);
+
   circular_buffer_options.prefetch = 1;
-  if (std::getenv("STAGES")) {
-    circular_buffer_options.stage = std::atoi(std::getenv("STAGES"));
+  if (std::getenv("USE_MAX_PREFETCH")) {
+    circular_buffer_options.prefetch =
+        std::max(circular_buffer_options.stage - 1, (int64_t)1);
   }
   // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
   // false};
@@ -661,35 +667,39 @@ void innerPersistentHeuristic2D(
     return innerPersistentHeuristicTMA(
         fusion, properties, rparams, blocks_per_sm);
   }
-  
+
   if (std::getenv("USE_TMA") != nullptr) {
-      rparams->use_tma_load = true;
-      rparams->smem_persistent_buffers = properties.persistent_buffers;
-      CircularBufferOptions circular_buffer_options;
-      int64_t smem_limited_stages = getMaxCircularBufferStages(fusion, properties);
-      while (properties.total_iteration_numel % smem_limited_stages) {
-        smem_limited_stages--;
-      }
-      circular_buffer_options.stage = smem_limited_stages;
-      circular_buffer_options.prefetch = 1;
-      if (std::getenv("STAGES")) {
-        circular_buffer_options.stage = std::atoi(std::getenv("STAGES"));
-      }
-      if (std::getenv("PREFETCH")) {
-        circular_buffer_options.prefetch = std::atoi(std::getenv("PREFETCH"));
-      }      
-      // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
-      // false};
-      CircularBufferType circular_buffer_type{Pipelined(true)};
+    rparams->use_tma_load = true;
+    rparams->smem_persistent_buffers = properties.persistent_buffers;
+    CircularBufferOptions circular_buffer_options;
+    int64_t max_stages = 128;
+    if (std::getenv("MAX_STAGES")) {
+      max_stages = std::atoi(std::getenv("MAX_STAGES"));
+    }
+    int64_t smem_limited_stages =
+        getMaxCircularBufferStages(fusion, properties);
+    while (properties.total_iteration_numel % smem_limited_stages) {
+      smem_limited_stages--;
+    }
+    circular_buffer_options.stage = std::min(smem_limited_stages, max_stages);
+
+    circular_buffer_options.prefetch = 1;
+    if (std::getenv("USE_MAX_PREFETCH")) {
+      circular_buffer_options.prefetch =
+          std::max(circular_buffer_options.stage - 1, (int64_t)1);
+    }
+    // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
+    // false};
+    CircularBufferType circular_buffer_type{Pipelined(true)};
+    circular_buffer_options.type = circular_buffer_type;
+    if (std::getenv("WARPTIDX")) {
+      CircularBufferType circular_buffer_type{
+          WarpSpecialized(ParallelType::TIDx)};
       circular_buffer_options.type = circular_buffer_type;
-      if (std::getenv("WARPTIDX")) {
-        CircularBufferType circular_buffer_type{
-            WarpSpecialized(ParallelType::TIDx)};
-        circular_buffer_options.type = circular_buffer_type;
-      }
-      rparams->circular_buffer_options = circular_buffer_options;
-      rparams->cparams.enable_magic_zero = false;
-  }else{
+    }
+    rparams->circular_buffer_options = circular_buffer_options;
+    rparams->cparams.enable_magic_zero = false;
+  } else {
     rparams->cparams.maxrregcount = best_heuristic.register_per_thread;
     // Disable magic zero to further reduce computation cost.
     // Magic zero reduces register usage, so only disble it when the register

@@ -1592,6 +1592,7 @@ void schedulePersistentKernel(
 
   if (rparams->use_tma_load) {
     for (auto tv : tma_tvs) {
+      // tv->split(-1, 256);
       tv->axis(-1)->parallelize(ParallelType::Bulk);
     }
     if (std::getenv("PRELDG")) {
