@@ -1014,6 +1014,14 @@ class TmaCircularBufferingTest
             .num_registers.has_value();
   }
 
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+  // the memory range [srcMem, srcMem + size - 1] must not overflow the source
+  // memory space. Otherwise, the behavior is undefined.
+  bool tma1dSrcAddressOverflow(int64_t bulk_inner_dim) {
+    return tensor_inner_dim % bulk_inner_dim != 0 &&
+        tma_load_type == LoadStoreOpType::CpAsyncBulk;
+  }
+
   template <typename data_type>
   void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
     at::Tensor reference_cpu_data = reference.cpu();
@@ -1172,7 +1180,10 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
 
   // Constants
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1227,7 +1238,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
   // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
@@ -1292,7 +1306,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
   // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
@@ -1434,7 +1451,10 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1511,7 +1531,10 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1574,6 +1597,11 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
 
   constexpr int64_t examples_per_cta = 4;
   constexpr int64_t bulk_inner_dim = 256;
+
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
 
   // [M, N] -> [M/epc, epc, N]
   reference->split(0, examples_per_cta);
@@ -1638,6 +1666,10 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   TensorView* reference = tv1;
 
   constexpr int64_t tile_size = 256;
+  if (tma1dSrcAddressOverflow(tile_size)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(1, tile_size);
@@ -1729,7 +1761,11 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   constexpr int64_t vectorize = 4;
   int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
-
+  constexpr int64_t tile_size = 256;
+  if (tma1dSrcAddressOverflow(tile_size)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
   // we require multiple TMA operations to load the entire example in shared
   // memory for pointwise kernel.
@@ -1738,7 +1774,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   // logical domain: [I1, I2]
   x_cache_smem->split(0, examples_per_cta);
   // split: [I0 / 4, 4, I2]
-  x_cache_smem->split(-1, 256);
+  x_cache_smem->split(-1, tile_size);
   // split: [I0/4, 4, I2/256, 256]
 
   // Schedule reference_tv
