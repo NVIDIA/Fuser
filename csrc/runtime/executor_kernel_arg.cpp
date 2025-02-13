@@ -41,7 +41,10 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
   if (val.isTensor()) {
     return val.toTensor();
   }
-
+  NVF_ERROR(
+      val.isScalar(),
+      "Can not convert IValue to PolymorphicValue if not a Tesnor or scalar, found: ",
+      val.toString());
   auto scalar_val = val.toScalar();
   switch (scalar_val.type()) {
     case c10::ScalarType::ComplexDouble:

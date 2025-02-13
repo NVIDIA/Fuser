@@ -31,7 +31,7 @@ void encodeBuffer(T value, std::string& buffer) {
 } // namespace
 
 ArgumentManager::ArgumentManager(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     const RuntimeWorkSpace& runtime_workspace,
     const std::vector<Val*>& fusion_inputs) {
   // map from val to args
@@ -40,81 +40,75 @@ ArgumentManager::ArgumentManager(
   setLastUsedSegmentID(runtime_workspace.group_run_order);
 }
 
-PolymorphicValue ArgumentManager::checkTensorMap(Val* v) {
+std::unique_ptr<PolymorphicValue>& ArgumentManager::checkTensorMap(Val* v) {
   return tensor_map_.at(v);
 }
 
-template <typename T>
-void ArgumentManager::addOutputsToArgsAndTensorMap(
+KernelArgumentHolder ArgumentManager::translateValsToArgs(
+    const std::vector<Val*>& vals) const {
+  std::vector<PolymorphicValue> arg_values;
+  arg_values.reserve(vals.size());
+
+  for (auto val : vals) {
+    auto it = tensor_map_.find(val);
+    NVF_ERROR(
+        it != tensor_map_.end(),
+        "Could not find value ",
+        val->toString(),
+        " in tensor map");
+    arg_values.push_back(*it->second);
+  }
+  // TODO:
+  //  return KernelArgumentHolder(std::move(arg_values));
+  KernelArgumentHolder holder;
+  for (auto& arg : arg_values) {
+    holder.push(std::move(arg));
+  }
+  return holder;
+}
+
+void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
-    const T& group_runtime_outputs) {
+    const KernelArgumentHolder& group_runtime_outputs,
+    const int64_t group_id) {
   // Insert graph segment output to tensor map
   NVF_ERROR(
       group_outputs.size() == group_runtime_outputs.size(),
       "Output size does not match.");
-
   for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-    if constexpr (std::is_pointer_v<
-                      decltype(group_runtime_outputs[group_out_i])>) {
-      fusion_args_.push(*group_runtime_outputs[group_out_i]);
-    } else {
-      fusion_args_.push(group_runtime_outputs[group_out_i]);
+    tensor_map_.emplace(
+        group_outputs[group_out_i],
+        std::make_unique<PolymorphicValue>(group_runtime_outputs[group_out_i]));
+  }
+
+  // Delete args corresponding to vals lastly used in this segment
+  if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
+    for (auto val : vals_last_used_at_segment_[group_id]) {
+      std::cout << "Erasing: " << val->toString() << std::endl;
+      tensor_map_.erase(val);
     }
   }
 }
 
-template <typename T>
-void ArgumentManager::updateWithSegmentOutputs(
-    const std::vector<Val*>& group_outputs,
-    const T& group_runtime_outputs,
-    const int64_t group_id) {
-  addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
-  deleteUnusedArgs(group_id);
-}
-
-template void ArgumentManager::addOutputsToArgsAndTensorMap<
-    std::vector<at::Tensor>>(
-    const std::vector<Val*>& group_outputs,
-    const std::vector<at::Tensor>& group_runtime_outputs);
-
-template void ArgumentManager::updateWithSegmentOutputs<
-    std::vector<at::Tensor>>(
-    const std::vector<Val*>&,
-    const std::vector<at::Tensor>&,
-    const int64_t);
-
-template void ArgumentManager::addOutputsToArgsAndTensorMap<
-    KernelArgumentHolder>(
-    const std::vector<Val*>& group_outputs,
-    const KernelArgumentHolder& group_runtime_outputs);
-
-template void ArgumentManager::updateWithSegmentOutputs<KernelArgumentHolder>(
-    const std::vector<Val*>&,
-    const KernelArgumentHolder&,
-    const int64_t);
-
 void ArgumentManager::mapFusionInputsToArgs(
     const std::vector<Val*>& fusion_inputs,
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     const std::vector<Val*>& group_extent_binding_order) {
   int extent_index = 0;
   auto original_args_size = args.size();
   // Bind args in the tensor_map
   for (const auto i : c10::irange(original_args_size)) {
-    tensor_map_.emplace(fusion_inputs[i], args[i]);
+    tensor_map_.emplace(
+        fusion_inputs[i], std::make_unique<PolymorphicValue>(args[i]));
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
-    // TODO: we probably have done this already up to this point
-    //      should consider caching the expression evaluators, both
-    //      more convenient and safer than replication
     if (args[i].is<at::Tensor>()) {
-      // Note this is very ugly way. We are pushing every single extent to
-      // args, because we don't have a better place to hold them.
       auto rank = args[i].as<at::Tensor>().dim();
       for (const auto dim : c10::irange(rank)) {
-        args.push(PolymorphicValue(args[i].as<at::Tensor>().size(dim)));
         tensor_map_.emplace(
-            group_extent_binding_order[extent_index++], args.back());
+            group_extent_binding_order[extent_index++],
+            std::make_unique<PolymorphicValue>(
+                args[i].as<at::Tensor>().size(dim)));
       }
     }
   }
@@ -156,15 +150,6 @@ void ArgumentManager::setLastUsedSegmentID(
     // all vals when erasing
     for (auto item : last_used_segment_map) {
       vals_last_used_at_segment_[item.second].push_back(item.first);
-    }
-  }
-}
-
-void ArgumentManager::deleteUnusedArgs(int64_t run_order_id) {
-  // erase args corresponding to vals lastly used in this segment
-  if (run_order_id >= 1 && vals_last_used_at_segment_.count(run_order_id)) {
-    for (auto val : vals_last_used_at_segment_[run_order_id]) {
-      tensor_map_.erase(val);
     }
   }
 }
