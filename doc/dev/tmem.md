@@ -857,10 +857,10 @@ TEST_F(TMemTutorialR, Complicated1) {
 
   // We want to split the second 4096 into [2, 4, 8, 64], where these dimensions
   // will eventually have the following properties:
-  // -  2: serial, left of CA (not allocated)
-  // -  4:   BIDy, left of CA (not allocated)
-  // -  8: serial, right of CA (allocated)
-  // - 64:   BIDz, right of CA (not allocated)
+  // -  2: serial,  left of CA (not allocated)
+  // -  4:   BIDy,  left of CA (not allocated)
+  // -  8:   BIDz, right of CA (not allocated)
+  // - 64: serial, right of CA (allocated)
   tv4->split(1, 64);
   tv4->split(1, 8);
   tv4->split(1, 4);
@@ -887,7 +887,7 @@ TEST_F(TMemTutorialR, Complicated1) {
   tv4->axis(3)->parallelize(ParallelType::BIDx);
   tv4->axis(4)->parallelize(ParallelType::TIDx);
   tv4->axis(7)->parallelize(ParallelType::BIDy);
-  tv4->axis(9)->parallelize(ParallelType::BIDz);
+  tv4->axis(8)->parallelize(ParallelType::BIDz);
 
   TransformPropagatorWithCheck propagator(tv4);
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
@@ -908,6 +908,19 @@ TEST_F(TMemTutorialR, Complicated1) {
   }
 
   KernelExecutor ke;
+
+  // Check that tv2 is allocated 64 columns.
+  ke.registerLoweringHook([](GpuLower* lower) {
+    auto check_pass = [](const std::vector<Expr*>& exprs) {
+      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+      ASSERT_EQ(regions.size(), 1);
+      const auto& region = regions[0];
+      EXPECT_EQ(region.num_columns->evaluate(), 64);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
   ke.compile(&fusion);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
