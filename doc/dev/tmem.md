@@ -315,18 +315,18 @@ Also, please note that the term "row", "lane" and "column" when referring to the
 memory layout of tensor memory are not related to the "row" and "column" of the
 tensor itself. We can store an arbitrary part of the tensor in an arbitrary form
 in tensor memory. That is, in the language of NVFuser, the logical domain of a
-TMem TensorView and the allocation domain of the TensorView can have arbitrary
+TMem TensorView and the allocation domain of that TensorView can have arbitrary
 transformations between them. The important thing is not the transformation
 between the logical domain and the allocation domain, but the transformation
 between the allocation domain and the loop domain, which specifies how we access
 tensor memory in the kernel.
 
 Now let's take a look at a few code examples of invalid tensor memory
-allocation. Valid examples requires knowledge of indexing, which will be
-discussed in the next section. For all valid and invalid examples, we will
-be looking at gmem->register->tmem->register->gmem copy kernels. Note that
-there is no data path between gmem and tmem, so we have to use register as
-a transfer station.<!-- */ //-->\
+allocation. Valid examples will be discussed in the next section. For all
+valid and invalid examples, we will be looking at
+gmem->register->tmem->register->gmem copy kernels. Note that there is no
+data path between gmem and tmem, so we have to use registers as transfer
+station.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyLanes) {
   Fusion fusion;
