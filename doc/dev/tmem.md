@@ -928,8 +928,8 @@ TEST_F(TMemTutorialR, Complicated1) {
 
   // Reorder and inlining
   tv4->reorder({{6, 2}, {7, 3}});
-  TransformPropagatorWithCheck propagator(tv4);
-  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  TransformPropagatorWithCheck propagator2(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator2);
   inlineAllAt(tv4, 4);
 
   if constexpr (verbose) {
@@ -1006,8 +1006,8 @@ TEST_F(TMemTutorialR, Complicated2) {
 
   // Reorder and inlining
   tv4->reorder({{1, 4}});
-  TransformPropagatorWithCheck propagator(tv4);
-  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  TransformPropagatorWithCheck propagator2(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator2);
   inlineAllAt(tv4, 4);
 
   if constexpr (verbose) {
@@ -1122,8 +1122,8 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       ke.compile(&fusion);
 
-      auto out = ke.run({t0});
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
+      auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0], t0));
 
       // Check that vectorized PTX instructions are used
