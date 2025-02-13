@@ -191,7 +191,7 @@ TEST_F(NoOpTest, View) {
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
+  EXPECT_EQ(group->schedulerType(), SchedulerType::ExprEval);
 }
 
 TEST_F(NoOpTest, ExpandedReduction) {
