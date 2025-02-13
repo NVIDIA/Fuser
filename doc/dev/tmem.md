@@ -807,6 +807,115 @@ In the above example, each CTA has 2 warp groups, each warp group accesses a
 whole column. Warp group `i` is accessing column `i`. This is a valid 32x32b
 pattern.
 
+Now, let's take a look at a few more complicated examples that puts as much
+of what we have learned so far into practice.
+
+First, to show that the logical domain and the allocation domain are independent,
+we will XOR swizzle the logical domain in a very complicated fashion. What we
+want to show is, the row and column of the tensor memory are not related to the
+row and column of the tensor itself, and we have the freedom to choose to place
+which items of the tensor to where of the tensor memory. In real applications,
+it is unlikely that we will XOR swizzle the logical domain, but here we are just
+showing that it is possible:<!-- */ //-->\
+```cpp
+// Apply a fancy transformation to transform a [4096, 4096] tensor back to its
+// original shape.
+void fancyTransformations(TensorView* tv) {
+  tv->swizzle(SwizzleType::XOR, 0, 1);
+  tv->split(1, 64);
+  tv->split(0, 64);
+  tv->reorder({3, 0, 2, 1});
+  tv->swizzle(SwizzleType::XOR, 0, 1);
+  tv->swizzle(SwizzleType::XOR, 2, 3);
+  tv->swizzle(SwizzleType::XOR, 1, 2);
+  tv->reorder({3, 0, 2, 1});
+  tv->merge(2);
+  tv->merge(0);
+} /*
+```
+
+Here comes the tests:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, Complicated1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4096, 4096});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  // apply fancy transformations, shape is still [4096, 4096]
+  fancyTransformations(tv4);
+
+  // We want the first 4096 to go into lanes, and the second 4096 to go into
+  // columns.
+
+  // We want to split the second 4096 into [2, 4, 8, 64], where these dimensions
+  // will eventually have the following properties:
+  // -  2: serial, left of CA (not allocated)
+  // -  4:   BIDy, left of CA (not allocated)
+  // -  8: serial, right of CA (allocated)
+  // - 64:   BIDz, right of CA (not allocated)
+  tv4->split(1, 64);
+  tv4->split(1, 8);
+  tv4->split(1, 4);
+  tv4->split(1, 2);
+
+  // We want to split the first 4096 into [2, 16, 8, 2, 8, 1], where these
+  // dimensions will eventually have the following properties:
+  // -  2:   TIDz,  left of CA (allocated)
+  // - 16: serial,  left of CA (not allocated)
+  // -  8:   TIDy, right of CA (allocated)
+  // -  2:   BIDx, right of CA (not allocated)
+  // -  8:   TIDx, right of CA (allocated)
+  // -  1: serial, right of CA (trivial allocated)
+  tv4->split(0, 1);
+  tv4->split(0, 8);
+  tv4->split(0, 2);
+  tv4->split(0, 8);
+  tv4->split(0, 16);
+  tv4->split(0, 2);
+
+  // Parallelize:
+  tv4->axis(0)->parallelize(ParallelType::TIDz);
+  tv4->axis(2)->parallelize(ParallelType::TIDy);
+  tv4->axis(3)->parallelize(ParallelType::BIDx);
+  tv4->axis(4)->parallelize(ParallelType::TIDx);
+  tv4->axis(7)->parallelize(ParallelType::BIDy);
+  tv4->axis(9)->parallelize(ParallelType::BIDz);
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  // Set the allocation domain of TMem tensor
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(6);
+
+  // Reorder and inlining
+  tv4->reorder({{6, 2}, {7, 3}});
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  inlineAllAt(tv4, 4);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+blabla
+
 <!--*/
 } // namespace nvfuser
 // \-->
