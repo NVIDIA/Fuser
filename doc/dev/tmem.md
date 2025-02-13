@@ -825,7 +825,7 @@ whole column. Warp group `i` is accessing column `i`. This is a valid 32x32b
 pattern. Note that although the order of `TIDx` and `TIDy` seems wrong, it
 does not matter because the size of `TIDx` is just 1.
 
-Now, let's take a look at a few more complicated examples that puts as much
+Now, let's take a look at a few more complicated examples that puts a lot
 of what we have learned so far into practice.
 
 First, to show that the logical domain and the allocation domain are independent,
@@ -995,7 +995,7 @@ TEST_F(TMemTutorialR, Complicated2) {
 
   // Parallelize:
   tv4->axis(1)->parallelize(ParallelType::TIDx);
-  tv4->axis(3)->parallelize(ParallelType::BIDx);
+  tv4->axis(3)->parallelize(ParallelType::BIDy);
   tv4->axis(4)->parallelize(ParallelType::TIDy);
   tv4->axis(6)->parallelize(ParallelType::BIDz);
   tv4->axis(7)->parallelize(ParallelType::TIDz);
@@ -1031,8 +1031,8 @@ TEST_F(TMemTutorialR, Complicated2) {
 ```
 
 It also worth mentioning that the storing and loading of tensor memory is not
-required to be in the same way. As long as both matches an allowed pattern.
-The following example shows how to use tensor memory to do a transpose
+required to be scheduled in the same way. As long as both matches an allowed
+pattern. The following example shows how to use tensor memory to do a transpose
 :<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Transpose) {
@@ -1048,7 +1048,7 @@ TEST_F(TMemTutorialR, Transpose) {
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
 
-  for (auto tv : {tv3, tv4, tv2, tv1}) {
+  for (auto tv : {tv1, tv2, tv3, tv4}) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
     tv->axis(1)->parallelize(ParallelType::TIDy);
     tv->axis(2)->parallelize(ParallelType::TIDz);
@@ -1097,7 +1097,7 @@ TEST_F(TMemTutorialR, Vectorization) {
       fusion.addOutput(tv4);
       tv2->setMemoryType(MemoryType::Tensor);
 
-      for (auto tv : {tv3, tv4, tv2, tv1}) {
+      for (auto tv : {tv1, tv2, tv3, tv4}) {
         tv->axis(0)->parallelize(ParallelType::TIDx);
       }
 
