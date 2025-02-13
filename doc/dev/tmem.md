@@ -1013,7 +1013,46 @@ TEST_F(TMemTutorialR, Complicated2) {
 
 It also worth mentioning that the storing and loading of tensor memory is not
 required to be in the same way. The following example shows how to use tensor
-memory to do a transpose:
+memory to do a transpose:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, Transpose) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({128, 2, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = transpose(tv2, 1, 2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  for (auto tv : {tv3, tv4, tv2, tv1}) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDy);
+    tv->axis(2)->parallelize(ParallelType::TIDz);
+  }
+
+  tv2->setTMemDimSepPos(1);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0.transpose(1, 2)));
+} /*
+```
+
+In the above example, we store and load the tensor memory like the table below:
+
+| Warp Group   | 0 | 1 | 2 | 3 |
+|--------------|---|---|---|---|
+| Store Column | 0 | 2 | 1 | 3 |
+| Load Column  | 0 | 1 | 2 | 3 |
 
 <!--*/
 } // namespace nvfuser
