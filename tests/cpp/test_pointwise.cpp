@@ -325,7 +325,8 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
@@ -359,7 +360,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   EXPECT_FALSE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
@@ -393,7 +395,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
@@ -433,7 +436,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
@@ -470,7 +474,8 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 namespace {
@@ -790,7 +795,11 @@ TEST_F(PointwiseTest, HeuristicsInput1Compute1Unroll2) {
   ASSERT_EQ(pparams->vectorization_factor, vect);
   ASSERT_EQ(pparams->unroll_factor_inner, unroll);
   testValidate(
-      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
+      fusion.get(),
+      cg_results.outputs.toTensor(),
+      runtime_inputs,
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(PointwiseTest, HeuristicsInput1Compute2Unroll4) {
@@ -827,7 +836,11 @@ TEST_F(PointwiseTest, HeuristicsInput1Compute2Unroll4) {
   ASSERT_EQ(pparams->vectorization_factor, vect);
   ASSERT_EQ(pparams->unroll_factor_outer, unroll);
   testValidate(
-      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
+      fusion.get(),
+      cg_results.outputs.toTensor(),
+      runtime_inputs,
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(PointwiseTest, HeuristicsInput2Compute4Unroll4) {
@@ -860,7 +873,11 @@ TEST_F(PointwiseTest, HeuristicsInput2Compute4Unroll4) {
   ASSERT_EQ(pparams->vectorization_factor, vect);
   ASSERT_EQ(pparams->unroll_factor_inner, unroll);
   testValidate(
-      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
+      fusion.get(),
+      cg_results.outputs.toTensor(),
+      runtime_inputs,
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
@@ -956,7 +973,8 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg1) {
@@ -1001,7 +1019,8 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg2) {
@@ -1046,7 +1065,8 @@ TEST_F(PointwiseTest, DomainMapTestEg2) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapFactory) {
@@ -1212,7 +1232,8 @@ TEST_F(PointwiseTest, DomainMapPad0) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapPad1) {
@@ -1263,7 +1284,8 @@ TEST_F(PointwiseTest, DomainMapPad1) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapSlice0) {
@@ -1312,7 +1334,8 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapSlice1) {
@@ -1361,7 +1384,8 @@ TEST_F(PointwiseTest, DomainMapSlice1) {
   // NOTE force pointwise scheduler here for unit test
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
-  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion, cg_results.outputs.toTensor(), aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {

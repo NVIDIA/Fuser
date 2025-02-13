@@ -253,7 +253,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].toTensor().allclose(tref, 0.0001, 0.0001));
 }
 
 TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {

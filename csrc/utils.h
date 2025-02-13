@@ -66,7 +66,7 @@ bool is_meta_scalar(const at::Tensor& tensor);
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
 int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);

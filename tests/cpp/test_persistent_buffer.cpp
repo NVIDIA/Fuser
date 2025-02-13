@@ -472,8 +472,7 @@ TEST_F(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // welford translate
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs = KernelArgumentHolder(aten_inputs);
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   NVF_ERROR(isTranslated);
@@ -852,7 +851,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
       "Shouldn't project persistent buffers to inputs!");
   testValidate(
       fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       aten_inputs,
       {t5, t8, t11},
       __LINE__,
@@ -906,7 +905,7 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
                                 : "Shouldn't project to inputs!");
     testValidate(
         &fusion,
-        cg_results.outputs,
+        cg_results.outputs.toTensor(),
         {aten_input},
         {aten_output},
         __LINE__,
@@ -1496,8 +1495,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   std::vector<c10::IValue> aten_inputs = {aten_input, aten_weight, aten_bias};
 
   // try translate Welford in fusion
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs = KernelArgumentHolder(aten_inputs);
   SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   auto fusion_copy = fusion;
 

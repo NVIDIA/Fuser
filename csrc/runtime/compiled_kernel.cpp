@@ -1396,7 +1396,7 @@ void RtcKernel::compile(
 
 float RtcKernel::run(
     const LaunchParams& launch_params,
-    const std::vector<at::Tensor>& args,
+    const KernelArgumentHolder& args,
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("RtcKernel::run");
 
@@ -1417,6 +1417,7 @@ float RtcKernel::run(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
+    // HERE
     auto dtype =
         std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
     DataType metadata_type = globalTensorMetaData(dtype, input.dim());

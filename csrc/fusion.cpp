@@ -253,11 +253,9 @@ void Fusion::addInput(Val* input) {
 
 void Fusion::addOutputInternal(Val* output) {
   assertInContainer(output, "Cannot register output ");
-  NVF_CHECK(
-      output->isA<TensorView>(),
-      "Non-TensorView outputs are not supported at this point: ",
-      output->toString());
-  output->as<TensorView>()->setMemoryType(MemoryType::Global);
+  if (output->isA<TensorView>()) {
+    output->as<TensorView>()->setMemoryType(MemoryType::Global);
+  }
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);

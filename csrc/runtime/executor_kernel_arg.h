@@ -29,13 +29,31 @@ namespace nvfuser {
 //! compilation, we are not unnecessarily holding memory that is not needed.
 class KernelArgumentHolder {
  public:
-  NVF_API static KernelArgumentHolder createKernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      std::optional<int8_t> device = std::nullopt);
-
   KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
+
+  KernelArgumentHolder(
+      const c10::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device = std::nullopt);
+
+  template <class T>
+  KernelArgumentHolder(const std::initializer_list<T>& initializer)
+      : KernelArgumentHolder(initializer.begin(), initializer.end()) {}
+
+  template <class InputIt>
+  KernelArgumentHolder(InputIt first, InputIt last) {
+    arguments_.reserve(last - first);
+    pushBack(first, last);
+    setCommonDeviceCUDA();
+  }
+
+  template <class InputIt>
+  void pushBack(InputIt first, InputIt last) {
+    while (first != last) {
+      push(*first++);
+    }
+  }
 
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
@@ -50,6 +68,8 @@ class KernelArgumentHolder {
   NVF_API void push(const c10::ArrayRef<c10::IValue>& args);
 
   NVF_API void push(const std::vector<at::Tensor>& tensors);
+
+  c10::ArrayRef<c10::IValue> toArrayRef() const;
 
   void erase(const PolymorphicValue* arg_to_delete);
 
@@ -119,6 +139,8 @@ class KernelArgumentHolder {
   void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
+  void setCommonDeviceCUDA();
+
   std::vector<std::shared_ptr<PolymorphicValue>> arguments_;
 
   int8_t device_index_ = 0;
@@ -137,8 +159,6 @@ std::vector<std::byte> getKernelArgument(
 
 int64_t computeBytes(const KernelArgumentHolder& args);
 
-int64_t computeBytes(const std::vector<at::Tensor>& outputs);
-
-PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
+int64_t computeBytes(const KernelArgumentHolder& outputs);
 
 } // namespace nvfuser

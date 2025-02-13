@@ -2539,7 +2539,7 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
       scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       aten_inputs,
       {at_output_pointwise, at_output_reduction},
       __LINE__,

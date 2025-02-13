@@ -295,7 +295,7 @@ TEST_P(AdvancedIndexingTest, 6) {
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_results.outputs.toTensor(),
       {input0, input1},
       {aten_output},
       __LINE__,

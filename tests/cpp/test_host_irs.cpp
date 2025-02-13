@@ -139,7 +139,7 @@ TEST_P(HostIrTest, SingleFusion) {
   auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), input}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0).toTensor()));
 }
 
 /*
@@ -237,7 +237,7 @@ TEST_P(HostIrTest, TwoFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), input}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0).toTensor()));
 }
 
 /*
@@ -368,7 +368,7 @@ TEST_P(HostIrTest, ThreeFusions) {
       hie.runWithInput({{post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0).toTensor()));
 }
 
 // This unit test the for-loop IR by implementing a program that could be
@@ -671,7 +671,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // validate the obtained results
   for (int i = 0; i < n_iterations; i++) {
-    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(i)));
+    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(i).toTensor()));
   }
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
@@ -808,7 +808,7 @@ TEST_F(MatmulHostIrTest, HostIr) {
   // validate
   auto ref_output = at::matmul(a_tensor, b_tensor);
 
-  EXPECT_TRUE(ref_output.allclose(output));
+  EXPECT_TRUE(ref_output.allclose(output.toTensor()));
 }
 
 TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
@@ -888,7 +888,7 @@ TEST_F(LinearHostIrTest, HostIr) {
   // validate
   auto ref_output = at::linear(in_at, weight_at, bias_at);
 
-  EXPECT_TRUE(ref_output.allclose(output));
+  EXPECT_TRUE(ref_output.allclose(output.toTensor()));
 }
 
 TEST_F(LinearHostIrTest, HostIrLinearOut) {

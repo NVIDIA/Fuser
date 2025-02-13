@@ -252,7 +252,7 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-at::Tensor allocateTensor(
+PolymorphicValue allocateTensor(
     const GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
@@ -261,7 +261,7 @@ at::Tensor allocateTensor(
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
-    return ee.evaluate(out_tv).as<at::Tensor>();
+    return ee.evaluate(out_tv);
   }
 
   std::optional<at::Tensor> aliased_io_tensor = std::nullopt;
@@ -293,7 +293,7 @@ at::Tensor allocateTensor(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      return alloc_tensor;
+      return PolymorphicValue(alloc_tensor);
     }
     case AllocationType::ReuseBuffer:
       // Unlike for `AllocationType::Evaluate`, don't use
@@ -301,7 +301,7 @@ at::Tensor allocateTensor(
       // the output tensor may hold different data from the input, e.g., an
       // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
       // would trigger non-trivial host computation.
-      return aliased_io_tensor.value();
+      return PolymorphicValue(aliased_io_tensor.value());
     case AllocationType::Evaluate: {
       auto out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
       if (aliased_io_tensor.has_value()) {
@@ -313,14 +313,14 @@ at::Tensor allocateTensor(
             aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
       }
-      return out_tensor;
+      return PolymorphicValue(out_tensor);
     }
     default:
       NVF_THROW("Unrecognized AllocationType.");
   }
 }
 
-std::vector<at::Tensor> allocateOutputs(
+KernelArgumentHolder allocateOutputs(
     const Fusion* fusion,
     const std::vector<GlobalBufferInfo>& output_info,
     const c10::Device& device,
@@ -358,16 +358,16 @@ std::vector<at::Tensor> allocateOutputs(
             fusion->getOutputAlias(rhs.second).type != AllocationType::New);
       });
 
-  std::vector<at::Tensor> out_tensors(num_outs);
+  KernelArgumentHolder out_tensors;
   for (const auto& [out_index, out] : sorted_outs) {
-    at::Tensor out_tensor = allocateTensor(
+    auto out_tensor = allocateTensor(
         output_info[out_index], fusion->getOutputAlias(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
     // 2. an output that aliases another output can be evaluated via
     // ExpressionEvaluator cheaply.
     ee.bind(out, out_tensor);
-    out_tensors[out_index] = out_tensor;
+    out_tensors.push(out_tensor);
   }
   return out_tensors;
 }

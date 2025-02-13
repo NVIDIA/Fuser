@@ -34,9 +34,9 @@ namespace nvfuser {
 // that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
-    std::vector<at::Tensor> aten_outputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
+    KernelArgumentHolder aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
@@ -44,17 +44,17 @@ void testValidate(
     const ValidationConstants& tolerances = ValidationConstants());
 
 // The variant with automatically inferred aten outputs. The `evaluate` method
-// of the exprs in the fusion must be overriden to handle at::Tensor.
+// of the exprs in the fusion must be overriden to handle
+// KernelArgumentHolder.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
-
 // A gmock matcher for matching heuristics.
 MATCHER_P(HeuristicIs, heuristic, "") {
   return arg->schedulerType() == heuristic;

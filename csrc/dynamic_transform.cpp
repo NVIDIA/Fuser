@@ -1457,7 +1457,7 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const std::vector<c10::IValue>& aten_inputs) {
   return concretizeFusion(
-      fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
+      fusion, KernelArgumentHolder(aten_inputs.begin(), aten_inputs.end()));
 }
 
 std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
