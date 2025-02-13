@@ -390,6 +390,9 @@ class SegmentedFusion {
   //! Deserialize SegmentedFusion using flatbuffers
   void deserialize(const serde::SegmentedFusion* buffer);
 
+  //! Set allocation domain as loop domain for sharded tensors
+  void setAllocationAsLoopForShardedTvs();
+
  private:
   void validateDAG() const;
   void validateDisjoint() const;

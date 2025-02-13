@@ -1207,6 +1207,7 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
+  setAllocationAsLoopForShardedTvs();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
@@ -1432,6 +1433,22 @@ void SegmentedFusion::revertInputOutputPrecisionChanges(
   }
   for (auto v : lowered_tv_to_remove) {
     v->fusion()->removeVal(v);
+  }
+}
+
+void SegmentedFusion::setAllocationAsLoopForShardedTvs() {
+  auto set_allocation_as_loop = [](std::vector<Val*> vals) {
+    auto tvs = ir_utils::filterByType<TensorView>(vals);
+    std::for_each(tvs.begin(), tvs.end(), [](TensorView* tv) {
+      if (isSharded(tv)) {
+          tv->setAllocationDomain(tv->getLoopDomain(), true);
+        }
+      });
+  };
+
+  for (auto group : groups()) {
+    set_allocation_as_loop(group->inputs());
+    set_allocation_as_loop(group->outputs());
   }
 }
 

@@ -88,20 +88,31 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 }
 
 bool isSharded(const TensorView* tv) {
-  bool is_sharded = false;
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (!alloc_id->isDeviceDim()) {
-      continue;
-    }
+  // First check allocation domain if available, or the logical domain.
+  auto num_sharded_axes = std::count_if(
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
 
-    // Only one axis can be sharded on DIDx.
-    NVF_ERROR(
-        !is_sharded,
-        "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv);
-    is_sharded = true;
+  if (num_sharded_axes == 1) {
+    return true;
   }
-  return is_sharded;
+
+  // Check if only the loop domain is sharded.
+  // It is possible if the allocation domain has not been set yet.
+  if (num_sharded_axes == 0) {
+    num_sharded_axes = std::count_if(
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
+  }
+
+  NVF_ERROR(
+      num_sharded_axes <= 1,
+      "Multiple IterDomains parallelized on DIDx in TensorView ",
+      tv);
+
+  return num_sharded_axes == 1;
 }
 
 namespace {
