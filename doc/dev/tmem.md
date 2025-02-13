@@ -1103,6 +1103,19 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
       }
 
       KernelExecutor ke;
+
+      // Check that tv2 is allocated 256 columns.
+      ke.registerLoweringHook([](GpuLower* lower) {
+        auto check_pass = [](const std::vector<Expr*>& exprs) {
+          const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+          ASSERT_EQ(regions.size(), 1);
+          const auto& region = regions[0];
+          EXPECT_EQ(region.num_columns->evaluate(), 256);
+          return exprs;
+        };
+        lower->passes().push_back({"Check result", check_pass});
+      });
+
       ke.compile(&fusion);
       auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0], t0));
