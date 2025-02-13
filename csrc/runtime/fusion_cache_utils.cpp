@@ -33,19 +33,14 @@ void encodeBuffer(T value, std::string& buffer) {
 ArgumentManager::ArgumentManager(
     KernelArgumentHolder& args,
     const RuntimeWorkSpace& runtime_workspace,
-    const std::vector<Val*>& fusion_inputs)
-    : fusion_args_(args) {
+    const std::vector<Val*>& fusion_inputs) {
   // map from val to args
   mapFusionInputsToArgs(
-      fusion_inputs, runtime_workspace.group_extent_binding_order);
+      fusion_inputs, args, runtime_workspace.group_extent_binding_order);
   setLastUsedSegmentID(runtime_workspace.group_run_order);
 }
 
-const std::unordered_map<Val*, const PolymorphicValue&>& ArgumentManager::
-    getTensorMap() const {
-  return tensor_map_;
-}
-const PolymorphicValue& ArgumentManager::checkTensorMap(Val* v) {
+PolymorphicValue ArgumentManager::checkTensorMap(Val* v) {
   return tensor_map_.at(v);
 }
 
@@ -100,26 +95,26 @@ template void ArgumentManager::updateWithSegmentOutputs<KernelArgumentHolder>(
 
 void ArgumentManager::mapFusionInputsToArgs(
     const std::vector<Val*>& fusion_inputs,
+    KernelArgumentHolder& args,
     const std::vector<Val*>& group_extent_binding_order) {
   int extent_index = 0;
-  auto original_args_size = fusion_args_.size();
+  auto original_args_size = args.size();
   // Bind args in the tensor_map
   for (const auto i : c10::irange(original_args_size)) {
-    tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
+    tensor_map_.emplace(fusion_inputs[i], args[i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
     // TODO: we probably have done this already up to this point
     //      should consider caching the expression evaluators, both
     //      more convenient and safer than replication
-    if (fusion_args_[i].is<at::Tensor>()) {
+    if (args[i].is<at::Tensor>()) {
       // Note this is very ugly way. We are pushing every single extent to
       // args, because we don't have a better place to hold them.
-      auto rank = fusion_args_[i].as<at::Tensor>().dim();
+      auto rank = args[i].as<at::Tensor>().dim();
       for (const auto dim : c10::irange(rank)) {
-        fusion_args_.push(
-            PolymorphicValue(fusion_args_[i].as<at::Tensor>().size(dim)));
+        args.push(PolymorphicValue(args[i].as<at::Tensor>().size(dim)));
         tensor_map_.emplace(
-            group_extent_binding_order[extent_index++], fusion_args_.back());
+            group_extent_binding_order[extent_index++], args.back());
       }
     }
   }
@@ -169,7 +164,6 @@ void ArgumentManager::deleteUnusedArgs(int64_t run_order_id) {
   // erase args corresponding to vals lastly used in this segment
   if (run_order_id >= 1 && vals_last_used_at_segment_.count(run_order_id)) {
     for (auto val : vals_last_used_at_segment_[run_order_id]) {
-      fusion_args_.erase(tensor_map_.at(val));
       tensor_map_.erase(val);
     }
   }

@@ -529,7 +529,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
   std::unique_ptr<SegmentedFusion> staged_fusion =
-      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+      SegmentCandidateFinder::segment(
+          std::move(fusion), KernelArgumentHolder(), options);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
   RuntimeWorkSpace workspace;

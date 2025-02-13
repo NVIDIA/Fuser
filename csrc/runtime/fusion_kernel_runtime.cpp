@@ -98,7 +98,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
@@ -454,9 +454,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
   // We make a mutable copy of args so that we can use it in an
   // ArgumentManager
-  KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
-      mutable_args, runtime_workspace_, segmented_fusion_->inputs());
+      args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);

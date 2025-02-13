@@ -95,7 +95,7 @@ int64_t SegmentationState::setupSegmentation(
 
   // Run segmentation algorithm
   segmented_fusion_ = SegmentCandidateFinder::segment(
-      std::move(cloned_original_fusion_), &args, runtime_info);
+      std::move(cloned_original_fusion_), args, runtime_info);
 
   // Get the order for fusion segments
   prepareGroupOrder();

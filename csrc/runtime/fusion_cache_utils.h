@@ -95,9 +95,11 @@ class ArgumentManager {
       const RuntimeWorkSpace& runtime_workspace,
       const std::vector<Val*>& fusion_inputs);
 
-  const std::unordered_map<Val*, const PolymorphicValue&>& getTensorMap() const;
+  std::unordered_map<Val*, PolymorphicValue> getTensorMap() const {
+    return tensor_map_;
+  }
 
-  const PolymorphicValue& checkTensorMap(Val* v);
+  PolymorphicValue checkTensorMap(Val* v);
 
   // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
   // (from dry run)
@@ -120,14 +122,15 @@ class ArgumentManager {
   }
 
  private:
-  KernelArgumentHolder& fusion_args_;
-  // map from val to args
-  std::unordered_map<Val*, const PolymorphicValue&> tensor_map_;
+  std::vector<Val*> arg_order;
+  // map from val to position of value in fusion_args_
+  std::unordered_map<Val*, PolymorphicValue> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
   void mapFusionInputsToArgs(
       const std::vector<Val*>& fusion_inputs,
+      KernelArgumentHolder& args,
       const std::vector<Val*>& group_extent_binding_order);
 
   void setLastUsedSegmentID(

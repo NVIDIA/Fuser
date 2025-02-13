@@ -1999,7 +1999,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     const Fusion* fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options) {
   auto fusion_copy = std::make_unique<Fusion>(*fusion);
   return segment(std::move(fusion_copy), inputs, options);
@@ -2008,7 +2008,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 // Perform segmentation on and take ownership of the given fusion
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     debug() << "Segment the fusion (Original Fusion Un-modified): "
@@ -2021,7 +2021,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -2030,7 +2030,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         Schedule::proposeHeuristics(fusion.get(), runtime_info);
     if (fusion_heuristic_type != SchedulerType::None) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), fusion_heuristic_type, *inputs);
+          std::move(fusion), fusion_heuristic_type, inputs);
     }
   } else {
     scheduler_debug_utils::canScheduleMessage(
@@ -3939,14 +3939,13 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
       runtime_info_(
-          inputs == nullptr ? std::nullopt
-                            : std::make_optional<SchedulerRuntimeInfo>(
-                                  fusion.get(),
-                                  *inputs)),
+          inputs.empty()
+              ? std::nullopt
+              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
       runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
@@ -4113,7 +4112,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), *runtime_inputs_)) {
+            segmented_fusion_.get(), runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();
