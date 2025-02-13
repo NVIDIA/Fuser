@@ -834,7 +834,7 @@ void fancyTransformations(TensorView* tv) {
 } /*
 ```
 
-Here comes the tests:<!-- */ //-->\
+Here comes the example 1:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated1) {
   Fusion fusion;
