@@ -1011,7 +1011,9 @@ TEST_F(TMemTutorialR, Complicated2) {
 } /*
 ```
 
-blabla
+It also worth mentioning that the storing and loading of tensor memory is not
+required to be in the same way. The following example shows how to use tensor
+memory to do a transpose:
 
 <!--*/
 } // namespace nvfuser
