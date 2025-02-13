@@ -654,8 +654,8 @@ endfunction()
 
 if(BUILD_TEST)
   set(TEST_BINARIES)
-  add_test(nvfuser_tests "${JIT_TEST_SRCS}" "")
-  list(APPEND TEST_BINARIES nvfuser_tests)
+  add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
@@ -703,8 +703,8 @@ if(BUILD_TEST)
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
 
-  add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
-  list(APPEND TEST_BINARIES tutorial)
+  add_test(test_tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
+  list(APPEND TEST_BINARIES test_tutorial)
 
   set(HOSTIR_TEST_SRCS)
   list(APPEND HOSTIR_TEST_SRCS
