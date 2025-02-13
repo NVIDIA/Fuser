@@ -219,7 +219,8 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values, converting IValue to PolymorphicValue
   for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
+    expr_evaluator_.bind(
+        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
   }
 
   return dispatchAndCollectOutputs();
@@ -314,8 +315,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   std::vector<c10::IValue> input_IValues;
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+  KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -393,8 +393,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      KernelArgumentHolder args =
-          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
       outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
 
     } else {
@@ -406,15 +405,13 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
                hu->fusion_to_execute(), 1, 1, 1, 1)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
-        KernelArgumentHolder args =
-            KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+        KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
         ExecutorDispatch::compile(
             ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      KernelArgumentHolder args =
-          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
       outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
     }
   }

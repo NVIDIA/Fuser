@@ -54,7 +54,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
 
   NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs);
+      const c10::ArrayRef<c10::IValue>& aten_inputs);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,

@@ -70,7 +70,7 @@ bool is_meta_scalar(const at::Tensor& tensor) {
 }
 
 int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device) {
   int8_t index = 0;
   // have we found or selected at least one device yet?
