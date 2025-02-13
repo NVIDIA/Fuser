@@ -14,9 +14,15 @@ namespace nvfuser {
 class IdModel;
 struct StatefulInliningInfo;
 
-struct CoveredGroup {
-  using CoveredGroups = std::unordered_set<CoveredGroup>;
+struct CoveredGroup;
 
+using CoveredGroups = std::unordered_set<CoveredGroup>;
+
+// Represents an input (or split output) ID group that an exact group
+// depends on (i.e., covers). If an input ID group is split, split_in_
+// refers to the covered groups of the input ID group, and group_
+// refers to either inner or outer output group.
+struct CoveredGroup {
   CoveredGroup() = default;
   CoveredGroup(
       ValGroup group,
@@ -34,6 +40,12 @@ struct CoveredGroup {
     return split_in_;
   }
 
+  bool isInner() const {
+    return is_inner_;
+  }
+
+  // Note that the equality of this information is only determined by
+  // group_ and that split_in_ does not matter.
   bool operator==(const CoveredGroup& other) const {
     return group_ == other.group_;
   }
@@ -42,11 +54,20 @@ struct CoveredGroup {
     return !(group_ == other.group_);
   }
 
+  // Check if this CoveredGroup is equal to or covers a given other
+  // CoveredGroup
   bool isEqualToOrSuperSetOf(const CoveredGroup& other) const;
 
+  std::string toString() const;
+
  private:
+  // Covered group
   ValGroup group_;
+  // If this group is an output of a split, keep track of the covered
+  // groups of the split input group.
   std::shared_ptr<CoveredGroups> split_in_;
+  // Indicates if the split is inner or not. Not relevant if split_in_
+  // is nullptr.
   bool is_inner_ = false;
 };
 
@@ -63,11 +84,11 @@ struct hash<nvfuser::CoveredGroup> {
 
 namespace nvfuser {
 
-using CoveredGroups = std::unordered_set<CoveredGroup>;
-
-bool isEqualToOrSuperSetOf(
-    const CoveredGroups& covered_groups_x,
-    const CoveredGroups& covered_groups_y);
+// Computes coverage info of each exact group. Coverage is
+// represented as a set of CoveredGroup, which is either an exact
+// group of input IDs or an output group of split.
+std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+computeCoveredGroups(const ValGraph& exact_graph);
 
 // Callback interface for LoopPromotionMapBuilder. Allow exposing the
 // temporary maps for testing and debugging

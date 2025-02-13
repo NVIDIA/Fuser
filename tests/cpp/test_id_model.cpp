@@ -2741,8 +2741,7 @@ TEST_F(IdModelTest, CoveredGroups) {
   // The exact
   // group of the tv3 and tv4 IDs should cover both the inner and
   // outer split groups of the input group of the tv1 logical ID.
-  const auto covered_groups =
-      LoopPromotionMapBuilder::computeCoveredGroups2(exact_graph);
+  const auto covered_groups = computeCoveredGroups(exact_graph);
 
   const auto& input_group = exact_graph.toGroup(tv1->getLogicalDomain().at(0));
   auto input_covered_group_it = covered_groups.find(input_group);
