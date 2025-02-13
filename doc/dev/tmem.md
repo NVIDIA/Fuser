@@ -838,6 +838,23 @@ void fancyTransformations(TensorView* tv) {
 } /*
 ```
 
+Second, let's use the following function to check the allocation size of tensor
+memory:<!-- */ //-->\
+```cpp
+void checkAllocationSize(KernelExecutor& ke, int64_t expected_ncols) {
+  ke.registerLoweringHook([](GpuLower* lower) {
+    auto check_pass = [expected_ncols](const std::vector<Expr*>& exprs) {
+      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
+      ASSERT_EQ(regions.size(), 1);
+      const auto& region = regions[0];
+      EXPECT_EQ(region.num_columns->evaluate(), expected_ncols);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+} /*
+```
+
 Here comes the example 1:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated1) {
@@ -912,16 +929,7 @@ TEST_F(TMemTutorialR, Complicated1) {
   KernelExecutor ke;
 
   // Check that tv2 is allocated 64 columns.
-  ke.registerLoweringHook([](GpuLower* lower) {
-    auto check_pass = [](const std::vector<Expr*>& exprs) {
-      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
-      ASSERT_EQ(regions.size(), 1);
-      const auto& region = regions[0];
-      EXPECT_EQ(region.num_columns->evaluate(), 64);
-      return exprs;
-    };
-    lower->passes().push_back({"Check result", check_pass});
-  });
+  checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
   auto out = ke.run({t0});
@@ -998,16 +1006,7 @@ TEST_F(TMemTutorialR, Complicated2) {
   KernelExecutor ke;
 
   // Check that tv2 is allocated 64 columns.
-  ke.registerLoweringHook([](GpuLower* lower) {
-    auto check_pass = [](const std::vector<Expr*>& exprs) {
-      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
-      ASSERT_EQ(regions.size(), 1);
-      const auto& region = regions[0];
-      EXPECT_EQ(region.num_columns->evaluate(), 64);
-      return exprs;
-    };
-    lower->passes().push_back({"Check result", check_pass});
-  });
+  checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
   auto out = ke.run({t0});
@@ -1105,16 +1104,7 @@ TEST_F(TMemTutorialR, Vectorization) {
       KernelExecutor ke;
 
       // Check that tv2 is allocated 256 columns.
-      ke.registerLoweringHook([](GpuLower* lower) {
-        auto check_pass = [](const std::vector<Expr*>& exprs) {
-          const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
-          ASSERT_EQ(regions.size(), 1);
-          const auto& region = regions[0];
-          EXPECT_EQ(region.num_columns->evaluate(), 256);
-          return exprs;
-        };
-        lower->passes().push_back({"Check result", check_pass});
-      });
+      checkAllocationSize(ke, 256);
 
       ke.compile(&fusion);
       auto out = ke.run({t0});
