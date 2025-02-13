@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <alias_analysis.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/expr_eval_sched.h>
