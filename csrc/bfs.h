@@ -683,6 +683,65 @@ class BFSWithPermissiveDependence
   }
 };
 
+// Unlike the default BFS behavior, Val is considered ready to
+// visit only if all of definitions or uses are visited. The default
+// BFS only requires one definition is visited.
+template <
+    typename ExprT,
+    typename ValT,
+    typename DefinitionT,
+    typename UsesT,
+    typename InputsT,
+    typename OutputsT>
+class BFSWithStrictDependence
+    : public BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT> {
+ public:
+  using NodeType =
+      typename BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>::
+          NodeType;
+
+  BFSWithStrictDependence(
+      DefinitionT definition,
+      UsesT uses,
+      InputsT inputs,
+      OutputsT outputs,
+      std::vector<NodeType> from,
+      std::vector<NodeType> to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : BFS<ExprT, ValT, DefinitionT, UsesT, InputsT, OutputsT>(
+            definition,
+            uses,
+            inputs,
+            outputs,
+            std::move(from),
+            std::move(to),
+            require_all_to_visited,
+            allowed_direction) {}
+
+  std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
+      const ValT& v) const override {
+    decltype(auto) uses = this->uses_(v);
+    if (!uses.empty() &&
+        std::all_of(uses.begin(), uses.end(), [&](const ExprT& use_e) -> bool {
+          return this->isDependencySatisfied(use_e);
+        })) {
+      return std::make_pair(
+          Direction::Backward, std::vector<NodeType>{uses.begin(), uses.end()});
+    }
+    decltype(auto) def = this->definition_(v);
+    if (!def.empty() &&
+        std::all_of(def.begin(), def.end(), [&](const ExprT& def_e) -> bool {
+          return this->isDependencySatisfied(def_e);
+        })) {
+      return std::make_pair(
+          Direction::Forward, std::vector<NodeType>{def.begin(), def.end()});
+    }
+
+    return std::nullopt;
+  }
+};
+
 // Find the shortest path from the from vals to the to
 // vals. Dependency between vals and exprs must be satisfied.
 // It is an error if no valid path is found unless
