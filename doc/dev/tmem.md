@@ -23,12 +23,16 @@ constexpr static bool verbose = true; /*
 
 # Tensor Memory Support in NVFuser
 <!--*/
+#include <string>
+#include <stringstream>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <codegen.h>
 #include <ops/alias.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -1054,6 +1058,65 @@ In the above example, we store and load the tensor memory like the table below:
 |--------------|---|---|---|---|
 | Store Column | 0 | 2 | 1 | 3 |
 | Load Column  | 0 | 1 | 2 | 3 |
+
+## Vectorization of TMem load and store
+
+Tensor memory load and store can be vectorized as a power of 2, from 1 all the
+way to 128:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
+  const std::vector<int64_t> vec_factors = {1, 2, 4, 8, 16, 32, 64, 128};
+  for (int64_t st_vec : vec_factors) {
+    for (int64_t ld_vec : vec_factors) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+
+      auto tv0 = makeContigConcreteTensor({128, 256});
+      fusion.addInput(tv0);
+      auto tv1 = set(tv0);
+      auto tv2 = set(tv1);
+      auto tv3 = set(tv2);
+      auto tv4 = set(tv3);
+      fusion.addOutput(tv4);
+      tv2->setMemoryType(MemoryType::Tensor);
+
+      for (auto tv : {tv3, tv4, tv2, tv1}) {
+        tv->axis(0)->parallelize(ParallelType::TIDx);
+      }
+
+      for (auto tv : {tv2, tv1}) {
+        tv->split(1, st_vec);
+      }
+      tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+      for (auto tv : {tv3, tv4}) {
+        tv->split(1, ld_vec);
+      }
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+      tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+      tv2->setTMemDimSepPos(1);
+
+      inlineMost();
+
+      if constexpr (verbose) {
+        fusion.printKernel();
+      }
+
+      KernelExecutor ke;
+      ke.compile(&fusion);
+      auto out = ke.run({t0});
+      EXPECT_TRUE(at::equal(out[0], t0));
+
+      auto kernel_str = codegen::generateCudaKernel(ke.kernel());
+      std::stringstream expect_st, expect_ld;
+      expect_st << "tcgen05.st.sync.aligned.32x32b.x" << st_vec << ".b32";
+      expect_ld << "tcgen05.ld.sync.aligned.32x32b.x" << ld_vec << ".b32";
+      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
+      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
+    }
+  }
+} /*
+```
 
 <!--*/
 } // namespace nvfuser
