@@ -941,21 +941,22 @@ void DynamicTransformConcretizer::concretizeResize() {
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
     auto def = id->definition()->as<Resize>();
+    auto def_in = maybeMutated(def->in())->as<IterDomain>();
     auto new_id = IterDomain::resize(
-        def->in(),
+        def_in,
         maybeMutated(def->leftExpand()),
         maybeMutated(def->rightExpand()),
         id->isRFactorProduct(),
         iter_type);
 
-    if (maybeMutated(def->in()->extent()) != def->in()->extent()) {
+    if (maybeMutated(def_in->extent()) != def_in->extent()) {
       // Note: if the extent of id is mutated, for example by the
       // concretizeEmptyExtents pass, we should also use the mutated extent to
       // compute the output extent.
       Val* new_extent = SimplifyingIrBuilder::addExpr(
           maybeMutated(def->leftExpand()),
           SimplifyingIrBuilder::addExpr(
-              maybeMutated(def->in()->extent()),
+              maybeMutated(def_in->extent()),
               maybeMutated(def->rightExpand())));
       IterDomain* replacement =
           IterDomainBuilder(new_id).extent(new_extent).build();
