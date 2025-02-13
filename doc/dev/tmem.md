@@ -24,7 +24,7 @@ constexpr static bool verbose = true; /*
 # Tensor Memory Support in NVFuser
 <!--*/
 #include <string>
-#include <stringstream>
+#include <sstream>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
