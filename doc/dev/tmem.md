@@ -316,16 +316,6 @@ between the logical domain and the allocation domain, but the transformation
 between the allocation domain and the loop domain, which specifies how we access
 tensor memory in the kernel.
 
-To demonstrate the above point, we always do an XOR swizzle on the logical domain
-when scheduling the allocation domain. This is not because in real world we want
-this swizzle, but just to show that the logical domain and the allocation domain
-can have arbitrary transformations between them:<!-- */ //-->\
-```cpp
-void xorSwizzleLogicalDomain(TensorView* tv) {
-  tv->swizzle(SwizzleType::XOR, 0, 1);
-} /*
-```
-
 Now let's take a look at a few code examples of invalid tensor memory
 allocation. Valid examples requires knowledge of indexing, which will be
 discussed in the next section. For all valid and invalid examples, we will
@@ -601,7 +591,7 @@ The above example is invalid because the warp accesses the wrong subpartition of
 the tensor memory. In the above example, there are two warps, where warp 0
 accesses the subpartition 0 and 1, and warp 1 accesses the subpartition 2 and 3.
 However, warp 0 can only access subpartition 0, and warp 1 can only access
-subpartition 1..<!-- */ //-->\
+subpartition 1.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition2) {
   Fusion fusion;
@@ -633,6 +623,190 @@ The above example is also invalid because the warp accesses the wrong subpartiti
 In the above example, there are two warps, both accessing subpartition 0, which
 is not allowed.
 
-<!-- */
+Now, let's take a look at some valid examples:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, WarpXYZ) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 4, 4, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDz);
+  tv4->axis(1)->parallelize(ParallelType::TIDy);
+  tv4->axis(2)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->setTMemDimSepPos(3);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+In the above example, each CTA only has one warp, and this warp is split into
+TIDz, TIDy, and TIDx. The above kernel uses a loop of 2, where each iteration
+accesses a 32x1 box of the tensor memory. This is a valid 32x32b pattern
+.<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, WarpGroupXYZ) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 8, 8, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDz);
+  tv4->axis(1)->parallelize(ParallelType::TIDy);
+  tv4->axis(2)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->setTMemDimSepPos(3);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+In the above example, each CTA has one warp group. This entire warp group is
+accessing a whole column, with each warp group accessing its subpartition of
+32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, WarpGroupXYColZ) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8, 16, 8});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDy);
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv4->axis(2)->parallelize(ParallelType::TIDz);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->setTMemDimSepPos(2);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+In the above example, each CTA has 8 warp groups, each warp group accesses a
+whole column. Warp group `i` is accessing column `i`.
+This is a valid 32x32b pattern.<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, WarpGroupXColYZ) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({128, 2, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDy);
+  tv4->axis(2)->parallelize(ParallelType::TIDz);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->setTMemDimSepPos(2);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+In the above example, each CTA has 4 warp groups, each warp group accesses a
+whole column. The warp group id and the column each warp group accesses are
+shown in the table below:
+
+| Warp Group | 0 | 1 | 2 | 3 |
+|------------|---|---|---|---|
+| Column     | 0 | 2 | 1 | 3 |
+
+This is a valid 32x32b pattern.<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1, 128, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+  tv4->axis(1)->parallelize(ParallelType::TIDy);
+  tv4->axis(2)->parallelize(ParallelType::TIDz);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->setTMemDimSepPos(2);
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0], t0));
+} /*
+```
+
+In the above example, each CTA has 2 warp groups, each warp group accesses a
+whole column. Warp group `i` is accessing column `i`. This is a valid 32x32b
+pattern.
+
+< !--*/
 } // namespace nvfuser
 // \-->
