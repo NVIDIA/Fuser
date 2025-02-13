@@ -2246,7 +2246,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             // Get the split operation that created the DIDx dimension
             auto split = dynamic_cast<Split*>(
                 tv->getLoopDomain().at(sharded_axis)->definition());
-            if (split && split->in() == logical_id) {
+            if (split != nullptr && split->in() == logical_id) {
               find_it = std::find(
                   tv->getLoopDomain().begin(),
                   tv->getLoopDomain().end(),
