@@ -362,13 +362,15 @@ In the above example, the fusion is scheduled as:
 ```python
 [BIDx{2}, TIDx{3}, 5, (CA), BIDy{7}, TIDy{11}, 13, (DimSep), 17]
 ```
+(Note that, when the allocation domain is not set, we assume it is the
+`getMaybeAllocationDomain`)
 
 Because 2 and 7 are parallelized on `BID`s, they are not allocated. Because 3
 and 11 are parallelized on `TID`s, they are allocated. Because 5 is on the left
 of the compute-at position, it is not allocated. Because 13 and 17 is on the right
 of the compute-at position, it is allocated. So the total number of lanes required
 for this tensor is: `3 * 11 * 13 = 429`, which is larger than the total available
-lanes, `128`.
+lanes `128`.
 
 Now let's take a look at another example:<!-- */ //-->\
 ```cpp
@@ -413,7 +415,7 @@ Because 3 and 11 are parallelized on `BID`s, they are not allocated. Because
 the left of the compute-at position, it is not allocated. Because 17 is on the
 right of the compute-at position, it is allocated. So the total number of
 columns required for this tensor is: `5 * 13 * 17 = 1105`, which is larger than
-the total available lanes, `512`.
+the total available columns `512`.
 
 ## The loop domain of TMem load and store
 
@@ -467,7 +469,7 @@ These patterns are:
 </details>
 
 Besides threads in a warp must satisfy specific pattern, another restriction of
-the TMem<->register transfer is not all warps can access all lanes of the tensor
+the TMem<->register transfer is: not all warps can access all lanes of the tensor
 memory. The entire 128 lanes of the tensor memory is divided into 4
 subpartitions, each has 32 lanes. The warp `i` can only access the subpartition
 `i % 4`.
@@ -529,8 +531,8 @@ TEST_F(TMemTutorialC, NotContiguous) {
 } /*
 ```
 
-The above example is invalid because the tensor memory is not accessed in one of
-the specified pattern. In the above example, different threads in a warp access
+The above example is invalid because the tensor memory is not accessed in any of
+the specified pattern. In the above example, threads in a warp access
 lanes of the tensor memory in a stride-2 manner, while all the specified
 patterns requires the warp to access a contiguous 32 or 16 lanes of data
 .<!-- */ //-->\
@@ -561,7 +563,7 @@ TEST_F(TMemTutorialC, OneLane) {
 } /*
 ```
 
-The above example is invalid because the tensor memory is not accessed in one of
+The above example is invalid because the tensor memory is not accessed in any of
 the specified pattern. In the above example, each warp access one lane and 32
 columns of the tensor memory, while all the specified patterns requires the warp
 to access a contiguous 32 or 16 lanes of data.<!-- */ //-->\
