@@ -456,10 +456,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
 @pytest.mark.mpi
 def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
-    d, b, s, h, e = multidevice_test.size, 2, 1024, 12, 768
-
-    if h % d != 0:
-        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
+    d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
 
     class Model(FusionDefinition):
@@ -476,7 +473,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
-                    shape=[b, h, s, e // h],
+                    shape=[-1, -1, -1, -1],
                     dtype=DataType.BFloat16,
                     stride_order=stride_order,
                 )
@@ -510,18 +507,20 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
-            for t in [
-                self.q,
-                self.k,
-                self.v,
+            input_tvs = [self.q, self.k, self.v, self.out_grad]
+            output_tvs = [
                 self.attn,
                 self.log_sumexp,
-                self.out_grad,
                 self.q_grad,
                 self.k_grad,
                 self.v_grad,
-            ]:
+            ]
+
+            for t in input_tvs + output_tvs:
                 self.sched._set_device_mesh(t, mesh)
+
+            # Shard input tensorviews
+            for t in input_tvs:
                 self.sched.split(t, 1, d, False)
                 self.sched.parallelize(t, 1, nvfuser.ParallelType.mesh_x)
                 if self._qkv_format == QkvFormat.BSHE:
@@ -529,6 +528,20 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                     # Reorder i{S} in the allocation domain for BHSE: {i{DIDx}, i{B}, i{S}, i{H//D}, i{E//H}}
                     self.sched.reorder(t, {2: 3, 3: 2})
                 self.sched.set_allocation_as_loop(t)
+
+            # Propagate sharding to output tvs
+            self.sched.transform_like(self.q, output_tvs)
+            self.sched.parallelize_like(
+                self.q, -1, output_tvs, {nvfuser.ParallelType.mesh_x}
+            )
+
+            # Set allocation as loop for output tvs
+            for t in output_tvs:
+                self.sched.set_allocation_as_loop(t)
+
+    b, s, h, e = 2, 1024, 12, 768
+    if h % d != 0:
+        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     torch.cuda.set_device(multidevice_test.local_rank)
 

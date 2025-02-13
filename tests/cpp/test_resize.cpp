@@ -5754,4 +5754,213 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 //   // TODO: check vectorization factor
 // }
 
+// A little smaller repro of issue #3801. See below test for the
+// original repro.
+TEST_F(ResizeTest, TraversalForInliningPosition) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Disable the resize schedule because the original issue happened
+  // with the pointwise scheduler
+  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+
+  auto tv0 = makeContigConcreteTensor({16});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({8});
+  fusion.addInput(tv1);
+
+  auto tv2 =
+      slice(tv0, {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(8L)}});
+  auto tv3 = sin(tv2);
+  fusion.addOutput(tv3);
+
+  auto tv4 =
+      slice(tv0, {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(8L)}});
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = add(tv2, tv5);
+  fusion.addOutput(tv6);
+
+  // This fusion will be scheduled as a pointwise kernel. The issue
+  // was that the cache of the tv1 input was not inlined at all. That
+  // is because the spanning tree propagation from the reference
+  // tensor, which is tv3, arrives at the cache tensor through tv0 and
+  // tv4, which means that no mapped ID is returned by
+  // getPositionsMappedTo since resized IDs are not mapped in
+  // TransformReplay::getMatchedLeafPosWithoutReplayPasC.
+  //
+  // This issue should not happen if the spanning tree travesal took
+  // the path from tv2 -> tv6 -> tv5 -> tv1_cache since there's no
+  // resize along that path.
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16}, options);
+  auto t1 = at::randn({8}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // Make sure all the tensors are at least inlined at some
+  // position. The cache of tv1 was not inlined at all due to the issue.
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  auto scheduled_fusion = runtime->executors()
+                              .at(0)
+                              ->as<KernelExecutor>()
+                              ->compiledKernel()
+                              ->kernel();
+
+  auto ref_tv = scheduled_fusion->outputs().at(0)->as<TensorView>();
+  for (auto tv : ref_tv->fusion()->allTvs()) {
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
+      continue;
+    }
+    EXPECT_GT(tv->getComputeAtPosition(), 0)
+        << "Unexpected computeAt position: " << tv->toString();
+  }
+}
+
+// Repro of issue 3801 (https://github.com/NVIDIA/Fuser/issues/3801)
+// clang-format off
+/*
+Inputs:
+  T13_g_float[bS35{1}, iS36{16}]
+  T59_g_float[bS405{1}, iS406{4}, iS407{3}, bS408{1}, iS409{16}]
+Outputs:
+  T64_g_float[bS215{1}, iS216{4}, bS217{1}, iS218{16}]
+  T89_g_float[bS319{1}, iS320{4}, bS321{1}, iS322{16}]
+  T63_g_float[bS211{1}, iS212{4}, bS213{1}, iS214{16}]
+  T78_g_float[bS271{1}, iS272{4}, bS273{1}, iS274{16}]
+
+%kernel_math {
+T61_g_float[bS199{1}, iS200{4}, bS202{1}rf, bS203{1}, iS204{16}]
+   = slice( T59_g_float[bS405{1}, iS406{4}, iS407{3}, bS408{1}, iS409{16}], { {0, 1, 1} {0, 4, 1} {1, 2, 1} {0, 1, 1} {0, 16, 1} } )
+T64_g_float[bS215{1}, iS216{4}, bS217{1}, iS218{16}]
+   = squeeze( T61_g_float[bS199{1}, iS200{4}, bS202{1}rf, bS203{1}, iS204{16}], flags = {false, false, false, true, false} )
+T106_l_float[bS399{1}, bS400{1}, bS401{1}, iS402{16}]
+   = broadcast( T13_g_float[bS35{1}, iS36{16}], flags = {true, true, false, false} )
+T77_g_float[bS267{1}, bS268{1 ex 4}, bS269{1}, iS270{16}] = expand( T106_l_float[bS399{1}, bS400{1}, bS401{1}, iS402{16}], {1, 4, 1, 16} )
+T89_g_float[bS319{1}, iS320{4}, bS321{1}, iS322{16}]
+   = T64_g_float[bS215{1}, iS216{4}, bS217{1}, iS218{16}]
+   * T77_g_float[bS267{1}, bS268{1 ex 4}, bS269{1}, iS270{16}];
+T60_g_float[bS193{1}, iS194{4}, bS196{1}rf, bS197{1}, iS198{16}]
+   = slice( T59_g_float[bS405{1}, iS406{4}, iS407{3}, bS408{1}, iS409{16}], { {0, 1, 1} {0, 4, 1} {0, 1, 1} {0, 1, 1} {0, 16, 1} } )
+T63_g_float[bS211{1}, iS212{4}, bS213{1}, iS214{16}]
+   = squeeze( T60_g_float[bS193{1}, iS194{4}, bS196{1}rf, bS197{1}, iS198{16}], flags = {false, false, false, true, false} )
+T78_g_float[bS271{1}, iS272{4}, bS273{1}, iS274{16}]
+   = T63_g_float[bS211{1}, iS212{4}, bS213{1}, iS214{16}]
+   * T77_g_float[bS267{1}, bS268{1 ex 4}, bS269{1}, iS270{16}];
+} // %kernel_math
+*/
+// clang-format on
+TEST_F(ResizeTest, Repro3801) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Disable the resize schedule because the original issue happened
+  // with the pointwise scheduler
+  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+
+  auto T13 = makeContigConcreteTensor({1, 16});
+  fusion.addInput(T13);
+  auto T59 = makeContigConcreteTensor({1, 4, 3, 1, 16});
+  fusion.addInput(T59);
+
+  auto T61 = slice(
+      T59,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L)},
+       {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)}});
+  auto T64 = squeeze(T61, {3});
+  auto T107 = broadcast(T13, {true, true, false, false});
+  auto T77 = expand(
+      T107,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(4L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T89 = mul(T64, T77);
+  auto T60 = slice(
+      T59,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)}});
+  auto T63 = squeeze(T60, {3});
+  auto T78 = mul(T63, T77);
+  fusion.addOutput(T64);
+  fusion.addOutput(T89);
+  fusion.addOutput(T63);
+  fusion.addOutput(T78);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 16}, options);
+  auto t1 = at::randn({1, 4, 3, 1, 16}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Mixing resize and index ops is not supported yet.Specifically,
+// resize requires TensorIndexer, which is based on IdModel, but index
+// ops like take_along_axis is not yet supported by IdModel.
+TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({128, 4095});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({1, 4096}, DataType::Int);
+  fusion.addInput(tv1);
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)},
+       {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(4096)}});
+  auto tv3 = takeAlongAxis(tv0, tv2, 0);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({128, 4095}, options);
+  auto t1 = at::randint(0, 128, {1, 4096}, options_int);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2)
+      << "Unexpected segmentation";
+
+  // Make sure two ops are separated into their own segments
+  for (auto segmented_group : runtime->fusionSegments()->groups()) {
+    bool has_resize = false;
+    bool has_index_op = false;
+    for (auto expr : segmented_group->exprs()) {
+      if (scheduler_tools::isResizeBasedOp(expr)) {
+        has_resize = true;
+      } else if (
+          expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+        has_index_op = true;
+      }
+    }
+
+    EXPECT_NE(has_resize, has_index_op);
+  }
+}
+
 } // namespace nvfuser
