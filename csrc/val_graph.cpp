@@ -9,6 +9,8 @@
 #include <ir/utils.h>
 #include <val_graph.h>
 
+#include <fstream>
+
 namespace nvfuser {
 
 namespace {
@@ -777,6 +779,13 @@ std::string ValGraph::toGraphvizDotGraph() const {
   dot << "}\n";
 
   return dot.str();
+}
+
+void ValGraph::dumpGraphvizDotGraph(const std::string& file_path) const {
+  std::ofstream ofs(file_path, std::ofstream::trunc);
+  auto dot_string = toGraphvizDotGraph();
+  ofs << dot_string;
+  ofs.close();
 }
 
 } // namespace nvfuser
