@@ -481,7 +481,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     auto vec_ref_tv = ref_tv;
     const auto tvs_to_vectorize =
         scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
-    std::cerr << "TVs to vec: " << toDelimitedString(tvs_to_vectorize) << "\n";
     for (auto tv_to_vectorize : tvs_to_vectorize) {
       if (tv_to_vectorize->isFusionInput()) {
         for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
