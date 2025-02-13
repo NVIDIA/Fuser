@@ -2845,7 +2845,8 @@ int getCoresPerSM(int major, int minor) {
   if (it != cores_per_sm_map.end()) {
     return it->second;
   }
-  NVF_THROW("Unknown GPU architecture: ", major, ".", minor);
+  // Use the default value of 128 for any architecture not listed,
+  // applicable to all current Blackwell GPUs.
   return 128;
 }
 } // namespace
