@@ -16,18 +16,18 @@
 
 namespace nvfuser {
 
+// Check if this CoveredGroup is equal to or a superset of the other
+// CoveredGroup. Trying to check as many sufficient conditions as
+// possible, but may not be complete.
 bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
   if (*this == other) {
     return true;
   }
 
-  // When both are derived from split
-  if (split_in_.get() && other.split_in_.get()) {
-    // If they correspond to differnt outputs, they are obviously different.
-    if (is_inner_ != other.is_inner_) {
-      return false;
-    }
-
+  // When both are derived from split and correspond to either inner
+  // or outer.
+  if (split_in_.get() && other.split_in_.get() &&
+      is_inner_ == other.is_inner_) {
     const CoveredGroups& split_in = *split_in_;
     const CoveredGroups& other_split_in = *other.split_in_;
 
@@ -80,6 +80,23 @@ bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
     }
   }
 
+  // If the other CoveredGroup has a split input, it is sufficient to
+  // satisfy that this CoveredGroup is equal to or
+  // superior to the split input of other
+  if (other.split_in_.get()) {
+    if (std::all_of(
+            other.split_in_->begin(),
+            other.split_in_->end(),
+            [&](const CoveredGroup& other_split_in) {
+              return isEqualToOrSuperSetOf(other_split_in);
+            })) {
+      return true;
+    }
+  }
+
+  // At this point, it does not mean it's definitely false but not
+  // proven to be true either.
+
   return false;
 }
 
@@ -115,12 +132,12 @@ bool isEqualToOrSuperSetOf(
   return std::all_of(
       covered_groups_y.begin(),
       covered_groups_y.end(),
-      [&](const CoveredGroup& cover_group_y) {
+      [&](const CoveredGroup& covered_group_y) {
         return std::any_of(
             covered_groups_x.begin(),
             covered_groups_x.end(),
-            [&](const CoveredGroup& cover_group_x) {
-              return cover_group_x.isEqualToOrSuperSetOf(cover_group_y);
+            [&](const CoveredGroup& covered_group_x) {
+              return covered_group_x.isEqualToOrSuperSetOf(covered_group_y);
             });
       });
 }
