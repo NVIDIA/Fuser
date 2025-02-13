@@ -1445,8 +1445,11 @@ TensorView* scheduleReductionGeneral(
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
-  return reduction_scheduler_utils::scheduleReductionTV(
+  TensorView* result = reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
+  result->axis(1)->parallelize(ParallelType::TIDz);
+  std::cout << result->toString() << std::endl;
+  return result;
 }
 
 // fusion is the input IR that will be modified by this function
