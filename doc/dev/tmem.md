@@ -58,8 +58,8 @@ will give us a rough idea of how tensor memory should behave.
 
 ## Review of inlining and parallelization
 
-Let's consider a simple gmem->shared->gmem copy kernel. Let's look at the kernel
-with different inlining and parallelization strategy:<!-- */ //-->\
+Let's consider a simple gmem->shared->gmem copy kernel. Let's look at the
+kernels with different inlining and parallelization strategies:<!-- */ //-->\
 ```cpp
 TEST_F(ReviewInliningParallelization, GSGCopy) {
   at::Tensor t0 = at::rand({2, 4}, at::kCUDA);
