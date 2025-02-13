@@ -807,6 +807,6 @@ In the above example, each CTA has 2 warp groups, each warp group accesses a
 whole column. Warp group `i` is accessing column `i`. This is a valid 32x32b
 pattern.
 
-< !--*/
+<!--*/
 } // namespace nvfuser
 // \-->
