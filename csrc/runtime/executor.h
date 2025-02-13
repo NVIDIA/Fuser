@@ -89,7 +89,7 @@ class KernelExecutor : public ExecutorAbstract {
       const at::ArrayRef<c10::IValue>& inputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args = KernelArgumentHolder(inputs);
+    KernelArgumentHolder args(inputs);
     compile(fusion, args, launch_constraints, compile_params);
   }
 
@@ -110,7 +110,7 @@ class KernelExecutor : public ExecutorAbstract {
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
-    KernelArgumentHolder args = KernelArgumentHolder(inputs);
+    KernelArgumentHolder args(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }

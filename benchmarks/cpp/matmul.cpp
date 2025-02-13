@@ -463,7 +463,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   heuristic_params->cparams.index_type =
       computeIndexType(M, N * splitk_factor, 1);
 
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args(aten_inputs);
 
   // Compile kernel
   KernelExecutor ke;
