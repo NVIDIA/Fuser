@@ -23,8 +23,8 @@ constexpr static bool verbose = true; /*
 
 # Tensor Memory Support in NVFuser
 <!--*/
-#include <string>
 #include <sstream>
+#include <string>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -855,9 +855,9 @@ void checkAllocationSize(KernelExecutor& ke, int64_t expected_ncols) {
   ke.registerLoweringHook([expected_ncols](GpuLower* lower) {
     auto check_pass = [expected_ncols](const std::vector<Expr*>& exprs) {
       const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
-      ASSERT_EQ(regions.size(), 1);
+      [&] { ASSERT_EQ(regions.size(), 1); }();
       const auto& region = regions[0];
-      EXPECT_EQ(region.num_columns->evaluate(), expected_ncols);
+      [&] { EXPECT_EQ(region.num_columns->evaluate(), expected_ncols); }();
       return exprs;
     };
     lower->passes().push_back({"Check result", check_pass});
@@ -1127,7 +1127,8 @@ TEST_F(TMemTutorialR, Vectorization) {
       EXPECT_TRUE(at::equal(out[0], t0));
 
       // Check that vectorized PTX instructions are used
-      auto kernel_str = codegen::generateCudaKernel(ke.kernel());
+      GpuLower gpulw(&fusion);
+      auto kernel_str = codegen::generateCudaKernel(gpulw.run());
       std::stringstream expect_st, expect_ld;
       expect_st << "tcgen05.st.sync.aligned.32x32b.x" << st_vec << ".b32";
       expect_ld << "tcgen05.ld.sync.aligned.32x32b.x" << ld_vec << ".b32";
