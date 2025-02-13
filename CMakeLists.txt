@@ -71,7 +71,6 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 # TODO: fix MSVC
 if(NOT MSVC)
   find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
-  find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
 # ------------------------------
@@ -373,7 +372,6 @@ target_include_directories(nvfuser_codegen PUBLIC
 target_link_libraries(nvfuser_codegen PRIVATE
   flatbuffers
   ${CUDA_NVRTC_LIB}
-  ${LIBNVTOOLSEXT}
   ${LIBCUPTI}
   ${TORCH_LIBRARIES}
   dl
@@ -525,7 +523,6 @@ if(BUILD_PYTHON)
 
   target_link_libraries(nvf_py_internal PRIVATE
     codegen_internal
-    ${LIBNVTOOLSEXT}
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
