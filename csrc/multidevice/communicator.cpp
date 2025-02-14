@@ -226,16 +226,10 @@ Communicator::Communicator(
 }
 
 namespace {
-void waitForDebuggerAtRank(Communicator* communicator, DeviceIdxType rank) {
-  NVF_CHECK(
-      rank >= 0 && rank < communicator->size(),
-      "rank=",
-      rank,
-      " must be in the range of [0,",
-      communicator->size(),
-      ").");
-
-  if (communicator->deviceId() == rank) {
+void waitForDebuggerAtRanks(
+    Communicator* communicator,
+    const std::vector<DeviceIdxType>& ranks) {
+  if (std::count(ranks.begin(), ranks.end(), communicator->deviceId()) > 0) {
     volatile bool waiting = true;
     auto pid = getpid();
     std::cerr << "Process " << pid
@@ -271,8 +265,13 @@ Communicator& Communicator::getInstance() {
   // nvfuser._cleanup() in Python.
   static auto* communicator = new Communicator();
 
-  // NVFUSER_MULTIDEVICE_WAIT_DEBUGGER_AT_RANK can be used to attach gdb to one
-  // of the processes for debugging.
+  // EnableOption::WaitDebugger can be used to attach gdb to one of the
+  // processes for debugging. For example,
+  //
+  // ```
+  // mpirun -np 2 -x NVFUSER_ENABLE='wait_debugger(1)' bin/test_multidevice
+  // --gtest_filter=*ReduceScatter
+  // ```
   //
   // When an mpirun fails, it usually prints out something like
   // ```
@@ -289,22 +288,33 @@ Communicator& Communicator::getInstance() {
   // cause `mpirun` to terminate the entire job including the process being
   // gdb'ed. For that, I use `mpirun -continuous` so `mpirun` keeps running the
   // process being gdb'ed.
-
-  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
-  if (rank_to_debug_str != nullptr) {
-    const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
-
+  if (isOptionEnabled(EnableOption::WaitDebugger)) {
     static std::once_flag once;
     std::call_once(once, [&]() {
       // Catch exceptions so call_once always flips `once` and executes this
       // functor only once.
       try {
-        waitForDebuggerAtRank(communicator, rank_to_debug);
+        const std::vector<std::string>& ranks_as_str =
+            getEnableOptionArguments(EnableOption::WaitDebugger);
+        std::vector<DeviceIdxType> ranks;
+        for (const auto& rank_as_str : ranks_as_str) {
+          const DeviceIdxType rank = std::stol(rank_as_str);
+          NVF_CHECK(
+              rank >= 0 && rank < communicator->size(),
+              "rank=",
+              rank,
+              " must be in the range of [0,",
+              communicator->size(),
+              ").");
+          ranks.push_back(rank);
+        }
+        waitForDebuggerAtRanks(communicator, ranks);
       } catch (const std::exception& e) {
         TORCH_WARN("Failed to wait for debugger: ", e.what());
       }
     });
   }
+
   return *communicator;
 }
 

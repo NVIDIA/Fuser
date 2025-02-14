@@ -10,6 +10,8 @@
 #include <id_model/to_string.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <logical_domain_map.h>
+#include <options.h>
 #include <val_graph_visitor.h>
 
 namespace nvfuser {
@@ -106,7 +108,7 @@ namespace {
 // finding the promotion ID is a trivial probelm. Only the
 // loop groups of the loop domains need to be checked as loop
 // promotion does not matter for the other domains.
-bool isLoopGraphAlmostUniform(const IdModel& id_model) {
+bool isLoopGraphUniform(const IdModel& id_model) {
   for (const auto tv : id_model.tvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -116,22 +118,8 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
           id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
       const auto all_exact_groups =
           id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-      if (all_exact_groups.size() == 1) {
-        continue;
-      }
-
-      // Even when multiple exact groups are found, if there's only
-      // one concrete group and all the others are broadcast, it's
-      // obvious that the concrete group represents the promotion.
-      bool concrete_group_found = false;
-      for (const auto& exact_group : all_exact_groups) {
-        if (!exact_group->front()->as<IterDomain>()->isBroadcast()) {
-          if (concrete_group_found) {
-            // multiple concrete groups
-            return false;
-          }
-          concrete_group_found = true;
-        }
+      if (all_exact_groups.size() > 1) {
+        return false;
       }
     }
   }
@@ -141,21 +129,91 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
 
 } // namespace
 
+ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
+    const ValGraph& exact_graph) const {
+  std::unordered_set<IterDomain*> non_input_ids;
+
+  for (auto tv_expr : id_model_.tvExprs()) {
+    for (const auto producer :
+         ir_utils::filterByType<TensorView>(tv_expr->inputs())) {
+      for (const auto consumer :
+           ir_utils::filterByType<TensorView>(tv_expr->outputs())) {
+        auto p2c = PairwiseLogicalDomainMap(producer, consumer)
+                       .mapBroadcast(false)
+                       .mapProducerToConsumer();
+        for (const auto& [p_id, c_id] : p2c) {
+          non_input_ids.insert(c_id);
+        }
+      }
+    }
+  }
+
+  ValGroups input_groups;
+  for (const auto tv : id_model_.tvs()) {
+    for (const auto maybe_root_id : tv->getMaybeRootDomain()) {
+      if (!non_input_ids.count(maybe_root_id)) {
+        input_groups.pushBack(exact_graph.toGroup(maybe_root_id));
+      }
+    }
+  }
+
+  // Remove redundancy. There may be dependencies between inputs. For
+  // example:
+  //
+  //  Fusion inputs:
+  //   T0: [i0, i1]
+  //   T1: [i2]
+  //
+  //  T2 = reshape(T0, {i0, i1}, {i0*i1});
+  //  T3 = add(T2, T1)
+  //
+  // In this case, i2 forms an input group but is redundant as there
+  // are i0 and i1. In fact, traversing from {i0, i1, i2} would miss
+  // the expr between {i0, i1} and {i2}.
+
+  ValGroups input_groups_to_keep;
+  for (auto it = input_groups.begin(); it != input_groups.end(); ++it) {
+    const ValGroup& input = *it;
+
+    ValGroups other_inputs = input_groups_to_keep;
+    other_inputs.pushBack(it + 1, input_groups.end());
+    if (ValGraphBFS::getExprGroupsBetween(
+            exact_graph,
+            other_inputs,
+            {input},
+            /*require_all_to_visited=*/false,
+            Direction::Forward)
+            .second) {
+      // This input group is redundant with respect
+      continue;
+    } else {
+      input_groups_to_keep.pushBack(input);
+    }
+  }
+
+  return input_groups_to_keep;
+}
+
+ValGroups LoopPromotionMapBuilder::getInputGroupsOfIELGraph(
+    const ValGraph& iel_graph) const {
+  const auto exact_input_groups =
+      getInputGroupsOfExactGraph(idGraph(IdMappingMode::EXACT));
+
+  ValGroups iel_input_groups;
+  for (const ValGroup& exact_input_group : exact_input_groups) {
+    iel_input_groups.pushBack(iel_graph.toGroups(*exact_input_group));
+  }
+
+  return iel_input_groups;
+}
+
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
   // analysis. These are not comprehensive. Should add more conditions
   // if necessary.
-  if (!force_full_loop_promotion_analysis_ &&
-      isLoopGraphAlmostUniform(id_model_)) {
+  if (!force_full_loop_promotion_analysis_ && isLoopGraphUniform(id_model_)) {
     return buildWithNoBroadcast();
   }
-
-  // Cyclic exact graph is not supported. Specifically,
-  // computeCoveredGroups would fail as it uses ValGraphStmtSort.
-  NVF_ERROR(
-      !isCyclic(idGraph(IdMappingMode::EXACT)),
-      "Cyclic exact graph is not supported: ",
-      idGraph(IdMappingMode::EXACT).toString());
 
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
@@ -611,7 +669,8 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
-  ValGraphStmtSort iel_stmt_sort(iel_graph);
+  ValGraphStmtSort iel_stmt_sort(
+      iel_graph, getInputGroupsOfIELGraph(iel_graph));
 
   for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
     NVF_ERROR(!iel_expr->empty());
@@ -713,21 +772,20 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {});
 }
 
-namespace {
-
 // Returns for each ValGroup in provided IdGraph what the input ValGroups are
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
 // at RFactor ValGroups.
-std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-    const ValGraph& graph) {
+std::unordered_map<ValGroup, ValGroups> LoopPromotionMapBuilder::
+    computeCoveredGroups(const ValGraph& graph) const {
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
 
+  ValGroups input_groups = getInputGroupsOfExactGraph(graph);
+
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
-    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
-    if (id_group_defs.empty()) {
+    if (input_groups.has(id_group)) {
       covered_ids[id_group] = {id_group};
     }
 
@@ -740,9 +798,9 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     }
   }
 
-  ValGraphStmtSort exact_stmt_sort(graph);
+  ValGraphStmtSort stmt_sort(graph, input_groups);
 
-  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
+  for (const ExprGroup& exact_expr : stmt_sort.exprs()) {
     std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
 
     ValGroups covered;
@@ -762,8 +820,6 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
 
   return covered_ids;
 }
-
-}; // namespace
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     projectIELPromotionToLoopGraph(
@@ -857,7 +913,10 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   ValGroups loop_group_covered_ids;
   for (const ValGroup& exact_group : exact_groups) {
     auto covered_it = exact_covered_ids.find(exact_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
+    NVF_ERROR(
+        covered_it != exact_covered_ids.end(),
+        "No covered group info for ",
+        nvfuser::toString(exact_group));
     loop_group_covered_ids.pushBack(covered_it->second);
   }
 
@@ -988,18 +1047,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();
 
-      // A group is allowed to have one single exact group of concrete
-      // IDs with a broadcast group.
-      if (promotion == nullptr ||
-          (promotion->isBroadcast() && !loop_id->isBroadcast())) {
+      if (promotion == nullptr) {
         is_const = this_is_const;
         promotion = loop_id;
         num_exprs = this_num_exprs;
-        continue;
-      }
-
-      // Ignore broadcast if a concrete ID is already found
-      if (!promotion->isBroadcast() && loop_id->isBroadcast()) {
         continue;
       }
 
