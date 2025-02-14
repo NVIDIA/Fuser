@@ -791,10 +791,10 @@ struct BoundedInt {
     auto split_ranges_around_zero = [](const BoundedInt& b) {
       std::vector<BoundedInt> ranges;
       if (b.min < 0L) {
-        ranges.emplace_back(b.min, std::min(b.max, -1L));
+        ranges.push_back({b.min, std::min(b.max, -1L)});
       }
       if (b.max > 0L) {
-        ranges.emplace_back(b.max, std::max(b.min, 1L));
+        ranges.push_back({b.max, std::max(b.min, 1L)});
       }
       return ranges;
     };
