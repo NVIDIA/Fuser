@@ -72,7 +72,8 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
       continue;
     }
 
-    scheduler_tools::scheduleLoopDomainsBy(tvs_to_schedule, resize);
+    scheduler_tools::scheduleLoopDomainsBy(
+        tvs_to_schedule, resize, Direction::Forward);
   }
 }
 

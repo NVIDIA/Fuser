@@ -55,21 +55,9 @@ void checkLoopDomainEquivalence(
 
 } // namespace
 
-class ResizeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using ResizeTest = NVFuserTest;
 
-class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserFixtureParamTest<bool>::SetUp();
-  }
-};
+using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
 using testing::Each;
 using testing::HasSubstr;
@@ -1397,7 +1385,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   // By default, the extent of the tv1 domain is:
   //   i0 + ( ( fmax(0, ( fmin(i0, 1) )) ) + ( -i0 ) )
   // This should be simplified to just:
-  //   fmax(0, ( fmin(i0, 1) ))
+  //   fmin(i0, 1)
 
   fusion.addOutput(tv1);
 
@@ -1405,7 +1393,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   auto bop = dynamic_cast<BinaryOp*>(resize_extent->definition());
   ASSERT_TRUE(bop != nullptr)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
-  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Max)
+  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Min)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
@@ -4873,7 +4861,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 100});
+  std::vector<int64_t> shape({-1, 128});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4899,7 +4887,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 100}, options);
+  auto t0 = at::randn({16, 128}, options);
   std::vector<c10::IValue> inputs({t0});
 
   fusion.addOutput(tv5);
@@ -5763,7 +5751,7 @@ TEST_F(ResizeTest, TraversalForInliningPosition) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto tv0 = makeContigConcreteTensor({16});
   fusion.addInput(tv0);
@@ -5865,7 +5853,7 @@ TEST_F(ResizeTest, Repro3801) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto T13 = makeContigConcreteTensor({1, 16});
   fusion.addInput(T13);
