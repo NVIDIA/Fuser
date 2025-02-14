@@ -417,17 +417,18 @@ std::string Asm::toInlineString(int indent_size) const {
 
 const std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
-      {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
-      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
-      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
-      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
+      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "tmem::load"},
+      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "tmem::store"},
+      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+       "tmem::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "relinquishTMemAllocPermit"},
-      {"wgmma.fence.sync.aligned", "wgmmaFence"},
+       "tmem::relinquishAllocPermit"},
+      {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
-      {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
-      {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
+      {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
+      {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
       {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
       {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
       {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
@@ -450,9 +451,7 @@ const std::string Asm::utility() const {
     std::smatch match;
     if (std::regex_match(code, match, pattern)) {
       std::string extracted = match[1];
-      std::transform(
-          extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
-      return "wgmma" + extracted + "Half";
+      return "wgmma::" + extracted + "Half";
     }
   }
   {
@@ -462,9 +461,7 @@ const std::string Asm::utility() const {
     std::smatch match;
     if (std::regex_match(code, match, pattern)) {
       std::string extracted = match[1];
-      std::transform(
-          extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
-      return "wgmma" + extracted + "BF16";
+      return "wgmma::" + extracted + "BF16";
     }
   }
   return "";
