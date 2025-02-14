@@ -11345,7 +11345,7 @@ __device__ __inline__ void ParallelReduce<
 __global__ void nvfuser_inner_persistent_f0_c1_r0_g0(Tensor<float, 2, 2> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T2, Tensor<float, 2, 2> T24, Tensor<float, 1, 1> T32, Tensor<float, 2, 2> T34) {
   alignas(16) extern __shared__ char array[];
   void* shared_mem = array;
-  const unsigned smem_offset = alignBufferSize(((ceilDiv((ceilDiv((ceilDiv(T0.logical_size[1LL], 4)), 4)), 32)) * 32) * 1 * 2 * sizeof(float), 16);
+  const unsigned smem_offset = alignBufferSize(((ceilDiv((ceilDiv((ceilDiv(T0.logical_size[1LL], 4)), 4)), 32)) * 32) * 1 * 1 * sizeof(float), 16);
   float* T28 = reinterpret_cast<float*>(array + smem_offset + 128);
   Tensor<float, 2, 2> s0;
   s0.data = T0.data;
@@ -11356,7 +11356,7 @@ __global__ void nvfuser_inner_persistent_f0_c1_r0_g0(Tensor<float, 2, 2> T0, Ten
   nvfuser_index_t i2;
   i2 = a1[0LL];
   nvfuser_index_t i3;
-  i3 = ceilDiv((ceilDiv(i2, 2)), 132);
+  i3 = ceilDiv(i2, 132);
   double d4;
   d4 = (double)(0LL);
   double d5;
@@ -11372,133 +11372,128 @@ __global__ void nvfuser_inner_persistent_f0_c1_r0_g0(Tensor<float, 2, 2> T0, Ten
   uint32_t i10;
   i10 = (uint32_t)(i9);
   nvfuser_index_t i11;
-  i11 = 2 * i8;
-  nvfuser_index_t i12;
-  i12 = i8 * ((nvfuser_index_t)threadIdx.z);
-  nvfuser_index_t i13;
-  i13 = (i11 * i3) * ((nvfuser_index_t)blockIdx.x);
-  float* ptr14;
-  ptr14 = (s0.data + i12) + i13;
-  uint32_t i15;
-  i15 = toSmem(T28);
+  i11 = (i8 * i3) * ((nvfuser_index_t)blockIdx.x);
+  float* ptr12;
+  ptr12 = s0.data + i11;
+  uint32_t i13;
+  i13 = toSmem(T28);
+  nvfuser_index_t i14;
+  i14 = 4 * ((nvfuser_index_t)threadIdx.x);
+  nvfuser_index_t i15;
+  i15 = ceilDiv((ceilDiv(i8, 4)), 4);
   nvfuser_index_t i16;
-  i16 = 8 * i8;
+  i16 = 4 * i15;
   nvfuser_index_t i17;
-  i17 = 4 * ((nvfuser_index_t)threadIdx.x);
+  i17 = ((nvfuser_index_t)threadIdx.z) + (i3 * ((nvfuser_index_t)blockIdx.x));
   nvfuser_index_t i18;
-  i18 = i17 + i12;
-  nvfuser_index_t i19;
-  i19 = ceilDiv((ceilDiv(i8, 4)), 4);
-  nvfuser_index_t i20;
-  i20 = 4 * i19;
-  nvfuser_index_t i21;
-  i21 = ((nvfuser_index_t)threadIdx.z) + ((2 * i3) * ((nvfuser_index_t)blockIdx.x));
-  nvfuser_index_t i22;
-  i22 = i18 + i13;
+  i18 = (i14 + (i8 * ((nvfuser_index_t)threadIdx.z))) + i11;
+  bool b19;
+  b19 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
+  bool b20;
+  b20 = ((nvfuser_index_t)threadIdx.z) == 0ULL;
+  bool b21;
+  b21 = ((nvfuser_index_t)threadIdx.z) < 1;
+  bool b22;
+  b22 = ((nvfuser_index_t)threadIdx.x) < i15;
   bool b23;
-  b23 = ((nvfuser_index_t)threadIdx.x) < 32ULL;
-  bool b24;
-  b24 = ((nvfuser_index_t)threadIdx.z) == 0ULL;
+  b23 = b22 && b21;
+  nvfuser_index_t i24;
+  i24 = (3 - i8) + i14;
   bool b25;
-  b25 = ((nvfuser_index_t)threadIdx.z) < 2;
-  bool b26;
-  b26 = ((nvfuser_index_t)threadIdx.x) < i19;
-  bool b27;
-  b27 = b26 && b25;
-  nvfuser_index_t i28;
-  i28 = (3 - i8) + i17;
-  bool b29;
-  b29 = (((nvfuser_index_t)threadIdx.x) == 0) && b25;
+  b25 = (((nvfuser_index_t)threadIdx.x) == 0) && b21;
+  double d26;
+  d26 = (double)(i8);
+  double d27;
+  d27 = 1.00000000000000000e+00 * d26;
+  double d28;
+  d28 = (double)(i8);
+  double d29;
+  d29 = 1.00000000000000000e+00 * d28;
   double d30;
-  d30 = (double)(i8);
-  double d31;
-  d31 = 1.00000000000000000e+00 * d30;
+  d30 = d29 - d6;
+  bool b31;
+  b31 = d30 >= d5;
   double d32;
-  d32 = (double)(i8);
+  d32 = b31 ? d30 : d4;
   double d33;
-  d33 = 1.00000000000000000e+00 * d32;
-  double d34;
-  d34 = d33 - d6;
-  bool b35;
-  b35 = d34 >= d5;
-  double d36;
-  d36 = b35 ? d34 : d4;
-  double d37;
-  d37 = reciprocal(d36);
+  d33 = reciprocal(d32);
   uint64_t* T42 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
   #pragma unroll
-  for(nvfuser_index_t i38 = 0; i38 < 2; ++i38) {
-    if (((Hopper::electSync(4294967295U) && b23) && b24)) {
-      mbarrier::init(toSmem((&T42[i38])), 1U);
+  for(nvfuser_index_t i34 = 0; i34 < 2; ++i34) {
+    if (((Hopper::electSync(4294967295U) && b19) && b20)) {
+      mbarrier::init(toSmem((&T42[i34])), 1U);
     }
   }
   #pragma unroll
-  for(nvfuser_index_t i39 = 0; i39 < 2; ++i39) {
-    if (((Hopper::electSync(4294967295U) && b23) && b24)) {
-      mbarrier::init(toSmem((&T42[(i39 + 2LL)])), (uint32_t)(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32)));
+  for(nvfuser_index_t i35 = 0; i35 < 2; ++i35) {
+    if (((Hopper::electSync(4294967295U) && b19) && b20)) {
+      mbarrier::init(toSmem((&T42[(i35 + 2LL)])), (uint32_t)(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32)));
     }
   }
   __syncthreads();
-  if ((((nvfuser_index_t)threadIdx.z) == 2)) {
+  if ((((nvfuser_index_t)threadIdx.z) == 1)) {
     #pragma unroll 1
-    for(nvfuser_index_t i40 = 0; i40 < i3; ++i40) {
-      if ((Hopper::electSync(4294967295U) && b23)) {
-        mbarrier::waitParity(toSmem((&T42[((i40 % 2) + 2LL)])), (uint32_t)(((i40 / 2) % 2)));
-        mbarrier::arriveExpectTX(toSmem((&T42[(i40 % 2)])), i10);
-        Hopper::cpAsyncBulkG2S((Hopper::CpAsyncBulkG2SIndex{ (ptr14 + (i11 * i40)), i10, toSmem((&T42[(i40 % 2)])) }), (i15 + (i16 * (i40 % 2))));
+    for(nvfuser_index_t i36 = 0; i36 < i3; ++i36) {
+      if ((Hopper::electSync(4294967295U) && b19)) {
+        mbarrier::waitParity(toSmem((&T42[((i36 % 2) + 2LL)])), (uint32_t)(((i36 / 2) % 2)));
+        mbarrier::arriveExpectTX(toSmem((&T42[(i36 % 2)])), i10);
+        Hopper::cpAsyncBulkG2S((Hopper::CpAsyncBulkG2SIndex{ (ptr12 + (i8 * i36)), i10, toSmem((&T42[(i36 % 2)])) }), (i13 + (i9 * (i36 % 2))));
       }
     }
   } else {
-    mbarrier::arrive(toSmem((&T42[(threadIdx.z + 2LL)])));
+    #pragma unroll
+    for(nvfuser_index_t i37 = 0; i37 < 2; ++i37) {
+      mbarrier::arrive(toSmem((&T42[(i37 + 2LL)])));
+    }
     #pragma unroll 1
-    for(nvfuser_index_t i42 = threadIdx.z; i42 < i3; i42 += 2) {
-      nvfuser_index_t i43;
-      i43 = i18 + (i11 * (i42 % 2));
-      nvfuser_index_t i44;
-      i44 = i21 + (2 * i42);
-      nvfuser_index_t i45;
-      i45 = i22 + (i11 * i42);
-      bool b46;
-      b46 = i44 < i2;
-      bool b47;
-      b47 = b27 && b46;
-      bool b48;
-      b48 = b29 && b46;
+    for(nvfuser_index_t i38 = 0; i38 < i3; ++i38) {
+      nvfuser_index_t i39;
+      i39 = i14 + (i8 * (i38 % 2));
+      nvfuser_index_t i40;
+      i40 = i17 + i38;
+      nvfuser_index_t i41;
+      i41 = i18 + (i8 * i38);
+      bool b42;
+      b42 = i40 < i2;
+      bool b43;
+      b43 = b23 && b42;
+      bool b44;
+      b44 = b25 && b42;
       Array<float, 1, 1> T25;
       T25[0] = 0.000000000e+00f;
-      mbarrier::waitParity(toSmem((&T42[(i42 % 2)])), (uint32_t)(((i42 / 2) % 2)));
+      mbarrier::waitParity(toSmem((&T42[(i38 % 2)])), (uint32_t)(((i38 / 2) % 2)));
       Array<float, 1, 1> T39;
       T39[0] = 0.000000000e+00f;
       #pragma unroll
-      for(nvfuser_index_t i49 = 0; i49 < 4; ++i49) {
-        nvfuser_index_t i50;
-        i50 = i20 * i49;
+      for(nvfuser_index_t i45 = 0; i45 < 4; ++i45) {
+        nvfuser_index_t i46;
+        i46 = i16 * i45;
         Array<float, 4, 4> T36;
         T36.set(float(0.000000000e+00f));
-        if ((b47 && (i28 < (-i50)))) {
-          loadGeneric<float, 4>( &T36[0],  &T28[(i43 + i50)]);
+        if ((b43 && (i24 < (-i46)))) {
+          loadGeneric<float, 4>( &T36[0],  &T28[(i39 + i46)]);
         }
         #pragma unroll
-        for(nvfuser_index_t i51 = 0; i51 < 4; ++i51) {
+        for(nvfuser_index_t i47 = 0; i47 < 4; ++i47) {
           T39[0]
             = T39[0]
-            + T36[i51];
+            + T36[i47];
         }
       }
-      warp::warpReduceTIDX<false, false>(T25[0], T39[0], [](float &a, float b) { a = a + b; }, static_cast<float*>(shared_mem), true, static_cast<float>(0.000000000e+00f), dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 2));
+      warp::warpReduceTIDX<false, false>(T25[0], T39[0], [](float &a, float b) { a = a + b; }, static_cast<float*>(shared_mem), true, static_cast<float>(0.000000000e+00f), dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 1));
       Array<float, 1, 1> T3;
       T3[0]
         = T25[0]
-        / (float) d31;
+        / (float) d27;
       Array<float, 1, 1> T33;
       T33[0]
          = T3[0];
-      if (b48) {
-        T32[i44]
+      if (b44) {
+        T32[i40]
            = T33[0];
       }
       Array<float, 1, 1> T9;
-      broadcast::blockBroadcast<true, false, false, false>(T9[0], T3[0], static_cast<float*>(shared_mem), true, dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 2));
+      broadcast::blockBroadcast<true, false, false, false>(T9[0], T3[0], static_cast<float*>(shared_mem), true, dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 1));
       Array<float, 1, 1> T14;
       T14[0]
          = T9[0];
@@ -11507,40 +11502,40 @@ __global__ void nvfuser_inner_persistent_f0_c1_r0_g0(Tensor<float, 2, 2> T0, Ten
       Array<float, 1, 1> T41;
       T41[0] = 0.00000000000000000e+00;
       #pragma unroll
-      for(nvfuser_index_t i52 = 0; i52 < 4; ++i52) {
-        nvfuser_index_t i53;
-        i53 = i20 * i52;
-        bool b54;
-        b54 = b47 && (i28 < (-i53));
+      for(nvfuser_index_t i48 = 0; i48 < 4; ++i48) {
+        nvfuser_index_t i49;
+        i49 = i16 * i48;
+        bool b50;
+        b50 = b43 && (i24 < (-i49));
         Array<float, 4, 4> T38;
         T38.set(float(0));
-        if (b54) {
-          loadGeneric<float, 4>( &T38[0],  &T28[(i43 + i53)]);
+        if (b50) {
+          loadGeneric<float, 4>( &T38[0],  &T28[(i39 + i49)]);
         }
         #pragma unroll
-        for(nvfuser_index_t i55 = 0; i55 < 4; ++i55) {
+        for(nvfuser_index_t i51 = 0; i51 < 4; ++i51) {
           Array<float, 1, 1> T26;
           T26[0]
-            = T38[i55]
+            = T38[i51]
             - T9[0];
           Array<float, 1, 1> T27;
           T27[0]
             = T26[0]
             * T26[0];
-          if (b54) {
+          if (b50) {
             T41[0]
               = T41[0]
               + T27[0];
           }
         }
       }
-      warp::warpReduceTIDX<false, false>(T4[0], T41[0], [](float &a, float b) { a = a + b; }, static_cast<float*>(shared_mem), true, static_cast<float>(0.00000000000000000e+00), dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 2));
+      warp::warpReduceTIDX<false, false>(T4[0], T41[0], [](float &a, float b) { a = a + b; }, static_cast<float*>(shared_mem), true, static_cast<float>(0.00000000000000000e+00), dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 1));
       Array<float, 1, 1> T6;
       T6[0]
         = T4[0]
-        * (float) d37;
+        * (float) d33;
       Array<float, 1, 1> T7;
-      broadcast::blockBroadcast<true, false, false, false>(T7[0], T6[0], static_cast<float*>(shared_mem), true, dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 2));
+      broadcast::blockBroadcast<true, false, false, false>(T7[0], T6[0], static_cast<float*>(shared_mem), true, dim3(((ceilDiv((ceilDiv((ceilDiv(i8, 4)), 4)), 32)) * 32), 1, 1));
       Array<float, 1, 1> T11;
       T11[0]
         = T7[0]
@@ -11555,51 +11550,51 @@ __global__ void nvfuser_inner_persistent_f0_c1_r0_g0(Tensor<float, 2, 2> T0, Ten
       T17[0]
          = T16[0];
       #pragma unroll
-      for(nvfuser_index_t i56 = 0; i56 < 4; ++i56) {
-        nvfuser_index_t i57;
-        i57 = i20 * i56;
-        nvfuser_index_t i58;
-        i58 = i17 + i57;
-        bool b59;
-        b59 = i28 < (-i57);
-        bool b60;
-        b60 = b26 && b59;
-        bool b61;
-        b61 = b47 && b59;
+      for(nvfuser_index_t i52 = 0; i52 < 4; ++i52) {
+        nvfuser_index_t i53;
+        i53 = i16 * i52;
+        nvfuser_index_t i54;
+        i54 = i14 + i53;
+        bool b55;
+        b55 = i24 < (-i53);
+        bool b56;
+        b56 = b22 && b55;
+        bool b57;
+        b57 = b43 && b55;
         Array<float, 4, 4> T30;
         T30.set(float(0));
-        if (b60) {
-          loadGlobalToLocal<float, /*vec_size=*/4, /*is_volatile=*/false, CacheOp::AllLevels>(&T30[0],  &T2[i58]);
+        if (b56) {
+          loadGlobalToLocal<float, /*vec_size=*/4, /*is_volatile=*/false, CacheOp::AllLevels>(&T30[0],  &T2[i54]);
         }
         Array<float, 4, 4> T29;
         T29.set(float(0));
-        if (b60) {
-          loadGlobalToLocal<float, /*vec_size=*/4, /*is_volatile=*/false, CacheOp::AllLevels>(&T29[0],  &T1[i58]);
+        if (b56) {
+          loadGlobalToLocal<float, /*vec_size=*/4, /*is_volatile=*/false, CacheOp::AllLevels>(&T29[0],  &T1[i54]);
         }
         Array<float, 4, 4> T37;
         T37.set(float(0));
-        if (b61) {
-          loadGeneric<float, 4>( &T37[0],  &T28[(i43 + i57)]);
+        if (b57) {
+          loadGeneric<float, 4>( &T37[0],  &T28[(i39 + i53)]);
         }
         // Alias Allocation - register
         auto& T31 = T37;
         #pragma unroll
-        for(nvfuser_index_t i62 = 0; i62 < 4; ++i62) {
+        for(nvfuser_index_t i58 = 0; i58 < 4; ++i58) {
           Array<float, 1, 1> T19;
           T19[0]
-             = T29[i62];
+             = T29[i58];
           Array<float, 1, 1> T20;
           T20[0]
              = T19[0];
           Array<float, 1, 1> T22;
           T22[0]
-             = T30[i62];
+             = T30[i58];
           Array<float, 1, 1> T23;
           T23[0]
              = T22[0];
           Array<float, 1, 1> T15;
           T15[0]
-            = T37[i62]
+            = T37[i58]
             - T14[0];
           Array<float, 1, 1> T18;
           T18[0]
@@ -11609,34 +11604,34 @@ __global__ void nvfuser_inner_persistent_f0_c1_r0_g0(Tensor<float, 2, 2> T0, Ten
           T21[0]
             = T18[0]
             * T20[0];
-          T31[i62]
+          T31[i58]
             = T21[0]
             + T23[0];
         }
-        if (b61) {
-          loadLocalToGlobal<float, /*vec_size=*/4, /*is_volatile=*/false>( &T24[(i45 + i57)], &T31[0]);
+        if (b57) {
+          loadLocalToGlobal<float, /*vec_size=*/4, /*is_volatile=*/false>( &T24[(i41 + i53)], &T31[0]);
         }
       }
-      mbarrier::arrive(toSmem((&T42[((i42 % 2) + 2LL)])));
+      mbarrier::arrive(toSmem((&T42[((i38 % 2) + 2LL)])));
       Array<float, 1, 1> T35;
       T35[0]
          = T12[0];
-      if (b48) {
-        T34[i44]
+      if (b44) {
+        T34[i40]
            = T35[0];
       }
     }
   }
   #pragma unroll
-  for(nvfuser_index_t i63 = 0; i63 < 2; ++i63) {
-    if (((Hopper::electSync(4294967295U) && b23) && b24)) {
-      mbarrier::inval(toSmem((&T42[(i63 + 2LL)])));
+  for(nvfuser_index_t i59 = 0; i59 < 2; ++i59) {
+    if (((Hopper::electSync(4294967295U) && b19) && b20)) {
+      mbarrier::inval(toSmem((&T42[(i59 + 2LL)])));
     }
   }
   #pragma unroll
-  for(nvfuser_index_t i64 = 0; i64 < 2; ++i64) {
-    if (((Hopper::electSync(4294967295U) && b23) && b24)) {
-      mbarrier::inval(toSmem((&T42[i64])));
+  for(nvfuser_index_t i60 = 0; i60 < 2; ++i60) {
+    if (((Hopper::electSync(4294967295U) && b19) && b20)) {
+      mbarrier::inval(toSmem((&T42[i60])));
     }
   }
 }

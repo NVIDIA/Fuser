@@ -259,11 +259,12 @@ TensorView* scheduleReductionTV(
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
     // only used by inner persistent scheduler
-    // [iter]  --> [iter/stages, stages [Serial]]
-    // [number-of-sms [BIDx], iter/stages/number-of-sms, stages [Serial]]
+    // [iter]  --> [iter/compute-warps, compute-warps [Serial]]
+    // [number-of-sms [BIDx], iter/compute-warps/number-of-sms, compute-warps [Serial]]
     if (rparams->circular_buffer_options.isEnable()) {
       constexpr int64_t number_of_sms_hopper = 132;
-      reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
+      constexpr int64_t number_of_compute_warp_groups = 1;
+      reduction_tv->split(iter_axis, number_of_compute_warp_groups);
       reduction_tv->split(iter_axis, number_of_sms_hopper, false);
     }
 
