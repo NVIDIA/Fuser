@@ -110,7 +110,7 @@ void LayerNormBackward_ShapeInference_Base(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args(aten_inputs);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
@@ -183,7 +183,7 @@ void LayerNormForward_ShapeInferenceBase(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args(aten_inputs);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 

@@ -535,18 +535,18 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -559,7 +559,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options);
 
   void resetTraversal();
@@ -613,8 +613,7 @@ class SegmentCandidateFinder {
   }
 
   SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
+    return runtime_info_;
   }
 
   ExpressionEvaluator& expressionEvaluator() {
@@ -739,7 +738,7 @@ class SegmentCandidateFinder {
 
   // This is allowed to be null in the multidevice case where the segmenter is
   // used for breaking the fusion into compute and communication segments
-  std::optional<SchedulerRuntimeInfo> runtime_info_;
+  SchedulerRuntimeInfo runtime_info_;
 
   std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
       privatized_upcast_ops_;
@@ -760,7 +759,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder* runtime_inputs_;
+  const KernelArgumentHolder runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope
