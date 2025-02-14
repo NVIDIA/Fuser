@@ -539,7 +539,8 @@ TEST_F(TMemTutorialC, NotContiguous) {
 ```
 
 The above example is invalid because the tensor memory is not accessed in any of
-the specified pattern. In the above example, threads in a warp access
+the specified pattern. In the above example, because the lane allocation domain is
+`[TIDx{64}, TIDy{2}]`, where `TIDx` is not the innermost, threads in a warp access
 lanes of the tensor memory in a stride-2 manner, while all the specified
 patterns requires the warp to access a contiguous 32 or 16 lanes of data
 .<!-- */ //-->\
