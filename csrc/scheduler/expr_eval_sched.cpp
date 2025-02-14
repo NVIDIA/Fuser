@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <alias_analysis.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/expr_eval_sched.h>
@@ -14,12 +15,33 @@
 
 namespace nvfuser {
 
+namespace {
+bool allOutputsArePointerArithmetics(Fusion* fusion) {
+  const AliasAnalysisResult analysis =
+      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
+  auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  return std::all_of(out_tvs.begin(), out_tvs.end(), [&](TensorView* out) {
+    // Check out has an alias and out is not an inplace update target.
+    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
+      return false;
+    }
+
+    TensorView* root = analysis.getRoot(out);
+    return root != nullptr && root->isFusionInput();
+  });
+}
+} // namespace
+
 // Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");
     return false;
+  }
+
+  if (allOutputsArePointerArithmetics(fusion)) {
+    return true;
   }
 
   auto exprs = fusion->exprs();
