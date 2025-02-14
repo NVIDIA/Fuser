@@ -9342,6 +9342,28 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
   }
 }
 
+TEST_F(NVFuserTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1});
+  fusion.addOutput(tv1);
+
+  tv1->split(1, 4);
+  auto rf_tv = tv1->rFactor({-1});
+  std::cerr << "RF: " << rf_tv->toString() << "\n";
+
+  fusion.print();
+
+  ComputeAtMap ca_map(&fusion);
+  scheduler_utils::propagateReshapeTransforms(&fusion, ca_map);
+
+  fusion.print();
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
