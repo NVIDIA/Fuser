@@ -262,13 +262,13 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   TensorView* recv_buffer = makeContigTensor(1);
 
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::SEND,
       send_buffer,
-      IrBuilder::create<Val>(send_peer));
+      IrBuilder::create<Val>(send_peer),
+      IrBuilder::create<Val>(my_device_index));
 
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::RECV,
       recv_buffer,
+      IrBuilder::create<Val>(my_device_index),
       IrBuilder::create<Val>(recv_peer));
 
   auto* wait = IrBuilder::create<Wait>(recv);
@@ -316,12 +316,12 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   auto* start_coalescing = IrBuilder::create<StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::SEND,
       send_buffer,
-      IrBuilder::create<Val>(send_peer));
+      IrBuilder::create<Val>(send_peer),
+      IrBuilder::create<Val>(my_device_index));
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::RECV,
       recv_buffer,
+      IrBuilder::create<Val>(my_device_index),
       IrBuilder::create<Val>(recv_peer));
   auto* end_coalescing = IrBuilder::create<EndCoalescing>();
   auto* wait = IrBuilder::create<Wait>(end_coalescing);
