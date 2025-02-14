@@ -716,9 +716,9 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
 } /*
 ```
 
-In the above example, each CTA has one warp group. This entire warp group is
-accessing a whole column, with each warp accessing its subpartition of
-32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
+In the above example, each CTA has one warp group (a group of 4 consecutive warps).
+This entire warp group is accessing a whole column, with each warp accessing its
+subpartition of 32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYColZ) {
   NOT_IMPLEMENTED
@@ -777,7 +777,7 @@ TEST_F(TMemTutorialR, WarpGroupXColYZ) {
   tv4->axis(2)->parallelize(ParallelType::TIDz);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  tv2->setTMemDimSepPos(2);
+  tv2->setTMemDimSepPos(1);
 
   if constexpr (verbose) {
     fusion.printKernel();
