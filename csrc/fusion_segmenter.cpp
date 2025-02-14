@@ -3942,10 +3942,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(
-          inputs.empty()
-              ? std::nullopt
-              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
+      runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||

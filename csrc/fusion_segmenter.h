@@ -613,8 +613,7 @@ class SegmentCandidateFinder {
   }
 
   SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
+    return runtime_info_;
   }
 
   ExpressionEvaluator& expressionEvaluator() {
@@ -739,7 +738,7 @@ class SegmentCandidateFinder {
 
   // This is allowed to be null in the multidevice case where the segmenter is
   // used for breaking the fusion into compute and communication segments
-  std::optional<SchedulerRuntimeInfo> runtime_info_;
+  SchedulerRuntimeInfo runtime_info_;
 
   std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
       privatized_upcast_ops_;
