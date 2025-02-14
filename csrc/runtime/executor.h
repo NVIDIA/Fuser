@@ -81,6 +81,51 @@ class KernelExecutor : public ExecutorAbstract {
       CompileParams compile_params,
       SchedulerType sceduler_type = SchedulerType::None);
 
+  // Initializer list version that creates KernelArgumentHolder from tensors
+  NVF_API void compile(
+      Fusion* fusion,
+      std::initializer_list<at::Tensor> args,
+      const LaunchParams& launch_constraints = LaunchParams(),
+      CompileParams compile_params = CompileParams(),
+      SchedulerType sceduler_type = SchedulerType::None) {
+    compile(
+        fusion,
+        KernelArgumentHolder(args),
+        launch_constraints,
+        compile_params,
+        sceduler_type);
+  }
+
+  // Initializer list version that creates KernelArgumentHolder from tensors
+  NVF_API void compile(
+      Fusion* fusion,
+      std::initializer_list<c10::IValue> args,
+      const LaunchParams& launch_constraints = LaunchParams(),
+      CompileParams compile_params = CompileParams(),
+      SchedulerType sceduler_type = SchedulerType::None) {
+    compile(
+        fusion,
+        KernelArgumentHolder(args),
+        launch_constraints,
+        compile_params,
+        sceduler_type);
+  }
+
+  // Vector version that creates KernelArgumentHolder from IValues
+  NVF_API void compile(
+      Fusion* fusion,
+      const std::vector<c10::IValue>& args,
+      const LaunchParams& launch_constraints = LaunchParams(),
+      CompileParams compile_params = CompileParams(),
+      SchedulerType sceduler_type = SchedulerType::None) {
+    compile(
+        fusion,
+        KernelArgumentHolder(args),
+        launch_constraints,
+        compile_params,
+        sceduler_type);
+  }
+
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
   //! tests.

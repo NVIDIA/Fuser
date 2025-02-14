@@ -52,9 +52,29 @@ class SchedulerRuntimeInfo : public NonCopyable {
       const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
+  SchedulerRuntimeInfo(
+      Fusion* complete_fusion,
+      std::initializer_list<at::Tensor> args,
+      PrecomputedValues* precomputed_values = nullptr,
+      const std::vector<TensorView*>& all_tvs = {},
+      std::optional<PrimDataType> forced_index_type = std::nullopt)
+      : SchedulerRuntimeInfo(
+            complete_fusion,
+            KernelArgumentHolder(args),
+            precomputed_values,
+            all_tvs,
+            forced_index_type) {}
+
   NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const at::ArrayRef<c10::IValue>& aten_inputs);
+
+  NVF_API SchedulerRuntimeInfo(
+      Fusion* complete_fusion,
+      const std::vector<c10::IValue>& aten_inputs)
+      : SchedulerRuntimeInfo(
+            complete_fusion,
+            at::ArrayRef<c10::IValue>(aten_inputs)) {}
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,

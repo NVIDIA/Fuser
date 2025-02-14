@@ -2222,7 +2222,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
   checker.handle(gpulw.run()->topLevelExprs());
 
   KernelExecutor ke;
-  ke.compile(&fusion, {}, LaunchParams());
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({X, Y, Y, Z}, options);

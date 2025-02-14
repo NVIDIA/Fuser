@@ -36,7 +36,9 @@ class KernelArgumentHolder {
   // New constructor for initializer list of mixed types
   template <typename... Args>
   NVF_API KernelArgumentHolder(Args&&... args) {
+    std::cout << "KernelArgumentHolder(Args&&... args)" << std::endl;
     (push(std::forward<Args>(args)), ...);
+    std::cout << "KernelArgumentHolder(Args&&... args) END" << std::endl;
   }
 
   NVF_API KernelArgumentHolder(
@@ -57,30 +59,28 @@ class KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
-  // Generic push for any supported type
-  template <typename T>
-  void pushImpl(T&& arg) {
-    if constexpr (std::is_same_v<std::decay_t<T>, at::Tensor>) {
-      push(PolymorphicValue(std::forward<T>(arg)));
-    } else if constexpr (std::is_same_v<
-                             std::decay_t<T>,
-                             std::vector<at::Tensor>>) {
-      for (const auto& tensor : arg) {
-        push(PolymorphicValue(tensor));
-      }
-    } else if constexpr (std::is_same_v<
-                             std::decay_t<T>,
-                             c10::ArrayRef<c10::IValue>>) {
-      for (const auto& val : arg) {
-        push(PolymorphicValue_functions::IValueToPolymorphicValue(val));
-      }
-    } else {
-      push(PolymorphicValue(std::forward<T>(arg)));
-    }
+  void push(const std::vector<at::Tensor>& tensors);
+  void push(const c10::ArrayRef<c10::IValue>& args);
+  void push(std::initializer_list<c10::IValue> args) {
+    push(c10::ArrayRef<c10::IValue>(args));
   }
 
-  template <typename T>
-  void push(T arg);
+  void push(std::initializer_list<at::Tensor> args) {
+    push(std::vector<at::Tensor>(args));
+  }
+  void push(std::vector<PolymorphicValue> args) {
+    for (const auto& arg : args) {
+      push(arg);
+    }
+  }
+  void push(const KernelArgumentHolder& args);
+  void push(const std::vector<c10::IValue>& args);
+  void push(const at::Tensor& tensor);
+  void push(PolymorphicValue& val);
+  void push(const int64_t& val);
+  void push(const double& val);
+  void push(const bool& val);
+  void push(const std::complex<double>& val);
 
   void erase(const PolymorphicValue& arg_to_delete);
 
@@ -211,15 +211,5 @@ std::vector<std::byte> getKernelArgument(
 int64_t computeBytes(const KernelArgumentHolder& args);
 
 int64_t computeBytes(const std::vector<at::Tensor>& outputs);
-
-extern template void KernelArgumentHolder::push(const std::vector<at::Tensor>&);
-extern template void KernelArgumentHolder::push(
-    const c10::ArrayRef<c10::IValue>&);
-extern template void KernelArgumentHolder::push(const at::Tensor&);
-extern template void KernelArgumentHolder::push(const PolymorphicValue);
-extern template void KernelArgumentHolder::push(const int64_t&);
-extern template void KernelArgumentHolder::push(const double&);
-extern template void KernelArgumentHolder::push(const bool&);
-extern template void KernelArgumentHolder::push(const std::complex<double>&);
 
 } // namespace nvfuser
