@@ -245,9 +245,9 @@ bool isCpAsyncBulkTensorTile(const Expr* expr) {
         return true;
       } else if (
           in_mem == MemoryType::Shared && out_mem == MemoryType::Global) {
-        return false;
+        return true;
       } else {
-        NVF_THROW("Invalid memory types for CpAsyncBulkTile");
+        NVF_THROW("Invalid memory types for CpAsyncBulkTensorTile");
       }
     }
   }
