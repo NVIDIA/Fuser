@@ -196,7 +196,7 @@ class InputsIdLookup : public NonCopyable {
   //! inputs at the integer locations specified in that argument will affect the
   //! returned ID.
   NVF_API IdLookupReturn lookupId(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       const std::unordered_set<size_t>& scalar_inputs_to_record = {},
       int8_t device = 0);
 

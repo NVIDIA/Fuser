@@ -45,7 +45,7 @@ FusionExecutorCache::FusionExecutorCache(
       auto_schedule_(auto_schedule) {}
 
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
@@ -109,7 +109,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 }
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
 
@@ -136,7 +136,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
 }
 
 bool FusionExecutorCache::isCompiled(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     int8_t device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
 
@@ -219,7 +219,7 @@ std::string FusionExecutorCache::getMostRecentCode(bool intrinsic_code) const {
 }
 
 std::string FusionExecutorCache::getCodeFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool intrinsic_code) {
   KernelArgumentHolder args = prepareInputs(inputs);
   auto kernel_runtime = getKernelRuntimeFor(args);
@@ -254,7 +254,7 @@ std::string FusionExecutorCache::getMostRecentScheduledIr(
 }
 
 std::string FusionExecutorCache::getScheduledIrFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool tensor_transforms) {
   KernelArgumentHolder args = prepareInputs(inputs);
   auto kernel_runtime = getKernelRuntimeFor(args);

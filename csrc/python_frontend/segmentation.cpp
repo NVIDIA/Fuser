@@ -14,7 +14,7 @@ int64_t SegmentationState::setupSegmentation(
     Fusion* fusion,
     const std::unordered_map<const Val*, int64_t>&
         map_presched_value_to_original_python_index,
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   // Check state
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR(cloned_original_fusion_ == nullptr);
