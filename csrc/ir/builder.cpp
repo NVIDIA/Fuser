@@ -380,6 +380,17 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
+    // Simplify x + (-x) to 0
+    if (auto neg_expr = dynamic_cast<UnaryOp*>(lhs->definition());
+        neg_expr != nullptr && neg_expr->getUnaryOpType() == UnaryOpType::Neg &&
+        neg_expr->in()->sameAs(rhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    } else if (auto neg_expr = dynamic_cast<UnaryOp*>(rhs->definition());
+               neg_expr != nullptr &&
+               neg_expr->getUnaryOpType() == UnaryOpType::Neg &&
+               neg_expr->in()->sameAs(lhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
     return IrBuilder::addExpr(lhs, rhs);
   }
 }
