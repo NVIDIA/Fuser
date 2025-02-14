@@ -52,7 +52,9 @@ def test_allreduce(multidevice_test):
 
     class Model(FusionDefinition):
         def definition(self):
-            self.inp = self.define_tensor((-1, -1), contiguity=True, dtype=DataType.Float)
+            self.inp = self.define_tensor(
+                (-1, -1), contiguity=True, dtype=DataType.Float
+            )
             self.out = self.ops.sum(self.inp, [0])
             self.add_output(self.out)
 
