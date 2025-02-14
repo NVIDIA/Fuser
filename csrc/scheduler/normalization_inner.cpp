@@ -167,7 +167,13 @@ void innerPersistentHeuristicTMA(
   if (std::getenv("STAGES")) {
     circular_buffer_options.stage = std::atoi(std::getenv("STAGES"));
   }
-  CircularBufferType circular_buffer_type{WarpSpecialized(ParallelType::TIDz)};
+  CircularBufferType circular_buffer_type{Pipelined(true)};
+  circular_buffer_options.type = circular_buffer_type;
+  if (std::getenv("WARPTIDZ")) {
+    CircularBufferType circular_buffer_type{
+        WarpSpecialized(ParallelType::TIDz)};
+    circular_buffer_options.type = circular_buffer_type;
+  }
   circular_buffer_options.type = circular_buffer_type;
   rparams->circular_buffer_options = circular_buffer_options;
   int64_t vectorize_factor = properties.vectorize_factor;
@@ -671,13 +677,11 @@ void innerPersistentHeuristic2D(
       if (std::getenv("PREFETCH")) {
         circular_buffer_options.prefetch = std::atoi(std::getenv("PREFETCH"));
       }      
-      // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
-      // false};
       CircularBufferType circular_buffer_type{Pipelined(true)};
       circular_buffer_options.type = circular_buffer_type;
-      if (std::getenv("WARPTIDX")) {
+      if (std::getenv("WARPTIDZ")) {
         CircularBufferType circular_buffer_type{
-            WarpSpecialized(ParallelType::TIDx)};
+            WarpSpecialized(ParallelType::TIDz)};
         circular_buffer_options.type = circular_buffer_type;
       }
       rparams->circular_buffer_options = circular_buffer_options;
