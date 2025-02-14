@@ -724,14 +724,32 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
 }
 
 namespace {
-// This holds inclusive bounds for
+//! This holds inclusive bounds for a particular integer Val. We will propagate
+//! one of these for each integer scalar in the lowered kernel. That propagation
+//! makes use of the operators defined in this class.
+//!
+//! Note that this class does not necessarily represent tight bounds on
+//! complicated expressions. For example:
+//!
+//!   for a in iS0{n}
+//!     b = a * 2
+//!     c = b % 8
+//!
+//! In our analysis, we will define the following ranges as BoundedInt values:
+//!
+//!   a \in [0, n-1]
+//!   b \in [0, (n-1) * 2]
+//!   c \in [0, 7]  (assuming 7 is not in the range of n)
+//!
+//! These bounds are correct even though we could use a tighter bound for d of
+//! [0, 6] since we know that b must be a multiple of 2, so c must be 0, 2, 4,
+//! or 6 only. This kind of analysis is not provided by the simplistic
+//! propagation using a BoundedInt interval at each stage.
 struct BoundedInt {
+  // By default, if we can say nothing about a Val, we assume its value can be
+  // anything representable by int64_t
   int64_t min = std::numeric_limits<int64_t>::min();
   int64_t max = std::numeric_limits<int64_t>::max();
-
-  bool canBeZero() const {
-    return min <= 0L && max >= 0L;
-  }
 
   BoundedInt operator+(const BoundedInt& other) const {
     return BoundedInt{min + other.min, max + other.max};
