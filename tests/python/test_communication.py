@@ -74,12 +74,12 @@ def test_allreduce(multidevice_test):
 def test_allreduce_rfactor(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
+    m = d * 2
     n = 3
-    k = d * 5
 
     class Model(FusionDefinition):
         def definition(self):
-            self.inp = self.define_tensor((k, n), contiguity=True, dtype=DataType.Float)
+            self.inp = self.define_tensor((m, n), contiguity=True, dtype=DataType.Float)
             self.out = self.ops.sum(self.inp, [0])
             self.add_output(self.out)
 
@@ -99,7 +99,7 @@ def test_allreduce_rfactor(multidevice_test):
             self.sched.set_allocation_as_loop(out_local)
             self.sched.set_allocation_as_loop(self.out)
 
-    unsharded = torch.randn(k, n)
+    unsharded = torch.randn(m, n)
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
