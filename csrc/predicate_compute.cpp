@@ -10,6 +10,8 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <id_model/indexing_traversal.h>
+#include <id_model/predicate_indexing.h>
 #include <id_model/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
@@ -40,8 +42,17 @@ bool isOutputLocal(const Expr* expr) {
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
+#if 1
   auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
       id, IdMappingMode::EXACT);
+#else
+  auto concrete_id = GpuLower::current()
+                         ->idModel()
+                         .idGraph(IdMappingMode::EXACT)
+                         .toGroup(id)
+                         ->front()
+                         ->as<IterDomain>();
+#endif
   if (std::find(ids_.begin(), ids_.end(), concrete_id) == ids_.end()) {
     ids_.push_back(concrete_id);
     return true;
@@ -72,17 +83,17 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 namespace {
 
 std::unordered_set<Val*> getNonUnswitchedRootDomains(
+    const Expr* expr,
     const std::vector<ForLoop*>& loops,
     size_t unswitched_loop_index) {
-  std::vector<Val*> non_unswited_loop_domains;
+  std::vector<Val*> non_unswitched_loop_domains;
   std::transform(
       loops.begin(),
       loops.begin() + (int64_t)unswitched_loop_index,
-      std::back_inserter(non_unswited_loop_domains),
+      std::back_inserter(non_unswitched_loop_domains),
       [&](ForLoop* loop) { return loop->iter_domain(); });
-
   auto non_unswitched_inputs =
-      IterVisitor::getInputsTo(non_unswited_loop_domains);
+      IterVisitor::getInputsTo(non_unswitched_loop_domains);
 
   auto non_unswitched_root_doms =
       ir_utils::filterByType<IterDomain>(non_unswitched_inputs);
@@ -95,7 +106,7 @@ std::unordered_set<Val*> getNonUnswitchedRootDomains(
       std::inserter(
           non_unswitched_concrete_root_domains,
           non_unswitched_concrete_root_domains.end()),
-      [&](auto root_dom) {
+      [&](IterDomain* root_dom) {
         return GpuLower::current()->caMap()->getConcreteMappedID(
             root_dom, IdMappingMode::EXACT);
       });
@@ -111,12 +122,106 @@ bool isFullyUnswitched(
   auto root_domains = ir_utils::filterByType<IterDomain>(root_vals);
 
   return std::none_of(
-      root_domains.begin(), root_domains.end(), [&](auto root_dom) {
+      root_domains.begin(), root_domains.end(), [&](IterDomain* root_dom) {
         auto concrete_root_dom =
             GpuLower::current()->caMap()->getConcreteMappedID(
                 root_dom, IdMappingMode::EXACT);
         return non_unswitched_root_domains.count(concrete_root_dom) > 0;
       });
+}
+
+std::vector<IterDomain*> getFullyUnswitchedLoopIds(
+    const Expr* expr,
+    const std::vector<ForLoop*>& loops,
+    ForLoop* unswitched_loop) {
+  if (unswitched_loop == nullptr) {
+    return {};
+  }
+
+  const auto& id_model = GpuLower::current()->idModel();
+  const auto& indexing_graph =
+      id_model.idGraph(TensorIndexer::traversalGraphType());
+
+  auto out_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(out_tv != nullptr);
+
+  std::vector<IterDomain*> loop_ids;
+  loop_ids.reserve(loops.size());
+  std::transform(
+      loops.begin(),
+      loops.end(),
+      std::back_inserter(loop_ids),
+      [&](ForLoop* loop) { return loop->iter_domain(); });
+
+  const auto predicate_ids = getPredicateDomains(out_tv, expr);
+
+  const IndexingTraversal::ExprPath predicate_path =
+      IndexingTraversal::getExprsBetween(
+          expr, indexing_graph, loop_ids, predicate_ids);
+
+  ValGroups non_unswitch_dep_ids;
+  std::vector<IterDomain*> unswitched_loop_ids;
+  bool unswitch_found = false;
+  for (const auto loop : loops) {
+    if (loop == unswitched_loop) {
+      unswitch_found = true;
+    }
+    if (unswitch_found) {
+      unswitched_loop_ids.push_back(loop->iter_domain());
+    } else {
+      non_unswitch_dep_ids.pushBack(
+          indexing_graph.toGroup(loop->iter_domain()));
+    }
+  }
+
+  for (const auto& [expr_g, dir] : predicate_path) {
+    const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
+    const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
+    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+          return non_unswitch_dep_ids.has(input);
+        })) {
+      // Depends on non-unswitched ids
+      non_unswitch_dep_ids.pushBack(outputs);
+    }
+  }
+
+  // If none of unswitched_loop_ids is used with the non-unswitched
+  // loop ids,
+
+  std::vector<IterDomain*> fully_unswitched_loop_ids;
+  for (auto unswitched_loop_id : unswitched_loop_ids) {
+    if (!isParallelTypeThread(unswitched_loop_id->getParallelType())) {
+      continue;
+    }
+
+    ValGroups unswitch_dep_ids;
+    unswitch_dep_ids.pushBack(indexing_graph.toGroup(unswitched_loop_id));
+
+    bool conflict_found = false;
+    for (const auto& [expr_g, dir] : predicate_path) {
+      const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
+      const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
+      if (std::none_of(
+              inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+                return unswitch_dep_ids.has(input);
+              })) {
+        continue;
+      }
+
+      if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+            return non_unswitch_dep_ids.has(input);
+          })) {
+        conflict_found = true;
+        break;
+      }
+    }
+
+    if (!conflict_found) {
+      fully_unswitched_loop_ids.push_back(unswitched_loop_id);
+    }
+  }
+
+  return fully_unswitched_loop_ids;
 }
 
 } // namespace
@@ -147,13 +252,19 @@ ParallelizedDomainPredicate::getPredicateMap(
   bool within_unswitch = false;
   std::unordered_set<Val*> non_unswitched_root_domains;
 
+  auto fully_unswitched_loop_ids =
+      getFullyUnswitchedLoopIds(expr, loops, unswitched_loop);
+
   for (const auto i : c10::irange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
     if (loop == unswitched_loop) {
       within_unswitch = true;
-      non_unswitched_root_domains = getNonUnswitchedRootDomains(loops, i);
+#if 0
+      non_unswitched_root_domains = getNonUnswitchedRootDomains(
+          expr, loops, i);
+#endif
     }
 
     auto loop_id = loop->iter_domain();
@@ -167,10 +278,20 @@ ParallelizedDomainPredicate::getPredicateMap(
     auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
 
     // Parallel dimensions need not be predicated if fully unswitched.
+#if 0
     if (within_unswitch &&
         isFullyUnswitched(loop_id, non_unswitched_root_domains)) {
       continue;
     }
+#else
+    if (within_unswitch &&
+        std::find(
+            fully_unswitched_loop_ids.begin(),
+            fully_unswitched_loop_ids.end(),
+            loop_id) != fully_unswitched_loop_ids.end()) {
+      continue;
+    }
+#endif
 
     for (auto tv : output_tvs) {
       // Check if the loop domain is used by the output tensor
@@ -178,8 +299,15 @@ ParallelizedDomainPredicate::getPredicateMap(
           tv->getLoopDomain().begin(),
           tv->getLoopDomain().end(),
           [&](auto tv_id) {
+#if 0
             return gpu_lower->caMap()->areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
+#else
+            return gpu_lower->idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(loop_id, tv_id);
+#endif
           });
       if (it == tv->getLoopDomain().end()) {
         continue;
@@ -338,10 +466,19 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   }
 
   // Find the corresponding concrete id for each parallel type
-  for (auto consumer_loop : parallelized_consumer_loop_ids) {
+  for (IterDomain* consumer_loop : parallelized_consumer_loop_ids) {
     auto pt = consumer_loop->getParallelType();
+#if 1
     auto concrete_loop = GpuLower::current()->caMap()->getConcreteMappedID(
         consumer_loop, IdMappingMode::EXACT);
+#else
+    auto concrete_loop = GpuLower::current()
+                             ->idModel()
+                             .idGraph(IdMappingMode::EXACT)
+                             .toGroup(consumer_loop)
+                             ->front()
+                             ->as<IterDomain>();
+#endif
     parallel_concrete_ids_.at(pt) = concrete_loop;
   }
 }
@@ -728,9 +865,18 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     UnswitchPredicateKey first_key;
     bool first_key_set = false;
 
-    for (auto root_id : root_ids) {
+    for (IterDomain* root_id : root_ids) {
+#if 1
       auto concrete_root_id = gpu_lower->caMap()->getConcreteMappedID(
           root_id, IdMappingMode::EXACT);
+#else
+      auto concrete_root_id = GpuLower::current()
+                                  ->idModel()
+                                  .idGraph(IdMappingMode::EXACT)
+                                  .toGroup(root_id)
+                                  ->front()
+                                  ->as<IterDomain>();
+#endif
 
       if (root_id->isBroadcast()) {
         continue;
