@@ -134,6 +134,7 @@ bool isCpAsyncOp(const Expr* expr);
 bool isCpAsyncBulkLoad(const Expr* expr);
 bool isCpAsyncBulkStore(const Expr* expr);
 bool isCpAsyncBulk(const Expr* expr);
+bool isCpAsyncBulkTensorTile(const Expr* expr);
 
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);

@@ -592,9 +592,9 @@ Val* PredicateCompute::getInlinePredicate(
       ParallelizedDomainPredicate::getPredicate(expr, loops);
   NVF_ERROR(parallel_dom_pred != nullptr);
 
-  // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
+  // nD TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
   // itself is sufficient to predicate the accesses.
-  if (ir_utils::isCpAsyncBulk(expr)) {
+  if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
