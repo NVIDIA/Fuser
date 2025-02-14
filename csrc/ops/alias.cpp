@@ -758,7 +758,13 @@ TensorView* slice(
   // Simplify patterns like min(min(x, 32), 32) to min(x, 32) as it
   // isn't uncommon
   const auto min_expr = [&](Val* x, Val* y) -> Val* {
+    auto x_int = get_int(x);
     auto y_int = get_int(y);
+    if (x_int == 0) {
+      return x;
+    } else if (y_int == 0) {
+      return y;
+    }
     auto bop = dynamic_cast<BinaryOp*>(x->definition());
     if (y_int != std::nullopt && bop != nullptr &&
         bop->getBinaryOpType() == BinaryOpType::Min) {
