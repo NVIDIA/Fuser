@@ -12,12 +12,18 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <ir/cloner.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
 
 namespace nvfuser {
+
+struct MultiDeviceExecutorParams {
+  hir::HostIrEvaluatorParams executor = hir::HostIrEvaluatorParams();
+  HostIrLowerParams lower = HostIrLowerParams();
+};
 
 /*
   The MultiDeviceExecutor executes a Fusion on a multi-device setting.
@@ -74,7 +80,7 @@ class MultiDeviceExecutor {
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm,
-      hir::HostIrEvaluatorParams params = hir::HostIrEvaluatorParams());
+      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
