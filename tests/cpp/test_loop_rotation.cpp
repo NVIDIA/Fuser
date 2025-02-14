@@ -33,7 +33,7 @@ TEST_F(LoopRotationTest, RotateInner) {
   scheduler_utils::rotateLoop(tv4, -1, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   #pragma unroll 1
   for(nvfuser_index_t i0 = 0LL; i0 < T0.logical_size[0LL]; ++i0) {
@@ -99,7 +99,7 @@ TEST_F(LoopRotationTest, RotateOuter) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   Array<float, 3LL, 1> T1;
   Array<float, 3LL, 1> T2;
@@ -196,7 +196,7 @@ TEST_F(LoopRotationTest, NonDivisibleSplit) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
   i0 = T0.logical_size[0LL] * T0.logical_size[1LL];
@@ -302,7 +302,7 @@ TEST_F(LoopRotationTest, CircularBuffered) {
   scheduler_utils::rotateLoop(tv4, 0, {tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
   i0 = 4LL * T0.alloc_stride[0LL];
@@ -413,7 +413,7 @@ TEST_F(LoopRotationTest, SelectCircularBufferLoad) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
   i0 = 4LL * T0.alloc_stride[0LL];
@@ -563,7 +563,7 @@ TEST_F(LoopRotationTest, MultipleCircularBuffer) {
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T3) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/1) CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO;
