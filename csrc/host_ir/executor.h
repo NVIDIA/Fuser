@@ -12,6 +12,7 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <multidevice/communicator.h>
+#include <multidevice/ipc_handle.h>
 #include <runtime/executor.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_params.h>
@@ -129,6 +130,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp* matmul) override;
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
+  void handle(ShareMemHandles* share_mem_handles) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
@@ -145,6 +147,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_device_index_;
+  IpcHandleCache ipc_handle_cache_;
 };
 
 } // namespace hir

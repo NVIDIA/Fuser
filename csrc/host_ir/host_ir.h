@@ -315,6 +315,31 @@ class EndCoalescing : public Expr {
   }
 };
 
+class ShareMemHandles : public Expr {
+ public:
+  using Expr::Expr;
+  ShareMemHandles(
+      IrBuilderPasskey passkey,
+      std::vector<P2PCommunication*> communications);
+
+  ShareMemHandles(const ShareMemHandles& other) = delete;
+  ShareMemHandles& operator=(const ShareMemHandles& other) = delete;
+  ShareMemHandles(ShareMemHandles&& other) = delete;
+  ShareMemHandles& operator=(ShareMemHandles&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::ShareMemHandles";
+  }
+
+  const std::vector<P2PCommunication*>& communications() const {
+    return attribute<std::vector<P2PCommunication*>>(0);
+  }
+};
+
 } // namespace hir
 
 } // namespace nvfuser

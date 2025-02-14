@@ -405,6 +405,11 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 }
 
+void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
+  ipc_handle_cache_.exchangeHandles(
+      share_mem_handles->communications(), expr_evaluator_);
+}
+
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
