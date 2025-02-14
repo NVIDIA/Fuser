@@ -52,31 +52,6 @@ def test_allreduce(multidevice_test):
 
     class Model(FusionDefinition):
         def definition(self):
-            self.inp = self.define_tensor((d, 4), contiguity=True, dtype=DataType.Float)
-            self.out = self.ops.sum(self.inp, [0])
-            self.add_output(self.out)
-
-        def multidevice_schedule(self):
-            self.sched._set_device_mesh(self.inp, mesh)
-            self.sched._set_device_mesh(self.out, mesh)
-
-            self.sched.parallelize(self.inp, 0, nvfuser.ParallelType.mesh_x)
-
-    unsharded = torch.randn(d, 4)
-    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
-
-    fd = Model()
-    (output,) = fd.execute([sharded])
-    torch.testing.assert_close(output.local.cpu(), unsharded.sum(0))
-
-
-@pytest.mark.mpi
-def test_allreduce_rfactor(multidevice_test):
-    d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
-
-    class Model(FusionDefinition):
-        def definition(self):
             self.inp = self.define_tensor((-1, -1), contiguity=True, dtype=DataType.Float)
             self.out = self.ops.sum(self.inp, [0])
             self.add_output(self.out)
