@@ -20,6 +20,7 @@
 #include <expr_simplifier.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -2716,6 +2717,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     auto indices_inner_to_outer =
         indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+
+    // These are the box coordinates of the TMA box, which must be of type
+    // int32_t. Possible overflow in each of these dims should be checked
+    // elsewhere.
+    for (size_t i : c10::irange(indices_inner_to_outer.size())) {
+      indices_inner_to_outer[i] =
+          IrBuilder::maybeCastExpr(DataType::Int32, indices_inner_to_outer[i]);
+    }
 
     auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
     auto descriptor = tma_info.tensorMap();
