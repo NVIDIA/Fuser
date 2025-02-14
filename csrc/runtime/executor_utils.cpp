@@ -10,6 +10,7 @@
 #include <ATen/native/cuda/jit_utils.h>
 
 #include <c10/util/irange.h>
+#include <torch/csrc/distributed/c10d/Utils.hpp>
 
 #include <contiguity.h>
 #include <debug.h>
@@ -764,48 +765,79 @@ struct BoundedInt {
     return BoundedInt{min * other, max * other};
   }
 
-  BoundedInt recip() const {
-    if (!canBeZero()) {
-      return BoundedInt{1L / max, 1L / min};
-    }
-
-    if (min == 0L) {
-      if (max == 0) {
-        return BoundedInt{};
-      }
-      return BoundedInt{1 / max, std::numeric_limits<int64_t>::max()};
-    } else if (max == 0L) {
-      return BoundedInt{std::numeric_limits<int64_t>::min(), 1L / min};
-    } else {
-      return BoundedInt{};
-    }
-  }
-
   BoundedInt operator/(const BoundedInt& other) const {
-    if (min >= 0 && other.min > 0) {
-      return {min / other.max, max / other.min};
-    }
+    // Note that division by zero will be a runtime error anyway, so we can
+    // ignore it for this analysis. This means that if this or other has
+    // negative min and positive max, we should consider the union of up to four
+    // different bounds
+    auto split_ranges_around_zero = [](const BoundedInt& b) {
+      std::vector<BoundedInt> ranges;
+      if (b.min < 0L) {
+        ranges.emplace_back(b.min, std::min(b.max, -1L));
+      }
+      if (b.max > 0L) {
+        ranges.emplace_back(b.max, std::max(b.min, 1L));
+      }
+      return ranges;
+    };
+    const std::vector<BoundedInt> numer_ranges =
+        split_ranges_around_zero(*this);
+    const std::vector<BoundedInt> denom_ranges =
+        split_ranges_around_zero(other);
 
-    if (other.canBeZero()) {
-      // division by zero case. Return unbounded
-      return BoundedInt();
+    BoundedInt result;
+    bool first = true;
+    for (const BoundedInt& numer : numer_ranges) {
+      for (const BoundedInt& denom : denom_ranges) {
+        BoundedInt simple_range;
+        // numer and denom are each either only negative or only positive
+        if (numer.min > 0) {
+          if (denom.min > 0) {
+            // positive over positive
+            simple_range = {numer.min / denom.max, numer.max / denom.min};
+          } else {
+            // positive over negative
+            simple_range = {numer.max / denom.max, numer.min / denom.min};
+          }
+        } else {
+          if (denom.min > 0) {
+            // negative over positive
+            simple_range = {numer.min / denom.min, numer.max / denom.max};
+          } else {
+            // negative over negative
+            simple_range = {numer.max / denom.min, numer.min / denom.max};
+          }
+        }
+        // Result is the union over all of the simple ranges
+        if (first) {
+          result = simple_range;
+        } else {
+          result.min = std::min(result.min, simple_range.min);
+          result.max = std::max(result.max, simple_range.max);
+        }
+        first = false;
+      }
     }
-    return (*this) * other.recip();
+    return result;
   }
 
   BoundedInt operator/(const int64_t other) const {
     if (other == 0L) {
       // division by zero case. Return unbounded
       return BoundedInt();
+    } else if (other < 0) {
+      return BoundedInt{max / other, min / other};
+    } else {
+      return BoundedInt{min / other, max / other};
     }
-    return BoundedInt{min / other, max / other};
   }
 
   BoundedInt operator%(const BoundedInt& other) const {
-    if (min >= 0L && other.min > 0L && max < other.min) {
+    if (min >= 0L && other.min >= 0L && max < other.min) {
       return {min, max};
     } else {
-      return BoundedInt{0L, other.max};
+      // NOTE: this might not be true if this or other is negative
+      return BoundedInt{0L, std::min(max, other.max - 1L)};
     }
   }
 
