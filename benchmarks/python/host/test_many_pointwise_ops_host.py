@@ -4,9 +4,9 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from benchmarks.python.core import run_benchmark
+from ..core import run_benchmark
 import torch
-from benchmarks.python.global_params import PROMOTE_DTYPES
+from ..global_params import PROMOTE_DTYPES
 from functools import partial
 
 
