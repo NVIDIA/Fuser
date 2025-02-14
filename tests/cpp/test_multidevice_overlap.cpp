@@ -586,9 +586,9 @@ TEST_F(
 
   auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::SEND, src_buffer_ij, send_rank);
+      src_buffer_ij, send_rank, my_device_index_val);
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::RECV, dst_buffer_ij, recv_rank);
+      dst_buffer_ij, my_device_index_val, recv_rank);
   auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
   auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
 
@@ -1178,9 +1178,9 @@ TEST_F(
 
   auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::SEND, tva_j_curr_slice, send_rank);
+      tva_j_curr_slice, send_rank, my_device_index_val);
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::RECV, tva_j_next_slice, recv_rank);
+      tva_j_next_slice, my_device_index_val, recv_rank);
   auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
   auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
 
