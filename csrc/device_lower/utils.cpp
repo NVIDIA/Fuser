@@ -241,10 +241,8 @@ bool isCpAsyncBulkTensorTile(const Expr* expr) {
     if (op_type == LoadStoreOpType::CpAsyncBulkTensorTile) {
       auto in_mem = getTv(ldst->in())->getMemoryType();
       auto out_mem = getTv(ldst->out())->getMemoryType();
-      if (in_mem == MemoryType::Global && out_mem == MemoryType::Shared) {
-        return true;
-      } else if (
-          in_mem == MemoryType::Shared && out_mem == MemoryType::Global) {
+      if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
+          (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
         return true;
       } else {
         NVF_THROW("Invalid memory types for CpAsyncBulkTensorTile");
