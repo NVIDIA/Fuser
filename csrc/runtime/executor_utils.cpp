@@ -1020,33 +1020,40 @@ class ScalarBoundsCalculator : kir::IrVisitor {
     return std::all_of(
         casts_from_index_.begin(), casts_from_index_.end(), [&](UnaryOp* cast) {
           const BoundedInt& bounds = bounds_.at(cast->in());
-          DataType out_type = cast->out()->dtype();
-          if (out_type == DataType::Int) {
-            return true;
-          } else if (out_type == DataType::Int32) {
-            return bounds.min >= std::numeric_limits<int32_t>::min() &&
-                bounds.max <= std::numeric_limits<int32_t>::max();
-          } else if (out_type == DataType::Short) {
-            return bounds.min >= std::numeric_limits<int16_t>::min() &&
-                bounds.max <= std::numeric_limits<int16_t>::max();
-          } else if (out_type == DataType::Char) {
-            return bounds.min >= std::numeric_limits<int8_t>::min() &&
-                bounds.max <= std::numeric_limits<int8_t>::max();
-          } else if (out_type == DataType::UInt64) {
-            // upper limit is above that of int64_t, which is the type of
-            // bounds.max
-            return bounds.min >= 0L;
-          } else if (out_type == DataType::UInt32) {
-            return bounds.min >= std::numeric_limits<uint32_t>::min() &&
-                bounds.max <= std::numeric_limits<uint32_t>::max();
-          } else if (out_type == DataType::UInt16) {
-            return bounds.min >= std::numeric_limits<uint16_t>::min() &&
-                bounds.max <= std::numeric_limits<uint16_t>::max();
-          } else if (out_type == DataType::Byte) {
-            return bounds.min >= std::numeric_limits<uint8_t>::min() &&
-                bounds.max <= std::numeric_limits<uint8_t>::max();
-          } else {
-            NVF_THROW("Unhandled DataType ", cast->out()->dtype());
+          DataType out_dtype = cast->out()->dtype();
+          NVF_ERROR(
+              std::holds_alternative<PrimDataType>(out_dtype.type),
+              "Expected PrimDataType but found ",
+              out_dtype);
+          switch (std::get<PrimDataType>(out_dtype.type)) {
+            case DataType::Int:
+              return true;
+            case DataType::Int32:
+              return bounds.min >= std::numeric_limits<int32_t>::min() &&
+                  bounds.max <= std::numeric_limits<int32_t>::max();
+            case DataType::Short:
+              return bounds.min >= std::numeric_limits<int16_t>::min() &&
+                  bounds.max <= std::numeric_limits<int16_t>::max();
+            case DataType::Char:
+              return bounds.min >= std::numeric_limits<int8_t>::min() &&
+                  bounds.max <= std::numeric_limits<int8_t>::max();
+            case DataType::UInt64:
+              // upper limit is above that of int64_t, which is the type of
+              // bounds.max
+              return bounds.min >= 0L;
+            case DataType::UInt32:
+              return bounds.min >= std::numeric_limits<uint32_t>::min() &&
+                  bounds.max <= std::numeric_limits<uint32_t>::max();
+            case DataType::UInt16:
+              return bounds.min >= std::numeric_limits<uint16_t>::min() &&
+                  bounds.max <= std::numeric_limits<uint16_t>::max();
+            case DataType::Byte:
+              return bounds.min >= std::numeric_limits<uint8_t>::min() &&
+                  bounds.max <= std::numeric_limits<uint8_t>::max();
+              return true;
+            default:
+              NVF_THROW("Unhandled DataType ", out_dtype);
+              return false;
           }
         });
   }
