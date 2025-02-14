@@ -851,23 +851,29 @@ struct BoundedInt {
 
   //! Returns the number of high bits that must be common among all integers in
   //! this interval
-  int64_t commonHighBits() const {
-// #if __cplusplus < 202002L
-#if true
-    // XOR and view result as unsigned, so that right shift will be _logical_
-    // instead of arithmetic.
+  //!
+  //! Example:
+  //!   min = 0b10101010
+  //!   max = 0b10101100
+  //!
+  //!   All numbers in this range are of the form 0b10101XXX
+  //!     different_bits = 0b110
+  //!     num_common_bits = 61
+  int64_t countCommonHighBits() const {
+    // Reinterpret integers as unsigned, so that bitwise ops and
+    // std::countl_zero are well-defined
     uint64_t different_bits = (*reinterpret_cast<const uint64_t*>(&max)) ^
         (*reinterpret_cast<const uint64_t*>(&min));
+#if __cplusplus < 202002L
     // TODO: add countl_zero to csrc/C++20/ somewhere for C++17 backward
     // compatibility
-    int64_t fixed_bits = 64L;
+    int64_t num_common_bits = 64L;
     while (different_bits != 0L) {
       different_bits >>= 1;
-      fixed_bits--;
+      num_common_bits--;
     }
-    return fixed_bits;
+    return num_common_bits;
 #else
-    int64_t different_bits = b.max ^ b.min;
     return (int64_t)std::countl_zero(different_bits);
 #endif
   }
@@ -890,7 +896,8 @@ struct BoundedInt {
   // positive values, we can apply the same algorithm regardless of signedness.
   BoundedInt operator^(const BoundedInt& other) const {
     // New interval has this many fixed bits
-    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    int64_t fixed_bits =
+        std::min(countCommonHighBits(), other.countCommonHighBits());
     // Mask everything below the higher fixed_bits
     int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
     int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
@@ -900,7 +907,8 @@ struct BoundedInt {
 
   BoundedInt operator&(const BoundedInt& other) const {
     // New interval has this many fixed bits
-    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    int64_t fixed_bits =
+        std::min(countCommonHighBits(), other.countCommonHighBits());
     // Mask everything below the higher fixed_bits
     int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
     int64_t new_min = (min & other.min) & (~low_mask); // 0b01000
@@ -910,7 +918,8 @@ struct BoundedInt {
 
   BoundedInt operator|(const BoundedInt& other) const {
     // New interval has this many fixed bits
-    int64_t fixed_bits = std::min(commonHighBits(), other.commonHighBits());
+    int64_t fixed_bits =
+        std::min(countCommonHighBits(), other.countCommonHighBits());
     // Mask everything below the higher fixed_bits
     int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
     int64_t new_min = (min | other.min) & (~low_mask); // 0b01000
@@ -920,7 +929,7 @@ struct BoundedInt {
 
   BoundedInt operator~() const {
     // New interval has this many fixed bits
-    int64_t fixed_bits = commonHighBits();
+    int64_t fixed_bits = countCommonHighBits();
     // Mask everything below the higher fixed_bits
     int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
     int64_t new_min = (~min) & (~low_mask); // 0b01000
