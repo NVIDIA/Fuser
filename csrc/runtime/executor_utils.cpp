@@ -976,6 +976,9 @@ struct BoundedInt {
   }
 };
 
+//! This class traverses the expressions in a kir::Kernel and defines a
+//! BoundedInt for each integer scalar encountered. The range is determined by
+//! the scalar's definition along with the rules defined in BoundedInt.
 class ScalarBoundsCalculator : kir::IrVisitor {
  public:
   ScalarBoundsCalculator(
