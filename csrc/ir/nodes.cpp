@@ -2905,7 +2905,8 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
-  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+  if (!in->isSymbolic() && left_expansion->isConstInt() &&
+      right_expansion->isConstInt()) {
     auto left = left_expansion->evaluate();
     auto right = right_expansion->evaluate();
     if (left == 0 && right == 0) {
