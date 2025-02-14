@@ -747,17 +747,59 @@ TensorView* slice(
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range = [&manual_normalization](
+  const auto get_int = [](Val* x) -> std::optional<int64_t> {
+    if (x->isConstInt()) {
+      return x->evaluate().as<int64_t>();
+    } else {
+      return std::nullopt;
+    }
+  };
+
+  // Simplify patterns like min(min(x, 32), 32) to min(x, 32) as it
+  // isn't uncommon
+  const auto min_expr = [&](Val* x, Val* y) -> Val* {
+    auto y_int = get_int(y);
+    auto bop = dynamic_cast<BinaryOp*>(x->definition());
+    if (y_int != std::nullopt && bop != nullptr &&
+        bop->getBinaryOpType() == BinaryOpType::Min) {
+      if (auto lhs_int = get_int(bop->lhs()); lhs_int != std::nullopt) {
+        return SimplifyingIrBuilder::minExpr(
+            bop->rhs(), IrBuilder::create<Val>(std::min(*lhs_int, *y_int)));
+      } else if (auto rhs_int = get_int(bop->rhs()); rhs_int != std::nullopt) {
+        return SimplifyingIrBuilder::minExpr(
+            bop->lhs(), IrBuilder::create<Val>(std::min(*rhs_int, *y_int)));
+      }
+    }
+
+    return SimplifyingIrBuilder::minExpr(x, y);
+  };
+
+  const auto normalize_slice_range = [&manual_normalization, &min_expr](
                                          Slice range, Val* extent) -> Slice {
+    std::optional<int64_t> extent_int;
+    if (extent->isConstInt()) {
+      extent_int = extent->evaluate().as<int64_t>();
+    }
+
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
     auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
 
+    std::optional<int64_t> start_int;
+    if (range.start->isConstInt()) {
+      start_int = range.start->evaluate().as<int64_t>();
+    }
+    std::optional<int64_t> stop_int;
+    if (range.stop->isConstInt()) {
+      stop_int = range.start->evaluate().as<int64_t>();
+    }
+
     // norm_start = max(0, start < 0 ? start + extent : start)
     if (range.start == nullptr) {
       range.start = zero;
-    } else if (!range.start->isZeroInt()) {
+      start_int = 0;
+    } else if (start_int != 0) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
       if (!manual_normalization) {
@@ -768,23 +810,37 @@ TensorView* slice(
                 SimplifyingIrBuilder::addExpr(range.start, cast_extent),
                 range.start));
       }
+      if (range.start->isConstInt()) {
+        start_int = range.start->evaluate().as<int64_t>();
+      }
     }
 
+    if (range.stop) {
+      std::cerr << "Normalizing stop from: " << range.stop->toString()
+                << ", cast extent: " << cast_extent->toInlineString() << "\n";
+    }
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
     if (range.stop == nullptr) {
       range.stop = cast_extent;
     } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      if (!manual_normalization) {
-        range.stop = SimplifyingIrBuilder::maxExpr(
-            range.start,
-            SimplifyingIrBuilder::minExpr(
-                cast_extent,
-                SimplifyingIrBuilder::whereExpr(
-                    SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                    SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
-                    range.stop)));
+      // Commonly, range.start is zero and stop is non negative
+      if (start_int == 0 && stop_int >= 0) {
+        range.stop = min_expr(cast_extent, range.stop);
+      } else {
+        if (!manual_normalization) {
+          range.stop = SimplifyingIrBuilder::maxExpr(
+              range.start,
+              min_expr(
+                  cast_extent,
+                  SimplifyingIrBuilder::whereExpr(
+                      SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                      SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                      range.stop)));
+          std::cerr << "Normalized to : " << range.stop->toInlineString()
+                    << "\n";
+        }
       }
     }
 
