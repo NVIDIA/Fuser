@@ -54,7 +54,7 @@ TEST_F(AliasTest, View) {
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
 
@@ -86,7 +86,7 @@ TEST_F(AliasTest, View_AliasForSameLayout) {
   at::Tensor in_tensor =
       at::randn({60}).cuda().as_strided({2, 3, 4}, {2, 20, 5});
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
   testValidate(
@@ -112,7 +112,7 @@ TEST_F(AliasTest, View_AliasForCompliantLayout) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 4}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
   testValidate(
@@ -141,7 +141,7 @@ TEST_F(AliasTest, View_NoAliasForIncompliantLayout) {
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
 
@@ -170,7 +170,7 @@ TEST_F(AliasTest, ViewPermute) {
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
 
@@ -199,7 +199,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
   at::Tensor in_tensor =
       at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 2);
   at::Tensor out_tensor_0 = out_tensors[0];
   at::Tensor out_tensor_1 = out_tensors[1];
@@ -227,7 +227,8 @@ TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({4, 6, 7}).cuda();
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
   EXPECT_THAT(out_tensor.strides(), ElementsAre(42, 7, _));
 
@@ -250,7 +251,8 @@ TEST_F(AliasTest, SliceRightOfBroadcast) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({4, 1, 7}).cuda();
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
   EXPECT_THAT(out_tensor.strides(), ElementsAre(7, _, 1));
 
@@ -289,7 +291,7 @@ TEST_F(AliasTest, SliceViewPermute) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({batches, seq_length, features * 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   EXPECT_EQ(out_tensors.size(), 3);
 
   for (const auto& out_tensor : out_tensors) {
@@ -334,7 +336,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   at::Tensor in_tensor =
       at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -385,7 +387,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -447,7 +449,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Reduction) {
           .cuda()
           .as_strided({16, 12, 128, 192}, {128 * 12 * 192, 192, 12 * 192, 1});
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -471,7 +473,7 @@ TEST_F(AliasTest, Issue1452) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({1024, 1024}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -518,7 +520,7 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
 
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -547,7 +549,7 @@ TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
 
@@ -575,7 +577,7 @@ TEST_F(AliasTest, DuplicateOutputsComplex) {
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
 
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 4);
 
   // Verify aliases among outputs.
@@ -620,7 +622,7 @@ TEST_F(AliasTest, AliasInSegment) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -645,7 +647,7 @@ TEST_F(AliasTest, TrivialInputForwarding) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<at::Tensor> cg_outputs =
-      executor_cache.runFusionWithInputs({t0, t1});
+      executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(
@@ -653,7 +655,7 @@ TEST_F(AliasTest, TrivialInputForwarding) {
 
   // Second run to ensure cache hit handles trivial forwarding properly
   EXPECT_TRUE(executor_cache.isCompiled({t0, t1}));
-  auto cg_outputs2 = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs2 = executor_cache.runFusionWithInputs_deprecated({t0, t1});
   EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(
       executor_cache.fusion(), cg_outputs2, {t0, t1}, __LINE__, __FILE__);
@@ -670,13 +672,13 @@ TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
   at::Tensor t0 = at::randn({}).cuda();
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
   EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   EXPECT_TRUE(executor_cache.isCompiled({t0}));
-  auto cg_outputs2 = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs2 = executor_cache.runFusionWithInputs_deprecated({t0});
   EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(executor_cache.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
 }
@@ -697,7 +699,7 @@ TEST_F(AliasTest, OutputAliasesAnotherOutput) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -723,7 +725,7 @@ TEST_F(AliasTest, OutputNotAliasedByAnotherOutputShouldNotBeSegmented) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -752,7 +754,7 @@ TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
   ASSERT_EQ(out_tensors.size(), 4);
@@ -788,7 +790,7 @@ TEST_F(AliasTest, DoNotOverSegment_Straightline) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -821,7 +823,7 @@ TEST_F(AliasTest, DoNotOverSegment_WithForks) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -845,7 +847,8 @@ TEST_F(AliasTest, Broadcast) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -868,7 +871,8 @@ TEST_F(AliasTest, Expand) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -891,7 +895,8 @@ TEST_F(AliasTest, MergeTwoExpandedBroadcasts) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({1}).cuda().as_strided({4, 5, 6}, {0, 0, 0});
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -917,7 +922,8 @@ TEST_F(AliasTest, MergeBroadcastsBetweenConcretes) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2 * 7}).cuda().as_strided({2, 3, 5, 7}, {7, 0, 0, 1});
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
@@ -933,7 +939,8 @@ TEST_F(AliasTest, Squeeze) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 1, 3}).cuda();
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -953,7 +960,7 @@ TEST_F(AliasTest, SourceIsBothInputAndOutput) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -975,7 +982,7 @@ TEST_F(AliasTest, ReuseBuffer) {
   auto expected_tensor = tensor + 1.0;
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  executor_cache.runFusionWithInputs({tensor});
+  executor_cache.runFusionWithInputs_deprecated({tensor});
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 
@@ -1033,7 +1040,7 @@ TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   // Make a copy of `t0` because `t0` will be in-place updated.
   at::Tensor original_t0 = t0.clone();
   std::vector<at::Tensor> outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
   testValidate(
       executor_cache.fusion(),
       outputs,
@@ -1086,7 +1093,7 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   if (ProfilerState::Running == FusionProfiler::state()) {
     FusionProfiler::stop();
   }
@@ -1126,7 +1133,7 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1160,7 +1167,7 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  executor_cache.runFusionWithInputs({in_tensor});
+  executor_cache.runFusionWithInputs_deprecated({in_tensor});
 
   if (ProfilerState::Running == FusionProfiler::state()) {
     FusionProfiler::stop();
@@ -1198,7 +1205,8 @@ TEST_F(AliasTest, KernelExecutor) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10, 10}, options);
   ee.compile(&fusion);
-  auto args = KernelArgumentHolder({in_tensor});
+  KernelArgumentHolder args;
+  args.push(in_tensor);
   at::Tensor out_tensor = ee.run(args)[0];
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
@@ -1216,7 +1224,7 @@ TEST_F(AliasTest, InplaceUpdate) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   at::Tensor out_tensor = in_tensor + 1;
-  executor_cache.runFusionWithInputs({in_tensor, out_tensor});
+  executor_cache.runFusionWithInputs_deprecated({in_tensor, out_tensor});
   EXPECT_TRUE(out_tensor.equal(in_tensor));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -1243,7 +1251,7 @@ TEST_F(AliasTest, Bookend_SegmentSetPreservesAllocation) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({3, 2}).cuda().transpose(0, 1);
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1266,7 +1274,7 @@ TEST_F(AliasTest, Bookend_InputsAndOutputs) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1307,7 +1315,7 @@ TEST_F(AliasTest, Bookend_IntermediateTensors) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1343,7 +1351,7 @@ TEST_F(AliasTest, Bookend_AliasesOfSameTensor) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1380,7 +1388,7 @@ TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1426,14 +1434,18 @@ TEST_F(AliasTest, QKVSplitBackprop) {
   fusion->addOutput(permute_out);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> in_tensors;
+  KernelArgumentHolder args;
   for (int i = 0; i < 3; i++) {
-    in_tensors.push_back(at::randn({b, s, h * f}).cuda());
+    args.push(at::randn({b, s, h * f}).cuda());
   }
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs(in_tensors);
+      executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
   testValidate(
-      executor_cache.fusion(), out_tensors, in_tensors, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      args.toArrayRef(),
+      __LINE__,
+      __FILE__);
 
   EXPECT_TRUE(out_tensors[2].is_alias_of(out_tensors[1]));
 }
@@ -1463,7 +1475,7 @@ TEST_F(AliasTest, Bookend_Issue2375) {
   auto t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({t0});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
@@ -1502,7 +1514,7 @@ TEST_F(AliasTest, Issue2664) {
   auto aten_out = (t2 + 1.0) * t1;
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t1, t2});
   testValidate(
       executor_cache.fusion(),
       out_tensors,
@@ -1533,7 +1545,7 @@ TEST_F(AliasTest, TrivialInplaceUpdateNoSegmentation) {
       at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
   at::Tensor original_tensor = in_tensor.clone();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
 
   // Verify inplace update
@@ -1574,7 +1586,7 @@ TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
       at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
   at::Tensor original_tensor = in_tensor.clone();
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+      executor_cache.runFusionWithInputs_deprecated({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
 
   // Verify inplace update

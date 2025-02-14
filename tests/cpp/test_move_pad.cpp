@@ -42,7 +42,7 @@ TEST_F(MovePadTest, UnaryCat) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -73,7 +73,7 @@ TEST_F(MovePadTest, BinaryCat) {
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -108,7 +108,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   // ensure that we propagate the pad across binary operation and the first
   // segment is no-op
@@ -148,7 +148,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
@@ -184,7 +184,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -221,7 +221,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
@@ -271,7 +271,7 @@ TEST_F(MovePadTest, CascadePadCase0) {
   std::vector<c10::IValue> aten_inputs = {t0};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
@@ -310,7 +310,7 @@ TEST_F(MovePadTest, CascadePadCase1) {
   std::vector<c10::IValue> aten_inputs = {t0};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
@@ -368,7 +368,7 @@ TEST_F(MovePadTest, CascadePadCase2) {
   std::vector<c10::IValue> aten_inputs = {t0};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
@@ -401,7 +401,7 @@ TEST_F(MovePadTest, NotMergeNegativePad) {
   std::vector<c10::IValue> aten_inputs = {t0};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
@@ -429,7 +429,7 @@ TEST_F(MovePadTest, BooleanCat) {
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -475,7 +475,7 @@ TEST_F(MovePadTest, Issue3597Repro) {
   std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }

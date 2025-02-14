@@ -5219,7 +5219,8 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     at::Tensor aten_input = at::randn(concrete_shape, options);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs({aten_input});
+    auto cg_outputs =
+        executor_cache.runFusionWithInputs_deprecated({aten_input});
 
     testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__, "");
   }
@@ -6274,7 +6275,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -6330,7 +6331,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_rstd, aten_weight};
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto in_mul_rstd = at::mul(aten_input, aten_rstd);
   auto grad_out_mul = at::mul(aten_grad_out, in_mul_rstd);
@@ -6485,7 +6486,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto aten_outputs = at::native_batch_norm(
       at_input,
@@ -6562,7 +6563,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalization_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto aten_outputs = at::instance_norm(
       at_input,
@@ -6644,8 +6645,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   std::vector<torch::jit::IValue> aten_inputs_forward = {
       at_input_nvfuser, at_weight_nvfuser, at_bias_nvfuser};
   // out, mean, invstd
-  auto outputs_forward =
-      executor_cache_forward.runFusionWithInputs(aten_inputs_forward);
+  auto outputs_forward = executor_cache_forward.runFusionWithInputs_deprecated(
+      aten_inputs_forward);
   auto at_out = at::instance_norm(
       at_input,
       c10::optional<at::Tensor>(at_weight),
@@ -6706,7 +6707,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       outputs_forward[1],
       outputs_forward[2]};
   auto outputs_backward =
-      executor_cache_backward.runFusionWithInputs(aten_inputs_backward);
+      executor_cache_backward.runFusionWithInputs_deprecated(
+          aten_inputs_backward);
   outputs_backward[0] = outputs_backward[0].permute({0, 4, 1, 2, 3});
   testValidate(
       executor_cache_backward.fusion(),

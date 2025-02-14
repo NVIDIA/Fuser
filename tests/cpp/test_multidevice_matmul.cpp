@@ -106,7 +106,7 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   auto expected_output = shardTensor(out, c);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(),
       outputs,
@@ -166,7 +166,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   auto expected_output = shardTensor(out, c);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(
       executor_cache.fusion(),
@@ -224,7 +224,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
   auto expected_output = shardTensor(out, c);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(
       executor_cache.fusion(),
@@ -280,7 +280,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(
       executor_cache.fusion(), outputs, inputs, {out}, __LINE__, __FILE__);
@@ -338,7 +338,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   auto expected_output = shardTensor(out, c).view({1, Mi, N});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(),
       outputs,
@@ -384,7 +384,8 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
+  std::vector<at::Tensor> outputs =
+      executor_cache.runFusionWithInputs_deprecated(inputs);
 
   at::Tensor expected_mm_t_tensor =
       atMatmul(x_tensor, w_tensor.view({mesh.size() * 36, 48}), MmaLayout::TN)
@@ -427,7 +428,8 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
+  std::vector<at::Tensor> outputs =
+      executor_cache.runFusionWithInputs_deprecated(inputs);
 
   at::Tensor expected_y_tensor = at::matmul(x_tensor, w_tensor);
   testValidate(
@@ -491,7 +493,7 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
 
     std::vector<c10::IValue> in_tensors({sharded_x, sharded_w});
     std::vector<at::Tensor> out_tensors =
-        executor_cache.runFusionWithInputs(in_tensors);
+        executor_cache.runFusionWithInputs_deprecated(in_tensors);
 
     at::Tensor expected_y_tensor = at::linear(x_tensor, w_tensor);
     testValidate(

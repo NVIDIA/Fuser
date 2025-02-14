@@ -383,7 +383,7 @@ TEST_F(PredicateEliminationTest, 8) {
   at::Tensor aten_t4 = at::randn({channel_size}, options); // tv4 - 4
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
       {aten_t0, aten_t1, aten_t2, aten_t3, aten_t4});
 
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);

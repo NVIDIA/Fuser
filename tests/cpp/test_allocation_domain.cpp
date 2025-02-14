@@ -1041,10 +1041,9 @@ TEST_F(AllocationDomainTest, VectorizationIssue902) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
@@ -1067,7 +1066,8 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
   at::Tensor t0 = at::randn(in_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
+  std::vector<at::Tensor> outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0});
   at::Tensor t1 = outputs[0];
 
   auto get_data = [](const at::Tensor& t) -> std::vector<float> {
@@ -1101,7 +1101,7 @@ TEST_F(AllocationDomainTest, ContiguityIssue1021) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 8}, {1, 8});
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto t1 = t0.add(5.0);
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
@@ -1126,7 +1126,7 @@ TEST_F(AllocationDomainTest, ContiguityForBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1, 1}, options).as_strided({1, 1}, {0, 3});
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto t1 = t0.add(5.0);
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
@@ -1152,7 +1152,7 @@ TEST_F(AllocationDomainTest, ContiguityForExplicitBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 8}, options).as_strided({3, 8, 4}, {0, 1, 8});
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto t1 = t0.add(5.0);
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
@@ -1229,7 +1229,7 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
   at::Tensor in_tensor = at::randn({2 * 4}).cuda().as_strided({2, 3}, {4, 1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  executor_cache.runFusionWithInputs({in_tensor});
+  executor_cache.runFusionWithInputs_deprecated({in_tensor});
 
   // The initial issue was detected in the pointwise scheduler, so I added these
   // checks to make sure it's a valid regression test. The transpose scheduler
@@ -1290,7 +1290,7 @@ TEST_F(AllocationDomainTest, Issue1524) {
 
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   FusionExecutorCache executor_cache(std::move(fusion));
-  executor_cache.runFusionWithInputs({in_tensor});
+  executor_cache.runFusionWithInputs_deprecated({in_tensor});
 }
 
 TEST_F(AllocationDomainTest, EmptyAllocationDomainApi) {
@@ -1334,14 +1334,13 @@ TEST_F(AllocationDomainTest, ReductionSchedulerIssue1895) {
   auto t0 =
       at::randn({x, y, z, w, h}, options)
           .as_strided({x, y, z, w, h}, {w * h * z * y, w * h * z, w * h, 1, w});
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto ref = t0.to(at::kDouble).sum({2, 4});
   testValidate(
-      executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ReductionVectorization) {
@@ -1375,12 +1374,12 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({x, 1, z}, options);
   auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
-  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
@@ -1435,7 +1434,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Concrete) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
 
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
@@ -1460,7 +1459,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderContiguous) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
+      [&]() { executor_cache.runFusionWithInputs_deprecated({in_tensor}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 }
@@ -1482,7 +1481,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
+      [&]() { executor_cache.runFusionWithInputs_deprecated({in_tensor}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Merging of discontiguous dimensions")));
 }
@@ -1503,7 +1502,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Symbolic) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
 
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);

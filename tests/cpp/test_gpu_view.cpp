@@ -161,7 +161,7 @@ TEST_F(GpuViewTest, FusionReshapeRfactorExtentReplacement) {
   auto t1 = at::randn({4, 3}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -280,7 +280,7 @@ void reductionViewAddFusion(
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -446,7 +446,7 @@ void persistentViewAddFusion(
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
@@ -669,7 +669,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain2) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -705,7 +705,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain3) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_z};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -951,7 +951,7 @@ TEST_F(GpuViewTest, FusionExpandView1) {
   auto t1 = at::randn({12, 8}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -979,7 +979,7 @@ TEST_F(GpuViewTest, FusionExpandView2) {
   auto t1 = at::randn({3, 4, 8}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -1251,7 +1251,7 @@ TEST_F(GpuViewTest, FusionExpandFlatten) {
   at::Tensor input = at::randn({256, 1024, 1}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({input});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {input}, __LINE__, __FILE__);
@@ -1289,7 +1289,7 @@ TEST_F(GpuViewTest, FusionReductionFlatten1) {
   auto t0 = at::randn({2, 3, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1471,7 +1471,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule1) {
   at::Tensor t3 = at::randn({x, y, z}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3});
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
   testValidate(
@@ -1505,7 +1505,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
   // check looking for all mappings to all input IDs.
   // TODO: Fix the reference check for this case
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1560,7 +1560,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
   FusionExecutorCache executor_cache(std::move(fusion));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t6});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3, t6});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
@@ -1616,7 +1616,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
   FusionExecutorCache executor_cache(std::move(fusion));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t4});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3, t4});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
@@ -1659,7 +1659,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule5) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
@@ -1697,7 +1697,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule6) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
@@ -1740,7 +1740,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule7) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
@@ -1782,7 +1782,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule8) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t3});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
@@ -1839,7 +1839,8 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule9) {
   auto t4 = at::randn({2, 512, 128}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, t3, t4});
 
   testValidate(&fusion, cg_outputs, {t0, t1, t2, t3, t4}, __LINE__, __FILE__);
 }
@@ -1873,7 +1874,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule10) {
   auto t1 = at::randn({2, 512}, options);
   auto t2 = at::randn({2, 512, 128}, options);
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 }
 
 // CamemBert repro
@@ -1895,7 +1896,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule11) {
   auto t0 = at::randn({1, x, y, z}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -2126,7 +2127,7 @@ TEST_F(GpuViewTest, FusionIssue2076) {
   auto t24 = t19 / t23;
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
   testValidate(
       &fusion, cg_outputs, {t0, t1, t2}, {t9, t24}, __LINE__, __FILE__);
 }
@@ -2170,7 +2171,7 @@ TEST_F(GpuViewTest, FusionIssue2076_v2) {
   at::Tensor t2 = at::randn({4, 1, 128}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
   testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
@@ -2288,7 +2289,7 @@ TEST_F(GpuViewTest, ReshapeOfReshape) {
   std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -2355,7 +2356,7 @@ TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
   auto t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
 }
@@ -2404,7 +2405,7 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
   auto tb = at::randn(input_shape_wb, options_wb);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, tw, tb});
   // should expect 1 after adding a pre-segment pass to move reshape to input
   // and output.
   EXPECT_THAT(
@@ -2442,7 +2443,7 @@ TEST_P(ViewReductionTest, ReductionReshapeInputNoMergedIds) {
   auto ref = t1.sum({reduction_axes});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
   // should have only 1 segment group
   auto seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -2503,7 +2504,7 @@ TEST_P(ViewNormalizationTest, NormalizationReshapeInputNoMergedIds) {
   auto t3 = t1 / t2;
   auto ref = t3.to(at::kHalf);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
   // should have only 1 segment group
   auto seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -2573,7 +2574,7 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
   auto tb = at::randn(input_shape_wb, options_wb);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, tw, tb});
   auto seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
 
@@ -2735,7 +2736,7 @@ TEST_F(GpuViewTest, ReplacedScalarInSplitOutput) {
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn(input_shape, options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }

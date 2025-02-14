@@ -76,7 +76,7 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
     auto t1 = at::randn(shape, options);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+    auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
     SUCCEED();
   } catch (const std::exception& e) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();
@@ -128,7 +128,7 @@ TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
     auto t1 = at::randn(shape, options);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+    auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
     SUCCEED();
   } catch (const std::exception& e) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();
@@ -179,7 +179,7 @@ TEST_F(FusionProfilerTest, Profile3Segments) {
     auto t2 = at::randn(shape3, options);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-    auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+    auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
     SUCCEED();
   } catch (const std::exception& e) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();

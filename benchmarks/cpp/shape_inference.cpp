@@ -89,7 +89,7 @@ static auto getLayerBackwardNormRuntime(
   executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache->runFusionWithInputs_deprecated(aten_inputs);
 
   return executor_cache->getMostRecentKernelRuntime();
 }
@@ -116,14 +116,14 @@ void LayerNormBackward_ShapeInference_Base(
 
   executor_cache->profile(true);
   executor_cache->disableKernelLaunch();
-  executor_cache->runFusionWithInputs(aten_inputs);
+  executor_cache->runFusionWithInputs_deprecated(aten_inputs);
   if (disable_launch_parameter_cache) {
     executor_cache->disableLaunchParamCache();
   }
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    executor_cache->runFusionWithInputs(aten_inputs);
+    executor_cache->runFusionWithInputs_deprecated(aten_inputs);
   }
 }
 
@@ -162,7 +162,7 @@ static auto getLayerForwardNormRuntime(
 
   executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   aten_inputs = {aten_input};
-  auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache->runFusionWithInputs_deprecated(aten_inputs);
 
   return executor_cache->getMostRecentKernelRuntime();
 }
@@ -189,7 +189,7 @@ void LayerNormForward_ShapeInferenceBase(
 
   executor_cache->profile(true);
   executor_cache->disableKernelLaunch();
-  executor_cache->runFusionWithInputs(aten_inputs);
+  executor_cache->runFusionWithInputs_deprecated(aten_inputs);
 
   if (disable_launch_param_cache) {
     executor_cache->disableLaunchParamCache();
@@ -197,7 +197,7 @@ void LayerNormForward_ShapeInferenceBase(
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    executor_cache->runFusionWithInputs(aten_inputs);
+    executor_cache->runFusionWithInputs_deprecated(aten_inputs);
   }
 }
 

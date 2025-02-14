@@ -792,7 +792,8 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({3, 4}, options);
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args;
+  args.push(t0);
 
   // now compute metadata of tv0
   auto metadata = fusion.metadataOf(tv0);

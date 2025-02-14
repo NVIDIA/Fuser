@@ -81,7 +81,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity2D) {
     auto vec = pair.second;
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input0 = at::randn({1000000, size}, options).narrow(1, 0, 16);
-    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0});
 
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
@@ -109,7 +109,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity3D) {
     auto vec = pair.second;
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input0 = at::randn({1000000, size, 3}, options).narrow(1, 0, 8);
-    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0});
 
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
@@ -144,7 +144,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity5D) {
     at::Tensor input0 = at::randn({4, size1, 12345, size2, 3}, options)
                             .narrow(1, 0, 8)
                             .narrow(3, 0, 4);
-    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0});
 
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
@@ -205,7 +205,7 @@ TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
     at::Tensor flat = at::randn({alloc_size}, options);
     at::Tensor input0 =
         flat.as_strided(shape, stride, /*storage_offset=*/align);
-    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0});
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
@@ -251,7 +251,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguitySelfOverlapping) {
         stride1, (int64_t)stride2 * 12345, (int64_t)stride2, 3, 1};
     at::Tensor input0 = at::empty_strided(shape, stride, options);
     input0.random_();
-    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0});
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
@@ -277,7 +277,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 =
       at::empty_strided({1024, 128, 25}, {128 * 25, 1, 128}, options);
-  auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0});
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
   testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
 }
@@ -599,7 +599,7 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
   std::vector<c10::IValue> aten_inputs({input0, input1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
@@ -645,7 +645,7 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   std::vector<c10::IValue> aten_inputs({input0, input1, input2});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
@@ -670,7 +670,7 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
       at::randn({kTensorSize}, options).as_strided({2, kTensorSize}, {0, 1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -1092,7 +1092,8 @@ TEST_F(PointwiseTest, DomainMapFactory) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::empty_strided({25}, {1}, options);
   at::Tensor input1 = at::empty_strided({7, 25}, {25, 1}, options);
-  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs_deprecated({input0, input1});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
@@ -1395,7 +1396,7 @@ TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
   std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented());

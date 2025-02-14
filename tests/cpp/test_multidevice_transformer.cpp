@@ -343,7 +343,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
@@ -425,7 +425,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
@@ -487,7 +487,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
@@ -553,7 +553,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = fec.runFusionWithInputs_deprecated(inputs);
   validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
@@ -626,7 +626,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       outs[6]}; // linear0 grad x
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   validate(expected_outputs, outputs, {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.02});
 }
@@ -729,7 +729,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = executor_cache.runFusionWithInputs(inputs);
+  auto out = executor_cache.runFusionWithInputs_deprecated(inputs);
   validate(
       expected_outputs, out, {1e-5, 0.02, 1e-5, .01, .02, 0.2, 0.2, 0.2, 0.02});
 }
@@ -804,7 +804,7 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
 
   auto fec = model->forward(dtype, true);
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec->runFusionWithInputs(inputs);
+  auto outputs = fec->runFusionWithInputs_deprecated(inputs);
   validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
@@ -871,7 +871,7 @@ TEST_P(DistributedTransformerTest, Forward) {
 
   auto executor_cache = model->forward(dtype);
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache->runFusionWithInputs(inputs);
+  auto outputs = executor_cache->runFusionWithInputs_deprecated(inputs);
   validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
@@ -992,7 +992,7 @@ TEST_P(DistributedTransformerTest, Backward) {
 
   auto executor_cache = model->backward(dtype);
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache->runFusionWithInputs(inputs);
+  auto outputs = executor_cache->runFusionWithInputs_deprecated(inputs);
   validate(
       expected_outputs,
       outputs,

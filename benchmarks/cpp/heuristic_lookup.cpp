@@ -89,7 +89,7 @@ static auto getLayerBackwardNormRuntime(
   executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache->runFusionWithInputs_deprecated(aten_inputs);
 
   return executor_cache->getMostRecentKernelRuntime();
 }
@@ -144,7 +144,7 @@ static auto getLayerForwardNormRuntime(
 
   executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   aten_inputs = {aten_input};
-  auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache->runFusionWithInputs_deprecated(aten_inputs);
 
   return executor_cache->getMostRecentKernelRuntime();
 }

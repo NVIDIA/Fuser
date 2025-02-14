@@ -403,7 +403,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   std::vector<at::Tensor> out_tensors;
   if (user_sched == nullptr) {
-    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs_deprecated(
         inputs, std::nullopt, selected_device);
   } else {
     if (isProfilerEnabledWithCupti()) {

@@ -62,7 +62,8 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs({size, 11, 12, 13});
+    auto cg_outputs =
+        executor_cache.runFusionWithInputs_deprecated({size, 11, 12, 13});
 
     testValidate(
         executor_cache.fusion(),
@@ -106,7 +107,7 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs({size});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
@@ -146,7 +147,7 @@ TEST_F(TensorFactoryTest, StandaloneOnes) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs({size});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
@@ -189,8 +190,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               int64_t start_ = (int64_t)start;
               int64_t step_ = (int64_t)step;
-              auto cg_outputs =
-                  executor_cache.runFusionWithInputs({length, start_, step_});
+              auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
+                  {length, start_, step_});
 
               testValidate(
                   executor_cache.fusion(),
@@ -210,8 +211,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               double start_ = (double)start;
               double step_ = (double)step;
-              auto cg_outputs =
-                  executor_cache.runFusionWithInputs({length, start_, step_});
+              auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
+                  {length, start_, step_});
 
               testValidate(
                   executor_cache.fusion(),
@@ -256,7 +257,7 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
         auto in_tensor = at::randn(input_size, options);
 
         auto cg_outputs =
-            executor_cache.runFusionWithInputs({in_tensor, offset});
+            executor_cache.runFusionWithInputs_deprecated({in_tensor, offset});
 
         testValidate(
             executor_cache.fusion(),
@@ -312,7 +313,7 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
             continue;
           }
 
-          auto cg_outputs = executor_cache.runFusionWithInputs(
+          auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
               {(int64_t)start,
                (int64_t)end,
                (int64_t)step,
@@ -370,7 +371,7 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs({size, 15});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size, 15});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size, 15}, __LINE__, __FILE__);
@@ -461,7 +462,7 @@ TEST_F(TensorFactoryTest, NoInputs) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto out_tensors = executor_cache.runFusionWithInputs({});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({});
   testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
 }
 
@@ -523,7 +524,7 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
   std::vector<c10::IValue> inputs{1, in};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   at::manual_seed(0);
   at::Tensor randn_sample = at::randn({1}, options);

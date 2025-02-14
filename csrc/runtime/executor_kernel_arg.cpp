@@ -19,6 +19,14 @@
 namespace nvfuser {
 
 KernelArgumentHolder::KernelArgumentHolder(
+    std::vector<at::Tensor> tensors,
+    std::optional<int8_t> device) {
+  push(tensors);
+  // Set device index based on first tensor, defaulting to 0 if empty
+  setDeviceIndex(tensors.empty() ? 0 : (int8_t)tensors[0].device().index());
+}
+
+KernelArgumentHolder::KernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> device) {
   if (inputs.empty()) {
@@ -46,19 +54,51 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 } // namespace
 
+void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
+  std::cout
+      << "KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors)"
+      << std::endl;
+  for (const auto& tensor : tensors) {
+    push(tensor);
+  }
+}
+
 void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
   // Naive I/O setup, I'm ignoring all the potential transformation (i.e. I/O
   // allocated here from the subgraph could be, and very likely are, different
   // from I/O expected by the generated CUDA kernel.
+  std::cout
+      << "KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args)"
+      << std::endl;
   for (const auto& arg : args) {
     push(PolymorphicValue_functions::IValueToPolymorphicValue(arg));
   }
 }
 
-void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
-  for (const auto& tensor : tensors) {
-    push(tensor);
-  }
+void KernelArgumentHolder::push(const at::Tensor& tensor) {
+  std::cout << "KernelArgumentHolder::push(const at::Tensor& tensor)"
+            << std::endl;
+  push(PolymorphicValue(tensor));
+}
+
+void KernelArgumentHolder::push(PolymorphicValue val) {
+  arguments_.push_back(PolymorphicValue(std::move(val)));
+}
+
+void KernelArgumentHolder::push(const int64_t& val) {
+  arguments_.push_back(PolymorphicValue(val));
+}
+
+void KernelArgumentHolder::push(const double& val) {
+  arguments_.push_back(PolymorphicValue(val));
+}
+
+void KernelArgumentHolder::push(const bool& val) {
+  arguments_.push_back(PolymorphicValue(val));
+}
+
+void KernelArgumentHolder::push(const std::complex<double>& val) {
+  arguments_.push_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {

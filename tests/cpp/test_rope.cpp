@@ -172,7 +172,7 @@ TEST_P(MistralRopeTest, Fwd1) {
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
@@ -438,7 +438,7 @@ TEST_P(MistralRopeTest, Fwd2) {
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
@@ -732,7 +732,7 @@ TEST_P(MistralRopeTest, Bwd) {
   std::vector<c10::IValue> inputs({t0, t1, t2, t3});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
@@ -989,7 +989,7 @@ TEST_P(Phi3RopeTest, Fwd) {
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
@@ -1219,7 +1219,7 @@ TEST_P(Phi3RopeTest, Bwd) {
   std::vector<c10::IValue> inputs({t0, t1, t2, t3, t4});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
@@ -1374,7 +1374,7 @@ TEST_P(LitgptRopeTest, Fwd) {
   std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
@@ -1620,7 +1620,7 @@ TEST_P(LitgptRopeTest, Bwd) {
   std::vector<c10::IValue> inputs({t0, t1, t2, t3});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
@@ -1645,7 +1645,7 @@ TEST_F(RopeTest, EndingRepeat) {
   std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();

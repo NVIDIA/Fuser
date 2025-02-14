@@ -164,9 +164,8 @@ static void SingleMatmulBase(
 
   // Define fusion graph
   setupMatmul(fusion, layout, mparams);
-
-  KernelArgumentHolder args =
-      KernelArgumentHolder({inputs.first, inputs.second});
+  std::vector<at::Tensor> aten_vec = {inputs.first, inputs.second};
+  KernelArgumentHolder args(aten_vec);
 
   // Disable magic zero
   CompileParams cparams;

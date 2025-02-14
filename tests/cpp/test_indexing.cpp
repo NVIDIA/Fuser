@@ -5284,7 +5284,7 @@ TEST_F(IndexingTest, Issue3374) {
   std::vector<c10::IValue> inputs{t0, t1, t2, t3};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
@@ -5319,7 +5319,7 @@ TEST_F(IndexingTest, Issue3299) {
   std::vector<c10::IValue> inputs{t0};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
@@ -5689,7 +5689,7 @@ TEST_F(IndexingTest, Rng) {
   std::vector<c10::IValue> inputs{1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   at::manual_seed(0);
   at::Tensor randn_sample = at::randn({1}, options);
