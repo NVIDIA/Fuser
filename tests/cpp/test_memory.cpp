@@ -3196,4 +3196,48 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
+// CpAsyncBulk can't handle out of bound accesses automatically in hardware
+TEST_F(TMATest, CpAsyncBulkPredicate) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  const int64_t dim0 = 8192;
+  const int64_t dim1 = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv1c = tv1->cacheBefore();
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  // non-divisible split
+  tv1->split(0, 148, false);
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1c->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0 + at_tv0;
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

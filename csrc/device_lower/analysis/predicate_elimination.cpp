@@ -209,9 +209,9 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   //! local memory. However, accessing producer tensors still may
   //! result in out-of-bound as they are replayed as consumers.
   static bool needsPredicate(TensorView* producer, TensorView* consumer) {
-    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // nD TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(consumer->definition())) {
+    if (ir_utils::isCpAsyncBulkTensorTile(consumer->definition())) {
       return false;
     }
     // Both tensors must be on local or shared memory. Global tensors must be
@@ -619,9 +619,9 @@ class PredicateChcker : public IterVisitor {
   // provided.
   bool predicateNonDivisibleLogicalDomains(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
-    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // nD TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -675,9 +675,9 @@ class PredicateChcker : public IterVisitor {
   // See FusionPredicateElimination7 for a concrete example.
   bool predicateNonDivisibleSplit(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
-    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // nD TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
     const auto& non_divisible_split_info =
