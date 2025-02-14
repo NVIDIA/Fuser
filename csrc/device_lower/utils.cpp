@@ -250,6 +250,7 @@ bool isCpAsyncBulkTensorTile(const Expr* expr) {
         NVF_THROW("Invalid memory types for CpAsyncBulkTensorTile");
       }
     }
+    return false;
   }
   return false;
 }
