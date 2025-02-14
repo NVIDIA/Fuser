@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -444,26 +445,57 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     return;
   }
 
+  CommunicatorBackend backend_type = communication->backend();
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      dst,
-      src,
-      communicator_->getWorld(),
-      buffer);
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const P2pIpcHandle& ipc_handles =
+        ipc_handle_cache_.get(communication, expr_evaluator_);
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(communicator_->local_rank()).stream());
+    if (is_receiver) {
+      getZcopy::RecvPost(
+          ipc_handles, buffer.numel() * buffer.element_size(), current_stream);
+    } else /*sender*/ {
+      getZcopy::SendPost(ipc_handles, current_stream);
+    }
+  } else {
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        dst,
+        src,
+        communicator_->getWorld(),
+        buffer);
+  }
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
-  if (work != nullptr) {
-    work->wait();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    const auto src = expr_evaluator_.evaluate(p2p_comm->src()).as<int64_t>();
+    const auto dst = expr_evaluator_.evaluate(p2p_comm->dst()).as<int64_t>();
+    const int64_t my_rank = communicator_->deviceId();
+    if (my_rank == src && src != dst) {
+      const auto current_stream = static_cast<CUstream>(
+          c10::cuda::getCurrentCUDAStream(communicator_->local_rank()).stream());
+      const P2pIpcHandle& ipc_handles =
+          ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
+      getZcopy::SendWait(ipc_handles, current_stream);
+    }
+  } else {
+    auto it = works_.find(communication);
+    if (it == works_.end()) {
+      return;
+    }
+    auto& work = it->second;
+    if (work != nullptr) {
+      work->wait();
+    }
+    works_.erase(communication);
   }
-  works_.erase(communication);
 }
 
 namespace {
