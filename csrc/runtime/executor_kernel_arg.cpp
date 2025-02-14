@@ -21,23 +21,14 @@ namespace nvfuser {
 KernelArgumentHolder::KernelArgumentHolder(
     std::vector<at::Tensor> tensors,
     std::optional<int8_t> device) {
-  std::cout
-      << "KernelArgumentHolder(std::vector<at::Tensor> tensors, std::optional<int8_t> device)"
-      << std::endl;
   push(tensors);
   // Set device index based on first tensor, defaulting to 0 if empty
   setDeviceIndex(tensors.empty() ? 0 : (int8_t)tensors[0].device().index());
-  std::cout
-      << "KernelArgumentHolder(std::vector<at::Tensor> tensors, std::optional<int8_t> device) END"
-      << std::endl;
 }
 
 KernelArgumentHolder::KernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> device) {
-  std::cout
-      << "KernelArgumentHolder(const c10::ArrayRef<c10::IValue>& inputs, std::optional<int8_t> device)"
-      << std::endl;
   if (inputs.empty()) {
     // default to device 0
     setDeviceIndex(device.has_value() ? device.value() : (int8_t)0);
@@ -45,9 +36,6 @@ KernelArgumentHolder::KernelArgumentHolder(
     setDeviceIndex(getCommonDeviceCUDA(inputs, device));
     push(inputs);
   }
-  std::cout
-      << "KernelArgumentHolder(const c10::ArrayRef<c10::IValue>& inputs, std::optional<int8_t> device) END"
-      << std::endl;
 }
 
 namespace {
@@ -67,94 +55,47 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 } // namespace
 
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
-  std::cout
-      << "KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors)"
-      << std::endl;
   for (const auto& tensor : tensors) {
     arguments_.push_back(PolymorphicValue(tensor));
   }
-  std::cout
-      << "KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) END"
-      << std::endl;
 }
 
 void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
-  std::cout
-      << "KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args)"
-      << std::endl;
   for (const auto& arg : args) {
     arguments_.push_back(
         PolymorphicValue_functions::IValueToPolymorphicValue(arg));
   }
-  std::cout
-      << "KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) END"
-      << std::endl;
 }
 
 void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
-  std::cout
-      << "KernelArgumentHolder::push(const std::vector<c10::IValue>& args)"
-      << std::endl;
   for (const auto& arg : args) {
     arguments_.push_back(
         PolymorphicValue_functions::IValueToPolymorphicValue(arg));
   }
-  std::cout
-      << "KernelArgumentHolder::push(const std::vector<c10::IValue>& args) END"
-      << std::endl;
 }
 
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
-  std::cout << "KernelArgumentHolder::push(const at::Tensor& tensor)"
-            << std::endl;
   arguments_.push_back(PolymorphicValue(tensor));
-  std::cout << "KernelArgumentHolder::push(const at::Tensor& tensor) END"
-            << std::endl;
 }
 
-void KernelArgumentHolder::push(PolymorphicValue& val) {
-  std::cout << "KernelArgumentHolder::push(PolymorphicValue& val)" << std::endl;
+void KernelArgumentHolder::push(const PolymorphicValue& val) {
   arguments_.push_back(PolymorphicValue(val));
-  std::cout << "KernelArgumentHolder::push(PolymorphicValue& val) END"
-            << std::endl;
-}
-
-void KernelArgumentHolder::push(const KernelArgumentHolder& args) {
-  std::cout << "KernelArgumentHolder::push(const KernelArgumentHolder& args)"
-            << std::endl;
-  for (const PolymorphicValue& arg : args) {
-    arguments_.push_back(arg);
-  }
-  std::cout
-      << "KernelArgumentHolder::push(const KernelArgumentHolder& args) END"
-      << std::endl;
 }
 
 void KernelArgumentHolder::push(const int64_t& val) {
-  std::cout << "KernelArgumentHolder::push(const int64_t& val)" << std::endl;
   arguments_.push_back(PolymorphicValue(val));
-  std::cout << "KernelArgumentHolder::push(const int64_t& val) END"
-            << std::endl;
 }
 
 void KernelArgumentHolder::push(const double& val) {
-  std::cout << "KernelArgumentHolder::push(const double& val)" << std::endl;
   arguments_.push_back(PolymorphicValue(val));
-  std::cout << "KernelArgumentHolder::push(const double& val) END" << std::endl;
 }
 
 void KernelArgumentHolder::push(const bool& val) {
-  std::cout << "KernelArgumentHolder::push(const bool& val)" << std::endl;
   arguments_.push_back(PolymorphicValue(val));
-  std::cout << "KernelArgumentHolder::push(const bool& val) END" << std::endl;
 }
 
 void KernelArgumentHolder::push(const std::complex<double>& val) {
-  std::cout << "KernelArgumentHolder::push(const std::complex<double>& val)"
-            << std::endl;
   arguments_.push_back(PolymorphicValue(val));
-  std::cout << "KernelArgumentHolder::push(const std::complex<double>& val) END"
-            << std::endl;
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {

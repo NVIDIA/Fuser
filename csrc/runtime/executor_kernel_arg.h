@@ -22,6 +22,22 @@
 
 namespace nvfuser {
 
+namespace detail {
+template <typename T>
+struct is_kernel_argument_holder : std::false_type {};
+
+template <>
+struct is_kernel_argument_holder<KernelArgumentHolder> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_kernel_argument_holder_v = is_kernel_argument_holder<
+    std::remove_cv_t<std::remove_reference_t<T>>>::value;
+
+template <typename... Args>
+inline constexpr bool no_kernel_argument_holder =
+    !(is_kernel_argument_holder_v<Args> || ...);
+} // namespace detail
+
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. The important thing is to
@@ -33,12 +49,12 @@ class KernelArgumentHolder {
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
 
-  // New constructor for initializer list of mixed types
-  template <typename... Args>
+  // Modified constructor using std::enable_if_t for C++17 compatibility
+  template <
+      typename... Args,
+      typename = std::enable_if_t<detail::no_kernel_argument_holder<Args...>>>
   NVF_API KernelArgumentHolder(Args&&... args) {
-    std::cout << "KernelArgumentHolder(Args&&... args)" << std::endl;
     (push(std::forward<Args>(args)), ...);
-    std::cout << "KernelArgumentHolder(Args&&... args) END" << std::endl;
   }
 
   NVF_API KernelArgumentHolder(
@@ -73,10 +89,10 @@ class KernelArgumentHolder {
       push(arg);
     }
   }
-  void push(const KernelArgumentHolder& args);
+  // void push(const KernelArgumentHolder& args);
   void push(const std::vector<c10::IValue>& args);
   void push(const at::Tensor& tensor);
-  void push(PolymorphicValue& val);
+  void push(const PolymorphicValue& val);
   void push(const int64_t& val);
   void push(const double& val);
   void push(const bool& val);
