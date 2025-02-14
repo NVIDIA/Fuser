@@ -430,13 +430,23 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
+  const int64_t my_rank = communicator_->deviceId();
+  const auto dst = expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
+  const auto src = expr_evaluator_.evaluate(communication->src()).as<int64_t>();
+  const bool is_sender = my_rank == src;
+  const bool is_receiver = my_rank == dst;
+  if (!(is_sender ^ is_receiver)) {
+    return;
+  }
+
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+      dst,
+      src,
       communicator_->getWorld(),
       buffer);
 }
