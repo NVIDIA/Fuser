@@ -748,23 +748,26 @@ TensorView* slice(
       ndims);
 
   const auto get_int = [](Val* x) -> std::optional<int64_t> {
-    if (x->isConstInt()) {
+    if (x != nullptr && x->isConstInt()) {
       return x->evaluate().as<int64_t>();
     } else {
       return std::nullopt;
     }
   };
 
-  // Simplify patterns like min(min(x, 32), 32) to min(x, 32) as it
-  // isn't uncommon
-  const auto min_expr = [&](Val* x, Val* y) -> Val* {
+  // Specialized min for extents. Do some more simplification beyond
+  // SimplifyingIrBuilder that are only valid for extents.
+  const auto min_extents = [&](Val* x, Val* y) -> Val* {
     auto x_int = get_int(x);
     auto y_int = get_int(y);
+    // Since extents are never negative, if one is 0, that must be the mininum.
     if (x_int == 0) {
       return x;
     } else if (y_int == 0) {
       return y;
     }
+    // Simplify patterns like min(min(x, 32), 32) to min(x, 32) as it
+    // isn't uncommon.
     auto bop = dynamic_cast<BinaryOp*>(x->definition());
     if (y_int != std::nullopt && bop != nullptr &&
         bop->getBinaryOpType() == BinaryOpType::Min) {
@@ -780,26 +783,16 @@ TensorView* slice(
     return SimplifyingIrBuilder::minExpr(x, y);
   };
 
-  const auto normalize_slice_range = [&manual_normalization, &min_expr](
-                                         Slice range, Val* extent) -> Slice {
-    std::optional<int64_t> extent_int;
-    if (extent->isConstInt()) {
-      extent_int = extent->evaluate().as<int64_t>();
-    }
-
+  const auto normalize_slice_range =
+      [&manual_normalization, &min_extents, &get_int](
+          Slice range, Val* extent) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
     auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
 
-    std::optional<int64_t> start_int;
-    if (range.start->isConstInt()) {
-      start_int = range.start->evaluate().as<int64_t>();
-    }
-    std::optional<int64_t> stop_int;
-    if (range.stop->isConstInt()) {
-      stop_int = range.start->evaluate().as<int64_t>();
-    }
+    auto start_int = get_int(range.start);
+    auto stop_int = get_int(range.stop);
 
     // norm_start = max(0, start < 0 ? start + extent : start)
     if (range.start == nullptr) {
@@ -821,10 +814,6 @@ TensorView* slice(
       }
     }
 
-    if (range.stop) {
-      std::cerr << "Normalizing stop from: " << range.stop->toString()
-                << ", cast extent: " << cast_extent->toInlineString() << "\n";
-    }
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
     if (range.stop == nullptr) {
       range.stop = cast_extent;
@@ -833,19 +822,17 @@ TensorView* slice(
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
       // Commonly, range.start is zero and stop is non negative
       if (start_int == 0 && stop_int >= 0) {
-        range.stop = min_expr(cast_extent, range.stop);
+        range.stop = min_extents(cast_extent, range.stop);
       } else {
         if (!manual_normalization) {
           range.stop = SimplifyingIrBuilder::maxExpr(
               range.start,
-              min_expr(
+              min_extents(
                   cast_extent,
                   SimplifyingIrBuilder::whereExpr(
                       SimplifyingIrBuilder::ltExpr(range.stop, zero),
                       SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
                       range.stop)));
-          std::cerr << "Normalized to : " << range.stop->toInlineString()
-                    << "\n";
         }
       }
     }
