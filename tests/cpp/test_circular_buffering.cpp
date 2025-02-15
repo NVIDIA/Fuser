@@ -16,6 +16,129 @@
 
 namespace nvfuser {
 
+TEST_F(NVFuserTest, TMAPointwiseWarpSpecializedPingPong) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t tensor_outer_dim = 4096;
+  constexpr int64_t tensor_inner_dim = 8192;
+
+  const auto dtype = DataType::BFloat16;
+  TensorView* tv0 = makeContigTensor(2, dtype);
+  TensorView* tv1 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = castOp(dtype, tv2);
+  fusion->addOutput(tv3);
+
+  // ===== Cache Inputs =====
+
+  // Use TMA to load TV0 into shared memory
+  TensorView* tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  // Use TMA to load TV1 into shared memory
+  TensorView* tv5 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv5->setMemoryType(MemoryType::Shared);
+
+  std::unordered_set<TensorView*> cache_inputs({tv4, tv5});
+  std::vector<TensorView*> compute_warp_tvs =
+      ir_utils::allTvsExcept(fusion.get(), cache_inputs);
+
+  // Get compute warp TensorViews --- All TVs except input caches
+  std::unordered_set<TensorView*> compute_warp_tvs_set(
+      compute_warp_tvs.begin(), compute_warp_tvs.end());
+  SetSelector compute_warp_selector(
+      {compute_warp_tvs_set.begin(), compute_warp_tvs_set.end()});
+
+  // ===== Schedule All Tensors =====
+  {
+    TensorView* reference = tv2;
+    // [M, N]
+
+    // Use TMA to load a 2D tile
+    constexpr int64_t bulk_outer_dim = 64;
+    constexpr int64_t bulk_inner_dim = 64;
+    reference->split(0, bulk_outer_dim);
+    reference->split(-1, bulk_inner_dim);
+    reference->reorder({{1, 2}, {2, 1}});
+    // [M/outer-bulk, N/inner-bulk, outer-bulk, inner-bulk]
+
+    // Create persistent grid tiling
+    // Let GM := M/outer-bulk.
+    // Let GN := N/inner-bulk.
+    constexpr int64_t number_of_sms_hopper = 132;
+    reference->merge(0);
+    // [GM * GN, outer-bulk, inner-bulk]
+    reference->split(0, number_of_sms_hopper, /*inner_split=*/false);
+    // [SMs, (GM * GN)/SMs, outer-bulk, inner-bulk]
+
+    // Propagate persistent grid and 2D tiling to fusion
+    TransformPropagatorWithCheck propagator(reference);
+    MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+    reference->axis(0)->parallelize(ParallelType::BIDx);
+    scheduler_utils::parallelizeAllLike(reference);
+  }
+
+  // ===== Schedule Compute Warp  =====
+  {
+    TensorView* reference = tv2;
+
+    // Transform and Parallelize Compute Warp
+    constexpr int64_t compute_warps = 2;
+    constexpr int64_t compute_threads = 128;
+    reference->merge(-2, -1);
+    // [SMs, (GM * GN)/SMs, (outer-bulk * inner-bulk)]
+    reference->split(-1, compute_threads, /*inner_split=*/false);
+    // [SMs, (GM * GN)/SMs, TDX, (outer-bulk * inner-bulk)/TDX]
+    reference->split(1, compute_warps);
+    // [SMs, (GM * GN)/SMs/TDY, TDY, TDX, (outer-bulk * inner-bulk)/TDX]
+
+    TransformPropagatorWithCheck propagator(reference);
+    MaxLogicalDomainInfoSpanningTree(reference, &compute_warp_selector)
+        .traverse(&propagator);
+
+    reference->axis(2)->parallelize(ParallelType::TIDy);
+    reference->axis(-2)->parallelize(ParallelType::TIDx);
+
+    scheduler_utils::parallelizeAllLike(reference, -1, compute_warp_tvs);
+  }
+
+  // Parallelize TMA loads
+  for (TensorView* tv : {tv4, tv5}) {
+    tv->axis(-1)->parallelize(ParallelType::Bulk);
+    tv->axis(-2)->parallelize(ParallelType::Bulk);
+  }
+
+  // Set computeAt position
+  inlineMost();
+
+  // Warp Specialized Ping-Pong Circular Buffering with TMA loads
+  constexpr int64_t number_of_stages = 4;
+  constexpr int64_t prefetch_distance = 1;
+  tv4->circularBuffer(
+      number_of_stages, prefetch_distance, WarpSpecialized(ParallelType::TIDy));
+  tv5->circularBuffer(
+      number_of_stages, prefetch_distance, WarpSpecialized(ParallelType::TIDy));
+
+  // ===== End Scheduling =====
+  fusion->printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = t0 + t1;
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1});
+  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
