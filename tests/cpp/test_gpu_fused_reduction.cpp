@@ -2582,7 +2582,6 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   auto at_log_probs = at::randn({batch_size, num_classes}, options);
   auto at_labels =
       at::randint(0, num_classes, {batch_size}, options.dtype(at::kLong));
-
   KernelExecutor ke;
   ke.compile(&fusion, {at_log_probs, at_labels});
   auto cg_outputs = ke.run({at_log_probs, at_labels});

@@ -792,8 +792,6 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({3, 4}, options);
-  KernelArgumentHolder args;
-  args.push(t0);
 
   // now compute metadata of tv0
   auto metadata = fusion.metadataOf(tv0);
@@ -803,7 +801,7 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
   auto logical_size_0 = IrBuilder::getItemExpr(logical_size, fusion.zeroVal());
   auto logical_size_1 = IrBuilder::getItemExpr(logical_size, fusion.oneVal());
 
-  pv.bindInputs(args);
+  pv.bindInputs({t0});
   pv.evaluate();
 
   ExpressionEvaluator evaluator;

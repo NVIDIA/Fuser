@@ -821,22 +821,20 @@ void reductionDynamicViewAddFusion(
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<at::Tensor> at_vec = {at_x, at_bias};
-    KernelArgumentHolder args(at_vec);
+    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(output_dims)) {
-      args.push(output_shape[i]);
+      aten_inputs.push_back(output_shape[i]);
     }
 
-    auto outputs =
-        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
+    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
     checkCache(expect_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
 
-    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -936,21 +934,20 @@ void reductionDynamicPadAddFusion(
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
-    KernelArgumentHolder args(at_x);
+    std::vector<c10::IValue> aten_inputs = {at_x};
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(pad_widths.size())) {
-      args.push(pad_widths[i]);
+      aten_inputs.push_back(pad_widths[i]);
     }
 
-    auto outputs =
-        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
+    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
     CHECK_CACHE(
         expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
