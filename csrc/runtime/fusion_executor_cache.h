@@ -135,6 +135,11 @@ class FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
+  NVF_API std::vector<at::Tensor> runFusionWithInputs(
+      KernelArgumentHolder args,
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      std::optional<int8_t> selected_device = std::nullopt);
+
   NVF_API std::vector<at::Tensor> runFusionWithInputs_deprecated(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
@@ -235,11 +240,8 @@ class FusionExecutorCache {
   void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
  private:
-  //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
-  //! lookup
-  KernelArgumentHolder prepareInputs(
-      const at::ArrayRef<c10::IValue>& inputs,
-      std::optional<int8_t> selected_device = std::nullopt);
+  //! Adds cache lookup information to provided argument holder
+  void setCacheId(KernelArgumentHolder& args);
 
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `KernelExecutor`
