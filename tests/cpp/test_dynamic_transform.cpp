@@ -829,14 +829,14 @@ void reductionDynamicViewAddFusion(
     }
 
     auto outputs =
-        executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
+        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
     checkCache(expect_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
 
-    testValidate(&fusion, outputs, args.toArrayRef(), __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
   }
 }
 
@@ -944,14 +944,14 @@ void reductionDynamicPadAddFusion(
     }
 
     auto outputs =
-        executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
+        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
     CHECK_CACHE(
         expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, args.toArrayRef(), __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE

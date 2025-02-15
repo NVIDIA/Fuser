@@ -40,30 +40,30 @@ inline constexpr bool no_kernel_argument_holder =
 
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
-//! for both compilation as well as kernel execution. The important thing is to
-//! strip ownership of tensor from KernelArgumentHolder, so that during async
-//! compilation, we are not unnecessarily holding memory that is not needed.
+//! for both compilation as well as kernel execution. It takes ownership of
+//! at::Tensors so care should be taken when using it relative to tensor.
 class KernelArgumentHolder {
  public:
   KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
 
-  // Modified constructor using std::enable_if_t for C++17 compatibility
+  // Constructor using std::enable_if_t for C++17 compatibility to prevent
+  // implicit conversion to KernelArgumentHolder which can cause a recursive
+  // call to the constructor.
+  //
+  // Previously this constructor took in an optional device but I couldn't
+  // figure out how to get that to work with the variadic template.
   template <
       typename... Args,
       typename = std::enable_if_t<detail::no_kernel_argument_holder<Args...>>>
   NVF_API KernelArgumentHolder(Args&&... args) {
     (push(std::forward<Args>(args)), ...);
+    if (arguments_.empty()) {
+      return;
+    }
+    device_index_ = getCommonDeviceCUDA(*this, std::nullopt);
   }
-
-  NVF_API KernelArgumentHolder(
-      std::vector<at::Tensor> tensors,
-      std::optional<int8_t> device = std::nullopt);
-
-  NVF_API KernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      std::optional<int8_t> device = std::nullopt);
 
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
@@ -97,10 +97,16 @@ class KernelArgumentHolder {
   void push(const double& val);
   void push(const bool& val);
   void push(const std::complex<double>& val);
+  void push(const ArrayType& vals);
+
+  template <typename T>
+  void push(T* ptr) {
+    arguments_.push_back(PolymorphicValue(ptr));
+  }
 
   void erase(const PolymorphicValue& arg_to_delete);
 
-  c10::ArrayRef<c10::IValue> toArrayRef() const;
+  std::vector<c10::IValue> toC10Array() const;
 
   PolymorphicValue& back() {
     return arguments_.back();
@@ -182,9 +188,7 @@ class KernelArgumentHolder {
     return arguments_.empty();
   }
 
-  void setDeviceIndex(int8_t index) {
-    device_index_ = index;
-  }
+  void setDeviceIndex(int8_t index);
 
   int8_t getDeviceIndex() const {
     return device_index_;
@@ -206,6 +210,9 @@ class KernelArgumentHolder {
 
   //! Deserialize Kernel Argument Holder using flatbuffers
   void deserialize(const serde::KernelArgumentHolder* buffer);
+
+ private:
+  void setCommonDevice();
 
  private:
   std::vector<PolymorphicValue> arguments_;

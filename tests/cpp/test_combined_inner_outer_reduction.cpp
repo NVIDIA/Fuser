@@ -109,7 +109,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
   KernelArgumentHolder args(at_vec);
   auto cg_outputs =
-      executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
+      executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
 
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out,
@@ -124,7 +124,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   testValidate(
       executor_cache.fusion(),
       {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
-      args.toArrayRef(),
+      args.toC10Array(),
       {std::get<0>(aten_gradients),
        std::get<1>(aten_gradients),
        std::get<2>(aten_gradients)},
@@ -273,7 +273,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
         aten_bias};
     KernelArgumentHolder args(at_vec);
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
+        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out.to(at::kDouble),
@@ -298,7 +298,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     testValidate(
         &fusion,
         cg_outputs,
-        args.toArrayRef(),
+        args.toC10Array(),
         {aten_out_linked,
          std::get<0>(aten_gradients),
          std::get<1>(aten_gradients),
@@ -458,7 +458,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         aten_bias};
     KernelArgumentHolder args(at_vec);
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
+        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
 
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     switch (case_id) {
@@ -485,7 +485,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     testValidate(
         &fusion,
         cg_outputs,
-        args.toArrayRef(),
+        args.toC10Array(),
         __LINE__,
         __FILE__,
         "",

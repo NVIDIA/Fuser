@@ -8,8 +8,10 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+
 #include <debug.h>
 #include <options.h>
+#include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 
 #include <cstdlib>
@@ -89,6 +91,40 @@ int8_t getCommonDeviceCUDA(
       continue;
     }
     NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    auto cur_index = device.index();
+    if (found_device && index != cur_index) {
+      return -1;
+    }
+    index = cur_index;
+    found_device = true;
+  }
+  // When there are only scalar inputs, use selected_device or fall back to 0
+  return found_device ? index : (int8_t)0;
+}
+
+int8_t getCommonDeviceCUDA(
+    const KernelArgumentHolder& inputs,
+    std::optional<int8_t> selected_device) {
+  int8_t index = 0;
+  // have we found or selected at least one device yet?
+  bool found_device = false;
+  if (selected_device.has_value()) {
+    index = selected_device.value();
+    found_device = true;
+  }
+  for (const auto& input : inputs) {
+    if (!input.is<at::Tensor>()) {
+      continue;
+    }
+    const auto& device = input.as<at::Tensor>().device();
+    // skip cpu scalar tensor as they'll be promoted to scalar later
+    if (device.is_cpu() && is_cpu_scalar(input.as<at::Tensor>())) {
+      continue;
+    }
+    NVF_CHECK(
+        device.is_cuda() || device.is_meta(),
+        "nvfuser only supports cuda or meta device, found: ",
+        device);
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;

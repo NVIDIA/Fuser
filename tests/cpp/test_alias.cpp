@@ -1439,11 +1439,11 @@ TEST_F(AliasTest, QKVSplitBackprop) {
     args.push(at::randn({b, s, h * f}).cuda());
   }
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs_deprecated(args.toArrayRef());
+      executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
   testValidate(
       executor_cache.fusion(),
       out_tensors,
-      args.toArrayRef(),
+      args.toC10Array(),
       __LINE__,
       __FILE__);
 

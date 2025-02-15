@@ -18,26 +18,6 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder::KernelArgumentHolder(
-    std::vector<at::Tensor> tensors,
-    std::optional<int8_t> device) {
-  push(tensors);
-  // Set device index based on first tensor, defaulting to 0 if empty
-  setDeviceIndex(tensors.empty() ? 0 : (int8_t)tensors[0].device().index());
-}
-
-KernelArgumentHolder::KernelArgumentHolder(
-    const c10::ArrayRef<c10::IValue>& inputs,
-    std::optional<int8_t> device) {
-  if (inputs.empty()) {
-    // default to device 0
-    setDeviceIndex(device.has_value() ? device.value() : (int8_t)0);
-  } else {
-    setDeviceIndex(getCommonDeviceCUDA(inputs, device));
-    push(inputs);
-  }
-}
-
 namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
@@ -98,6 +78,10 @@ void KernelArgumentHolder::push(const std::complex<double>& val) {
   arguments_.push_back(PolymorphicValue(val));
 }
 
+void KernelArgumentHolder::push(const ArrayType& vals) {
+  NVF_THROW("Not implemented");
+}
+
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
   auto iter = std::remove_if(
       arguments_.begin(), arguments_.end(), [&](const auto& ref) {
@@ -144,13 +128,19 @@ void KernelArgumentHolder::pushTensorProxy(
   push(meta_tensor);
 }
 
-c10::ArrayRef<c10::IValue> KernelArgumentHolder::toArrayRef() const {
+std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
   std::vector<c10::IValue> ival_array;
   ival_array.reserve(arguments_.size());
   for (const auto& arg : arguments_) {
     ival_array.push_back(PolymorphicValue_functions::toIValue(arg));
   }
-  return c10::ArrayRef<c10::IValue>(ival_array);
+  return ival_array;
+}
+
+void KernelArgumentHolder::setDeviceIndex(int8_t index) {
+  device_index_ = index;
+  // Validate provided device index
+  getCommonDeviceCUDA(*this, index);
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::

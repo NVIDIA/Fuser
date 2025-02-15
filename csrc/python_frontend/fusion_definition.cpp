@@ -279,7 +279,8 @@ void FusionDefinition::setupSchedule(
   // Add TensorViews created by composite operations to Python FusionDefinition.
   findHiddenTensorViews(user_sched_->scheduled_fusion.get());
 
-  KernelArgumentHolder args(inputs, std::optional<int8_t>(device));
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(device);
 
   // Concretize fusion
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
@@ -426,8 +427,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
             user_sched->scheduled_fusion.get(),
-            KernelArgumentHolder(
-                inputs, std::optional<int8_t>(getCommonDeviceCUDA(inputs))),
+            KernelArgumentHolder(inputs),
             user_sched->heuristic_params->lparams,
             user_sched->heuristic_params->cparams,
             user_sched->heuristic_params->scheduler_type);
