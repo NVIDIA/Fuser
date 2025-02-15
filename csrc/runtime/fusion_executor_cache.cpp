@@ -113,9 +113,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
   KernelArgumentHolder args(inputs);
-  if (selected_device.has_value()) {
-    args.setDeviceIndex(selected_device.value());
-  }
+  args.setDeviceIndex(selected_device);
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
   // may contain transformations that depend on input scalars, not just on the

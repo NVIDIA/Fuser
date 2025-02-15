@@ -94,6 +94,7 @@ class KernelArgumentHolder {
   void push(const at::Tensor& tensor);
   void push(const PolymorphicValue& val);
   void push(const int64_t& val);
+  void push(const int& val);
   void push(const double& val);
   void push(const bool& val);
   void push(const std::complex<double>& val);
@@ -188,7 +189,7 @@ class KernelArgumentHolder {
     return arguments_.empty();
   }
 
-  void setDeviceIndex(int8_t index);
+  void setDeviceIndex(std::optional<int8_t> index = std::nullopt);
 
   int8_t getDeviceIndex() const {
     return device_index_;

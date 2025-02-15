@@ -66,6 +66,10 @@ void KernelArgumentHolder::push(const int64_t& val) {
   arguments_.push_back(PolymorphicValue(val));
 }
 
+void KernelArgumentHolder::push(const int& val) {
+  arguments_.push_back(PolymorphicValue(val));
+}
+
 void KernelArgumentHolder::push(const double& val) {
   arguments_.push_back(PolymorphicValue(val));
 }
@@ -137,10 +141,9 @@ std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
   return ival_array;
 }
 
-void KernelArgumentHolder::setDeviceIndex(int8_t index) {
-  device_index_ = index;
+void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
   // Validate provided device index
-  getCommonDeviceCUDA(*this, index);
+  device_index_ = getCommonDeviceCUDA(*this, index);
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
