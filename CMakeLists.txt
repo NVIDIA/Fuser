@@ -116,6 +116,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/misaligned_vectorization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/replace_size.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/rng.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/unroll.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/vectorize_welford.cpp
@@ -201,6 +202,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
@@ -308,7 +310,7 @@ if(NOT MSVC)
           # manylinux image. consider enable this when we upgrade.
           # linking comment:
           # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-          -Wno-error=restrict -Wno-error=stringop-overflow)
+          -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
   else()
       target_compile_options(codegen_internal PRIVATE
           -Wall -Wno-unused-function -Werror)
@@ -867,6 +869,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
+  ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu

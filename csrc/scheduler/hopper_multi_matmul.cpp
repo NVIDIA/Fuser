@@ -29,25 +29,70 @@
 
 namespace nvfuser {
 
-void HopperMultipleMatmulScheduler::transformLikeMmaOutput(
-    TensorView* tv,
-    bool is_mma_result) {
-  // TODO Add constraints
+void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
+    TensorView* tv) {
+  NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
+  // The input is originally block tiled so that the inner dims are the CTA tile
+  // size
+  //
+  // We split this into warp tiles then instruction tiles
+  // Original: [..., M, N, K]
+  tv->split(-3, params_->tile_sizes.warp_tile.m);
+  tv->split(-3, getM(params_->mma_macro));
+  tv->split(-2, params_->tile_sizes.warp_tile.n);
+  tv->split(-2, getN(params_->mma_macro));
+  // K dimension is present for mma_result
+  // We don't need to split by warp_tile.k, since we always have
+  // cta_tile.k == warp_tile.k
+  tv->split(-1, getK(params_->mma_macro));
+  // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Kw, Ki]
+  tv->reorder({
+      {-8, -8}, // Mo
+      {-7, -6}, // Mw
+      {-6, -3}, // Mi
+      {-5, -7}, // No
+      {-4, -5}, // Nw
+      {-3, -2}, // Ni
+      {-2, -4}, // Kw
+      {-1, -1}, // Ki
+  });
+  // After Reorder: [..., Mo, No, Mw, Nw, Kw, Mi, Ni, Ki]
+  tv->merge(-8);
+  // After Merge: [..., Mo * No, Mw, Nw, Kw, Mi, Ni]
+  tv->axis(-7)->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Kw, Mi, Ni, Ki]
+}
 
-  auto apply_k_dim_offset = [is_mma_result](int64_t idx) constexpr {
-    return (is_mma_result) ? idx - 1 : idx;
-  };
+void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
+    TensorView* tv) {
+  NVF_ERROR(
+      tv->domain()->loop().size() >= 4,
+      "transformLikeMmaOutputWithoutK requires at least four iterDomains but ",
+      tv->toString(),
+      " only has ",
+      tv->domain()->loop().size(),
+      ".");
+  NVF_ERROR(
+      !tv->axis(-1)->isReduction(), "Inner axis should not be Reduction.");
 
-  // Original: [..., Mo, No, Mi, Ni]
-  tv->split(apply_k_dim_offset(-2), getM(params_->mma_macro));
-  tv->split(apply_k_dim_offset(-1), getN(params_->mma_macro));
-  // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-  tv->reorder({{apply_k_dim_offset(-3), apply_k_dim_offset(-2)}});
-  // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-  tv->merge(apply_k_dim_offset(-4));
-  // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-  tv->axis(apply_k_dim_offset(-3))->parallelize(ParallelType::TIDy);
-  // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+  // The input is originally block tiled so that the inner dims are the CTA tile
+  // size
+  // Original: [..., M, N]
+  // We split this into warp tiles then instruction tiles
+  tv->split(-2, params_->tile_sizes.warp_tile.m);
+  tv->split(-2, getM(params_->mma_macro));
+  tv->split(-1, params_->tile_sizes.warp_tile.n);
+  tv->split(-1, getN(params_->mma_macro));
+  // After Split: [..., Mo, Mw, Mi, No, Nw, Ni]
+  tv->reorder({
+      {-3, -5},
+      {-2, -3},
+  });
+  // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
+  tv->merge(-6);
+  // After Merge: [..., Mo * No, Mw, Nw, Mi, Ni]
+  tv->axis(-5)->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
@@ -365,6 +410,7 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
                             const std::vector<TensorView*>& smem_operands,
                             MmaOperand operand_type) {
     blockTileTensors(smem_operands);
+    parallelizeBlocks(smem_operands);
     for (TensorView* tv : smem_operands) {
       if (params_->promote_prologue_smem_reuse) {
         tv->promoteReuse();
@@ -452,7 +498,8 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       splitk_sums_.push_back(splitk_sum);
     }
 
-    transformLikeMmaOutput(mma_result, /*is_mma_result=*/true);
+    transformLikeMmaOutputWithK(mma_result);
+
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -487,7 +534,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // op.
       blockTileTensors({d});
       parallelizeBlocks({d});
-      transformLikeMmaOutput(d, /*is_mma_result=*/false);
+      transformLikeMmaOutputWithoutK(d);
 
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           d->getLoopDomain());
@@ -518,8 +565,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     // tile is a multiple of the macro size because stmatrix stores results from
     // wgmma to shared memory. For maximum inlining and to reduce shared memory
     // usage, the tma tile is mma_macro size.
-    const int64_t tma_m = getM(params_->mma_macro);
-    const int64_t tma_n = getN(params_->mma_macro);
+    const int64_t tma_m = params_->tile_sizes.warp_tile.m;
+    const int64_t tma_n = params_->tile_sizes.warp_tile.n;
 
     fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
     fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
@@ -567,7 +614,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       blockTileTensors(tvs_to_schedule);
       parallelizeBlocks(tvs_to_schedule);
       for (auto tv : tvs_to_schedule) {
-        transformLikeMmaOutput(tv, /*is_mma_result=*/false);
+        transformLikeMmaOutputWithoutK(tv);
       }
 
       // Should not propagate if the dc is a mma output as the mma output has
@@ -618,7 +665,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-    transformLikeMmaOutput(splitk_sum, /*is_mma_result=*/false);
+    transformLikeMmaOutputWithoutK(splitk_sum);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         splitk_sum->getLoopDomain());
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
@@ -670,11 +717,30 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
     CircularBufferType cb_type;
     switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined:
+      case MatmulParams::CircularBufferingStrategy::Pipelined: {
         cb_type = (CircularBufferType)Pipelined(false);
         break;
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
-        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      }
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+        NVF_ERROR(
+            std::all_of(
+                mma_results_.begin(),
+                mma_results_.end(),
+                [](TensorView* tv) {
+                  IterDomain* ws_axis = tv->axis(-7);
+                  return ws_axis->getParallelType() == ParallelType::TIDy &&
+                      ws_axis->extent()->evaluate().as<int64_t>() <= 2;
+                }),
+            "There can be at most two compute warp groups for register ",
+            "sharing with warp specialization");
+        constexpr int64_t num_registers_load_warp = 40;
+        constexpr int64_t num_registers_compute_warp = 232;
+        cb_type = (CircularBufferType)WarpSpecialized(
+            ParallelType::TIDy,
+            std::make_pair(
+                num_registers_load_warp, num_registers_compute_warp));
+        break;
+      }
     }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(

@@ -2150,26 +2150,26 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return old2new;
 }
 
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> ret;
   if (!tv->hasAllocation()) {
     return ret;
   }
   const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& logical_dom = tv->getLogicalDomain();
-  if (alloc_dom == logical_dom) {
+  const auto& loop_dom = tv->getLoopDomain();
+  if (alloc_dom == loop_dom) {
     return ret;
   }
   if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), logical_dom.begin())) {
+          alloc_dom.begin(), alloc_dom.end(), loop_dom.begin())) {
     return ret;
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
   for (auto i : c10::irange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
-    rfactor_index[logical_dom[i]] = i;
+    rfactor_index[loop_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
@@ -2581,9 +2581,10 @@ bool isResharding(Fusion* fusion) {
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs) {
-  IdModel id_model(fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
+  const auto& permissive_graph =
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
   // This function is meant to be used as a preprocessing step of each
   // segment scheduling. The goal is to find unmapped non-concretized

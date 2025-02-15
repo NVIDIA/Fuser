@@ -493,7 +493,7 @@ class NVF_API TensorView : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)domain()->nDims();
+    return domain()->nDims();
   }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
@@ -600,6 +600,11 @@ class NVF_API TensorView : public Val {
       int64_t x,
       int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
+
+  //! Resize an IterDomain by expanding both the left and right sides
+  //! by given widths. The resulting IterDomain has an extent of
+  //! (left_expansion + axis->extent() + right_expansion).
+  TensorView* resize(int64_t axis, Val* left_expansion, Val* right_expansion);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
@@ -785,7 +790,7 @@ class NVF_API TensorView : public Val {
   // Update the max producer position of the current tensor. This is required
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
-  void updateMaxProducerPosition();
+  void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
 
   // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only

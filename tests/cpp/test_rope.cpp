@@ -737,6 +737,493 @@ TEST_P(MistralRopeTest, Bwd) {
       executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
 
+using Phi3RopeTest = RopeTest;
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Phi3RopeTest,
+    testing::Values(RopeConfig{
+        /*n_head=*/32,
+        /*head_size=*/96,
+        /*n_query_groups=*/32,
+        /*rope_n_elem=*/128,
+        /*n_batches=*/1,
+        /*seq_length=*/8192}),
+    [](const testing::TestParamInfo<RopeConfig>& info) {
+      return info.param.toCompactString();
+    });
+
+// clang-format off
+/*
+def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 8192, 9216], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+    T1 = fd.define_tensor(shape=[48], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T2 = fd.define_tensor(shape=[1, 8192], contiguity=[None, True], dtype=DataType.Int, is_cpu=False, stride_order=[1, 0])
+    T15 = fd.ops.slice(T0, start_indices=[0, 0, 0], end_indices=[1, 8192, 3072], strides=[1, 1, 1], manual_normalization=0)
+    T28 = fd.ops.slice(T0, start_indices=[0, 0, 3072], end_indices=[1, 8192, 6144], strides=[1, 1, 1], manual_normalization=0)
+    T41 = fd.ops.slice(T0, start_indices=[0, 0, 6144], end_indices=[1, 8192, 9216], strides=[1, 1, 1], manual_normalization=0)
+    T47 = fd.ops.reshape(T15, new_shape=[1, 8192, 32, 96])
+    T48 = fd.ops.permute(T47, dims=[0, 2, 1, 3])
+    T54 = fd.ops.reshape(T28, new_shape=[1, 8192, 32, 96])
+    T55 = fd.ops.permute(T54, dims=[0, 2, 1, 3])
+    T61 = fd.ops.reshape(T41, new_shape=[1, 8192, 32, 96])
+    T62 = fd.ops.permute(T61, dims=[0, 2, 1, 3])
+    T67 = fd.ops.broadcast_in_dim(T1, shape=[1, 48, 1], broadcast_dims=[1])
+    T68 = fd.ops.cast(T67, dtype=DataType.Float)
+    T73 = fd.ops.broadcast_in_dim(T68, shape=[1, 48, 1], broadcast_dims=[0, 1, 2])
+    T78 = fd.ops.broadcast_in_dim(T2, shape=[1, 1, 8192], broadcast_dims=[0, 2])
+    T79 = fd.ops.cast(T78, dtype=DataType.Float)
+    T80 = fd.ops.matmul(T73, T79)
+    T81 = fd.ops.permute(T80, dims=[0, 2, 1])
+    T82 = fd.ops.cat([T81, T81], dim=-1, manual_padding=0)
+    T83 = fd.ops.cos(T82)
+    T84 = fd.ops.sin(T82)
+    T85 = fd.ops.cast(T83, dtype=DataType.BFloat16)
+    T86 = fd.ops.cast(T84, dtype=DataType.BFloat16)
+    T92 = fd.ops.broadcast_in_dim(T85, shape=[1, 1, 8192, 96], broadcast_dims=[0, 2, 3])
+    T98 = fd.ops.broadcast_in_dim(T86, shape=[1, 1, 8192, 96], broadcast_dims=[0, 2, 3])
+    T104 = fd.ops.broadcast_in_dim(T92, shape=[1, 32, 8192, 96], broadcast_dims=[0, 1, 2, 3])
+    T105 = fd.ops.cast(T48, dtype=DataType.Float)
+    T106 = fd.ops.cast(T104, dtype=DataType.Float)
+    T107 = fd.ops.mul(T105, T106)
+    T123 = fd.ops.slice(T48, start_indices=[0, 0, 0, 0], end_indices=[1, 32, 8192, 48], strides=[1, 1, 1, 1], manual_normalization=0)
+    T139 = fd.ops.slice(T48, start_indices=[0, 0, 0, 48], end_indices=[1, 32, 8192, 96], strides=[1, 1, 1, 1], manual_normalization=0)
+    T140 = fd.ops.cast(T139, dtype=DataType.Float)
+    T141 = fd.ops.neg(T140)
+    T142 = fd.ops.cast(T141, dtype=DataType.BFloat16)
+    T143 = fd.ops.cat([T142, T123], dim=-1, manual_padding=0)
+    T149 = fd.ops.broadcast_in_dim(T98, shape=[1, 32, 8192, 96], broadcast_dims=[0, 1, 2, 3])
+    T150 = fd.ops.cast(T143, dtype=DataType.Float)
+    T151 = fd.ops.cast(T149, dtype=DataType.Float)
+    T152 = fd.ops.mul(T150, T151)
+    T153 = fd.ops.add(T107, T152)
+    T154 = fd.ops.cast(T153, dtype=DataType.BFloat16)
+    T155 = fd.ops.cast(T55, dtype=DataType.Float)
+    T156 = fd.ops.mul(T155, T106)
+    T172 = fd.ops.slice(T55, start_indices=[0, 0, 0, 0], end_indices=[1, 32, 8192, 48], strides=[1, 1, 1, 1], manual_normalization=0)
+    T188 = fd.ops.slice(T55, start_indices=[0, 0, 0, 48], end_indices=[1, 32, 8192, 96], strides=[1, 1, 1, 1], manual_normalization=0)
+    T189 = fd.ops.cast(T188, dtype=DataType.Float)
+    T190 = fd.ops.neg(T189)
+    T191 = fd.ops.cast(T190, dtype=DataType.BFloat16)
+    T192 = fd.ops.cat([T191, T172], dim=-1, manual_padding=0)
+    T193 = fd.ops.cast(T192, dtype=DataType.Float)
+    T194 = fd.ops.mul(T193, T151)
+    T195 = fd.ops.add(T156, T194)
+    T196 = fd.ops.cast(T195, dtype=DataType.BFloat16)
+    fd.add_output(T62)
+    fd.add_output(T104)
+    fd.add_output(T149)
+    fd.add_output(T154)
+    fd.add_output(T196)
+*/
+// clang-format on
+TEST_P(Phi3RopeTest, Fwd) {
+  const RopeConfig config = GetParam();
+  config.verify();
+
+  const int64_t batch_size = config.batches; // 1
+  const int64_t seq_len = config.seq_length; // 8192
+  const int64_t head_dim = config.head_size; // 96
+  const int64_t num_attention_heads = config.n_head; // 32
+  const int64_t num_key_value_heads = config.n_query_groups; // 32
+
+  // [1, 8192, 9216]
+  // 32 * 96 + 2 * 32 * 96
+  std::vector<int64_t> qkv_shape{
+      batch_size,
+      seq_len,
+      num_attention_heads * head_dim + 2 * num_key_value_heads * head_dim};
+  std::vector<int64_t> position_ids_shape{batch_size, seq_len};
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto T0 = makeContigConcreteTensor(qkv_shape, DataType::BFloat16);
+  fusion.addInput(T0);
+  // Where does this come from?
+  auto T1 = makeContigConcreteTensor({head_dim / 2}, DataType::BFloat16);
+  fusion.addInput(T1);
+  auto T2 = makeContigConcreteTensor(position_ids_shape, DataType::Int);
+  fusion.addInput(T2);
+
+  auto T15 = slice(
+      T0,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(qkv_shape.at(0))},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(qkv_shape.at(1))},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(head_dim * num_attention_heads)}});
+  auto T28 = slice(
+      T0,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(qkv_shape.at(0))},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(qkv_shape.at(1))},
+       {IrBuilder::create<Val>(head_dim * num_attention_heads),
+        IrBuilder::create<Val>(
+            head_dim * (num_attention_heads + num_key_value_heads))}});
+  auto T41 = slice(
+      T0,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(qkv_shape.at(0))},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(qkv_shape.at(1))},
+       {IrBuilder::create<Val>(
+            head_dim * (num_attention_heads + num_key_value_heads)),
+        IrBuilder::create<Val>(
+            head_dim * (num_attention_heads + 2 * num_key_value_heads))}});
+  auto T47 = reshape(
+      T15,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(num_attention_heads),
+          IrBuilder::create<Val>(head_dim)});
+  auto T48 = permute(T47, {0, 2, 1, 3});
+  auto T54 = reshape(
+      T28,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(num_key_value_heads),
+          IrBuilder::create<Val>(head_dim)});
+  auto T55 = permute(T54, {0, 2, 1, 3});
+  auto T61 = reshape(
+      T41,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(num_key_value_heads),
+          IrBuilder::create<Val>(head_dim)});
+  auto T62 = permute(T61, {0, 2, 1, 3});
+
+  auto T67 = broadcast(T1, {true, false, true});
+  auto T68 = castOp(DataType::Float, T67);
+  auto T73 = set(T68);
+  auto T78 = broadcast(T2, {false, true, false});
+  auto T79 = castOp(DataType::Float, T78);
+  auto T80 = matmul(T73, T79);
+  auto T81 = permute(T80, {0, 2, 1});
+  auto T82 = cat({T81, T81}, -1);
+  auto T83 = cos(T82);
+  auto T84 = sin(T82);
+  auto T85 = castOp(DataType::BFloat16, T83);
+  auto T86 = castOp(DataType::BFloat16, T84);
+  auto T92 = broadcast(T85, {false, true, false, false});
+  auto T98 = broadcast(T86, {false, true, false, false});
+  auto T104 = expand(
+      T92,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(num_attention_heads),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(head_dim)});
+  auto T105 = castOp(DataType::Float, T48);
+  auto T106 = castOp(DataType::Float, T104);
+  auto T107 = mul(T105, T106);
+  auto T123 = slice(
+      T48,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)}});
+  auto T139 = slice(
+      T48,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(head_dim / 2),
+        IrBuilder::create<Val>(head_dim)}});
+  auto T140 = castOp(DataType::Float, T139);
+  auto T141 = neg(T140);
+  auto T142 = castOp(DataType::BFloat16, T141);
+  auto T143 = cat({T142, T123}, -1);
+  auto T149 = expand(
+      T98,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(num_attention_heads),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(head_dim)});
+  auto T150 = castOp(DataType::Float, T143);
+  auto T151 = castOp(DataType::Float, T149);
+  auto T152 = mul(T150, T151);
+  auto T153 = add(T107, T152);
+  auto T154 = castOp(DataType::BFloat16, T153);
+  auto T155 = castOp(DataType::Float, T55);
+  auto T156 = mul(T155, T106);
+  auto T172 = slice(
+      T55,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)}});
+  auto T188 = slice(
+      T55,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(head_dim / 2),
+        IrBuilder::create<Val>(head_dim)}});
+  auto T189 = castOp(DataType::Float, T188);
+  auto T190 = neg(T189);
+  auto T191 = castOp(DataType::BFloat16, T190);
+  auto T192 = cat({T191, T172}, -1);
+  auto T193 = castOp(DataType::Float, T192);
+  auto T194 = mul(T193, T151);
+  auto T195 = add(T156, T194);
+  auto T196 = castOp(DataType::BFloat16, T195);
+  fusion.addOutput(T62);
+  fusion.addOutput(T104);
+  fusion.addOutput(T149);
+  fusion.addOutput(T154);
+  fusion.addOutput(T196);
+
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(qkv_shape, options_bf16);
+  auto t1 = at::randn({head_dim / 2}, options_bf16);
+  auto t2 = at::arange(seq_len, options_int).unsqueeze(0);
+  std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+}
+
+// clang-format off
+/*
+def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 32, 8192, 96], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T1 = fd.define_tensor(shape=[1, 32, 8192, 96], contiguity=[None, None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T2 = fd.define_tensor(shape=[1, 32, 8192, 96], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T3 = fd.define_tensor(shape=[1, 32, 8192, 96], contiguity=[None, None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T4 = fd.define_tensor(shape=[1, 32, 8192, 96], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T5 = fd.ops.cast(T0, dtype=DataType.Float)
+    T6 = fd.ops.cast(T1, dtype=DataType.Float)
+    T7 = fd.ops.cast(T2, dtype=DataType.Float)
+    T8 = fd.ops.mul(T6, T5)
+    T9 = fd.ops.mul(T6, T7)
+    T10 = fd.ops.cast(T8, dtype=DataType.BFloat16)
+    T11 = fd.ops.cast(T9, dtype=DataType.BFloat16)
+    T27 = fd.ops.slice(T10, start_indices=[0, 0, 0, 0], end_indices=[1, 32, 8192, 48], strides=[1, 1, 1, 1], manual_normalization=0)
+    T43 = fd.ops.slice(T11, start_indices=[0, 0, 0, 0], end_indices=[1, 32, 8192, 48], strides=[1, 1, 1, 1], manual_normalization=0)
+    T44 = fd.ops.cast(T27, dtype=DataType.Float)
+    T45 = fd.ops.cast(T43, dtype=DataType.Float)
+    T46 = fd.ops.neg(T44)
+    T47 = fd.ops.neg(T45)
+    T63 = fd.ops.slice(T10, start_indices=[0, 0, 0, 48], end_indices=[1, 32, 8192, 96], strides=[1, 1, 1, 1], manual_normalization=0)
+    T64 = fd.ops.cast(T46, dtype=DataType.BFloat16)
+    T80 = fd.ops.slice(T11, start_indices=[0, 0, 0, 48], end_indices=[1, 32, 8192, 96], strides=[1, 1, 1, 1], manual_normalization=0)
+    T81 = fd.ops.cast(T47, dtype=DataType.BFloat16)
+    S82 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T92 = fd.ops.pad(T63, [0, 48, 0, 0, 0, 0, 0, 0], S82)
+    S93 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T103 = fd.ops.pad(T64, [48, 0, 0, 0, 0, 0, 0, 0], S93)
+    S104 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T114 = fd.ops.pad(T80, [0, 48, 0, 0, 0, 0, 0, 0], S104)
+    S115 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T125 = fd.ops.pad(T81, [48, 0, 0, 0, 0, 0, 0, 0], S115)
+    T126 = fd.ops.cast(T3, dtype=DataType.Float)
+    T127 = fd.ops.cast(T92, dtype=DataType.Float)
+    T128 = fd.ops.cast(T103, dtype=DataType.Float)
+    T129 = fd.ops.cast(T114, dtype=DataType.Float)
+    T130 = fd.ops.cast(T125, dtype=DataType.Float)
+    T131 = fd.ops.mul(T126, T5)
+    T132 = fd.ops.add(T128, T127)
+    T133 = fd.ops.mul(T126, T7)
+    T134 = fd.ops.add(T130, T129)
+    T135 = fd.ops.add(T132, T131)
+    T136 = fd.ops.add(T134, T133)
+    T137 = fd.ops.cast(T135, dtype=DataType.BFloat16)
+    T138 = fd.ops.cast(T136, dtype=DataType.BFloat16)
+    T139 = fd.ops.permute(T137, dims=[0, 2, 1, 3])
+    T140 = fd.ops.permute(T4, dims=[0, 2, 1, 3])
+    T141 = fd.ops.permute(T138, dims=[0, 2, 1, 3])
+    T146 = fd.ops.reshape(T139, new_shape=[1, 8192, 3072])
+    T151 = fd.ops.reshape(T140, new_shape=[1, 8192, 3072])
+    T156 = fd.ops.reshape(T141, new_shape=[1, 8192, 3072])
+    S157 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T165 = fd.ops.pad(T146, [3072, 3072, 0, 0, 0, 0], S157)
+    S166 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T174 = fd.ops.pad(T151, [6144, 0, 0, 0, 0, 0], S166)
+    S175 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T183 = fd.ops.pad(T156, [0, 6144, 0, 0, 0, 0], S175)
+    T184 = fd.ops.cast(T165, dtype=DataType.Float)
+    T185 = fd.ops.cast(T174, dtype=DataType.Float)
+    T186 = fd.ops.cast(T183, dtype=DataType.Float)
+    T187 = fd.ops.add(T185, T184)
+    T188 = fd.ops.add(T187, T186)
+    T189 = fd.ops.cast(T188, dtype=DataType.BFloat16)
+    fd.add_output(T189)
+ */
+// clang-format on
+TEST_P(Phi3RopeTest, Bwd) {
+  const RopeConfig config = GetParam();
+  config.verify();
+
+  const int64_t batch_size = config.batches; // 1
+  const int64_t seq_len = config.seq_length; // 8192
+  const int64_t head_dim = config.head_size; // 96
+  const int64_t num_attention_heads = config.n_head; // 32
+
+  std::vector<int64_t> shape{
+      batch_size, num_attention_heads, seq_len, head_dim};
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto T0 = makeContigConcreteTensor(shape, DataType::BFloat16);
+  fusion.addInput(T0);
+  auto T1 = TensorViewBuilder()
+                .shape(shape)
+                .dtype(DataType::BFloat16)
+                .expanded({false, true, false, false})
+                .contiguity({std::nullopt, std::nullopt, true, true})
+                .build();
+  fusion.addInput(T1);
+  auto T2 = makeContigConcreteTensor(shape, DataType::BFloat16);
+  fusion.addInput(T2);
+  auto T3 = TensorViewBuilder()
+                .shape(shape)
+                .dtype(DataType::BFloat16)
+                .expanded({false, true, false, false})
+                .contiguity({std::nullopt, std::nullopt, true, true})
+                .build();
+  fusion.addInput(T3);
+  auto T4 = makeContigConcreteTensor(shape, DataType::BFloat16);
+  fusion.addInput(T4);
+
+  auto T5 = castOp(DataType::Float, T0);
+  auto T6 = castOp(DataType::Float, T1);
+  auto T7 = castOp(DataType::Float, T2);
+  auto T8 = mul(T6, T5);
+  auto T9 = mul(T6, T7);
+  auto T10 = castOp(DataType::BFloat16, T8);
+  auto T11 = castOp(DataType::BFloat16, T9);
+  auto T27 = slice(
+      T10,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)}});
+  auto T43 = slice(
+      T11,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)}});
+  auto T44 = castOp(DataType::Float, T27);
+  auto T45 = castOp(DataType::Float, T43);
+  auto T46 = neg(T44);
+  auto T47 = neg(T45);
+  auto T63 = slice(
+      T10,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(head_dim / 2),
+        IrBuilder::create<Val>(head_dim)}});
+  auto T64 = castOp(DataType::BFloat16, T46);
+  auto T80 = slice(
+      T11,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(batch_size)},
+       {IrBuilder::create<Val>(0L),
+        IrBuilder::create<Val>(num_attention_heads)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(seq_len)},
+       {IrBuilder::create<Val>(head_dim / 2),
+        IrBuilder::create<Val>(head_dim)}});
+  auto T81 = castOp(DataType::BFloat16, T47);
+  auto T92 = pad(
+      T63, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)});
+  auto T103 = pad(
+      T64, {IrBuilder::create<Val>(head_dim / 2), IrBuilder::create<Val>(0L)});
+  auto T114 = pad(
+      T80, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)});
+  auto T125 = pad(
+      T81, {IrBuilder::create<Val>(head_dim / 2), IrBuilder::create<Val>(0L)});
+  auto T126 = castOp(DataType::Float, T3);
+  auto T127 = castOp(DataType::Float, T92);
+  auto T128 = castOp(DataType::Float, T103);
+  auto T129 = castOp(DataType::Float, T114);
+  auto T130 = castOp(DataType::Float, T125);
+  auto T131 = mul(T126, T5);
+  auto T132 = add(T128, T127);
+  auto T133 = mul(T126, T7);
+  auto T134 = add(T130, T129);
+  auto T135 = add(T132, T131);
+  auto T136 = add(T134, T133);
+  auto T137 = castOp(DataType::BFloat16, T135);
+  auto T138 = castOp(DataType::BFloat16, T136);
+  auto T139 = permute(T137, {0, 2, 1, 3});
+  auto T140 = permute(T4, {0, 2, 1, 3});
+  auto T141 = permute(T138, {0, 2, 1, 3});
+  auto T146 = reshape(
+      T139,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(num_attention_heads * head_dim)});
+  auto T151 = reshape(
+      T140,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(num_attention_heads * head_dim)});
+
+  auto T156 = reshape(
+      T141,
+      std::vector<Val*>{
+          IrBuilder::create<Val>(batch_size),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(num_attention_heads * head_dim)});
+  auto T165 =
+      pad(T146,
+          {IrBuilder::create<Val>(head_dim * num_attention_heads),
+           IrBuilder::create<Val>(head_dim * num_attention_heads)});
+  auto T174 =
+      pad(T151,
+          {IrBuilder::create<Val>(head_dim * num_attention_heads * 2),
+           IrBuilder::create<Val>(0L)});
+  auto T183 =
+      pad(T156,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(head_dim * num_attention_heads * 2)});
+  auto T184 = castOp(DataType::Float, T165);
+  auto T185 = castOp(DataType::Float, T174);
+  auto T186 = castOp(DataType::Float, T183);
+  auto T187 = add(T185, T184);
+  auto T188 = add(T187, T186);
+  auto T189 = castOp(DataType::BFloat16, T188);
+  fusion.addOutput(T189);
+
+  fusion.print();
+
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options_bf16);
+  auto t1 = at::randn({seq_len, head_dim}, options_bf16)
+                .as_strided({shape}, {0, 0, head_dim, 1});
+  auto t2 = at::randn(shape, options_bf16);
+  auto t3 = at::randn({seq_len, head_dim}, options_bf16)
+                .as_strided({shape}, {0, 0, head_dim, 1});
+  auto t4 = at::randn(shape, options_bf16);
+  std::vector<c10::IValue> inputs({t0, t1, t2, t3, t4});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+}
+
 using LitgptRopeTest = RopeTest;
 
 INSTANTIATE_TEST_SUITE_P(
@@ -885,6 +1372,252 @@ TEST_P(LitgptRopeTest, Fwd) {
   auto t1 = at::randn({config.seq_length, config.rope_n_elem}, options);
   auto t2 = at::randn({config.seq_length, config.rope_n_elem}, options);
   std::vector<c10::IValue> inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// clang-format off
+/*
+def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[8192, 128], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+    T1 = fd.define_tensor(shape=[2, 32, 8192, 128], contiguity=[True, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T2 = fd.define_tensor(shape=[2, 32, 8192, 128], contiguity=[True, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+    T3 = fd.define_tensor(shape=[8192, 128], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+    T8 = fd.ops.broadcast_in_dim(T0, shape=[1, 8192, 128], broadcast_dims=[1, 2])
+    T24 = fd.ops.slice(T1, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 8192, 128], strides=[1, 1, 1, 1], manual_normalization=0)
+    T30 = fd.ops.broadcast_in_dim(T8, shape=[2, 32, 8192, 128], broadcast_dims=[1, 2, 3])
+    T31 = fd.ops.cast(T24, dtype=DataType.Float)
+    T32 = fd.ops.cast(T30, dtype=DataType.Float)
+    T33 = fd.ops.mul(T32, T31)
+    T34 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+    T50 = fd.ops.slice(T34, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 8192, 64], strides=[1, 1, 1, 1], manual_normalization=0)
+    T66 = fd.ops.slice(T2, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 8192, 128], strides=[1, 1, 1, 1], manual_normalization=0)
+    T67 = fd.ops.cast(T50, dtype=DataType.Float)
+    T72 = fd.ops.broadcast_in_dim(T3, shape=[1, 8192, 128], broadcast_dims=[1, 2])
+    T73 = fd.ops.cast(T66, dtype=DataType.Float)
+    T74 = fd.ops.neg(T67)
+    T80 = fd.ops.broadcast_in_dim(T72, shape=[2, 32, 8192, 128], broadcast_dims=[1, 2, 3])
+    S81 = fd.define_scalar(0, dtype=DataType.Int)
+    T87 = fd.ops.full(shape=[2, 32, 8192, 0], fill_value=S81, dtype=DataType.BFloat16)
+    T88 = fd.ops.mul(T32, T73)
+    T89 = fd.ops.cast(T74, dtype=DataType.BFloat16)
+    T90 = fd.ops.cast(T80, dtype=DataType.Float)
+    S91 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T101 = fd.ops.pad(T87, [0, 128, 0, 0, 0, 0, 0, 0], S91)
+    T102 = fd.ops.cast(T88, dtype=DataType.BFloat16)
+    T118 = fd.ops.slice(T34, start_indices=[0, 0, 0, 64], end_indices=[2, 32, 8192, 128], strides=[1, 1, 1, 1], manual_normalization=0)
+    S119 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T129 = fd.ops.pad(T89, [64, 0, 0, 0, 0, 0, 0, 0], S119)
+    T130 = fd.ops.mul(T90, T31)
+    T131 = fd.ops.cast(T101, dtype=DataType.Float)
+    T147 = fd.ops.slice(T102, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 8192, 64], strides=[1, 1, 1, 1], manual_normalization=0)
+    S148 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T158 = fd.ops.pad(T118, [0, 64, 0, 0, 0, 0, 0, 0], S148)
+    T159 = fd.ops.cast(T129, dtype=DataType.Float)
+    T160 = fd.ops.add(T131, T130)
+    T161 = fd.ops.cast(T147, dtype=DataType.Float)
+    T162 = fd.ops.cast(T158, dtype=DataType.Float)
+    T163 = fd.ops.add(T160, T159)
+    T164 = fd.ops.neg(T161)
+    T165 = fd.ops.add(T163, T162)
+    T166 = fd.ops.cast(T164, dtype=DataType.BFloat16)
+    T167 = fd.ops.cast(T165, dtype=DataType.BFloat16)
+    T183 = fd.ops.slice(T102, start_indices=[0, 0, 0, 64], end_indices=[2, 32, 8192, 128], strides=[1, 1, 1, 1], manual_normalization=0)
+    S184 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T194 = fd.ops.pad(T166, [64, 0, 0, 0, 0, 0, 0, 0], S184)
+    T195 = fd.ops.mul(T90, T73)
+    T202 = fd.ops.reshape(T167, new_shape=[2, 8, 4, 8192, 128])
+    S203 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    T213 = fd.ops.pad(T183, [0, 64, 0, 0, 0, 0, 0, 0], S203)
+    T214 = fd.ops.cast(T194, dtype=DataType.Float)
+    T215 = fd.ops.add(T131, T195)
+    T216 = fd.ops.cast(T202, dtype=DataType.Float)
+    T217 = fd.ops.cast(T213, dtype=DataType.Float)
+    T218 = fd.ops.add(T215, T214)
+    T219 = fd.ops.sum(T216, dims=[2], keepdim=False, dtype=DataType.Null)
+    T220 = fd.ops.add(T218, T217)
+    T221 = fd.ops.cast(T219, dtype=DataType.BFloat16)
+    T222 = fd.ops.cast(T220, dtype=DataType.BFloat16)
+    S223 = fd.define_scalar(0, dtype=DataType.Int)
+    T230 = fd.ops.full(shape=[2, 8, 1, 8192, 128], fill_value=S223, dtype=DataType.BFloat16)
+    T237 = fd.ops.broadcast_in_dim(T221, shape=[2, 8, 1, 8192, 128], broadcast_dims=[0, 1, 3, 4])
+    T244 = fd.ops.reshape(T222, new_shape=[2, 8, 4, 8192, 128])
+    T245 = fd.ops.cat([T244, T237, T230], dim=2, manual_padding=0)
+    T246 = fd.ops.permute(T245, dims=[0, 3, 1, 2, 4])
+    T251 = fd.ops.reshape(T246, new_shape=[2, 8192, 6144])
+    fd.add_output(T251)
+*/
+// clang-format on
+TEST_P(LitgptRopeTest, Bwd) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  const RopeConfig config = GetParam();
+  config.verify();
+
+  const auto seq_len = config.seq_length;
+  const auto head_dim = config.head_size;
+  const auto n_head = config.n_head;
+  const auto n_query_groups = config.n_query_groups;
+  const auto q_per_kv = n_head / n_query_groups;
+  [[maybe_unused]] const auto total_qkv = q_per_kv + 2;
+
+  auto T0 = makeContigConcreteTensor({seq_len, head_dim}, DataType::BFloat16);
+  fusion.addInput(T0);
+  auto T1 = makeContigConcreteTensor(
+      {2, n_head, seq_len, head_dim}, DataType::BFloat16);
+  fusion.addInput(T1);
+  auto T2 = makeContigConcreteTensor(
+      {2, n_head, seq_len, head_dim}, DataType::BFloat16);
+  fusion.addInput(T2);
+  auto T3 = makeContigConcreteTensor({seq_len, head_dim}, DataType::BFloat16);
+  fusion.addInput(T3);
+
+  auto T8 = broadcast(T0, {true, false, false});
+  auto T24 = slice(
+      T1,
+      {{fusion.zeroVal(), T1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), T1->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), T1->getLogicalDomain().at(2)->extent()},
+       {fusion.zeroVal(), T1->getLogicalDomain().at(3)->extent()}});
+  auto T30 = expand(
+      broadcast(T8, {true, false, false, false}),
+      std::vector<Val*>{
+          IrBuilder::create<Val>(2L),
+          IrBuilder::create<Val>(n_head),
+          IrBuilder::create<Val>(-1),
+          IrBuilder::create<Val>(-1)});
+  auto T31 = castOp(DataType::Float, T24);
+  auto T32 = castOp(DataType::Float, T30);
+  auto T33 = mul(T32, T31);
+  auto T34 = castOp(DataType::BFloat16, T33);
+  auto T50 = slice(
+      T34,
+      {{fusion.zeroVal(), T1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), T1->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), T1->getLogicalDomain().at(2)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(head_dim / 2)}});
+  auto T66 = slice(
+      T2,
+      {{fusion.zeroVal(), T2->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), T2->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), T2->getLogicalDomain().at(2)->extent()},
+       {fusion.zeroVal(), T2->getLogicalDomain().at(3)->extent()}});
+  auto T67 = castOp(DataType::Float, T50);
+  auto T72 = broadcast(T3, {true, false, false});
+  auto T73 = castOp(DataType::Float, T66);
+  auto T74 = neg(T67);
+  auto T80 = expand(
+      broadcast(T72, {true, false, false, false}),
+      std::vector<Val*>{
+          IrBuilder::create<Val>(2L),
+          IrBuilder::create<Val>(n_head),
+          IrBuilder::create<Val>(-1),
+          IrBuilder::create<Val>(-1)});
+  auto T87 = full(
+      std::vector<Val*>{
+          IrBuilder::create<Val>(2L),
+          IrBuilder::create<Val>(n_head),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(0)},
+      fusion.zeroVal(DataType::BFloat16),
+      DataType::BFloat16);
+  auto T88 = mul(T32, T73);
+  auto T89 = castOp(DataType::BFloat16, T74);
+  auto T90 = castOp(DataType::Float, T80);
+  auto T101 = pad(T87, {fusion.zeroVal(), IrBuilder::create<Val>(head_dim)});
+  auto T102 = castOp(DataType::BFloat16, T88);
+  auto T118 = slice(
+      T34,
+      {{fusion.zeroVal(), T34->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), T34->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), T34->getLogicalDomain().at(2)->extent()},
+       {IrBuilder::create<Val>(head_dim / 2),
+        IrBuilder::create<Val>(head_dim)}});
+  auto T129 =
+      pad(T89, {IrBuilder::create<Val>(head_dim / 2), fusion.zeroVal()});
+  auto T130 = mul(T90, T31);
+  auto T131 = castOp(DataType::Float, T101);
+  auto T147 = slice(
+      T102,
+      {{fusion.zeroVal(), T102->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), T102->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), T102->getLogicalDomain().at(2)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(head_dim / 2)}});
+  auto T158 =
+      pad(T118, {fusion.zeroVal(), IrBuilder::create<Val>(head_dim / 2)});
+  auto T159 = castOp(DataType::Float, T129);
+  auto T160 = add(T131, T130);
+  auto T161 = castOp(DataType::Float, T147);
+  auto T162 = castOp(DataType::Float, T158);
+  auto T163 = add(T160, T159);
+  auto T164 = neg(T161);
+  auto T165 = add(T163, T162);
+  auto T166 = castOp(DataType::BFloat16, T164);
+  auto T167 = castOp(DataType::BFloat16, T165);
+  auto T183 = slice(
+      T102,
+      {{fusion.zeroVal(), T102->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), T102->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), T102->getLogicalDomain().at(2)->extent()},
+       {IrBuilder::create<Val>(head_dim / 2),
+        IrBuilder::create<Val>(head_dim)}});
+  auto T194 =
+      pad(T166, {IrBuilder::create<Val>(head_dim / 2), fusion.zeroVal()});
+  auto T195 = mul(T90, T73);
+  auto T202 = reshape(
+      T167,
+      {IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(n_query_groups),
+       IrBuilder::create<Val>(q_per_kv),
+       IrBuilder::create<Val>(seq_len),
+       IrBuilder::create<Val>(head_dim)});
+  auto T213 =
+      pad(T183, {fusion.zeroVal(), IrBuilder::create<Val>(head_dim / 2)});
+  auto T214 = castOp(DataType::Float, T194);
+  auto T215 = add(T131, T195);
+  auto T216 = castOp(DataType::Float, T202);
+  auto T217 = castOp(DataType::Float, T213);
+  auto T218 = add(T215, T214);
+  auto T219 = sum(T216, {2});
+  auto T220 = add(T218, T217);
+  auto T221 = castOp(DataType::BFloat16, T219);
+  auto T222 = castOp(DataType::BFloat16, T220);
+  auto T230 = full(
+      std::vector<Val*>{
+          IrBuilder::create<Val>(2L),
+          IrBuilder::create<Val>(n_query_groups),
+          IrBuilder::create<Val>(1L),
+          IrBuilder::create<Val>(seq_len),
+          IrBuilder::create<Val>(head_dim)},
+      fusion.zeroVal(DataType::BFloat16),
+      DataType::BFloat16);
+  auto T237 = broadcast(T221, {false, false, true, false, false});
+  auto T244 = reshape(
+      T222,
+      {IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(n_query_groups),
+       IrBuilder::create<Val>(q_per_kv),
+       IrBuilder::create<Val>(seq_len),
+       IrBuilder::create<Val>(head_dim)});
+  auto T245 = cat({T244, T237, T230}, 2);
+  auto T246 = permute(T245, {0, 3, 1, 2, 4});
+  auto T251 = reshape(
+      T246,
+      {IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(seq_len),
+       IrBuilder::create<Val>(head_dim * total_qkv * n_query_groups)});
+  fusion.addOutput(T251);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({seq_len, head_dim}, options);
+  auto t1 = at::randn({2, n_head, seq_len, head_dim}, options);
+  auto t2 = at::randn({2, n_head, seq_len, head_dim}, options);
+  auto t3 = at::randn({seq_len, head_dim}, options);
+  std::vector<c10::IValue> inputs({t0, t1, t2, t3});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
