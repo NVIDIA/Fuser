@@ -705,6 +705,44 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
+TEST_F(MultiDeviceTest, ViewWithMerge_Alias) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+
+  TensorView* in = makeContigConcreteTensor({d * 2, 3, 5});
+  TensorView* out = reshape(in, {d * 2, 3, 5}, {d * 2, 15});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  in->setAllocationDomain(in->getLoopDomain(), true);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({-1, 15})},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::NoOp)));
+}
+
 TEST_F(MultiDeviceTest, ReorderDIDToFront) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
