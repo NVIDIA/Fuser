@@ -76,6 +76,7 @@ class KernelArgumentHolder {
       at::ScalarType dtype);
 
   void push(const std::vector<at::Tensor>& tensors);
+  void push(const std::optional<at::Tensor>& opt_tensor);
   void push(const c10::ArrayRef<c10::IValue>& args);
   void push(std::initializer_list<c10::IValue> args) {
     push(c10::ArrayRef<c10::IValue>(args));
