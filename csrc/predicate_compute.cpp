@@ -151,7 +151,16 @@ std::vector<IterDomain*> getFullyUnswitchedLoopIds(
       loops.begin(),
       loops.end(),
       std::back_inserter(loop_ids),
-      [&](ForLoop* loop) { return loop->iter_domain(); });
+      [&](ForLoop* loop) {
+        const auto& loop_group =
+            id_model.idGraph(IdMappingMode::LOOP).toGroup(loop->iter_domain());
+        auto promotion_it = id_model.loopPromotionMap().find(loop_group);
+        NVF_ERROR(
+            promotion_it != id_model.loopPromotionMap().end(),
+            "Loop promotion not found for ",
+            loop->iter_domain()->toString());
+        return promotion_it->second;
+      });
 
   const auto predicate_ids = getPredicateDomains(out_tv, expr);
 
