@@ -2033,7 +2033,7 @@ TEST_F(ResizeTest, SliceForNanoGPT3) {
   auto in_tensor = at::randn({16, 128, 3072}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -2275,7 +2275,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs_deprecated({t0, 10}); },
+      [&]() { executor_cache.runFusionWithInputs({t0, 10}); },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
@@ -3604,7 +3604,7 @@ TEST_F(ResizeTest, PadDtypes) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size, 8});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 8});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size, 8}, __LINE__, __FILE__);
@@ -3630,7 +3630,7 @@ TEST_F(ResizeTest, Issue2552) {
   at::Tensor x_tensor = at::randn({1, 3}, options);
   at::Tensor y_tensor = at::randn({1, 3}, options);
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({x_tensor, y_tensor});
+      executor_cache.runFusionWithInputs({x_tensor, y_tensor});
   testValidate(
       executor_cache.fusion(),
       out_tensors,
@@ -3654,7 +3654,7 @@ TEST_F(ResizeTest, Chunk_NegativeSize) {
   EXPECT_THAT(
       [&]() {
         auto in_tensor = at::randn({13}).cuda();
-        executor_cache.runFusionWithInputs_deprecated({in_tensor});
+        executor_cache.runFusionWithInputs({in_tensor});
       },
       ThrowsMessage<nvfError>(HasSubstr("Invalid resized domain extent")));
 }
@@ -3672,7 +3672,7 @@ TEST_F(ResizeTest, Chunk_SizeZero) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto in_tensor = at::randn({15}).cuda();
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -3692,7 +3692,7 @@ TEST_F(ResizeTest, Chunk_Uneven) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto in_tensor = at::randn({16}).cuda();
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 

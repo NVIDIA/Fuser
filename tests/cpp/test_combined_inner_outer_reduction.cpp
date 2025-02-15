@@ -857,7 +857,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
     at::Tensor t0 = at::randn({x, y, z}, options);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
     bool is_segmented =
         executor_cache.getMostRecentKernelRuntime()->isSegmented();

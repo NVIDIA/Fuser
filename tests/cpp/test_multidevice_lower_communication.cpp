@@ -81,8 +81,7 @@ TEST_P(LowerGatherTest, ) {
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   if (out_mesh.has(device_id)) {
@@ -124,7 +123,7 @@ TEST_P(LowerScatterTest, ) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({unsharded_tensor})[0];
+      executor_cache.runFusionWithInputs({unsharded_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   if (out_mesh.has(device_id)) {
@@ -167,8 +166,7 @@ TEST_P(LowerSendRecvTest, ) {
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   if (out_mesh.has(device_id)) {
@@ -207,8 +205,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
@@ -240,7 +237,7 @@ TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
       shardTensor(unsharded_tensor, in).to(communicator_->device());
 
   FusionExecutorCache fec(std::move(fusion));
-  at::Tensor out_tensor = fec.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
@@ -275,7 +272,7 @@ TEST_F(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
       shardTensor(unsharded_tensor, in).to(communicator_->device());
 
   FusionExecutorCache fec(std::move(fusion));
-  at::Tensor out_tensor = fec.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
@@ -302,8 +299,7 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   if (num_devices > 1) {
     assertIsCompiledToHostIrContainer(executor_cache);
   }
@@ -334,8 +330,7 @@ TEST_F(LowerCollectiveTest, Reduce) {
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   if (device_id == kRoot) {
@@ -364,8 +359,7 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
@@ -393,8 +387,7 @@ TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   if (num_devices > 1) {
     assertIsCompiledToHostIrContainer(executor_cache);
   }
@@ -423,8 +416,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(executor_cache);
 
   at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
@@ -457,8 +449,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }

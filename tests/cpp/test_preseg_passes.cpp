@@ -145,7 +145,7 @@ TEST_F(PresegTest, FusionCyclicGraph) {
     at::Tensor t0 = at::randn({M, N}, options);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-    auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto outputs = executor_cache.runFusionWithInputs({t0});
 
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
   }
@@ -642,8 +642,7 @@ TEST_F(PresegTest, ReplaceOutput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
@@ -677,7 +676,7 @@ TEST_F(PresegTest, ExtentSubstitution) {
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn(input_shape, options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -732,7 +731,7 @@ TEST_F(PresegTest, DisjointSetsOfExtents) {
   auto t1 = at::randn({32, 32}, options);
   auto t2 = at::randn({32, 32}, options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -772,7 +771,7 @@ TEST_F(PresegTest, DisjointSetsOfExtentsConcreteSymbolic) {
   auto t0 = at::randn({32, 32}, options);
   auto t1 = at::randn({32, 32}, options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }

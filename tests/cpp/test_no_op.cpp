@@ -190,7 +190,7 @@ TEST_F(NoOpTest, View) {
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor});
+      executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
 
@@ -222,8 +222,7 @@ TEST_F(NoOpTest, ExpandedReduction) {
   fusion->addOutput(out);
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 

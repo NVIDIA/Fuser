@@ -97,7 +97,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   at::Tensor t1 = t0.unsqueeze(-1);
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<at::Tensor> outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1});
+      executor_cache.runFusionWithInputs({t0, t1});
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 

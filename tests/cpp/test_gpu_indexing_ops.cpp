@@ -39,7 +39,7 @@ TEST_F(NVFuserTest, FusionSelectOpPointwise_CUDA) {
   at::Tensor t0 = at::randn({x, y, z}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, idx});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
 
   testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
 }
@@ -73,7 +73,7 @@ TEST_F(NVFuserTest, FusionSelectOpReduction_CUDA) {
   at::Tensor t0 = at::randn({x, y, z}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, idx});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
 
   testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
 }
@@ -111,7 +111,7 @@ TEST_F(NVFuserTest, FusionSelectOpPersistent_CUDA) {
   at::Tensor t0 = at::randn({x, y, z}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, idx});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
 
   testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
 }

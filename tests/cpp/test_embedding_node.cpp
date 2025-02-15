@@ -44,7 +44,7 @@ TEST_F(EmbeddingTest, EmbeddingFwdNode) {
   auto aten_out = F::embedding(input, weight);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out = executor_cache.runFusionWithInputs_deprecated({input, weight});
+  auto nvf_out = executor_cache.runFusionWithInputs({input, weight});
   EXPECT_TRUE(at::allclose(nvf_out[0], aten_out));
 }
 } // namespace nvfuser

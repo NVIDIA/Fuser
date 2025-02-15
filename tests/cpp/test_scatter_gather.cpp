@@ -367,7 +367,7 @@ TEST_F(ScatterGatherTest, TorchGatherInput) {
   at::Tensor t_idx = at::randint(0, 5, {5, 5}, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t1, t_idx});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t1, t_idx});
 }
 
 // Test when then extent of iteration domain is euqal to one, and the iteration

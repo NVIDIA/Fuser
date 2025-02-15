@@ -62,8 +62,7 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated({size, 11, 12, 13});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 11, 12, 13});
 
     testValidate(
         executor_cache.fusion(),
@@ -107,7 +106,7 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
@@ -147,7 +146,7 @@ TEST_F(TensorFactoryTest, StandaloneOnes) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
@@ -257,7 +256,7 @@ TEST_F(TensorFactoryTest, SimpleTriu) {
         auto in_tensor = at::randn(input_size, options);
 
         auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated({in_tensor, offset});
+            executor_cache.runFusionWithInputs({in_tensor, offset});
 
         testValidate(
             executor_cache.fusion(),
@@ -371,7 +370,7 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size, 15});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 15});
 
     testValidate(
         executor_cache.fusion(), cg_outputs, {size, 15}, __LINE__, __FILE__);
@@ -462,7 +461,7 @@ TEST_F(TensorFactoryTest, NoInputs) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({});
+  auto out_tensors = executor_cache.runFusionWithInputs({});
   testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
 }
 

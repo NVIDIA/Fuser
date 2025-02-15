@@ -347,7 +347,7 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({aten_t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({aten_t0});
 
   testValidate(&fusion, cg_outputs, {aten_t0}, __LINE__, __FILE__);
 }
@@ -1186,7 +1186,7 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
   auto t2 = at::sum(t0, {1}).unsqueeze(1) + t0;
   auto t4 = t2 + t1;
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "unexpected segmentation!");
@@ -1225,7 +1225,7 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
   auto t2 = at::sum(t0, {1, 2}).unsqueeze(-1).unsqueeze(-1) + t0;
   auto t4 = t2 + t1;
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "unexpected segmentation!");

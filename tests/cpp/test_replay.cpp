@@ -48,7 +48,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor});
+      executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -88,7 +88,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({in_tensor});
+      executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
