@@ -112,15 +112,14 @@ TEST_F(ScatterGatherTest, Scatter1DIndexZerosSelfTvSameShape) {
 
     at::Tensor idx_1 = at::randint(0, 24, idx_dims[test_id], options_i);
     at::Tensor idx_2 = idx - idx_1;
-    at::Tensor input = at::randn(input_dims[test_id], options);
+    at::Tensor t0 = at::randn(input_dims[test_id], options);
     at::Tensor src = at::randn(src_dims[test_id], options);
-
-    std::vector<c10::IValue> aten_inputs = {input, idx_1, idx_2, src};
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        executor_cache.runFusionWithInputs_deprecated({t0, idx_1, idx_2, src});
+    testValidate(
+        &fusion, cg_outputs, {t0, idx_1, idx_2, src}, __LINE__, __FILE__);
   }
 }
 
@@ -153,17 +152,14 @@ TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
-        at::Tensor input = at::randn(input_dims, options);
-        at::Tensor input_idx =
-            at::randint(0, input_dims[dim], index_dims, options_i);
+        at::Tensor t0 = at::randn(input_dims, options);
+        at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
         at::Tensor output = at::zeros(index_dims, options);
-
-        std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+            executor_cache.runFusionWithInputs_deprecated({t0, idx});
+        testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
       }
     }
   }
@@ -194,16 +190,13 @@ TEST_F(ScatterGatherTest, TorchGatherAddMul) {
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
 
-        at::Tensor input = at::randn(input_dims, options); // lookup
-        at::Tensor input_idx =
-            at::randint(0, input_dims[dim], index_dims, options_i);
-
-        std::vector<c10::IValue> aten_inputs = {input, input_idx};
+        at::Tensor t0 = at::randn(input_dims, options); // lookup
+        at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+            executor_cache.runFusionWithInputs_deprecated({t0, idx});
+        testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
       }
     }
   }
@@ -244,11 +237,15 @@ TEST_F(ScatterGatherTest, AddGatherSumAdd) {
         at::Tensor t_idx_2 =
             at::randint(0, input_dims[dim] / 2, index_dims, options_i);
 
-        std::vector<c10::IValue> aten_inputs = {t_lookup, t_idx_1, t_idx_2};
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
+            {t_lookup, t_idx_1, t_idx_2});
+        testValidate(
+            &fusion,
+            cg_outputs,
+            {t_lookup, t_idx_1, t_idx_2},
+            __LINE__,
+            __FILE__);
       }
     }
   }
@@ -288,17 +285,14 @@ TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
           input2_dims[idim] = index_dims[idim + 1];
         }
 
-        at::Tensor input = at::randn(input_dims, options); // lookup
-        at::Tensor input2 = at::randn(input2_dims, options); // lookup
-        at::Tensor input_idx =
-            at::randint(0, input_dims[dim], index_dims, options_i);
-
-        std::vector<c10::IValue> aten_inputs = {input, input_idx, input2};
+        at::Tensor t0 = at::randn(input_dims, options); // lookup
+        at::Tensor t1 = at::randn(input2_dims, options); // lookup
+        at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+            executor_cache.runFusionWithInputs_deprecated({t0, idx, t1});
+        testValidate(&fusion, cg_outputs, {t0, idx, t1}, __LINE__, __FILE__);
       }
     }
   }
@@ -330,16 +324,13 @@ TEST_F(ScatterGatherTest, TorchGatherAddMulHugeSize) {
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
 
-        at::Tensor input = at::randn(input_dims, options); // lookup
-        at::Tensor input_idx =
-            at::randint(0, input_dims[dim], index_dims, options_i);
-
-        std::vector<c10::IValue> aten_inputs = {input, input_idx};
+        at::Tensor t0 = at::randn(input_dims, options); // lookup
+        at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+            executor_cache.runFusionWithInputs_deprecated({t0, idx});
+        testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
       }
     }
   }
@@ -397,22 +388,20 @@ TEST_F(ScatterGatherTest, TorchGatherIndexTvExtentIsOne) {
   auto tv_out = mul(tv_add, tv_in2);
   fusion.addOutput(tv_out);
 
-  at::Tensor input_1 = at::randn(input_dims, options);
-  at::Tensor input_2 = at::randn(index_dims, options);
-  at::Tensor input_idx =
-      at::randint(0, max_selected_index, index_dims, options_i);
+  at::Tensor t0 = at::randn(input_dims, options);
+  at::Tensor t1 = at::randn(index_dims, options);
+  at::Tensor idx = at::randint(0, max_selected_index, index_dims, options_i);
   at::Tensor output = at::zeros(index_dims, options);
 
-  auto t_gather = at::gather(input_1, 1, input_idx);
+  auto t_gather = at::gather(t0, 1, idx);
   auto t_add = at::clamp(t_gather, -1, 1);
-  auto tv_out_ref = at::mul(input_2, t_add);
-
-  std::vector<c10::IValue> aten_inputs = {input_1, input_idx, input_2};
+  auto tv_out_ref = at::mul(t1, t_add);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, idx, t1});
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+      &fusion, cg_outputs, {t0, idx, t1}, {tv_out_ref}, __LINE__, __FILE__);
 }
 
 // Test takeAlongAxis with a broadcast index tensor
@@ -445,13 +434,12 @@ TEST_F(ScatterGatherTest, TakeAlongBroadcastIndex) {
     at::Tensor t0 = at::randn(input_dims, options);
     at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
     at::Tensor t2 = at::randn(out_dims, options);
-    std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+        executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
-    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
   }
 }
 
@@ -504,13 +492,11 @@ TEST_F(ScatterGatherTest, GatherBroadcastInput) {
         at::Tensor t0 = at::randn(input_dims, options);
         at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
         at::Tensor t2 = at::randn(out_dims, options);
-        std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs =
-            executor_cache.runFusionWithInputs_deprecated(aten_inputs);
-
-        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+            executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+        testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
       }
     }
   }
@@ -592,14 +578,13 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, {t0, t1});
 
-  auto outputs = ke.run(aten_inputs);
+  auto outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Same as the above but with the pointwise scheduler
@@ -627,15 +612,14 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Reduction then takeAlongAxis. This is currently segmented due to
@@ -661,16 +645,15 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction1) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[0], {2}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
       {SchedulerType::Reduction, SchedulerType::PointWise});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // takeAlongAxis to broadcast, squeeze, then reduction. Segmented
@@ -701,16 +684,15 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
       {SchedulerType::PointWise, SchedulerType::Reduction});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // takeAlongAxis then reduction. Should not be segmented.
@@ -740,15 +722,14 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   auto t0 = at::randn(shape_before_gather, options);
   auto t1 =
       at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Similar to TakeAlongAxisIntermediateTensorReduction2, but no
@@ -782,15 +763,14 @@ TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
   auto t0 = at::randn(shape_before_gather, options);
   auto t1 =
       at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Normalization then takeAlongAxis
@@ -820,10 +800,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
@@ -833,7 +812,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   auto ref = at::take_along_dim(
       t0_d / t0_d.sum({1}).unsqueeze(-1), t1.unsqueeze(-1), 1);
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 // take_along_dim to broadcast, squeeze, then normalization. Segmented
@@ -864,10 +843,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
@@ -877,7 +855,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
                 .squeeze(1);
   auto ref = t5 / t5.sum({0}).unsqueeze(0);
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 // takeAlongAxis then normalization. Should not be segmented.
@@ -909,10 +887,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   auto t0 = at::randn(shape_before_gather, options);
   auto t1 =
       at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
@@ -921,7 +898,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   auto t3 = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1);
   auto ref = t3 / t3.sum({1}).unsqueeze(-1);
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 // Normalization, then takeAlongAxis, then reduction. Similar
@@ -951,10 +928,9 @@ TEST_F(
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   // The reduction patterns of the normalization and the final
   // reduction are different, so they are segmented out
@@ -966,7 +942,7 @@ TEST_F(
   auto t5 = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
   auto ref = t5.sum();
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 // Similar to
@@ -1003,10 +979,9 @@ TEST_F(
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
@@ -1017,7 +992,7 @@ TEST_F(
       t0_d / t0_d.sum({1}).unsqueeze(-1), t1.unsqueeze(-1), 1);
   auto ref = (t0_d + t6).sum({1});
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 // takeAlongAxis then transpose
@@ -1054,15 +1029,14 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[0], {shape[1], shape[2]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(), {SchedulerType::Transpose});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // transpose then takeAlongAxis. Currently failed to pick the
@@ -1097,15 +1071,14 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randint(0, shape[0], {10, shape[2], shape[1]}, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // transpose the dimension produced by takeAlongAxis. Currently not
@@ -1142,17 +1115,16 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before, options);
   auto t1 = at::randint(0, shape_before[2], shape_after, options_i);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   // Transpose scheduler should work for this case but not currently
   // supported
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
@@ -1197,11 +1169,10 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({128, 371}, options);
   auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Long);
-  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -1229,7 +1200,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
   //   mean -> 1
   //   sum  -> 2
   auto ref = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
-  testValidate(fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 // Test grouped reduction on IterType::GatherScatter
@@ -1262,13 +1233,12 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
     input2_dims[idim] = index_dims[idim + 1];
   }
 
-  at::Tensor input = at::randn(input_dims, options);
-  at::Tensor input_idx = at::randint(0, input_dims[dim], index_dims, options_i);
-  std::vector<c10::IValue> aten_inputs = {input, input_idx};
+  at::Tensor t0 = at::randn(input_dims, options);
+  at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
   auto reduction_scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
-  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0, idx});
   auto heuristic_params =
       reduction_scheduler->computeHeuristics(&fusion, runtime_info);
   auto rparams = heuristic_params->as<ReductionParams>();
@@ -1303,14 +1273,14 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
 
   KernelExecutor ke;
   auto lparams = rparams->lparams;
-  ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.run(aten_inputs, lparams);
+  ke.compile(&fusion, {t0, idx}, lparams);
+  auto cg_outputs = ke.run({t0, idx}, lparams);
 
-  auto t_gather = at::gather(input, dim, input_idx);
+  auto t_gather = at::gather(t0, dim, idx);
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      {t0, idx},
       {t_gather.sum(0)},
       __LINE__,
       __FILE__,

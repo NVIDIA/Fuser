@@ -41,17 +41,16 @@ TEST_F(SegmentationTest, Issue1284_Repro1) {
   fusion.addOutput(out_1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_in_0 = at::randn(input_shape_0, options);
-  at::Tensor at_in_1 = at::randn(input_shape_1, options);
-  std::vector<c10::IValue> aten_inputs = {at_in_0, at_in_1};
+  at::Tensor t0 = at::randn(input_shape_0, options);
+  at::Tensor t1 = at::randn(input_shape_1, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  testValidate(&fusion, outputs, {at_in_0, at_in_1}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, Issue1284_Repro2) {
@@ -78,20 +77,17 @@ TEST_F(SegmentationTest, Issue1284_Repro2) {
   fusion.addOutput(out_1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_in_0 = at::randn(input_shape_0, options);
-  at::Tensor at_in_1 = at::randn(input_shape_1, options);
-  at::Tensor at_in_2 = at::randn(input_shape_2, options);
-
-  std::vector<c10::IValue> aten_inputs = {at_in_0, at_in_1, at_in_2};
+  at::Tensor t0 = at::randn(input_shape_0, options);
+  at::Tensor t1 = at::randn(input_shape_1, options);
+  at::Tensor t2 = at::randn(input_shape_2, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  testValidate(
-      &fusion, outputs, {at_in_0, at_in_1, at_in_2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // Test forced segmentation hint
@@ -723,11 +719,10 @@ TEST_F(NVFuserTest, PrivatizeUpcast) {
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 32}, options);
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   // There must be three segments, one with ExprEvalExecutor and two
   // with KernelExecutor.
@@ -770,11 +765,10 @@ TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 32}, options);
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   // There must be two segments, one with ExprEvalExecutor and another
   // with KernelExecutor.

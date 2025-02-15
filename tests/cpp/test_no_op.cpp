@@ -38,10 +38,8 @@ TEST_F(NoOpTest, FusionNullScheduler) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1, 1, 1}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto t1 = t0.sum({0, 1, 2});
 
@@ -71,10 +69,8 @@ TEST_F(NoOpTest, FusionNullScheduler2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 1, 9223372036854775807L}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
@@ -103,10 +99,8 @@ TEST_F(NoOpTest, FusionNullScheduler3) {
   at::Tensor t0 = at::randn({}, options);
   at::Tensor t1 = at::randn({}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -134,10 +128,8 @@ TEST_F(NoOpTest, FusionReducingZeroElements) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 1, 9223372036854775807L}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -157,10 +149,8 @@ TEST_F(NoOpTest, FusionEmpty) {
   at::Tensor t0 = at::randn({10, 10, 10}, options);
   at::Tensor t1 = at::randn({10, 10, 10}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);

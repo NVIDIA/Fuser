@@ -712,10 +712,8 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   at::Tensor t1 = at::randn({K, N}, options);
   at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
-
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, {t0, t1});
 
   constexpr int64_t axis_extent = 2;
   if (axis_extent < number_of_stages) {
@@ -723,9 +721,9 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
     return;
   }
 
-  auto cg_outputs = ke.run(aten_inputs);
+  auto cg_outputs = ke.run({t0, t1});
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+      &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
   // The smem cache write in this test case is redundant predicated,
   //   and also circular buffered. Currently we are relying on WAR sync
   //   insertion to ensure ordering of circular buffered tensor access.
