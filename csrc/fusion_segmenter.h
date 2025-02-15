@@ -542,7 +542,8 @@ class SegmentCandidateFinder {
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
@@ -560,7 +561,8 @@ class SegmentCandidateFinder {
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options);
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetTraversal();
 
@@ -612,9 +614,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    return runtime_info_;
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
     return runtimeInfo().expressionEvaluator();
@@ -738,7 +738,7 @@ class SegmentCandidateFinder {
 
   // This is allowed to be null in the multidevice case where the segmenter is
   // used for breaking the fusion into compute and communication segments
-  SchedulerRuntimeInfo runtime_info_;
+  std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
       privatized_upcast_ops_;
