@@ -204,14 +204,7 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
-  // process input values
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(
-        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
-  }
-
+std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -220,6 +213,27 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
+std::vector<at::Tensor> HostIrEvaluator::runWithInput(
+    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, ivalue] : val_to_IValue) {
+    expr_evaluator_.bind(
+        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
+  }
+
+  return dispatchAndCollectOutputs();
+}
+
+std::vector<at::Tensor> HostIrEvaluator::runWithPolymorphicValues(
+    std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue) {
+  // process input values
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    expr_evaluator_.bind(val, *pvalue);
+  }
+
+  return dispatchAndCollectOutputs();
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -315,7 +329,11 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
+      container_->getKernelExecutor(launch_kernel->getIndex())
+          ->run(
+              args,
+              launch_kernel->launch_params(),
+              launch_kernel->compile_params());
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
