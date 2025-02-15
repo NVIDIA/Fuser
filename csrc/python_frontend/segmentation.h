@@ -184,7 +184,7 @@ class SegmentationState {
       Fusion* fusion,
       const std::unordered_map<const Val*, int64_t>&
           map_presched_value_to_original_python_index,
-      const at::ArrayRef<c10::IValue>& inputs);
+      const c10::ArrayRef<c10::IValue>& inputs);
 
   // Given an empty FusionDefinition and a segment id, buildSegment creates the
   // CPP Fusion, translates it to the python FusionDefinition, then returns a
