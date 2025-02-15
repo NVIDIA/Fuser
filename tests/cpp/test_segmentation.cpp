@@ -723,11 +723,10 @@ TEST_F(NVFuserTest, PrivatizeUpcast) {
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 32}, options);
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   // There must be three segments, one with ExprEvalExecutor and two
   // with KernelExecutor.
@@ -770,11 +769,10 @@ TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 32}, options);
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   // There must be two segments, one with ExprEvalExecutor and another
   // with KernelExecutor.

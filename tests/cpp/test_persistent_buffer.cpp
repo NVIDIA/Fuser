@@ -1407,13 +1407,12 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn({input_shape[1]}, options);
   auto t2 = at::randn({input_shape[1]}, options);
-  std::vector<c10::IValue> inputs({t0, t1, t2});
 
   // The logic size of the persistent buffer in this fusion is 80 * 1024 * 2
   // bytes. Inner persistent scheduler allows 32 * 1024 * 4 bytes for register
   // persistent, so it should use shared memory persistent buffer if there are
   // enough shared memory. Otherwise, it will be segmented.
-  SchedulerRuntimeInfo runtime_info(&fusion, inputs);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1, t2});
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
@@ -1443,7 +1442,7 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   // check segmentation, if not segmented, further check shared memory
   // persistence
@@ -1455,7 +1454,7 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
     ASSERT_TRUE(
         params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
   }
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 using TestParam = std::tuple<DataType, int64_t>;

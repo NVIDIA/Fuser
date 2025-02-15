@@ -594,12 +594,11 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input0 = at::randn(shape1, options);
-  auto input1 = at::randn(shape2, options);
-  std::vector<c10::IValue> aten_inputs({input0, input1});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
@@ -639,13 +638,12 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input0 = at::randn(shape1, options);
-  auto input1 = at::randn(shape1, options);
-  auto input2 = at::randn(shape2, options);
-  std::vector<c10::IValue> aten_inputs({input0, input1, input2});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape1, options);
+  auto t2 = at::randn(shape2, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
@@ -889,10 +887,9 @@ TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 =
       at::randn({1024 * 1024}, options).as_strided({1024, 1024}, {1, 1024});
-  std::vector<c10::IValue> aten_inputs({t0});
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0}).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -903,7 +900,7 @@ TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
     }
   }
   EXPECT_TRUE(found_vectorize);
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg0) {
@@ -1392,16 +1389,15 @@ TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4, 8}, options);
   auto t1 = at::randn({2}, options);
-  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented());
 
   testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

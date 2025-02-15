@@ -1196,12 +1196,11 @@ TEST_F(AliasTest, KernelExecutor) {
 
   ExprEvalExecutor ee;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn({10, 10}, options);
+  at::Tensor t0 = at::randn({10, 10}, options);
   ee.compile(&fusion);
-  KernelArgumentHolder args;
-  args.push(in_tensor);
+  KernelArgumentHolder args({t0});
   at::Tensor out_tensor = ee.run(args)[0];
-  EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
+  EXPECT_EQ(out_tensor.data_ptr(), t0.data_ptr());
 }
 
 TEST_F(AliasTest, InplaceUpdate) {
@@ -1427,18 +1426,14 @@ TEST_F(AliasTest, QKVSplitBackprop) {
   fusion->addOutput(permute_out);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  KernelArgumentHolder args;
+  std::vector<c10::IValue> aten_inputs;
   for (int i = 0; i < 3; i++) {
-    args.push(at::randn({b, s, h * f}).cuda());
+    aten_inputs.push_back(at::randn({b, s, h * f}).cuda());
   }
   std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
+      executor_cache.runFusionWithInputs_deprecated(aten_inputs);
   testValidate(
-      executor_cache.fusion(),
-      out_tensors,
-      args.toC10Array(),
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 
   EXPECT_TRUE(out_tensors[2].is_alias_of(out_tensors[1]));
 }
