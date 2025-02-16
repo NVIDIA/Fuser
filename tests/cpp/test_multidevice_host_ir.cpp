@@ -390,7 +390,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   auto t0 = t0_unsharded.slice(
       1, communicator_->deviceId(), communicator_->deviceId() + 1);
   auto t1 = at::randn({K, N}, tensor_options);
-  auto tc_ref = at::matmul(t0, t1);
+  auto t2_ref = at::matmul(t0_unsharded, t1);
 
   at::Tensor t2;
 
@@ -404,7 +404,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   }
   cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(tc_ref, t2, 1e-2, 1e-2));
+  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
 TEST_F(OverlapDistributedMatmulTest, AG_linear) {

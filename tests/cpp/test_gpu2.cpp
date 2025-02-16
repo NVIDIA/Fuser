@@ -5568,15 +5568,16 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
 
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({0}, options);
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::Reduction, {t0, t1});
-  auto aten_output2 = t0.sum({1});
-  at::Tensor aten_output3 = at::empty({0}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {t0, t1}, false);
+  auto t2 = t0.sum({1});
+  at::Tensor t3 = at::empty({0}, options);
 
   testValidate(
       &fusion,
       cg_results.outputs,
       {t0, t1},
-      {aten_output2, aten_output3},
+      {t2, t3},
       __LINE__,
       __FILE__,
       "",
@@ -5608,14 +5609,14 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
 
   auto cg_results =
       scheduleAndRun(&fusion, SchedulerType::OuterPersistent, {t0, t1}, false);
-  auto aten_output2 = t0.sum({0}).add(t0);
-  at::Tensor aten_output3 = at::empty({0}, options);
+  auto t2 = t0.sum({0}).add(t0);
+  at::Tensor t3 = at::empty({0}, options);
 
   testValidate(
       &fusion,
       cg_results.outputs,
       {t0, t1},
-      {aten_output2, aten_output3},
+      {t2, t3},
       __LINE__,
       __FILE__,
       "",
@@ -7062,7 +7063,9 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   std::vector<at::Tensor> aten_inputs = {
       at_t0, at_t1, at_t3, at_t5, at_t7, at_t11, at_t13, at_t15, at_t17};
 
-  KernelArgumentHolder args({aten_inputs, at_d56});
+  KernelArgumentHolder args;
+  args.push({aten_inputs});
+  args.push(PolymorphicValue(at_d56));
 
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning
