@@ -529,7 +529,8 @@ at::Tensor getSwizzledTensor(
   fusion.addOutput(swizzle.second);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({size_x, size_y});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({size_x, size_y});
 
   return input.index_put({outputs[0], outputs[1]}, input);
 }

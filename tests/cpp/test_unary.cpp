@@ -58,7 +58,7 @@ TEST_P(UnaryTest, Neg) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   // Calculate the reference output explicitly. Type promotion happens when
   // building the fusion, e.g., inside `neg`. Relying ExpresionEvaluator to
   // verify the result would hide type promotion errors.

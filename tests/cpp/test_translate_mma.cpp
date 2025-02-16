@@ -199,7 +199,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
   auto tref = at::linear(t0.t(), t1.t()).unsqueeze(1);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -284,7 +284,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
   auto tref = atMatmul(t0, t1, layout);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
   // Ensure there's a mma op.
   // If there's no mma op present, then stop the test.
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
@@ -394,7 +394,7 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   auto tref = at::matmul(t0, t1).sin().to(at::kHalf);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();

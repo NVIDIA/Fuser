@@ -2616,7 +2616,7 @@ TEST_F(NVFuserTest, FusionTensorRankLimit) {
   at::Tensor t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }

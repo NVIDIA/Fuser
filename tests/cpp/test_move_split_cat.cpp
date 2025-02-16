@@ -40,7 +40,7 @@ TEST_F(MoveSplitCatTest, Cancellable_SplitImmediatelyFollowedByCat) {
   at::Tensor in_tensor = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -62,7 +62,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_DifferentOrder) {
   at::Tensor in_tensor = at::randn({2, 6}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -86,7 +86,7 @@ TEST_F(MoveSplitCatTest, Cancellable_SetWithoutPermute) {
   at::Tensor in_tensor = at::randn({2, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -112,7 +112,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_SliceAmountAndPaddingAmountMismatch) {
   at::Tensor in_tensor = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -137,7 +137,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_CatOnlySubsetOfSplitOutputs) {
   at::Tensor in_tensor = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -164,7 +164,7 @@ TEST_F(MoveSplitCatTest, Cancellable_PermuteInBetween) {
   at::Tensor in_tensor = at::randn({2, 3, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -200,7 +200,7 @@ TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
   at::Tensor in_tensor = at::randn({2, 3, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -240,7 +240,7 @@ TEST_F(MoveSplitCatTest, Cancellable_MultiplePermutesInBetween) {
   at::Tensor in_tensor = at::randn({2, 3, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -267,7 +267,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_WrongAxis) {
   at::Tensor in_tensor = at::randn({2, 2, 4}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -293,7 +293,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_SomeButNotAllArePermuted) {
   at::Tensor in_tensor = at::randn({2, 2, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -322,7 +322,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_PermutedDifferently) {
   at::Tensor in_tensor = at::randn({4, 2}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -350,7 +350,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_UnsupportedOps) {
   at::Tensor in_tensor = at::randn({2, 2, 4}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -377,7 +377,7 @@ TEST_F(MoveSplitCatTest, Cancellable_ReshapeInBetween) {
   at::Tensor in_tensor = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -407,7 +407,7 @@ TEST_F(MoveSplitCatTest, Cancellable_ReshapeAndPermuteInBetween) {
   at::Tensor in_tensor = at::randn({6, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -460,7 +460,7 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
           .as_strided({b, h * 3, s, f}, {h * 3 * s * f, f, h * 3 * f, 1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -487,7 +487,7 @@ TEST_F(MoveSplitCatTest, OuterSplit) {
   at::Tensor in_tensor = at::randn({4, 6}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -531,7 +531,7 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
   at::Tensor in_tensor = at::randn({4, 6}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
@@ -582,7 +582,7 @@ TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {
   at::Tensor in_tensor = at::randn({4, 2}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 

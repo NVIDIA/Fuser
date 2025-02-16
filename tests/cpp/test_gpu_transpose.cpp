@@ -587,7 +587,7 @@ TEST_F(TransposeTest, FusionTransposeSelfMapping) {
   auto t0 = at::randn({5, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -610,7 +610,7 @@ TEST_F(TransposeTest, FusionTransposeViewSelfMapping) {
   auto t0 = at::randn({2, 3}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto ref = t0.transpose(0, 1) + t0.view({3, 2});
 
@@ -1013,7 +1013,7 @@ TEST_F(TransposeTest, UnswitchPredicateIssueRepro667) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1042,7 +1042,7 @@ TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1083,7 +1083,7 @@ TEST_F(TransposeTest, ViewTransposeReshape) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1115,7 +1115,7 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1158,7 +1158,7 @@ TEST_F(
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1200,7 +1200,7 @@ TEST_F(TransposeTest, FusionReshapeSmallTransposeDimensionSchedule) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
   executor_cache.profile(true);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   // NOTE: Aggressive check. If a transpose scheduler can handle this, we should
@@ -1233,7 +1233,7 @@ TEST_F(TransposeTest, ViewTransposeMergedInnermostOnGroupTwo) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1267,7 +1267,7 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1317,7 +1317,7 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
   auto t1 = at::randn({1024, 1, 512}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(runtime->isSegmented(), "Segmentation expected");

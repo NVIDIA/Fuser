@@ -209,7 +209,7 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   at::Tensor t1 = at::randn(shape_after, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -691,7 +691,7 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // trivial reshape
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({3, 4}, options);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
     testValidate(
         executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
     NVF_CHECK(
@@ -701,7 +701,7 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // non-trivial reshape: merge and split
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({4, 3}, options);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
     testValidate(
         executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
@@ -714,7 +714,7 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // different non-trivial reshape
     auto t0 = at::randn({2, 6}, options);
     auto t1 = at::randn({4, 3}, options);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
     testValidate(
         executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
@@ -825,7 +825,7 @@ void reductionDynamicViewAddFusion(
     KernelArgumentHolder args(at_vec);
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(output_dims)) {
-      aten_inputs.push_back(output_shape[i]);
+      args.push(output_shape[i]);
     }
 
     auto outputs =
@@ -936,11 +936,10 @@ void reductionDynamicPadAddFusion(
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
-    KernelArgumentHolder args;
-    args.push(at_x);
+    KernelArgumentHolder args(at_x);
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(pad_widths.size())) {
-      aten_inputs.push_back(pad_widths[i]);
+      args.push(pad_widths[i]);
     }
 
     auto outputs =
@@ -1015,7 +1014,7 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at0 = at::randn({5}, options);
-  auto outputs = executor_cache.runFusionWithInputs({at0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({at0});
   testValidate(&fusion, outputs, {at0}, __LINE__, __FILE__);
 }
 
@@ -1042,7 +1041,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
   at::Tensor at0 = at::randn({5}, options);
   at::Tensor at1 = at::randn({0}, options);
   at::Tensor at2 = at::randn({3}, options);
-  auto outputs = executor_cache.runFusionWithInputs({at0, at1, at2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({at0, at1, at2});
   testValidate(&fusion, outputs, {at0, at1, at2}, __LINE__, __FILE__);
 }
 
@@ -1066,7 +1065,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at0 = at::randn({5}, options);
   at::Tensor at1 = at::randn({0}, options);
-  auto outputs = executor_cache.runFusionWithInputs({at0, at1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({at0, at1});
   testValidate(&fusion, outputs, {at0, at1}, __LINE__, __FILE__);
 
   // Check that fusion consists only of tv2 = set(tv0)
@@ -1100,7 +1099,7 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at0 = at::randn({256, 128, 28, 28}, options);
-  auto outputs = executor_cache.runFusionWithInputs({at0, 32});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({at0, 32});
 
   testValidate(executor_cache.fusion(), outputs, {at0, 32}, __LINE__, __FILE__);
 }
@@ -1127,7 +1126,7 @@ TEST_F(NVFuserTest, Issue249_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({at_x});
 
   testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
@@ -1161,10 +1160,12 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
   // Dynamic reshape sizes that are not constant at definition must be explicit:
   // no -1 allowed
   EXPECT_THROW(
-      executor_cache.runFusionWithInputs({at_x, 2, 4, -1}), std::exception);
+      executor_cache.runFusionWithInputs_deprecated({at_x, 2, 4, -1}),
+      std::exception);
 
   // Passing explicit sizes works fine
-  auto outputs = executor_cache.runFusionWithInputs({at_x, 2, 4, 15});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({at_x, 2, 4, 15});
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x, 2, 4, 15}, __LINE__, __FILE__);
@@ -1296,7 +1297,7 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4096, 12288}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1332,7 +1333,7 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1369,7 +1370,7 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
 
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }

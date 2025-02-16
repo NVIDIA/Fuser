@@ -212,7 +212,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   auto t5 = atBiasEpilogue(t3, t4);
   auto t6 = t5.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -299,7 +299,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   auto t3 = at::relu(t2);
   auto t4 = t3.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -402,7 +402,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   auto t6 = at::relu(t5);
   auto t7 = t6.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -492,7 +492,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   auto t4 = at::relu(t2);
   auto t5 = t4.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -603,7 +603,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   auto t7 = at::relu(t5);
   auto t8 = t7.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -691,7 +691,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   auto t3 = at::gelu(t2);
   auto t4 = t3.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -779,7 +779,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   auto t4 = at::gelu(t2);
   auto t5 = t4.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -883,7 +883,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   auto t6 = at::gelu(t5);
   auto t7 = t6.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -992,7 +992,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   auto t7 = at::gelu(t5);
   auto t8 = t7.to(at_out_type);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(
       executor_cache,
@@ -1044,7 +1044,8 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
+  auto out_tensors =
+      executor_cache.runFusionWithInputs_deprecated({x_ref, y_ref});
 
   checkUnsegmentedVectorization(executor_cache, 8l, 8l, 4l);
 
@@ -1098,7 +1099,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1146,7 +1147,7 @@ TEST_P(MatmulSchedulerTestWithLayout, BasicMatmulRelaxedCheck) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1195,7 +1196,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs({t1, t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t1, t0});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1248,7 +1249,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto tref = t2.to(at::kHalf);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
@@ -1304,7 +1305,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto tref = at::mul(t2, alpha).to(at::kFloat);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, alpha});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1362,7 +1363,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   auto t3 = at::mul(t2, alpha).to(at::kFloat);
   auto tref = t3.to(at::kHalf);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, alpha});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
@@ -1431,7 +1432,8 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   auto t4 = at::mul(t2, beta).to(at::kFloat);
   auto t5 = at::add(t3, t4);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, beta});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1507,7 +1509,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   auto t5 = at::mul(t2, beta).to(at::kFloat);
   auto t6 = at::add(t4, t5);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1590,7 +1593,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   auto t7 = at::gelu(t6);
   auto t8 = t7.to(at::kHalf);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
@@ -1729,7 +1733,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatch) {
   auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
   auto t2 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1805,7 +1809,8 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaBeta) {
   auto t5 = at::mul(t2, beta).to(at::kFloat);
   auto t6 = at::add(t4, t5);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1887,7 +1892,8 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaSingleBeta) {
   auto t6 = at::unsqueeze(t5, 0);
   auto t7 = at::add(t4, t5);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs =
+      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1948,7 +1954,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueBias) {
   auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -2011,7 +2017,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueSingleBias) {
   auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -2504,7 +2510,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   // enable profiling so that executor logs are captured
   executor_cache.profile(true);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -2565,7 +2571,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpPrologue) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({K, N}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   // TODO: check vectorization if fusion is enabled
   // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
@@ -2605,7 +2611,7 @@ TEST_F(MatmulSchedulerTest, SegmentLinearOpPrologue) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({N, K}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   // TODO: check vectorization if fusion is enabled
   // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
@@ -2647,7 +2653,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
@@ -2759,7 +2765,7 @@ TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -2828,7 +2834,7 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   auto t1 = at::randn({K, N}, options);
   auto t2 = at::randn({K, N}, options);
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
 
   at::Tensor t3, t4;
   if (fusion_enabled) {
@@ -3233,7 +3239,7 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   auto t1 = at::randn({N, K}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
   auto tref = at::linear(t0.to(at::kFloat), t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
