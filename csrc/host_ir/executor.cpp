@@ -227,10 +227,10 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithPolymorphicValues(
-    std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue) {
+    std::unordered_map<Val*, const PolymorphicValue&> val_to_PValue) {
   // process input values
   for (const auto& [val, pvalue] : val_to_PValue) {
-    expr_evaluator_.bind(val, *pvalue);
+    expr_evaluator_.bind(val, pvalue);
   }
 
   return dispatchAndCollectOutputs();
