@@ -5778,11 +5778,11 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     std::vector<c10::IValue> large_inputs = {t0_large};
 
     NVF_CHECK(
-        KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
+        KernelArgumentHolder(large_inputs).getSmallestIndexTypeOfArguments() ==
+        PrimDataType::Int);
     NVF_CHECK(
-        KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
+        KernelArgumentHolder(small_inputs).getSmallestIndexTypeOfArguments() ==
+        PrimDataType::Int32);
 
     {
       KernelExecutor ke;

@@ -469,8 +469,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2 * 3, 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args = KernelArgumentHolder({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
@@ -792,8 +791,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2, 3 * 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args = KernelArgumentHolder({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
