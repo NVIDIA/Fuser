@@ -384,7 +384,7 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   at::Tensor expected_mm_t_tensor =
       atMatmul(x_tensor, w_tensor.view({mesh.size() * 36, 48}), MmaLayout::TN)
@@ -427,7 +427,7 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   at::Tensor expected_y_tensor = at::matmul(x_tensor, w_tensor);
   testValidate(
@@ -490,8 +490,7 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
     auto sharded_w = shardTensor(w_tensor, w);
 
     std::vector<c10::IValue> in_tensors({sharded_x, sharded_w});
-    std::vector<at::Tensor> out_tensors =
-        executor_cache.runFusionWithInputs(in_tensors);
+    auto out_tensors = executor_cache.runFusionWithInputs(in_tensors);
 
     at::Tensor expected_y_tensor = at::linear(x_tensor, w_tensor);
     testValidate(
