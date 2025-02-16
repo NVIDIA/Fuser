@@ -2701,7 +2701,6 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       atBiasEpilogue(
           at::matmul(a.to(at::kFloat), b.to(at::kFloat).t()), c.to(at::kFloat))
           .neg_();
-  std::vector<c10::IValue> inputs{t0, t1, c};
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2721,8 +2720,8 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       ->schedule(fusion.get(), &mparams);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams);
-  auto outputs = ke.run(inputs);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  auto outputs = ke.run({t0, t1});
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -2753,18 +2752,17 @@ TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
   const int M = 1 << 16, N = 1 << 15, K = 1 << 8;
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  at::Tensor a = at::randn({M, K}, options);
-  at::Tensor b = at::randn({K, N}, options);
-  std::vector<c10::IValue> inputs{a, b};
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
 
-  at::Tensor tref = -at::matmul(a, b);
+  at::Tensor tref = -at::matmul(t0, t1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 
   if (!cudaArchGuardShouldSkip(9, 0)) {
     // The Hopper matmul scheduler should reject this fusion since it requires
@@ -2829,9 +2827,8 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({K, N}, options);
   auto t2 = at::randn({K, N}, options);
-  std::vector<c10::IValue> inputs{t0, t1, t2};
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   at::Tensor t3, t4;
   if (fusion_enabled) {
@@ -3232,13 +3229,12 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   fusion->addOutput(mm);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto x_ref = at::randn({M, K}, options);
-  auto y_ref = at::randn({N, K}, options);
-  std::vector<c10::IValue> inputs{x_ref, y_ref};
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
-  auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto tref = at::linear(t0.to(at::kFloat), t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 

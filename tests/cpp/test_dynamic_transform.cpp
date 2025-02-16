@@ -825,7 +825,7 @@ void reductionDynamicViewAddFusion(
     KernelArgumentHolder args(at_vec);
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(output_dims)) {
-      args.push(output_shape[i]);
+      aten_inputs.push_back(output_shape[i]);
     }
 
     auto outputs =
@@ -940,7 +940,7 @@ void reductionDynamicPadAddFusion(
     args.push(at_x);
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(pad_widths.size())) {
-      args.push(pad_widths[i]);
+      aten_inputs.push_back(pad_widths[i]);
     }
 
     auto outputs =
@@ -1295,11 +1295,10 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4096, 12288}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test that dynamic reductions that should result in squeezes are handled
@@ -1332,11 +1331,10 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Same as above but for Welford ops
@@ -1370,11 +1368,10 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
