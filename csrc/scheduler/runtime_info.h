@@ -67,7 +67,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
 
   NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs);
+      const c10::ArrayRef<c10::IValue>& aten_inputs);
 
   NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,

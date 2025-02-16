@@ -2154,7 +2154,7 @@ void test_op(
 
   std::array<c10::IValue, sizeof...(NumInputs)> aten_inputs = {gen_aten_operand(
       std::get<NumInputs>(it), blocks, threads, /*rand*/ true)...};
-  const at::ArrayRef<c10::IValue> aten_inputs_ivalues(aten_inputs);
+  const c10::ArrayRef<c10::IValue> aten_inputs_ivalues(aten_inputs);
 
   at::Tensor cg_output =
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();

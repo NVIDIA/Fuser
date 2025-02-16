@@ -371,7 +371,7 @@ TEST_F(PresegTest, FusionRemoveEmptyOutput) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   // In the FusionKernelRuntime, before segmentation a number of optimization
@@ -405,7 +405,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -437,7 +437,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReductionWithNonReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3, 2}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -468,7 +468,7 @@ TEST_F(PresegTest, FusionRemoveEmptyWelford) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -522,7 +522,7 @@ TEST_F(PresegTest, FusionRemoveEmptyCat) {
   at::Tensor t1 = at::randn({2, 3}, options);
   at::Tensor t2 = at::randn({4, 3}, options);
 
-  auto args = KernelArgumentHolder({t0, t1, t2});
+  KernelArgumentHolder args({t0, t1, t2});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -561,7 +561,7 @@ TEST_F(PresegTest, FusionRemoveEmptyPad) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 0}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -605,7 +605,7 @@ TEST_F(PresegTest, FusionRemoveEmptyMatmul) {
   at::Tensor t0 = at::randn({16, 0}, options);
   at::Tensor t1 = at::randn({0, 8}, options);
 
-  auto args = KernelArgumentHolder({t0, t1});
+  KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();

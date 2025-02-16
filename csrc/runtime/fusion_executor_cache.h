@@ -147,7 +147,7 @@ class FusionExecutorCache {
 
   //! query if there's a kernel ready to go for given inputs
   NVF_API bool isCompiled(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       int8_t device = 0);
 
   Fusion* fusion();
@@ -168,7 +168,7 @@ class FusionExecutorCache {
 
   //! Get the kernel code for the given inputs
   std::string getCodeFor(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       bool intrinsic_code);
 
   //! Gets the Scheduled IR for the associated runtime
@@ -181,7 +181,7 @@ class FusionExecutorCache {
 
   //! Get the Scheduled IR for the given inputs
   std::string getScheduledIrFor(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       bool tensor_transforms = false);
 
   // TODO: in a follow up we need a global logging structure

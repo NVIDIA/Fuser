@@ -209,3 +209,17 @@ class BenchmarkGraph : public benchmark::Fixture {
 
 #define NVFUSER_BENCHMARK_RUN(BENCHMARK_NAME) \
   BENCHMARK_REGISTER_F(BENCHMARK_NAME##___GRAPH, BENCHMARK_NAME)
+
+FusionKernelRuntime* getLayerBackwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    std::vector<c10::IValue>& aten_inputs,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape);
+
+FusionKernelRuntime* getLayerForwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    std::vector<c10::IValue>& aten_inputs,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape);

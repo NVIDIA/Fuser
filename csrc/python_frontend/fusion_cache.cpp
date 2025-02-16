@@ -487,7 +487,7 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
 
 std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   std::optional<size_t> result = std::nullopt;
 
   auto& user_scheds = scheds->user_def_schedules;
@@ -518,7 +518,7 @@ const UserSchedule& FusionCache::queryUserSchedule(
 
 bool FusionCache::existUserSchedule(
     const FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     int device) {
   // Short-Circuit: No user schedules
   if (scheds->user_def_schedules.empty()) {
@@ -591,7 +591,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
 
 UserSchedule* FusionCache::createUserSchedule(
     FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     int device,
     bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
