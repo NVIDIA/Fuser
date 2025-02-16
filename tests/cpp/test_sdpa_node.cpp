@@ -255,7 +255,7 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       scale);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out = executor_cache.runFusionWithInputs_deprecated({q, k, v});
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -302,7 +302,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       scale);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out = executor_cache.runFusionWithInputs_deprecated({q, k, v});
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -348,7 +348,7 @@ TEST_F(SDPATest, CausalAttn) {
       /*scale=*/1e-3);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out = executor_cache.runFusionWithInputs_deprecated({q, k, v});
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -686,7 +686,7 @@ TEST_F(SDPATest, AttnProgram) {
   auto expected_out = (std::get<0>(aten_outputs).to(at::kFloat)) * 2.0;
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out = executor_cache.runFusionWithInputs_deprecated({q, k, v});
+  auto out = executor_cache.runFusionWithInputs({q, k, v});
   EXPECT_TRUE(at::allclose(out[0], expected_out));
 }
 
@@ -748,7 +748,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out =
-      executor_cache.runFusionWithInputs_deprecated({q, k, v, grad_out});
+      executor_cache.runFusionWithInputs({q, k, v, grad_out});
 
   auto attn = at::scaled_dot_product_attention(
       q,

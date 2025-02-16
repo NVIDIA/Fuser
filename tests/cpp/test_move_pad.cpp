@@ -41,7 +41,7 @@ TEST_F(MovePadTest, UnaryCat) {
   at::Tensor t1 = at::randn({2, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -72,7 +72,7 @@ TEST_F(MovePadTest, BinaryCat) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -107,7 +107,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
 
   // ensure that we propagate the pad across binary operation and the first
   // segment is no-op
@@ -147,7 +147,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
@@ -182,7 +182,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
   at::Tensor t1 = at::randn({1, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -218,7 +218,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   at::Tensor t1 = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
@@ -267,7 +267,7 @@ TEST_F(MovePadTest, CascadePadCase0) {
   at::Tensor t0 = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
@@ -304,7 +304,7 @@ TEST_F(MovePadTest, CascadePadCase1) {
   at::Tensor t0 = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
@@ -360,7 +360,7 @@ TEST_F(MovePadTest, CascadePadCase2) {
   at::Tensor t0 = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
@@ -391,7 +391,7 @@ TEST_F(MovePadTest, NotMergeNegativePad) {
   at::Tensor t0 = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
@@ -418,7 +418,7 @@ TEST_F(MovePadTest, BooleanCat) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -463,7 +463,7 @@ TEST_F(MovePadTest, Issue3597Repro) {
   auto t1 = at::randn({4, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }

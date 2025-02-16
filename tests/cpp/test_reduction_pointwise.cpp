@@ -53,7 +53,7 @@ void ReductionNonBroadcast(const int reduction_dim) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto t_ref = t0.sum({reduction_dim}) + t1;
   testValidate(
@@ -106,7 +106,7 @@ void ReductionBroadcast(const int reduction_dim) {
   ASSERT_FALSE(can_schedule);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto t_ref = t0.sum({reduction_dim}).unsqueeze(reduction_dim) + t1;
   testValidate(

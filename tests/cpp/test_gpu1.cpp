@@ -5187,7 +5187,7 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated({aten_input});
+        executor_cache.runFusionWithInputs({aten_input});
 
     testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__, "");
   }

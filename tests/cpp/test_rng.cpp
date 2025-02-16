@@ -84,7 +84,7 @@ TEST_F(RNGTest, ValidateWithCURand) {
 
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({size});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     at::manual_seed(0);
     auto ref0 = generate_uniform(size, at::kFloat);
@@ -193,7 +193,7 @@ TEST_F(RNGTest, BroadcastingRNG) {
     at::Tensor t0 = at::zeros({5, 1}, options);
     at::Tensor t1 = at::zeros({5, 5}, options);
 
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
     auto out = cg_outputs[0];
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
@@ -224,7 +224,7 @@ TEST_F(RNGTest, BroadcastingRNG2) {
       at::Tensor t1 = at::zeros({size}, options);
 
       at::manual_seed(0);
-      auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+      auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
       auto out = cg_outputs[0];
 
       at::manual_seed(0);
@@ -325,7 +325,7 @@ TEST_F(RNGTest, Uniform) {
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated({size, -1.0, 1.0});
+        executor_cache.runFusionWithInputs({size, -1.0, 1.0});
 
     at::manual_seed(0);
     auto ref0 = generate_uniform(size, at::kFloat) * 2 - 1;
@@ -366,7 +366,7 @@ TEST_F(RNGTest, Normal) {
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
     auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated({size, 1.0, 0.5});
+        executor_cache.runFusionWithInputs({size, 1.0, 0.5});
 
     at::manual_seed(0);
     auto ref0 = generate_normal(size, at::kFloat) * 0.5f + 1.0f;
@@ -403,7 +403,7 @@ TEST_F(RNGTest, RandLikeReduction) {
   at::Tensor t0 = at::zeros({2, 3}, options);
 
   at::manual_seed(0);
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   auto out = cg_outputs[0];
 
   at::manual_seed(0);
@@ -540,9 +540,9 @@ TEST_F(RNGTest, DifferentOffsets) {
   for (int64_t size : {1, 4}) {
     at::manual_seed(0);
     EXPECT_TRUE(get_current_offset() == 0);
-    auto r1 = executor_cache.runFusionWithInputs_deprecated({size}).at(0);
+    auto r1 = executor_cache.runFusionWithInputs({size}).at(0);
     EXPECT_TRUE(get_current_offset() == 4);
-    auto r23 = fec2.runFusionWithInputs_deprecated({size});
+    auto r23 = fec2.runFusionWithInputs({size});
     auto r2 = r23.at(0);
     auto r3 = r23.at(1);
     EXPECT_TRUE(get_current_offset() == 12);

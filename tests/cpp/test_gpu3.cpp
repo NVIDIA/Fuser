@@ -2663,7 +2663,7 @@ TEST_F(NVFuserTest, FusionRepro1713_CUDA) {
   at::Tensor t2 = at::randn({1024}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
@@ -2732,7 +2732,7 @@ TEST_F(NVFuserTest, FusionExpand_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   auto cg_outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, t3, t6, w});
+      executor_cache.runFusionWithInputs({t0, t3, t6, w});
   auto cg_out = cg_outputs[1];
 
   NVF_ERROR(cg_out.size(0) == w);
@@ -2784,7 +2784,7 @@ TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   for (const auto& cg_out : cg_outputs) {
     NVF_ERROR(cg_out.size(0) == x);
@@ -2818,7 +2818,7 @@ TEST_F(NVFuserTest, FusionExpandToConcrete_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   for (const auto& cg_out : cg_outputs) {
     NVF_ERROR(cg_out.size(0) == x);
@@ -2857,7 +2857,7 @@ TEST_F(NVFuserTest, FusionReproNoncontigBroadcast_CUDA) {
   fusion->addOutput(tv2);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -3012,7 +3012,7 @@ TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
   auto t0 = at::randn({12345}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -3038,7 +3038,7 @@ TEST_F(NVFuserTest, FusionIssue1770Repro_CUDA) {
   at::Tensor t1 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto ref = where(t0 >= t1, 1.0, 2.0);
 
@@ -3382,7 +3382,7 @@ TEST_F(NVFuserTest, FusionIssueRepro1844_CUDA) {
   auto mask = at::gt(c, 0.0f);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({a, b, mask});
+  auto cg_outputs = executor_cache.runFusionWithInputs({a, b, mask});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {a, b, mask}, __LINE__, __FILE__);
@@ -3470,7 +3470,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs =
-      executor_cache.runFusionWithInputs_deprecated({t1, t2, t3, t4});
+      executor_cache.runFusionWithInputs({t1, t2, t3, t4});
 }
 
 TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
@@ -3490,7 +3490,7 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   auto t0 = at::randn({1, 8}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -3556,7 +3556,7 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
   at::Tensor t4 = at::randn({2, 1}, options).expand({2, 5});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  ASSERT_ANY_THROW(executor_cache.runFusionWithInputs_deprecated({t1, t4}));
+  ASSERT_ANY_THROW(executor_cache.runFusionWithInputs({t1, t4}));
 }
 
 TEST_F(
@@ -3607,7 +3607,7 @@ TEST_F(NVFuserTest, FusionPrint_CUDA) {
     at::Tensor t0 = at::arange(2, options).to(dtype);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
     testValidate(
         executor_cache.fusion(),
@@ -3648,7 +3648,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
 
     auto executor_cache =
         std::make_unique<FusionExecutorCache>(std::move(fusion));
-    auto cg_outputs = executor_cache->runFusionWithInputs_deprecated({a, b});
+    auto cg_outputs = executor_cache->runFusionWithInputs({a, b});
     return {std::move(executor_cache), std::move(cg_outputs)};
   };
 
@@ -3686,7 +3686,7 @@ TEST_F(NVFuserTest, FusionSizeDependentData_CUDA) {
   at::Tensor a = at::zeros({123}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({a});
+  auto cg_outputs = executor_cache.runFusionWithInputs({a});
 
   testValidate(executor_cache.fusion(), cg_outputs, {a}, __LINE__, __FILE__);
 }
@@ -3826,7 +3826,7 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
   at::Tensor t2 = at::randn({8, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()->isSegmented(),
@@ -4066,7 +4066,7 @@ TEST_F(NVFuserTest, FusionExpandedInput_CUDA) {
   at::Tensor t0 = at::randn({4096, 1, 4}, options).expand({-1, 7, -1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -4100,7 +4100,7 @@ TEST_F(NVFuserTest, FusionVectorizeRepro1843_CUDA) {
       at::empty_strided({4096, 32128}, {32128, 1}, options).random_();
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t1, t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t1, t0});
 
   testValidate(fusion, cg_outputs, {t1, t0}, __LINE__, __FILE__);
 }
@@ -4125,7 +4125,7 @@ TEST_F(NVFuserTest, FusionBroadcastPersistentReduction_CUDA) {
   auto t0 = at::randn({1024, 768}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -4227,7 +4227,7 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
   auto t2 = at::randn({1024, 768}, options).to(at::ScalarType::Half);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
@@ -4303,7 +4303,7 @@ TEST_F(NVFuserTest, FusionIssue2068_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, t3, t4});
+      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
 
   testValidate(
       executor_cache.fusion(),
@@ -4340,7 +4340,7 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064Squeeze_CUDA) {
   auto t0 = at::randn({2, 8}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__, "");
@@ -4457,7 +4457,7 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064_CUDA) {
   auto t0 = at::randn({2, 8}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__, "");
@@ -4558,7 +4558,7 @@ TEST_F(NVFuserTest, FusionIssue2074_CUDA) {
   auto t4 = t3 - 1;
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   ASSERT_TRUE(at::allclose(cg_outputs[1], t4));
 }
 
@@ -4588,7 +4588,7 @@ TEST_F(NVFuserTest, FusionIssue2077_CUDA) {
   auto t7 = t6.to(at::kBool);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   ASSERT_TRUE(at::equal(cg_outputs[0], t7));
 }
 
@@ -4693,7 +4693,7 @@ TEST_F(NVFuserTest, FusionIssue2075_CUDA) {
   auto t10 = t9.to(at::kFloat);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(&fusion, cg_outputs, {t0, t1}, {t10}, __LINE__, __FILE__);
 }
 
@@ -4863,7 +4863,7 @@ TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
   at::Tensor t0 = at::randn({10, 4, 1, 1, 1}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   ASSERT_TRUE(at::allclose(cg_outputs[0], cg_outputs[3]));
   ASSERT_TRUE(at::allclose(cg_outputs[1], cg_outputs[4]));
   ASSERT_TRUE(at::allclose(cg_outputs[2], cg_outputs[5]));
@@ -5252,7 +5252,7 @@ TEST_F(NVFuserTest, FusionRepro2241_CUDA) {
       at::tensor({12}, options.dtype(at::kLong)).expand({1, 1, 1, 1});
 
   auto cg_outputs =
-      executor_cache.runFusionWithInputs_deprecated({t6, t15, t20});
+      executor_cache.runFusionWithInputs({t6, t15, t20});
 
   auto sample_total = at::sum(t15, {0, 1, 2, 3}, true);
   auto sample_mean = at::div(sample_total, t20);
@@ -5802,7 +5802,7 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
   at::Tensor t1 = at::randn({2024, 1024}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
@@ -5842,12 +5842,12 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
   at::Tensor t1 = at::randn({2024, 1024}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  executor_cache.runFusionWithInputs({t0, t1});
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
 
   // Running again with forced type of Int32
-  executor_cache.runFusionWithInputs_deprecated({t0, t1}, PrimDataType::Int32);
+  executor_cache.runFusionWithInputs({t0, t1}, PrimDataType::Int32);
   kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
 }
@@ -5867,7 +5867,7 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   at::Tensor t0 = at::zeros({5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -5892,7 +5892,7 @@ TEST_F(NVFuserTest, FusionBFloat16Scalars_CUDA) {
   at::Tensor t0 = at::zeros({5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -5965,7 +5965,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   at::Tensor t1 = at::ones(shape1, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   // check thread_pred and write_stride
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
@@ -6028,7 +6028,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     at::Tensor t1 = at::randn(shape1, options);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
     // check thread_pred and write_stride
     const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
@@ -6130,7 +6130,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     } else {
       FusionExecutorCache executor_cache(std::move(fusion_ptr));
       auto cg_outputs =
-          executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+          executor_cache.runFusionWithInputs({t0, t1, t2});
 
       auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
       NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
@@ -6780,7 +6780,7 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
   at::Tensor t1 = at::randn({11}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -6806,7 +6806,7 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn(input_shape, options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({at_x});
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();
 
@@ -6859,7 +6859,7 @@ TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
         at_x = (1 - at_x) / (1 - at_x);
 
         auto nvf_outputs =
-            executor_cache.runFusionWithInputs_deprecated({at_x});
+            executor_cache.runFusionWithInputs({at_x});
 
         testValidate(
             executor_cache.fusion(), nvf_outputs, {at_x}, __LINE__, __FILE__);
@@ -7038,7 +7038,7 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
   auto div_expect = at::div(input0, t1, "trunc");
   auto truediv_expect = at::true_divide(input0, t1);
 
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({input0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0, t1});
 
   ASSERT_TRUE(cg_outputs.at(0).scalar_type() == at::kLong);
   ASSERT_TRUE(cg_outputs.at(1).scalar_type() == at::kFloat);
@@ -7222,7 +7222,7 @@ TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
   auto a6 = at::zeros({6}, options);
   auto a7 = at::zeros({7}, options);
 
-  executor_cache.runFusionWithInputs_deprecated({a5});
+  executor_cache.runFusionWithInputs({a5});
 
   auto numRuntimes = [&executor_cache]() -> size_t {
     // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
@@ -7236,7 +7236,7 @@ TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
     DisableOptionsGuard og;
     DisableOptionsGuard::getCurOptions().unset(DisableOption::KernelReuse);
 
-    executor_cache.runFusionWithInputs_deprecated({a6});
+    executor_cache.runFusionWithInputs({a6});
 
     // Since kernel reuse is enabled, we should not generate a new runtime
     EXPECT_EQ(numRuntimes(), 1);
@@ -7246,7 +7246,7 @@ TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
     DisableOptionsGuard og;
     DisableOptionsGuard::getCurOptions().set(DisableOption::KernelReuse);
 
-    executor_cache.runFusionWithInputs_deprecated({a7});
+    executor_cache.runFusionWithInputs({a7});
 
     // Disabling reuse means we should get a new runtime
     EXPECT_EQ(numRuntimes(), 2);
@@ -7275,7 +7275,7 @@ TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({11});
+  auto cg_outputs = executor_cache.runFusionWithInputs({11});
 
   testValidate(executor_cache.fusion(), cg_outputs, {11}, __LINE__, __FILE__);
 }
@@ -7327,7 +7327,7 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   auto t4 = t3 * t1 + t2;
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(fusion, cg_outputs, {t0, t1, t2}, {t4}, __LINE__, __FILE__);
 }
 
@@ -7351,7 +7351,7 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({at_x});
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
 
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
@@ -7787,7 +7787,7 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
           .as_strided({x, y, z, w, h}, {w * h * z * y, w * h * z, w * h, 1, w});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto ref = t0.to(at::kDouble).sum({2, 4});
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
@@ -7847,7 +7847,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   auto t1 = at::randn({eight * fiveTwelve * twenty}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   // check segmentation and sliced tvs are not cached if not scheduled by
   // the resize scheduler
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
@@ -8411,7 +8411,7 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor at_x = at::ones(input_shape, options);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto outputs = executor_cache.runFusionWithInputs_deprecated({at_x});
+    auto outputs = executor_cache.runFusionWithInputs({at_x});
 
     testValidate(&fusion, outputs, {at_x}, __LINE__, __FILE__);
   }
@@ -9080,7 +9080,7 @@ TEST_F(NVFuserTest, RepeatBroadcast) {
   auto t0 = at::randn({10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -9110,7 +9110,7 @@ TEST_F(NVFuserTest, RepeatNonBroadcast) {
   auto t0 = at::randn({10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -9131,7 +9131,7 @@ TEST_F(NVFuserTest, RepeatBroadcastAndNonBroadcast) {
   auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 

@@ -165,7 +165,7 @@ TEST_P(MatmulNodeParameterizedTest, MatmulNodeConcrete) {
   at::Tensor out_ref = at::matmul(t0, t1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -191,7 +191,7 @@ TEST_P(MatmulNodeParameterizedTest, MatmulNodeSymbolic) {
   at::Tensor out_ref = at::matmul(t0, t1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -231,9 +231,9 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = executor_cache.runFusionWithInputs_deprecated({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
   const auto& executors =
@@ -280,9 +280,9 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = executor_cache.runFusionWithInputs_deprecated({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
   const auto& executors =

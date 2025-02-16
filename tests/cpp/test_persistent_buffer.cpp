@@ -347,7 +347,7 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({aten_t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({aten_t0});
 
   testValidate(&fusion, cg_outputs, {aten_t0}, __LINE__, __FILE__);
 }
@@ -607,7 +607,7 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, t3, t4});
+      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
   testValidate(
       fusion, cg_outputs, {t0, t1, t2, t3, t4}, {t33}, __LINE__, __FILE__);
 }
@@ -667,7 +667,7 @@ TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
       "After project to other buffers, should have one persistent buffer!");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(fusion, cg_outputs, {t0, t1}, {t7, t9}, __LINE__, __FILE__);
 }
 
@@ -1169,7 +1169,7 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
   auto t2 = at::sum(t0, {1}).unsqueeze(1) + t0;
   auto t4 = t2 + t1;
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "unexpected segmentation!");
@@ -1208,7 +1208,7 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
   auto t2 = at::sum(t0, {1, 2}).unsqueeze(-1).unsqueeze(-1) + t0;
   auto t4 = t2 + t1;
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "unexpected segmentation!");
@@ -1240,7 +1240,7 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   auto t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   // should be segmented since buffer size is larger than 32K and smem
   // persistent is not supported yet for 3D reduction.
@@ -1422,7 +1422,7 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   // check segmentation, if not segmented, further check shared memory
   // persistence

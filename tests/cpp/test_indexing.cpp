@@ -5269,7 +5269,7 @@ TEST_F(IndexingTest, Issue3374) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, t3});
+      executor_cache.runFusionWithInputs({t0, t1, t2, t3});
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
@@ -5304,7 +5304,7 @@ TEST_F(IndexingTest, Issue3299) {
   auto t0 = at::randn(shape1, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
@@ -5667,7 +5667,7 @@ TEST_F(IndexingTest, Rng) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({1});
+  auto outputs = executor_cache.runFusionWithInputs({1});
 
   at::manual_seed(0);
   at::Tensor randn_sample = at::randn({1}, options);

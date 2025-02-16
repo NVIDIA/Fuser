@@ -172,7 +172,7 @@ TEST_P(MistralRopeTest, Fwd1) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -438,7 +438,7 @@ TEST_P(MistralRopeTest, Fwd2) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -992,7 +992,7 @@ TEST_P(Phi3RopeTest, Fwd) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+      executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -1222,7 +1222,7 @@ TEST_P(Phi3RopeTest, Bwd) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, t3, t4});
+      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
   testValidate(
       executor_cache.fusion(),
       out_tensors,
@@ -1380,7 +1380,7 @@ TEST_P(LitgptRopeTest, Fwd) {
   auto t2 = at::randn({config.seq_length, config.rope_n_elem}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
@@ -1626,7 +1626,7 @@ TEST_P(LitgptRopeTest, Bwd) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2, t3});
+      executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(&fusion, outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
 }
 
@@ -1650,7 +1650,7 @@ TEST_F(RopeTest, EndingRepeat) {
   auto t0 = at::randn(shape1, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
