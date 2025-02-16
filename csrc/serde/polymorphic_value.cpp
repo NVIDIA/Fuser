@@ -118,7 +118,7 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::PolymorphicValue v) {
+    const nvfuser::PolymorphicValue& v) {
   NVF_ERROR(!v.is<std::monostate>(), "PolymorphicValue is a std::monostate.");
   NVF_ERROR(
       !v.is<StructHandle>(),

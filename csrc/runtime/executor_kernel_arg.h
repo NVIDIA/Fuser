@@ -106,7 +106,7 @@ class KernelArgumentHolder {
     arguments_.push_back(PolymorphicValue(ptr));
   }
 
-  void erase(const PolymorphicValue& arg_to_delete);
+  void erase(const PolymorphicValue* arg_to_delete);
 
   std::vector<c10::IValue> toC10Array() const;
 

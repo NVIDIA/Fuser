@@ -95,7 +95,7 @@ void KernelArgumentHolder::push(const ArrayType& vals) {
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
   auto iter = std::remove_if(
       arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return arg_to_delete == ref;
+        return &arg_to_delete == &ref;
       });
   arguments_.erase(iter, arguments_.end());
 }

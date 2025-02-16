@@ -51,7 +51,7 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
         .only_segment_resharding_exprs = true};
 
     auto segmented_fusion = SegmentCandidateFinder::segment(
-        std::move(fusion_), KernelArgumentHolder(), options);
+        std::move(fusion_), KernelArgumentHolder(), options, true);
 
     for (SegmentedGroup* group : segmented_fusion->groups()) {
       // TODO: use EXPECT_THAT.

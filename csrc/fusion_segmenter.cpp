@@ -2009,13 +2009,14 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& inputs,
-    SegmentCandidateFinderOptions options) {
+    SegmentCandidateFinderOptions options,
+    bool multi_device) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     debug() << "Segment the fusion (Original Fusion Un-modified): "
             << std::endl;
     fusion->printMath();
   }
-  SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+  SegmentCandidateFinder scf(std::move(fusion), inputs, options, multi_device);
   return std::move(scf.segmented_fusion_);
 }
 
@@ -3936,17 +3937,13 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
       "Can not find a scheduler to schedule fusion segment");
   return scheduler_type;
 }
-
+// Update the constructor implementation
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& inputs,
-    SegmentCandidateFinderOptions options)
-    : options_(options),
-      runtime_info_(
-          inputs.empty()
-              ? std::nullopt
-              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
-      runtime_inputs_(inputs) {
+    SegmentCandidateFinderOptions options,
+    bool multi_device)
+    : options_(options), runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&
@@ -3954,8 +3951,22 @@ SegmentCandidateFinder::SegmentCandidateFinder(
            options_.run_final_merge),
       "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+
+  // Conditionally initialize runtime_info_ based on multi_device
+  if (!multi_device) {
+    runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
+  }
+
   privatizeUpcast();
   findSegments();
+}
+
+// Add runtimeInfo() accessor with validation
+SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
+  NVF_ERROR(
+      runtime_info_.has_value(),
+      "runtime_info_ is not available. This function should not be called in multi-device segmentation.");
+  return *runtime_info_;
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {

@@ -542,7 +542,8 @@ class SegmentCandidateFinder {
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
@@ -560,7 +561,8 @@ class SegmentCandidateFinder {
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options);
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetTraversal();
 
@@ -612,10 +614,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
     return runtimeInfo().expressionEvaluator();
