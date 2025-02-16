@@ -55,8 +55,6 @@ class KernelArgumentHolder {
 
   c10::ArrayRef<c10::IValue> toArrayRef() const;
 
-  void erase(const PolymorphicValue* arg_to_delete);
-
   void push(PolymorphicValue val) {
     arguments_.emplace_back(PolymorphicValue(std::move(val)));
   }

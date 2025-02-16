@@ -289,7 +289,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, const PolymorphicValue*> tensor_map;
+    std::unordered_map<Val*, const PolymorphicValue&> tensor_map;
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
