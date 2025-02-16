@@ -731,10 +731,13 @@ TEST_P(MistralRopeTest, Bwd) {
   auto t3 = at::randn(shape3, options_bf16);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(
-      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {t0, t1, t2, t3},
+      __LINE__,
+      __FILE__);
 }
 
 using Phi3RopeTest = RopeTest;

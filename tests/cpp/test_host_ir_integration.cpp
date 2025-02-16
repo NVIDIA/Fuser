@@ -76,8 +76,7 @@ TEST_F(HostIrIntegrationTest, Set) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
       executor_cache.fusion(),
@@ -103,8 +102,7 @@ TEST_F(HostIrIntegrationTest, Sum) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
       executor_cache.fusion(),
