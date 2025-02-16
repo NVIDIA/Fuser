@@ -58,7 +58,7 @@ class KernelArgumentHolder {
   void erase(const PolymorphicValue* arg_to_delete);
 
   void push(PolymorphicValue val) {
-    arguments_.push_back(PolymorphicValue(std::move(val)));
+    arguments_.emplace_back(PolymorphicValue(std::move(val)));
   }
 
   PolymorphicValue& back() {
