@@ -519,10 +519,11 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({100}, options);
+  auto in = at::randn({100}, options);
+  std::vector<c10::IValue> inputs{1, in};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({1, t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   at::manual_seed(0);
   at::Tensor randn_sample = at::randn({1}, options);
@@ -532,13 +533,13 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      {1, t0},
-      {t0,
-       t0 + 1,
-       t0 + randn_sample,
-       t0 + randn_sample,
-       t0 + rand_sample,
-       t0 + rand_sample},
+      inputs,
+      {in,
+       in + 1,
+       in + randn_sample,
+       in + randn_sample,
+       in + rand_sample,
+       in + rand_sample},
       __LINE__,
       __FILE__);
 }

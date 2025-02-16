@@ -138,9 +138,10 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({256, 10240}, options);
+  std::vector<c10::IValue> runtime_inputs({t0});
 
   // Generate heuristics & enforce unroll on top of vectorization
-  SchedulerRuntimeInfo runtime_info(fusion.get(), {t0});
+  SchedulerRuntimeInfo runtime_info(fusion.get(), runtime_inputs);
   auto scheduler_instance =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
   auto heuristic_params =
@@ -153,9 +154,9 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
   auto fusion_copy = *fusion;
   scheduler_instance->schedule(fusion.get(), rparams);
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0}, rparams->lparams);
-  auto cg_outputs = ke.run({t0}, rparams->lparams);
-  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+  ke.compile(fusion.get(), runtime_inputs, rparams->lparams);
+  auto cg_outputs = ke.run(runtime_inputs, rparams->lparams);
+  testValidate(&fusion_copy, cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

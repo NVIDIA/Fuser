@@ -102,13 +102,14 @@ TEST_F(ResizeTest, Pad1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -133,13 +134,14 @@ TEST_F(ResizeTest, Pad2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -181,15 +183,16 @@ TEST_F(ResizeTest, Pad3) {
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + parallelization
@@ -210,13 +213,14 @@ TEST_F(ResizeTest, Pad4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -260,13 +264,14 @@ TEST_F(ResizeTest, Pad5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -306,15 +311,16 @@ TEST_F(ResizeTest, Pad6) {
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + unswitch. Having different extents in an unswitched loop nest
@@ -352,15 +358,16 @@ TEST_F(ResizeTest, Pad7) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disable for now. Unclear what would be the best way to handle
@@ -399,14 +406,15 @@ TEST_F(ResizeTest, Pad8) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(999, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {0, 1}) + at::pad(t0, {1, 0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 #endif
 
@@ -425,12 +433,13 @@ TEST_F(ResizeTest, PadScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1});
 
@@ -459,15 +468,16 @@ TEST_F(ResizeTest, PadScheduler2) {
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disabled due to the same reason as Pad8
@@ -490,16 +500,17 @@ TEST_F(ResizeTest, PadScheduler3) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(999, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = at::pad(t0, {0, 1}) + at::pad(t0, {1, 0});
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      {t0},
+      aten_inputs,
       {ref},
       __LINE__,
       __FILE__);
@@ -535,15 +546,16 @@ TEST_F(ResizeTest, PadScheduler4) {
 
   auto t0 = at::randn(shape, options);
   std::vector<int64_t> pad_extents{1, 1};
+  std::vector<c10::IValue> aten_inputs({t0, 1, 1});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, 1, 1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, 1, 1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Pad a broadcast
@@ -570,14 +582,16 @@ TEST_F(ResizeTest, PadBroadcastInput) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Trivial cat
@@ -601,10 +615,11 @@ TEST_F(ResizeTest, Cat1) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -632,10 +647,11 @@ TEST_F(ResizeTest, Cat2) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -672,10 +688,11 @@ TEST_F(ResizeTest, Cat3) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -715,10 +732,11 @@ TEST_F(ResizeTest, Cat4) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 1);
 
@@ -763,12 +781,13 @@ TEST_F(ResizeTest, Cat5) {
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
   auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
-  auto cg_outputs = ke.run({t0, t1, t2});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Cat 3 tensors
@@ -806,10 +825,11 @@ TEST_F(ResizeTest, Cat6) {
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
   auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
-  auto cg_outputs = ke.run({t0, t1, t2});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
@@ -895,9 +915,10 @@ TEST_F(ResizeTest, CatScheduler1) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -930,12 +951,13 @@ TEST_F(ResizeTest, CatScheduler2) {
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
   auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Auto scheduled version of Cat6
@@ -963,9 +985,10 @@ TEST_F(ResizeTest, CatScheduler3) {
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
   auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
@@ -992,10 +1015,11 @@ TEST_F(ResizeTest, Slice1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -1022,12 +1046,13 @@ TEST_F(ResizeTest, Slice2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // "Trivial" slice is converted to Set
@@ -1119,14 +1144,15 @@ TEST_F(ResizeTest, Slice4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = (t0 + 1).to(at::kDouble).sum({1});
 
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 // Multiple slices of the same tensor with the same arguments
@@ -1173,10 +1199,11 @@ TEST_F(ResizeTest, Slice5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto t1 = t0.index(
       {at::indexing::Slice(0, at::indexing::None),
@@ -1187,7 +1214,7 @@ TEST_F(ResizeTest, Slice5) {
        at::indexing::Slice(1, shape[1] - 1)});
   auto t4 = t3.to(at::kDouble).sum({1});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2, t4}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, {t2, t4}, __LINE__, __FILE__);
 }
 
 std::vector<std::pair<int64_t, int64_t>> slice_cases(
@@ -1224,12 +1251,13 @@ TEST_F(ResizeTest, SliceConstantShmoo) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     auto t0 = at::randn(shape, options);
+    std::vector<c10::IValue> aten_inputs({t0});
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto cg_outputs = ke.run({t0});
+    ke.compile(&fusion, aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
-    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1347,9 +1375,10 @@ TEST_F(ResizeTest, SliceScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -1570,12 +1599,13 @@ TEST_F(ResizeTest, CatReduceScheduler1) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, CatSoftmaxScheduler1) {
@@ -1599,12 +1629,13 @@ TEST_F(ResizeTest, CatSoftmaxScheduler1) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, ReductionSliceScheduler1) {
@@ -1627,11 +1658,13 @@ TEST_F(ResizeTest, ReductionSliceScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Softmax followed by slicing of a non-normalized dimension
@@ -1656,11 +1689,13 @@ TEST_F(ResizeTest, SoftmaxSliceScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Softmax followed by slicing of a normalized dimension
@@ -1685,11 +1720,13 @@ TEST_F(ResizeTest, SoftmaxSliceScheduler2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Same as Pad1 but pad by specified value
@@ -1711,13 +1748,14 @@ TEST_F(ResizeTest, PadWithValue) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
 
@@ -1745,12 +1783,13 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = at::pad(t0, {-1, -1}, "constant", 2);
 
@@ -1776,13 +1815,14 @@ TEST_F(ResizeTest, PadHalfWithDoubleValue) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 
   auto t0 = at::ones(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
@@ -1834,9 +1874,10 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
 
   auto t0 = at::randn(input_shape0, options);
   auto t1 = at::randn(input_shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   auto kernel = ke->compiledKernel()->kernel();
@@ -1845,7 +1886,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
       "Grid sync should not be used as slicing input should avoid input caching");
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Similar to FusionSliceForNanoGPT1 but the input to slice is an
@@ -1895,9 +1936,10 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 
   auto t0 = at::randn(input_shape0, options);
   auto t1 = at::randn(input_shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   auto kernel = ke->compiledKernel()->kernel();
@@ -1961,7 +2003,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
       known_slice_producer->toString());
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
@@ -2024,10 +2066,12 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_FALSE(runtime->isSegmented());
@@ -2067,10 +2111,12 @@ TEST_F(ResizeTest, DISABLED_ResizePermuteAndSlice) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
@@ -2129,9 +2175,10 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplitSchedule) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
   KernelExecutor ke;
 
   auto ref0 = t0.index({at::indexing::Slice(0, 2)});
@@ -2180,8 +2227,9 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplit) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_outputs = ke.run({t0});
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
 
@@ -2218,8 +2266,9 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0, 20});
 
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, 20});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref0 = t0.flatten();
 
@@ -2262,9 +2311,10 @@ TEST_F(ResizeTest, MultiSliceEmpty) {
   at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref0 = t0.index({at::indexing::Slice(0, 1)});
   auto ref1 = t0.index({at::indexing::Slice(0, 0)});
@@ -2311,7 +2361,10 @@ TEST_F(ResizeTest, SliceVectorization) {
   at::Tensor t0 = at::randn(N + 8, options);
   at::Tensor t1 = at::randn(N, options);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1});
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, inputs).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -2326,8 +2379,8 @@ TEST_F(ResizeTest, SliceVectorization) {
   auto ref = t0.narrow(0, 1, N) + t1;
 
   // testValidate does not check that dtypes match
-  EXPECT_EQ(cg_outputs.outputs[0].dtype(), ref.dtype());
-  testValidate(&fusion, cg_outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Concretize a symbolic pad that results in a broadcast (static pads)
@@ -2380,12 +2433,13 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
 
   auto t0 = at::randn(t0_size, options);
   auto t1 = at::randn(t1_size, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   auto concretized_fusion = runtime->fusionSegments()->completeFusion();
@@ -2398,7 +2452,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
     EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
   }
 
-  testValidate(concretized_fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(concretized_fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Concretize a symbolic pad that results in a broadcast (dynamic pads)
@@ -2443,7 +2497,10 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   auto t1 = at::randn({2, 4, 4, 3, 5}, options);
   // Keep dimension 0, pad to broadcast in dimension 1 and 3. Pad with zero in
   // dimension 2. Trim by one element in dimension 4.
-  std::vector<c10::IValue> aten_inputs({t0, t1});
+  std::vector<c10::IValue> aten_inputs({
+      t0,
+      t1,
+  });
   aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
 
   EnableOptionsGuard enable_options_guard;
@@ -2489,11 +2546,12 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
 
   auto t0 = at::randn({2}, options);
   auto t1 = at::randn({3}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  auto args = KernelArgumentHolder({t0, t1});
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion), args);
   runtime.compileFusionParallel(args);
   auto cg_outputs = runtime.runWithInputs(args);
@@ -2501,7 +2559,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
   testValidate(
       runtime.fusionSegments()->completeFusion(),
       cg_outputs,
-      {t0, t1},
+      aten_inputs,
       __LINE__,
       __FILE__);
 }
@@ -2528,9 +2586,10 @@ TEST_F(ResizeTest, SliceAndReshape1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto t1 = t0.index(
       {at::indexing::Slice(0, at::indexing::None),
@@ -2563,9 +2622,10 @@ TEST_F(ResizeTest, SliceAndReshape2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto t1 = t0.index(
       {at::indexing::Slice(0, at::indexing::None),
@@ -2597,8 +2657,10 @@ TEST_F(ResizeTest, Slice1DVectorize) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2608,7 +2670,7 @@ TEST_F(ResizeTest, Slice1DVectorize) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced twice. Both should be vectorizable.
@@ -2639,8 +2701,10 @@ TEST_F(ResizeTest, Slice1DVectorize2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2650,7 +2714,7 @@ TEST_F(ResizeTest, Slice1DVectorize2) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced twice. Both should be vectorizable.
@@ -2695,10 +2759,11 @@ TEST_F(ResizeTest, Slice1DVectorize2Manual) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref_t1 =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2731,8 +2796,10 @@ TEST_F(ResizeTest, Slice1DVectorize3) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2742,7 +2809,7 @@ TEST_F(ResizeTest, Slice1DVectorize3) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // An input is sliced and also entirely read. Both should be vectorizable.
@@ -2782,10 +2849,11 @@ TEST_F(ResizeTest, Slice1DVectorize3Manual) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
@@ -2857,8 +2925,10 @@ TEST_F(ResizeTest, Slice2DVectorize1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -2868,7 +2938,7 @@ TEST_F(ResizeTest, Slice2DVectorize1) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv1;
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Fully contiguous tensor, but a sliced domain makes the domain to
@@ -2892,14 +2962,16 @@ TEST_F(ResizeTest, Slice3DVectorize1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   ASSERT_EQ(pparams->vectorization_factor, 1)
       << "Unexpected factor of vectorization";
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Similar to Slice3DVectorize2 but with a middle broadcast
@@ -2924,14 +2996,16 @@ TEST_F(ResizeTest, Slice3DVectorize2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
   ASSERT_EQ(pparams->vectorization_factor, 1)
       << "Unexpected factor of vectorization";
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Repro of issue 540 without transpose
@@ -3004,10 +3078,11 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   for (const auto i : c10::irange(3)) {
     auto slice_out_ref = t0.index(
@@ -3049,11 +3124,11 @@ TEST_F(ResizeTest, ReshapeToPad) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({4, 3}, options);
-  auto at_y = at::pad(t0.reshape({3, 4}), {0, 1, 0, 1});
+  at::Tensor at_x = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, 1, 1, 3, 4};
+  auto at_y = at::pad(at_x.reshape({3, 4}), {0, 1, 0, 1});
 
-  auto outputs =
-      executor_cache.runFusionWithInputs_deprecated({t0, 1, 1, 3, 4});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto seg_fusion =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments();
@@ -3062,7 +3137,7 @@ TEST_F(ResizeTest, ReshapeToPad) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      {t0, 1, 1, 3, 4},
+      aten_inputs,
       {at_y},
       __LINE__,
       __FILE__);
@@ -3093,10 +3168,10 @@ TEST_F(ResizeTest, ReshapeToSlice) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, 3, 2, 3, 4};
   auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs_deprecated({at_x, 3, 2, 3, 4});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   // Assert that we segmented into two segments
   auto seg_fusion =
@@ -3107,7 +3182,7 @@ TEST_F(ResizeTest, ReshapeToSlice) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      {at_x, 3, 2, 3, 4},
+      aten_inputs,
       {at_y},
       __LINE__,
       __FILE__);
@@ -3135,10 +3210,11 @@ TEST_F(ResizeTest, CatOfBroadcast) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({t0, t1}, 0);
 
@@ -3171,10 +3247,11 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
 
@@ -3216,14 +3293,16 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
 
   auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we can pad properly along broadcast dims
@@ -3243,15 +3322,16 @@ TEST_F(ResizeTest, PadOfBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we can cat along broadcast dims that have been expanded
@@ -3274,15 +3354,16 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, DynamicReshapeIssue1393) {
@@ -3321,7 +3402,8 @@ TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   at::Tensor t1 = at::randn({4}, options).as_strided({3, 4}, {0, 1});
   auto ref = t0.add(t1).as_strided({3, 4, 5}, {4, 1, 0});
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
@@ -3361,14 +3443,20 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto ref = at::squeeze(at::slice(t0, 1, 2, 3), 1);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 // Vectorization through pad is supported now!
@@ -3389,10 +3477,11 @@ TEST_F(ResizeTest, PadVectorization) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   ASSERT_EQ(pparams->vectorization_factor, 4)
@@ -3409,7 +3498,7 @@ TEST_F(ResizeTest, PadVectorization) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 
-  testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, inputs, __LINE__, __FILE__);
 }
 
 // MemoryPromotion generates code with volatile T. This test ensures that our
@@ -3452,8 +3541,11 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     at::Tensor t0 = at::randn({4, 8}, options).to(data_type_to_aten(dtype));
     at::Tensor t1 = at::randn({4, 12}, options).to(data_type_to_aten(dtype));
 
+    std::vector<c10::IValue> aten_inputs = {t0, t1};
+
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+    auto cg_outputs =
+        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
     EXPECT_EQ(cg_outputs.size(), 1);
     EXPECT_EQ(cg_outputs[0].dtype(), data_type_to_aten(dtype));
@@ -3467,7 +3559,7 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     testValidate(
         executor_cache.fusion(),
         {cg_outputs[0].to(at::kFloat)},
-        {t0, t1},
+        aten_inputs,
         {ref},
         __LINE__,
         __FILE__,
@@ -3650,10 +3742,11 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
@@ -3697,10 +3790,11 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0 + 1, {1, 1}) + 1;
 
@@ -3748,10 +3842,11 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(
       t0.index({at::indexing::Slice(0, shape[0] / 2)}), {0, shape[0] / 2});
@@ -3802,10 +3897,11 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(
       t0.index({at::indexing::Slice(shape[0] / 2, shape[0])}),
@@ -3865,10 +3961,11 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   EXPECT_TRUE(t0.equal(cg_outputs[0]));
 }
@@ -3958,10 +4055,11 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::concat(
       {at::slice(t0, 0, 0, rope_size / 2) + 1,
@@ -4000,6 +4098,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputs) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -4038,14 +4137,14 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputs) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -4091,6 +4190,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -4129,14 +4229,14 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape1) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -4181,6 +4281,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -4216,14 +4317,14 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -4270,6 +4371,7 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -4320,9 +4422,9 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     // Make sure all slices are detected as exclusive
     IdModel id_model(&fusion, /*build_graphs=*/false);
@@ -4332,9 +4434,9 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
     EXPECT_TRUE(non_exclusive_resize_info.empty());
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -4447,10 +4549,12 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
-  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 
   // While the slices can be transformed to be all exclusive, it is
   // currently segmented as the output has differet shapes. Both
@@ -4536,11 +4640,12 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
   auto t1 = at::randn({16}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
   testValidate(
-      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_FALSE(runtime->isSegmented());
   const auto& heuristic_param =
@@ -4630,6 +4735,7 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs5) {
   fusion.addOutput(tv4);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -4668,9 +4774,9 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs5) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     // The two slices do not conflict
     IdModel id_model(&fusion, /*build_graphs=*/false);
@@ -4680,9 +4786,9 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs5) {
     EXPECT_TRUE(non_exclusive_resize_info.empty());
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -4730,6 +4836,7 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs6) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   // The two slices do not conflict
   IdModel id_model(&fusion, /*build_graphs=*/false);
@@ -4747,8 +4854,9 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs6) {
   // segment consisting of tv2 and tv3 slices. Another is a pointwise
   // segment for tv5.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
-  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const auto& heuristic_list = runtime->schedulerHeuristics()->heuristicsList();
   EXPECT_EQ(heuristic_list.size(), 2);
@@ -4794,6 +4902,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   fusion.addOutput(tv5);
 
@@ -4844,9 +4953,9 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     // tv1 is not considered exclusive as tv0 is also a consumer of
     // tv3. Same for tv3. While the common input, tv0, is a fusion
@@ -4869,9 +4978,9 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
     EXPECT_EQ(non_exclusive_resize_info.size(), 2);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -4930,6 +5039,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -4989,9 +5099,9 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     // tv1 is not considered exclusive as tv0 is also a consumer of
     // tv3. Same for tv3. While the common input, tv0, is a fusion
@@ -5014,9 +5124,9 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     EXPECT_EQ(non_exclusive_resize_info.size(), 2);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -5079,6 +5189,7 @@ TEST_F(ResizeSchedulerTest, SliceRotateCatTwice) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   // tv1 is not considered exclusive as tv0 is also a consumer of
   // tv3. Same for tv3. While the common input, tv0, is a fusion
@@ -5118,8 +5229,9 @@ TEST_F(ResizeSchedulerTest, SliceRotateCatTwice) {
   EXPECT_EQ(non_exclusive_resize_info.size(), 4);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
-  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
+  testValidate(
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_FALSE(runtime->isSegmented());
@@ -5152,6 +5264,7 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0});
 
   const bool use_scheduler = GetParam();
 
@@ -5190,9 +5303,9 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     const auto& exact_graph = id_model.buildExactGraph();
@@ -5201,9 +5314,9 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
     EXPECT_TRUE(non_exclusive_resize_info.empty());
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -5247,6 +5360,7 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 100}, options);
   auto t1 = at::randn({16, 100}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
 
   const bool use_scheduler = GetParam();
 
@@ -5293,9 +5407,9 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
     ref_tv->axis(-2)->parallelize(ParallelType::BIDx);
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0, t1});
-    auto outputs = ke.run({t0, t1});
-    testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+    ke.compile(&fusion, inputs);
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   } else {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     const auto& exact_graph = id_model.buildExactGraph();
@@ -5304,9 +5418,9 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
     EXPECT_TRUE(non_exclusive_resize_info.empty());
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+    auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
     testValidate(
-        executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+        executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     EXPECT_FALSE(runtime->isSegmented());
     const auto& heuristic_param =
@@ -5345,10 +5459,11 @@ TEST_F(ResizeTest, VectorizePadLowering) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto cg_outputs = ke.run({t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   auto ref = at::pad(t0, {4, 4});
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
@@ -5379,10 +5494,11 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({at::Scalar(false), t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {false, t0});
-  auto cg_outputs = ke.run({false, t0});
+  ke.compile(&fusion, aten_inputs);
+  auto cg_outputs = ke.run(aten_inputs);
 
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.
@@ -5404,7 +5520,9 @@ TEST_F(ResizeTest, VectorizeFactorFour) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that we vectorize 4
   bool found_vectorize = false;
@@ -5421,7 +5539,7 @@ TEST_F(ResizeTest, VectorizeFactorFour) {
   }
   EXPECT_TRUE(found_vectorize);
 
-  testValidate(&fusion, cg_outputs.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // This test is to check that the pad extent is used to limit the vectorization
@@ -5442,7 +5560,9 @@ TEST_F(ResizeTest, VectorizeFactorTwo) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that we vectorize 2
   bool found_vectorize = false;
@@ -5459,7 +5579,7 @@ TEST_F(ResizeTest, VectorizeFactorTwo) {
   }
   EXPECT_TRUE(found_vectorize);
 
-  testValidate(&fusion, cg_outputs.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // This test is to check that the pad with 0-extent
@@ -5479,7 +5599,9 @@ TEST_F(ResizeTest, VectorizeFactorTwoPadZeroExtent) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that we vectorize 2
   bool found_vectorize = false;
@@ -5496,7 +5618,7 @@ TEST_F(ResizeTest, VectorizeFactorTwoPadZeroExtent) {
   }
   EXPECT_TRUE(found_vectorize);
 
-  testValidate(&fusion, cg_outputs.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, VectorizePadNonInnermost) {
@@ -5521,7 +5643,9 @@ TEST_F(ResizeTest, VectorizePadNonInnermost) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that we vectorize 4
   bool found_vectorize = false;
@@ -5538,7 +5662,7 @@ TEST_F(ResizeTest, VectorizePadNonInnermost) {
   }
   EXPECT_TRUE(found_vectorize);
 
-  testValidate(&fusion, cg_outputs.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, PadAndCacheUses) {
@@ -5558,7 +5682,9 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  std::vector<c10::IValue> aten_inputs({t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   // check that pad vectorize 4
   bool found_vectorize = false;
@@ -5589,7 +5715,7 @@ TEST_F(ResizeTest, PadAndCacheUses) {
   }
   EXPECT_TRUE(found_vectorize);
 
-  testValidate(&fusion, cg_outputs.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // we cannot yet test this one, as pad in the middle causes segmentation
@@ -5617,14 +5743,17 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 //
 //   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 //   auto t0 = at::randn(shape, options);
-//   auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+//   std::vector<c10::IValue> aten_inputs({t0});
+//   auto cg_outputs =
+//       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 //
 //   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-//   auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0});
+//   auto cg_outputs =
+//   executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 //
 //   auto ref = at::pad(t0.relu(), {0, 0, 4, 4, 0, 0});
 //
-//   NVF_CHECK(ref.equal(cg_outputs.outputs[0]));
+//   NVF_CHECK(ref.equal(cg_outputs[0]));
 //   // TODO: check vectorization factor
 // }
 
@@ -5670,10 +5799,11 @@ TEST_F(ResizeTest, TraversalForInliningPosition) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16}, options);
   auto t1 = at::randn({8}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 
   // Make sure all the tensors are at least inlined at some
   // position. The cache of tv1 was not inlined at all due to the issue.
@@ -5778,10 +5908,11 @@ TEST_F(ResizeTest, Repro3801) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1, 16}, options);
   auto t1 = at::randn({1, 4, 3, 1, 16}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 // Mixing resize and index ops is not supported yet.Specifically,
@@ -5807,10 +5938,11 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn({128, 4095}, options);
   auto t1 = at::randint(0, 128, {1, 4096}, options_int);
+  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
-  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 

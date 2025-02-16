@@ -29,8 +29,9 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
   auto ke = std::make_unique<KernelExecutor>();
-  ke->compile(&fusion, {t0});
+  ke->compile(&fusion, aten_inputs);
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());

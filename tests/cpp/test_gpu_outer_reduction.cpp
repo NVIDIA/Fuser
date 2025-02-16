@@ -2165,7 +2165,9 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  SchedulerRuntimeInfo runtime_info(&fusion, {t0});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   NVF_ERROR(
       Schedule::canSchedule(SchedulerType::Reduction, &fusion, runtime_info));
   auto scheduler =
@@ -2182,8 +2184,8 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   scheduler->schedule(&fusion, rparams);
   KernelExecutor ke;
-  ke.compile(&fusion, {t0}, heuristic_params->lparams);
-  auto cg_outputs = ke.run({t0}, heuristic_params->lparams);
+  ke.compile(&fusion, aten_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke.run(aten_inputs, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
   NVF_CHECK(
@@ -2200,7 +2202,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   testValidate(
       &fusion,
       cg_outputs,
-      {t0},
+      aten_inputs,
       {t0.to(at::kFloat).sum(0)},
       __LINE__,
       __FILE__,

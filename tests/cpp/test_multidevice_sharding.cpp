@@ -60,14 +60,20 @@ TEST_P(MultiDeviceReductionTest, UnshardedInput_ShardedOutput) {
   }
 
   auto x0 = at::randn(input_shape, tensor_options);
+  std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
   auto x3 = shardTensor(at::sum(x0 + x0, {sharded_input_dim}), tv3);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated({x0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   testValidate(
-      executor_cache.fusion(), outputs, {x0}, {x1, x2, x3}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      inputs,
+      {x1, x2, x3},
+      __LINE__,
+      __FILE__);
 }
 
 // Test multidevice fusion with sharded input and replicated intermediates and

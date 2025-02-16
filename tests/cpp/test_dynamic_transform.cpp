@@ -821,20 +821,22 @@ void reductionDynamicViewAddFusion(
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+    std::vector<at::Tensor> at_vec = {at_x, at_bias};
+    KernelArgumentHolder args(at_vec);
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(output_dims)) {
-      aten_inputs.push_back(output_shape[i]);
+      args.push(output_shape[i]);
     }
 
-    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto outputs =
+        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
     checkCache(expect_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
   }
 }
 
@@ -934,20 +936,22 @@ void reductionDynamicPadAddFusion(
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x};
+    KernelArgumentHolder args;
+    args.push(at_x);
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(pad_widths.size())) {
-      aten_inputs.push_back(pad_widths[i]);
+      args.push(pad_widths[i]);
     }
 
-    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto outputs =
+        executor_cache.runFusionWithInputs_deprecated(args.toC10Array());
     CHECK_CACHE(
         expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
@@ -1291,10 +1295,11 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4096, 12288}, options);
+  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
-  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test that dynamic reductions that should result in squeezes are handled
@@ -1327,10 +1332,11 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
+  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
-  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 // Same as above but for Welford ops
@@ -1364,10 +1370,11 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
+  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
 
-  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

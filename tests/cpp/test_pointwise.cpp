@@ -80,12 +80,12 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity2D) {
     auto size = pair.first;
     auto vec = pair.second;
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({1000000, size}, options).narrow(1, 0, 16);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    at::Tensor input0 = at::randn({1000000, size}, options).narrow(1, 0, 16);
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
 
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
-    testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+    testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
 
@@ -108,12 +108,12 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity3D) {
     auto size = pair.first;
     auto vec = pair.second;
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({1000000, size, 3}, options).narrow(1, 0, 8);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    at::Tensor input0 = at::randn({1000000, size, 3}, options).narrow(1, 0, 8);
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
 
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
-    testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+    testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
 
@@ -141,14 +141,14 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity5D) {
     auto size1 = std::get<0>(tup);
     auto size2 = std::get<1>(tup);
     auto vec = std::get<2>(tup);
-    at::Tensor t0 = at::randn({4, size1, 12345, size2, 3}, options)
-                        .narrow(1, 0, 8)
-                        .narrow(3, 0, 4);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    at::Tensor input0 = at::randn({4, size1, 12345, size2, 3}, options)
+                            .narrow(1, 0, 8)
+                            .narrow(3, 0, 4);
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
 
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
-    testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+    testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
 
@@ -203,10 +203,11 @@ TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
     }
     alloc_size += align;
     at::Tensor flat = at::randn({alloc_size}, options);
-    at::Tensor t0 = flat.as_strided(shape, stride, /*storage_offset=*/align);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    at::Tensor input0 =
+        flat.as_strided(shape, stride, /*storage_offset=*/align);
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
-    testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+    testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
 
@@ -248,11 +249,11 @@ TEST_F(PointwiseTest, VectorizeStrideContiguitySelfOverlapping) {
     std::vector<int64_t> shape = {4, 4, 12345, size, 3};
     std::vector<int64_t> stride = {
         stride1, (int64_t)stride2 * 12345, (int64_t)stride2, 3, 1};
-    at::Tensor t0 = at::empty_strided(shape, stride, options);
-    t0.random_();
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    at::Tensor input0 = at::empty_strided(shape, stride, options);
+    input0.random_();
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
     EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
-    testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+    testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
 
@@ -274,11 +275,11 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 =
+  at::Tensor input0 =
       at::empty_strided({1024, 128, 25}, {128 * 25, 1, 128}, options);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0});
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
-  testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
 }
 
 // All inputs & outputs share the same allocation domain permutation from root
@@ -310,19 +311,21 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   fusion->addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 =
+  at::Tensor input0 =
       at::empty_strided({1024, 128, 25}, {128 * 25, 1, 128}, options);
-  at::Tensor t1 = at::empty_strided({1, 128, 1}, {128, 1, 128}, options);
+  at::Tensor input1 = at::empty_strided({1, 128, 1}, {128, 1, 128}, options);
+  std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE force pointwise scheduler here just for testing purpose
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_EQ(pparams->vectorization_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
@@ -343,19 +346,20 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1024, 2, 1}, options);
-  at::Tensor t1 = at::randn({1024, 2, 512}, options);
+  at::Tensor input0 = at::randn({1024, 2, 1}, options);
+  at::Tensor input1 = at::randn({1024, 2, 512}, options);
+  std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results =
-      scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1}, false);
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs, false);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_EQ(pparams->vectorization_factor, 4);
   EXPECT_FALSE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
@@ -376,18 +380,20 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1024, 1, 2}, options);
-  at::Tensor t1 = at::randn({1024, 512, 2}, options);
+  at::Tensor input0 = at::randn({1024, 1, 2}, options);
+  at::Tensor input1 = at::randn({1024, 512, 2}, options);
+  std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE force pointwise scheduler here just for testing purpose
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_EQ(pparams->vectorization_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
@@ -414,18 +420,20 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1024, 1, 2}, options);
-  at::Tensor t1 = at::empty_strided({1024, 512, 2}, {2, 2048, 1}, options);
+  at::Tensor input0 = at::randn({1024, 1, 2}, options);
+  at::Tensor input1 = at::empty_strided({1024, 512, 2}, {2, 2048, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE force pointwise scheduler here just for testing purpose
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_EQ(pparams->vectorization_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
@@ -449,18 +457,20 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1, 1024, 2}, options);
-  at::Tensor t1 = at::randn({512, 1024, 2}, options);
+  at::Tensor input0 = at::randn({1, 1024, 2}, options);
+  at::Tensor input1 = at::randn({512, 1024, 2}, options);
+  std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE force pointwise scheduler here just for testing purpose
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_EQ(pparams->vectorization_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 namespace {
@@ -511,10 +521,11 @@ TEST_F(PointwiseTest, ShardedPointwise) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   for (auto input_size : input_sizes) {
-    at::Tensor t0 = at::randn(input_size, options);
-    at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
+    at::Tensor input0 = at::randn(input_size, options);
+    at::Tensor input1 = at::randn({input_size[1], input_size[2]}, options);
 
-    std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
+    std::vector<c10::IValue> sharded_inputs = {
+        input0.unsqueeze(sharded_dim), input1};
 
     auto pwise_scheduler =
         SchedulerEntry::makeSchedulerInstance(SchedulerType::PointWise);
@@ -526,7 +537,8 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     auto sharded_pparams = sharded_params->as<PointwiseParams>();
 
     Fusion unsharded_fusion = createPointwiseFusion(false);
-    SchedulerRuntimeInfo unsharded_runtime_info(&unsharded_fusion, {t0, t1});
+    SchedulerRuntimeInfo unsharded_runtime_info(
+        &unsharded_fusion, {input0, input1});
     auto unsharded_params = pwise_scheduler->computeHeuristics(
         &unsharded_fusion, unsharded_runtime_info);
     auto unsharded_pparams = unsharded_params->as<PointwiseParams>();
@@ -582,11 +594,12 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape1, options);
-  auto t1 = at::randn(shape2, options);
+  auto input0 = at::randn(shape1, options);
+  auto input1 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({input0, input1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
@@ -626,12 +639,13 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape1, options);
-  auto t1 = at::randn(shape1, options);
-  auto t2 = at::randn(shape2, options);
+  auto input0 = at::randn(shape1, options);
+  auto input1 = at::randn(shape1, options);
+  auto input2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({input0, input1, input2});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated({t0, t1, t2});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
@@ -682,9 +696,10 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
   auto t1 = at::randn({dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0, t1};
 
   // Generate heuristics
-  SchedulerRuntimeInfo runtime_info(fusion.get(), {t0, t1});
+  SchedulerRuntimeInfo runtime_info(fusion.get(), runtime_inputs);
   auto scheduler_instance =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::PointWise);
   auto heuristic_params =
@@ -702,13 +717,13 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   // Schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1}, pparams->lparams);
-  auto cg_outputs = ke.run({t0, t1}, pparams->lparams);
+  ke.compile(fusion.get(), runtime_inputs, pparams->lparams);
+  auto cg_outputs = ke.run(runtime_inputs, pparams->lparams);
   const auto& lparams = ke.lastLaunchParams();
   ASSERT_EQ(lparams.gdimy(), dim0 / unroll_outer);
   ASSERT_EQ(
       lparams.gdimx(), dim1 / vect_factor / lparams.bdimx() / unroll_inner);
-  testValidate(fusion.get(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -748,7 +763,7 @@ int64_t getUnrollFactor(int64_t n_inputs_factor, int64_t computation_factor) {
 // of blocks. For device with high bandwidh, unroll factor is 2 when
 // there is only one input tensor, scaled up by computation factor and
 // scaled down by number of input tensors.
-TEST_F(PointwiseTest, Heuristicst1Compute1Unroll2) {
+TEST_F(PointwiseTest, HeuristicsInput1Compute1Unroll2) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t vect = 4;
   int64_t threads = 128;
@@ -767,16 +782,18 @@ TEST_F(PointwiseTest, Heuristicst1Compute1Unroll2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0};
 
   auto cg_results =
-      scheduleAndRun(fusion.get(), SchedulerType::PointWise, {t0});
+      scheduleAndRun(fusion.get(), SchedulerType::PointWise, runtime_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   ASSERT_EQ(pparams->vectorization_factor, vect);
   ASSERT_EQ(pparams->unroll_factor_inner, unroll);
-  testValidate(fusion.get(), cg_results.outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, Heuristicst1Compute2Unroll4) {
+TEST_F(PointwiseTest, HeuristicsInput1Compute2Unroll4) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t vect = 4;
   int64_t threads = 128;
@@ -802,13 +819,15 @@ TEST_F(PointwiseTest, Heuristicst1Compute2Unroll4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
   auto t1 = at::randn({dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0, t1};
 
   auto cg_results =
-      scheduleAndRun(fusion.get(), SchedulerType::PointWise, {t0, t1});
+      scheduleAndRun(fusion.get(), SchedulerType::PointWise, runtime_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   ASSERT_EQ(pparams->vectorization_factor, vect);
   ASSERT_EQ(pparams->unroll_factor_outer, unroll);
-  testValidate(fusion.get(), cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, HeuristicsInput2Compute4Unroll4) {
@@ -834,12 +853,14 @@ TEST_F(PointwiseTest, HeuristicsInput2Compute4Unroll4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
   auto t1 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> runtime_inputs{t0, t1};
   auto cg_results =
-      scheduleAndRun(fusion.get(), SchedulerType::PointWise, {t0, t1});
+      scheduleAndRun(fusion.get(), SchedulerType::PointWise, runtime_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   ASSERT_EQ(pparams->vectorization_factor, vect);
   ASSERT_EQ(pparams->unroll_factor_inner, unroll);
-  testValidate(fusion.get(), cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(), cg_results.outputs, runtime_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
@@ -868,9 +889,10 @@ TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 =
       at::randn({1024 * 1024}, options).as_strided({1024, 1024}, {1, 1024});
+  std::vector<c10::IValue> aten_inputs({t0});
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0}).outputs;
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -881,7 +903,7 @@ TEST_F(PointwiseTest, VectorizePadLoweringPermuted) {
     }
   }
   EXPECT_TRUE(found_vectorize);
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg0) {
@@ -930,9 +952,11 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   // validate generated kernel
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0});
-  testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg1) {
@@ -973,9 +997,11 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({3, 2, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg2) {
@@ -1016,9 +1042,11 @@ TEST_F(PointwiseTest, DomainMapTestEg2) {
   // validate generated kernel
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0});
-  testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapFactory) {
@@ -1062,9 +1090,9 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::empty_strided({25}, {1}, options);
-  at::Tensor t1 = at::empty_strided({7, 25}, {25, 1}, options);
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  at::Tensor input0 = at::empty_strided({25}, {1}, options);
+  at::Tensor input1 = at::empty_strided({7, 25}, {25, 1}, options);
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
@@ -1135,7 +1163,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
     }
   }
 
-  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapPad0) {
@@ -1180,9 +1208,11 @@ TEST_F(PointwiseTest, DomainMapPad0) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapPad1) {
@@ -1229,9 +1259,11 @@ TEST_F(PointwiseTest, DomainMapPad1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({2, 3, 4, 1}, {12, 4, 1, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapSlice0) {
@@ -1276,9 +1308,11 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapSlice1) {
@@ -1323,9 +1357,11 @@ TEST_F(PointwiseTest, DomainMapSlice1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 4}, options);
   at::Tensor t1 = at::randn({2, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
@@ -1356,15 +1392,16 @@ TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4, 8}, options);
   auto t1 = at::randn({2}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs_deprecated({t0, t1});
+  auto out_tensors = executor_cache.runFusionWithInputs_deprecated(inputs);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented());
 
   testValidate(
-      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -1676,10 +1676,11 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   auto t0 = at::randn(shape, options_half);
   auto t1 = at::randn(shape, options_half);
   auto t2 = at::randn({shape.back()}, options_float);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
-  auto outputs = ke.run({t0, t1, t2});
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto t0_double = t0.to(at::kDouble);
   auto t1_double = t1.to(at::kDouble);
@@ -1695,7 +1696,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   testValidate(
       ke.compiledKernel()->kernel(),
       outputs,
-      {t0, t1, t2},
+      aten_inputs,
       {t5, t9},
       __LINE__,
       __FILE__);
@@ -1812,10 +1813,11 @@ TEST_F(
   auto t0 = at::randn(shape, options_half);
   auto t1 = at::randn(shape, options_half);
   auto t2 = at::randn({shape.back()}, options_float);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
-  auto outputs = ke.run({t0, t1, t2});
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto t0_double = t0.to(at::kDouble);
   auto t1_double = t1.to(at::kDouble);
@@ -1836,7 +1838,7 @@ TEST_F(
   testValidate(
       ke.compiledKernel()->kernel(),
       outputs,
-      {t0, t1, t2},
+      aten_inputs,
       {t11, t13},
       __LINE__,
       __FILE__);
@@ -2532,12 +2534,13 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   auto at_output_pointwise = at::gelu_backward(at_grad, at_x, "tanh");
   auto at_output_reduction = at_output_pointwise.sum({0});
 
+  std::vector<c10::IValue> aten_inputs({at_grad, at_xvar});
   auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, {at_grad, at_xvar});
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
   testValidate(
       &fusion,
       cg_results.outputs,
-      {at_grad, at_xvar},
+      aten_inputs,
       {at_output_pointwise, at_output_reduction},
       __LINE__,
       __FILE__,
@@ -2582,20 +2585,15 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   auto at_log_probs = at::randn({batch_size, num_classes}, options);
   auto at_labels =
       at::randint(0, num_classes, {batch_size}, options.dtype(at::kLong));
+  std::vector<c10::IValue> inputs = {at_log_probs, at_labels};
 
   KernelExecutor ke;
-  ke.compile(&fusion, {at_log_probs, at_labels});
-  auto cg_outputs = ke.run({at_log_probs, at_labels});
+  ke.compile(&fusion, inputs);
+  auto cg_outputs = ke.run(inputs);
 
   auto ref = at::gather(at_log_probs, 1, at_labels.unsqueeze(1)).squeeze();
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {at_log_probs, at_labels},
-      {ref},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTensorRankLimit) {
@@ -2614,11 +2612,13 @@ TEST_F(NVFuserTest, FusionTensorRankLimit) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
-  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
