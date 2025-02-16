@@ -663,7 +663,7 @@ std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> FusionKernelRuntime:
     ivalues.reserve(group_runtime_outputs
                         .size()); // Optional but recommended for performance
     for (const auto& tensor : group_runtime_outputs) {
-      ivalues.emplace_back(c10::IValue(tensor));
+      ivalues.push_back(c10::IValue(tensor));
     }
 
     args_manager.updateWithSegmentOutputs(

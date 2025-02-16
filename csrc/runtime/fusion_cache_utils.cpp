@@ -58,11 +58,9 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
         " in tensor map");
     arg_values.push_back(*it->second);
   }
-  // TODO:
-  //  return KernelArgumentHolder(std::move(arg_values));
   KernelArgumentHolder holder;
   for (auto& arg : arg_values) {
-    holder.push(std::move(arg));
+    holder.push(arg);
   }
   return holder;
 }

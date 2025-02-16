@@ -55,7 +55,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs_deprecated(
   }
   KernelArgumentHolder args(inputs);
   args.setDeviceIndex(selected_device);
-  return runFusionWithInputs(std::move(args), forced_index_type);
+  return runFusionWithInputs(args, forced_index_type);
 }
 
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(

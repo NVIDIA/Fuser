@@ -36,56 +36,56 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
-    arguments_.push_back(PolymorphicValue(tensor));
+    arguments_.emplace_back(PolymorphicValue(tensor));
   }
 }
 
 void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
   for (const auto& arg : args) {
-    arguments_.push_back(
+    arguments_.emplace_back(
         PolymorphicValue_functions::IValueToPolymorphicValue(arg));
   }
 }
 
 void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
   for (const auto& arg : args) {
-    arguments_.push_back(
+    arguments_.emplace_back(
         PolymorphicValue_functions::IValueToPolymorphicValue(arg));
   }
 }
 
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
-  arguments_.push_back(PolymorphicValue(tensor));
+  arguments_.emplace_back(PolymorphicValue(tensor));
 }
 
 void KernelArgumentHolder::push(const std::optional<at::Tensor>& opt_tensor) {
   if (opt_tensor.has_value()) {
-    arguments_.push_back(PolymorphicValue(opt_tensor.value()));
+    arguments_.emplace_back(PolymorphicValue(opt_tensor.value()));
   }
 }
 
 void KernelArgumentHolder::push(const PolymorphicValue& val) {
-  arguments_.push_back(PolymorphicValue(val));
+  arguments_.emplace_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::push(const int64_t& val) {
-  arguments_.push_back(PolymorphicValue(val));
+  arguments_.emplace_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::push(const int& val) {
-  arguments_.push_back(PolymorphicValue(val));
+  arguments_.emplace_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::push(const double& val) {
-  arguments_.push_back(PolymorphicValue(val));
+  arguments_.emplace_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::push(const bool& val) {
-  arguments_.push_back(PolymorphicValue(val));
+  arguments_.emplace_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::push(const std::complex<double>& val) {
-  arguments_.push_back(PolymorphicValue(val));
+  arguments_.emplace_back(PolymorphicValue(val));
 }
 
 void KernelArgumentHolder::push(const ArrayType& vals) {
