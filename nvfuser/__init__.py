@@ -559,7 +559,7 @@ class FusionDefinition(_C._FusionDefinition):
         self,
         inputs: list[torch.Tensor],
         reference_outputs: list[torch.Tensor],
-        kwargs=None,
+        **kwargs,
     ):
         """
         Validates the fusion outputs against the provided reference outputs, using variable tolerances determined based on datatype and reduction size.
