@@ -381,14 +381,18 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
     // Simplify x + (-x) to 0
-    if (auto neg_expr = dynamic_cast<UnaryOp*>(lhs->definition());
-        neg_expr != nullptr && neg_expr->getUnaryOpType() == UnaryOpType::Neg &&
-        neg_expr->in()->sameAs(rhs)) {
-      return lhs->fusion()->zeroVal(lhs->dtype());
-    } else if (auto neg_expr = dynamic_cast<UnaryOp*>(rhs->definition());
-               neg_expr != nullptr &&
-               neg_expr->getUnaryOpType() == UnaryOpType::Neg &&
-               neg_expr->in()->sameAs(lhs)) {
+    Val* x = nullptr;
+    auto uop = dynamic_cast<UnaryOp*>(lhs->definition());
+    if (uop != nullptr) {
+      // lhs may be (-x). Pick rhs as x
+      x = rhs;
+    } else {
+      uop = dynamic_cast<UnaryOp*>(rhs->definition());
+      // rhs may be (-x). Pick lhs as x
+      x = lhs;
+    }
+    if (uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Neg &&
+        uop->in()->sameAs(x)) {
       return lhs->fusion()->zeroVal(lhs->dtype());
     }
     return IrBuilder::addExpr(lhs, rhs);
